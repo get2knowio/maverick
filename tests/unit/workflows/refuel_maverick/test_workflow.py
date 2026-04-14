@@ -16,10 +16,8 @@ from maverick.library.actions.decompose import CodebaseContext
 from maverick.workflows.refuel_maverick.constants import (
     CREATE_BEADS,
     DECOMPOSE,
-    DECOMPOSE_OUTLINE,
     GATHER_CONTEXT,
     PARSE_FLIGHT_PLAN,
-    VALIDATE,
     WIRE_DEPS,
     WORKFLOW_NAME,
     WRITE_WORK_UNITS,
@@ -31,16 +29,17 @@ from tests.unit.workflows.refuel_maverick.conftest import (
     make_wire_result,
     make_workflow,
     patch_cwd,
+    patch_decompose_supervisor,
 )
 
 _MODULE = "maverick.workflows.refuel_maverick.workflow"
 
-# Step order constants
-_ALL_STEPS = [
+# Step order constants — decompose + validate now run inside the Thespian
+# supervisor (_decompose_with_supervisor) so their events are not visible
+# when that method is mocked.
+_OUTER_STEPS = [
     PARSE_FLIGHT_PLAN,
     GATHER_CONTEXT,
-    DECOMPOSE,
-    VALIDATE,
     WRITE_WORK_UNITS,
     CREATE_BEADS,
     WIRE_DEPS,
@@ -48,8 +47,6 @@ _ALL_STEPS = [
 _DRY_RUN_STEPS = [
     PARSE_FLIGHT_PLAN,
     GATHER_CONTEXT,
-    DECOMPOSE,
-    VALIDATE,
     WRITE_WORK_UNITS,
 ]
 
@@ -85,20 +82,21 @@ class TestRefuelMaverickWorkflowHappyPath:
             ),
             patch(f"{_MODULE}.create_beads", new=AsyncMock(return_value=bead_result)),
             patch(f"{_MODULE}.wire_dependencies", new=AsyncMock(return_value=wire_result)),
+            patch_decompose_supervisor(),
         ):
             events, result = await collect_events(
                 workflow,
                 {"flight_plan_path": str(fp), "dry_run": False, "skip_briefing": True},
             )
 
-        # StepStarted events for all 7 steps
+        # StepStarted events for outer steps (decompose/validate run inside Thespian)
         started_names = [e.step_name for e in events if isinstance(e, StepStarted)]
-        for step in _ALL_STEPS:
+        for step in _OUTER_STEPS:
             assert step in started_names, f"Expected StepStarted for {step}"
 
-        # StepCompleted events for all 7 steps
+        # StepCompleted events for outer steps
         completed_names = [e.step_name for e in events if isinstance(e, StepCompleted)]
-        for step in _ALL_STEPS:
+        for step in _OUTER_STEPS:
             assert step in completed_names, f"Expected StepCompleted for {step}"
 
     async def test_result_fields_populated_correctly(
@@ -122,6 +120,7 @@ class TestRefuelMaverickWorkflowHappyPath:
             ),
             patch(f"{_MODULE}.create_beads", new=AsyncMock(return_value=bead_result)),
             patch(f"{_MODULE}.wire_dependencies", new=AsyncMock(return_value=wire_result)),
+            patch_decompose_supervisor(),
         ):
             _events, workflow_result = await collect_events(
                 workflow,
@@ -138,18 +137,24 @@ class TestRefuelMaverickWorkflowHappyPath:
         assert final["dry_run"] is False
         assert isinstance(final["errors"], list)
 
-    async def test_step_executor_called_with_decomposition_schema(
+    async def test_decompose_supervisor_called(
         self,
         mock_config: MagicMock,
         mock_registry: MagicMock,
         mock_step_executor: AsyncMock,
         tmp_path: Path,
     ) -> None:
-        """StepExecutor.execute() is called for outline pass first."""
+        """_decompose_with_supervisor is called during the workflow."""
         fp = make_simple_flight_plan(tmp_path)
         workflow = make_workflow(mock_config, mock_registry, mock_step_executor)
         bead_result = make_bead_result()
         wire_result = make_wire_result()
+
+        mock_decompose = AsyncMock(
+            return_value=__import__(
+                "tests.unit.workflows.refuel_maverick.conftest", fromlist=["x"]
+            ).make_simple_decomposition_output()
+        )
 
         with (
             patch_cwd(tmp_path),
@@ -159,16 +164,14 @@ class TestRefuelMaverickWorkflowHappyPath:
             ),
             patch(f"{_MODULE}.create_beads", new=AsyncMock(return_value=bead_result)),
             patch(f"{_MODULE}.wire_dependencies", new=AsyncMock(return_value=wire_result)),
+            patch.object(workflow, "_decompose_with_supervisor", new=mock_decompose),
         ):
             await collect_events(
                 workflow,
                 {"flight_plan_path": str(fp), "dry_run": False, "skip_briefing": True},
             )
 
-        # Two-pass: outline call + at least one detail call
-        assert mock_step_executor.execute.call_count >= 2
-        first_call = mock_step_executor.execute.call_args_list[0].kwargs
-        assert first_call["step_name"] == DECOMPOSE_OUTLINE
+        mock_decompose.assert_called_once()
 
     async def test_work_unit_files_written_with_correct_naming(
         self,
@@ -191,6 +194,7 @@ class TestRefuelMaverickWorkflowHappyPath:
             ),
             patch(f"{_MODULE}.create_beads", new=AsyncMock(return_value=bead_result)),
             patch(f"{_MODULE}.wire_dependencies", new=AsyncMock(return_value=wire_result)),
+            patch_decompose_supervisor(),
         ):
             await collect_events(
                 workflow,
@@ -236,6 +240,7 @@ class TestRefuelMaverickWorkflowHappyPath:
             ),
             patch(f"{_MODULE}.create_beads", new=AsyncMock(return_value=bead_result)),
             patch(f"{_MODULE}.wire_dependencies", new=AsyncMock(return_value=wire_result)),
+            patch_decompose_supervisor(),
         ):
             events, result = await collect_events(
                 workflow,
@@ -269,6 +274,7 @@ class TestRefuelMaverickWorkflowHappyPath:
             ),
             patch(f"{_MODULE}.create_beads", new=AsyncMock(return_value=bead_result)),
             patch(f"{_MODULE}.wire_dependencies", new=mock_wire),
+            patch_decompose_supervisor(),
         ):
             await collect_events(
                 workflow,
@@ -318,6 +324,7 @@ class TestDryRunMode:
             ),
             patch(f"{_MODULE}.create_beads") as mock_create,
             patch(f"{_MODULE}.wire_dependencies") as mock_wire,
+            patch_decompose_supervisor(),
         ):
             await collect_events(
                 workflow,
@@ -346,6 +353,7 @@ class TestDryRunMode:
             ),
             patch(f"{_MODULE}.create_beads"),
             patch(f"{_MODULE}.wire_dependencies"),
+            patch_decompose_supervisor(),
         ):
             await collect_events(
                 workflow,
@@ -376,6 +384,7 @@ class TestDryRunMode:
             ),
             patch(f"{_MODULE}.create_beads"),
             patch(f"{_MODULE}.wire_dependencies"),
+            patch_decompose_supervisor(),
         ):
             _events, workflow_result = await collect_events(
                 workflow,
@@ -398,7 +407,7 @@ class TestDryRunMode:
         mock_step_executor: AsyncMock,
         tmp_path: Path,
     ) -> None:
-        """Steps 1-5 have StepCompleted events; steps 6-7 do not appear."""
+        """Outer steps have StepCompleted events; steps 6-7 do not appear."""
         fp = make_simple_flight_plan(tmp_path)
         workflow = make_workflow(mock_config, mock_registry, mock_step_executor)
 
@@ -410,6 +419,7 @@ class TestDryRunMode:
             ),
             patch(f"{_MODULE}.create_beads"),
             patch(f"{_MODULE}.wire_dependencies"),
+            patch_decompose_supervisor(),
         ):
             events, _ = await collect_events(
                 workflow,
@@ -441,6 +451,7 @@ class TestDryRunMode:
             ),
             patch(f"{_MODULE}.create_beads"),
             patch(f"{_MODULE}.wire_dependencies"),
+            patch_decompose_supervisor(),
         ):
             events, result = await collect_events(
                 workflow,

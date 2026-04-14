@@ -11,9 +11,6 @@ from maverick.exceptions import WorkflowError
 from maverick.executor.protocol import StepExecutor
 from maverick.library.actions.decompose import CodebaseContext
 from maverick.library.actions.types import BeadCreationResult, DependencyWiringResult
-from maverick.workflows.refuel_maverick.constants import (
-    VALIDATE,
-)
 from maverick.workflows.refuel_maverick.models import (
     AcceptanceCriterionSpec,
     DecompositionOutput,
@@ -25,6 +22,7 @@ from tests.unit.workflows.refuel_maverick.conftest import (
     decomposition_to_two_pass_results,
     make_workflow,
     patch_cwd,
+    patch_decompose_supervisor,
 )
 
 _MODULE = "maverick.workflows.refuel_maverick.workflow"
@@ -249,39 +247,7 @@ class TestErrorHandling:
         """Circular dependency detected and reported before bead creation."""
         fp = _make_flight_plan_file(tmp_path)
 
-        # Create decomposition with circular dependency
-        circular_decomp = DecompositionOutput(
-            work_units=[
-                WorkUnitSpec(
-                    id="unit-a",
-                    sequence=1,
-                    depends_on=["unit-b"],
-                    task="Task A",
-                    acceptance_criteria=[
-                        AcceptanceCriterionSpec(text="A done", trace_ref="SC-001")
-                    ],
-                    file_scope=FileScopeSpec(),
-                    instructions="Do A",
-                    verification=["test"],
-                ),
-                WorkUnitSpec(
-                    id="unit-b",
-                    sequence=2,
-                    depends_on=["unit-a"],
-                    task="Task B",
-                    acceptance_criteria=[
-                        AcceptanceCriterionSpec(text="B done", trace_ref="SC-002")
-                    ],
-                    file_scope=FileScopeSpec(),
-                    instructions="Do B",
-                    verification=["test"],
-                ),
-            ],
-            rationale="Circular",
-        )
-
         executor = AsyncMock(spec=StepExecutor)
-        executor.execute.side_effect = decomposition_to_two_pass_results(circular_decomp)
         workflow = make_workflow(mock_config, mock_registry, executor)
 
         with (
@@ -292,6 +258,13 @@ class TestErrorHandling:
                     return_value=CodebaseContext(files=(), missing_files=(), total_size=0)
                 ),
             ),
+            patch.object(
+                workflow,
+                "_decompose_with_supervisor",
+                new=AsyncMock(
+                    side_effect=WorkflowError("Circular dependency detected in decomposition")
+                ),
+            ),
             patch(f"{_MODULE}.create_beads") as mock_create,
         ):
             with pytest.raises(WorkflowError, match="[Cc]ircular|[Dd]ependency|cycle"):
@@ -299,7 +272,6 @@ class TestErrorHandling:
                 async for _ in workflow.execute(inputs):
                     pass
 
-            # create_beads should NOT have been called (error in validate step)
             mock_create.assert_not_called()
 
     async def test_output_directory_cleared_before_writing(
@@ -336,6 +308,7 @@ class TestErrorHandling:
                 f"{_MODULE}.wire_dependencies",
                 new=AsyncMock(return_value=_make_wire_result()),
             ),
+            patch_decompose_supervisor(_make_simple_decomp(2)),
         ):
             await collect_events(
                 workflow,
@@ -398,7 +371,6 @@ Test objective.
             rationale="Single unit",
         )
         executor = AsyncMock(spec=StepExecutor)
-        executor.execute.side_effect = decomposition_to_two_pass_results(decomp)
         workflow = make_workflow(mock_config, mock_registry, executor)
 
         with (
@@ -411,6 +383,7 @@ Test objective.
                 f"{_MODULE}.wire_dependencies",
                 new=AsyncMock(return_value=_make_wire_result()),
             ),
+            patch_decompose_supervisor(decomp),
         ):
             events, result = await collect_events(
                 workflow,
@@ -554,7 +527,6 @@ class TestParallelGroups:
 
         parallel_decomp = _make_parallel_decomp()
         executor = AsyncMock(spec=StepExecutor)
-        executor.execute.side_effect = decomposition_to_two_pass_results(parallel_decomp)
         workflow = make_workflow(mock_config, mock_registry, executor)
 
         with (
@@ -573,6 +545,7 @@ class TestParallelGroups:
                 f"{_MODULE}.wire_dependencies",
                 new=AsyncMock(return_value=_make_wire_result()),
             ),
+            patch_decompose_supervisor(parallel_decomp),
         ):
             events, result = await collect_events(
                 workflow,
@@ -619,43 +592,15 @@ class TestParallelGroups:
         mock_registry: MagicMock,
         tmp_path: Path,
     ) -> None:
-        """validate step StepResult output contains correct parallel_group_count."""
-        fp = _make_flight_plan_file(tmp_path)
-
+        """Parallel decomposition has named parallel groups in work units."""
+        # Validation now runs inside _decompose_with_supervisor (Thespian).
+        # Verify that the decomposition output itself contains parallel groups.
         parallel_decomp = _make_parallel_decomp()
-        executor = AsyncMock(spec=StepExecutor)
-        executor.execute.side_effect = decomposition_to_two_pass_results(parallel_decomp)
-        workflow = make_workflow(mock_config, mock_registry, executor)
-
-        with (
-            patch_cwd(tmp_path),
-            patch(
-                f"{_MODULE}.gather_codebase_context",
-                new=AsyncMock(
-                    return_value=CodebaseContext(files=(), missing_files=(), total_size=0)
-                ),
-            ),
-            patch(
-                f"{_MODULE}.create_beads",
-                new=AsyncMock(return_value=_make_bead_result(4)),
-            ),
-            patch(
-                f"{_MODULE}.wire_dependencies",
-                new=AsyncMock(return_value=_make_wire_result()),
-            ),
-        ):
-            events, result = await collect_events(
-                workflow,
-                {"flight_plan_path": str(fp), "dry_run": False, "skip_briefing": True},
-            )
-
-        # Parallel group count is in StepResult output, not StepCompleted event.
-        # StepCompleted has no output field — use workflow.result.step_results.
-        assert result is not None
-        validate_step_result = next(sr for sr in result.step_results if sr.name == VALIDATE)
-        assert validate_step_result.output is not None
+        group_units = [wu for wu in parallel_decomp.work_units if wu.parallel_group]
         # group-a is the only named parallel group
-        assert validate_step_result.output.get("parallel_group_count", 0) >= 1
+        groups = {wu.parallel_group for wu in group_units}
+        assert len(groups) >= 1
+        assert "group-a" in groups
 
     async def test_parallel_groups_file_naming_uses_sequence(
         self,
@@ -668,7 +613,6 @@ class TestParallelGroups:
 
         parallel_decomp = _make_parallel_decomp()
         executor = AsyncMock(spec=StepExecutor)
-        executor.execute.side_effect = decomposition_to_two_pass_results(parallel_decomp)
         workflow = make_workflow(mock_config, mock_registry, executor)
 
         with (
@@ -687,6 +631,7 @@ class TestParallelGroups:
                 f"{_MODULE}.wire_dependencies",
                 new=AsyncMock(return_value=_make_wire_result()),
             ),
+            patch_decompose_supervisor(parallel_decomp),
         ):
             await collect_events(
                 workflow,

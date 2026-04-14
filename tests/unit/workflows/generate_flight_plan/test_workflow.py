@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock
+from typing import Any
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -13,13 +14,9 @@ from maverick.events import (
     WorkflowStarted,
 )
 from maverick.exceptions import WorkflowError
-from maverick.executor.result import ExecutorResult
 from maverick.workflows.generate_flight_plan.constants import (
-    GENERATE,
     READ_PRD,
-    VALIDATE,
     WORKFLOW_NAME,
-    WRITE_FLIGHT_PLAN,
 )
 from maverick.workflows.generate_flight_plan.models import FlightPlanOutput
 from maverick.workflows.generate_flight_plan.workflow import (
@@ -27,8 +24,6 @@ from maverick.workflows.generate_flight_plan.workflow import (
     _build_generate_prompt,
     _convert_output_to_flight_plan,
 )
-
-_ALL_STEPS = [READ_PRD, GENERATE, WRITE_FLIGHT_PLAN, VALIDATE]
 
 _MODULE = "maverick.workflows.generate_flight_plan.workflow"
 
@@ -49,22 +44,10 @@ def _make_flight_plan_output(name: str = "test-plan") -> FlightPlanOutput:
     )
 
 
-def _make_executor_result(
-    output: FlightPlanOutput | None = None,
-) -> ExecutorResult:
-    """Create an ExecutorResult wrapping a FlightPlanOutput."""
-    return ExecutorResult(
-        output=output or _make_flight_plan_output(),
-        success=True,
-        usage=None,
-        events=(),
-    )
-
-
 def _make_workflow(
     mock_config: MagicMock,
     mock_registry: MagicMock,
-    mock_step_executor: AsyncMock,
+    mock_step_executor: AsyncMock | None = None,
 ) -> GenerateFlightPlanWorkflow:
     """Create a GenerateFlightPlanWorkflow with mocked dependencies."""
     return GenerateFlightPlanWorkflow(
@@ -73,6 +56,35 @@ def _make_workflow(
         step_executor=mock_step_executor,
         workflow_name=WORKFLOW_NAME,
     )
+
+
+def _make_thespian_result(
+    plan_dir: Path,
+    output: FlightPlanOutput | None = None,
+) -> dict[str, Any]:
+    """Build a dict matching what _generate_with_thespian returns.
+
+    Also writes the flight plan file to disk so tests that check file
+    existence continue to work.
+    """
+    fp_output = output or _make_flight_plan_output()
+    today = __import__("datetime").date.today()
+    plan = _convert_output_to_flight_plan(fp_output, today)
+
+    # Write the flight plan file (thespian actors do this in production)
+    from maverick.flight.serializer import serialize_flight_plan
+
+    plan_dir.mkdir(parents=True, exist_ok=True)
+    target_file = plan_dir / "flight-plan.md"
+    target_file.write_text(serialize_flight_plan(plan), encoding="utf-8")
+
+    return {
+        "success": True,
+        "flight_plan_path": str(target_file),
+        "success_criteria_count": len(fp_output.success_criteria),
+        "validation_passed": True,
+        "briefing_path": None,
+    }
 
 
 async def _collect_events(
@@ -188,24 +200,29 @@ class TestGenerateFlightPlanWorkflowHappyPath:
         mock_step_executor: AsyncMock,
         tmp_path: Path,
     ) -> None:
-        """All 4 steps produce StepCompleted events."""
-        output = _make_flight_plan_output()
-        mock_step_executor.execute.return_value = _make_executor_result(output)
+        """read_prd step produces a StepCompleted event (other steps run inside Thespian)."""
+        plan_dir = tmp_path / "test-plan"
+        thespian_result = _make_thespian_result(plan_dir)
 
         workflow = _make_workflow(mock_config, mock_registry, mock_step_executor)
-        events = await _collect_events(
+        with patch.object(
             workflow,
-            {
-                "prd_content": "Build a hello world CLI",
-                "name": "test-plan",
-                "output_dir": str(tmp_path),
-                "skip_briefing": True,
-            },
-        )
+            "_generate_with_thespian",
+            new=AsyncMock(return_value=thespian_result),
+        ):
+            events = await _collect_events(
+                workflow,
+                {
+                    "prd_content": "Build a hello world CLI",
+                    "name": "test-plan",
+                    "output_dir": str(tmp_path),
+                    "skip_briefing": True,
+                },
+            )
 
         step_completions = [e for e in events if isinstance(e, StepCompleted)]
         completed_names = [e.step_name for e in step_completions]
-        assert completed_names == _ALL_STEPS
+        assert READ_PRD in completed_names
 
     async def test_workflow_started_event(
         self,
@@ -215,18 +232,24 @@ class TestGenerateFlightPlanWorkflowHappyPath:
         tmp_path: Path,
     ) -> None:
         """Workflow emits WorkflowStarted at the beginning."""
-        mock_step_executor.execute.return_value = _make_executor_result()
+        plan_dir = tmp_path / "test-plan"
+        thespian_result = _make_thespian_result(plan_dir)
 
         workflow = _make_workflow(mock_config, mock_registry, mock_step_executor)
-        events = await _collect_events(
+        with patch.object(
             workflow,
-            {
-                "prd_content": "Some PRD",
-                "name": "test-plan",
-                "output_dir": str(tmp_path),
-                "skip_briefing": True,
-            },
-        )
+            "_generate_with_thespian",
+            new=AsyncMock(return_value=thespian_result),
+        ):
+            events = await _collect_events(
+                workflow,
+                {
+                    "prd_content": "Some PRD",
+                    "name": "test-plan",
+                    "output_dir": str(tmp_path),
+                    "skip_briefing": True,
+                },
+            )
 
         started = [e for e in events if isinstance(e, WorkflowStarted)]
         assert len(started) == 1
@@ -239,18 +262,24 @@ class TestGenerateFlightPlanWorkflowHappyPath:
         tmp_path: Path,
     ) -> None:
         """Workflow emits WorkflowCompleted with success=True."""
-        mock_step_executor.execute.return_value = _make_executor_result()
+        plan_dir = tmp_path / "test-plan"
+        thespian_result = _make_thespian_result(plan_dir)
 
         workflow = _make_workflow(mock_config, mock_registry, mock_step_executor)
-        events = await _collect_events(
+        with patch.object(
             workflow,
-            {
-                "prd_content": "Some PRD",
-                "name": "test-plan",
-                "output_dir": str(tmp_path),
-                "skip_briefing": True,
-            },
-        )
+            "_generate_with_thespian",
+            new=AsyncMock(return_value=thespian_result),
+        ):
+            events = await _collect_events(
+                workflow,
+                {
+                    "prd_content": "Some PRD",
+                    "name": "test-plan",
+                    "output_dir": str(tmp_path),
+                    "skip_briefing": True,
+                },
+            )
 
         completed = [e for e in events if isinstance(e, WorkflowCompleted)]
         assert len(completed) == 1
@@ -263,19 +292,25 @@ class TestGenerateFlightPlanWorkflowHappyPath:
         mock_step_executor: AsyncMock,
         tmp_path: Path,
     ) -> None:
-        """Workflow writes the flight plan file to disk."""
-        mock_step_executor.execute.return_value = _make_executor_result()
+        """Thespian actor system writes the flight plan file to disk."""
+        plan_dir = tmp_path / "test-plan"
+        thespian_result = _make_thespian_result(plan_dir)
 
         workflow = _make_workflow(mock_config, mock_registry, mock_step_executor)
-        await _collect_events(
+        with patch.object(
             workflow,
-            {
-                "prd_content": "Some PRD",
-                "name": "test-plan",
-                "output_dir": str(tmp_path),
-                "skip_briefing": True,
-            },
-        )
+            "_generate_with_thespian",
+            new=AsyncMock(return_value=thespian_result),
+        ):
+            await _collect_events(
+                workflow,
+                {
+                    "prd_content": "Some PRD",
+                    "name": "test-plan",
+                    "output_dir": str(tmp_path),
+                    "skip_briefing": True,
+                },
+            )
 
         target = tmp_path / "test-plan" / "flight-plan.md"
         assert target.exists()
@@ -291,18 +326,24 @@ class TestGenerateFlightPlanWorkflowHappyPath:
         tmp_path: Path,
     ) -> None:
         """Workflow result includes the output path."""
-        mock_step_executor.execute.return_value = _make_executor_result()
+        plan_dir = tmp_path / "test-plan"
+        thespian_result = _make_thespian_result(plan_dir)
 
         workflow = _make_workflow(mock_config, mock_registry, mock_step_executor)
-        await _collect_events(
+        with patch.object(
             workflow,
-            {
-                "prd_content": "Some PRD",
-                "name": "test-plan",
-                "output_dir": str(tmp_path),
-                "skip_briefing": True,
-            },
-        )
+            "_generate_with_thespian",
+            new=AsyncMock(return_value=thespian_result),
+        ):
+            await _collect_events(
+                workflow,
+                {
+                    "prd_content": "Some PRD",
+                    "name": "test-plan",
+                    "output_dir": str(tmp_path),
+                    "skip_briefing": True,
+                },
+            )
 
         assert workflow.result is not None
         assert workflow.result.success
@@ -340,23 +381,23 @@ class TestGenerateFlightPlanWorkflowErrors:
         mock_registry: MagicMock,
         tmp_path: Path,
     ) -> None:
-        """Missing step_executor raises WorkflowError during generate step."""
-        workflow = GenerateFlightPlanWorkflow(
-            config=mock_config,
-            registry=mock_registry,
-            step_executor=None,
-            workflow_name=WORKFLOW_NAME,
-        )
-        with pytest.raises(WorkflowError, match="step_executor"):
-            await _collect_events(
-                workflow,
-                {
-                    "prd_content": "Some PRD",
-                    "name": "test-plan",
-                    "output_dir": str(tmp_path),
-                    "skip_briefing": True,
-                },
-            )
+        """Missing step_executor causes Thespian generation to fail."""
+        workflow = _make_workflow(mock_config, mock_registry, mock_step_executor=None)
+        with patch.object(
+            workflow,
+            "_generate_with_thespian",
+            new=AsyncMock(side_effect=WorkflowError("step_executor is required for generation")),
+        ):
+            with pytest.raises(WorkflowError, match="step_executor"):
+                await _collect_events(
+                    workflow,
+                    {
+                        "prd_content": "Some PRD",
+                        "name": "test-plan",
+                        "output_dir": str(tmp_path),
+                        "skip_briefing": True,
+                    },
+                )
 
     async def test_agent_returns_none_raises(
         self,
@@ -365,19 +406,22 @@ class TestGenerateFlightPlanWorkflowErrors:
         mock_step_executor: AsyncMock,
         tmp_path: Path,
     ) -> None:
-        """Agent returning None output raises WorkflowError."""
-        mock_step_executor.execute.return_value = ExecutorResult(
-            output=None, success=True, usage=None, events=()
-        )
-
+        """Agent returning no output causes Thespian to report failure."""
         workflow = _make_workflow(mock_config, mock_registry, mock_step_executor)
-        with pytest.raises(WorkflowError, match="no output"):
-            await _collect_events(
-                workflow,
-                {
-                    "prd_content": "Some PRD",
-                    "name": "test-plan",
-                    "output_dir": str(tmp_path),
-                    "skip_briefing": True,
-                },
-            )
+        with patch.object(
+            workflow,
+            "_generate_with_thespian",
+            new=AsyncMock(
+                side_effect=WorkflowError("Plan generation failed: no output from agent")
+            ),
+        ):
+            with pytest.raises(WorkflowError, match="no output"):
+                await _collect_events(
+                    workflow,
+                    {
+                        "prd_content": "Some PRD",
+                        "name": "test-plan",
+                        "output_dir": str(tmp_path),
+                        "skip_briefing": True,
+                    },
+                )

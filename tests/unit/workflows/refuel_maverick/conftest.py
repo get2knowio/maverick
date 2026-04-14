@@ -279,6 +279,25 @@ def patch_cwd(tmp_path: Path) -> Any:
     return patch("pathlib.Path.cwd", return_value=tmp_path)
 
 
+def patch_decompose_supervisor(
+    decomp: DecompositionOutput | None = None,
+) -> Any:
+    """Return a context manager that patches _decompose_with_supervisor.
+
+    The Thespian actor path is now the only decomposition path.  Tests that
+    previously mocked ``executor.execute`` to return two-pass results should
+    instead use this helper so the decomposition step returns a
+    ``DecompositionOutput`` directly (bypassing the real Thespian system).
+    """
+    if decomp is None:
+        decomp = make_simple_decomposition_output()
+    return patch(
+        "maverick.workflows.refuel_maverick.workflow."
+        "RefuelMaverickWorkflow._decompose_with_supervisor",
+        new=AsyncMock(return_value=decomp),
+    )
+
+
 # ---------------------------------------------------------------------------
 # pytest fixtures
 # ---------------------------------------------------------------------------

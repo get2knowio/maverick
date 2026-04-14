@@ -18,13 +18,12 @@ from maverick.executor.result import ExecutorResult
 
 from .conftest import (
     collect_events,
-    decomposition_to_two_pass_results,
     make_bead_result,
-    make_simple_decomposition_output,
     make_simple_flight_plan,
     make_wire_result,
     make_workflow,
     patch_cwd,
+    patch_decompose_supervisor,
 )
 
 # ---------------------------------------------------------------------------
@@ -64,11 +63,14 @@ def _make_contrarian_brief() -> ContrarianBrief:
 
 
 def _make_executor_with_briefing() -> AsyncMock:
-    """Create a mock step executor that returns briefing and decomposition outputs."""
+    """Create a mock step executor that returns briefing agent outputs.
+
+    Decomposition is now handled by _decompose_with_supervisor (Thespian),
+    so this executor only needs to service the briefing agents.
+    """
     from maverick.executor.protocol import StepExecutor
 
     executor = AsyncMock(spec=StepExecutor)
-    decomp = make_simple_decomposition_output()
 
     # Map agent names to their outputs (briefing agents return single outputs)
     briefing_map: dict[str, Any] = {
@@ -77,10 +79,6 @@ def _make_executor_with_briefing() -> AsyncMock:
         "recon": _make_recon_brief(),
         "contrarian": _make_contrarian_brief(),
     }
-
-    # Decomposer uses two-pass: outline first, then detail batch(es)
-    decomp_results = decomposition_to_two_pass_results(decomp)
-    decomp_iter = iter(decomp_results)
 
     async def _execute(
         step_name: str,
@@ -91,8 +89,6 @@ def _make_executor_with_briefing() -> AsyncMock:
         config: Any = None,
         **kwargs: Any,
     ) -> ExecutorResult:
-        if agent_name == "decomposer":
-            return next(decomp_iter)
         output = briefing_map.get(agent_name)
         return ExecutorResult(
             output=output,
@@ -146,6 +142,7 @@ class TestBriefingStep:
                 "maverick.workflows.refuel_maverick.workflow.wire_dependencies",
                 return_value=make_wire_result(),
             ),
+            patch_decompose_supervisor(),
         ):
             events, _ = await collect_events(
                 workflow,
@@ -185,6 +182,7 @@ class TestBriefingStep:
                 "maverick.workflows.refuel_maverick.workflow.wire_dependencies",
                 return_value=make_wire_result(),
             ),
+            patch_decompose_supervisor(),
         ):
             events, _ = await collect_events(
                 workflow,
@@ -222,6 +220,7 @@ class TestBriefingStep:
                 "maverick.workflows.refuel_maverick.workflow.wire_dependencies",
                 return_value=make_wire_result(),
             ),
+            patch_decompose_supervisor(),
         ):
             await collect_events(
                 workflow,
@@ -258,6 +257,7 @@ class TestBriefingStep:
                 "maverick.workflows.refuel_maverick.workflow.wire_dependencies",
                 return_value=make_wire_result(),
             ),
+            patch_decompose_supervisor(),
         ):
             _, result = await collect_events(
                 workflow,
@@ -291,6 +291,7 @@ class TestBriefingStep:
                 "maverick.workflows.refuel_maverick.workflow.wire_dependencies",
                 return_value=make_wire_result(),
             ),
+            patch_decompose_supervisor(),
         ):
             _, result = await collect_events(
                 workflow,
@@ -323,6 +324,7 @@ class TestBriefingStep:
                 "maverick.workflows.refuel_maverick.workflow.wire_dependencies",
                 return_value=make_wire_result(),
             ),
+            patch_decompose_supervisor(),
         ):
             await collect_events(
                 workflow,
