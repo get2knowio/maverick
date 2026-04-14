@@ -41,55 +41,14 @@ if TYPE_CHECKING:
 # Agent fan-out tracker (Rich Live table)
 # ---------------------------------------------------------------------------
 
-# Human-readable display names for workflow step identifiers.
-# Steps not in this map are displayed as title-cased with underscores removed.
-_STEP_DISPLAY_NAMES: dict[str, str] = {
-    # plan generate
-    "read_prd": "Reading PRD",
-    "briefing": "Briefing",
-    "generate": "Generating flight plan",
-    "write_flight_plan": "Writing flight plan",
-    # refuel
-    "parse_flight_plan": "Parsing flight plan",
-    "gather_context": "Gathering context",
-    "analyze_open_beads": "Checking open beads",
-    "derive_verification": "Deriving verification criteria",
-    "decompose": "Decomposing",
-    "decompose_outline": "Decompose (outline)",
-    "decompose_detail": "Decompose (detail)",
-    "validate": "Validating",
-    "write_work_units": "Writing work units",
-    "create_beads": "Creating beads",
-    "wire_deps": "Wiring dependencies",
-    "wire_cross_plan_deps": "Wiring cross-plan dependencies",
-    # fly
-    "preflight": "Pre-flight checks",
-    "snapshot_uncommitted": "Snapshotting uncommitted changes",
-    "create_workspace": "Creating workspace",
-    "baseline_gate": "Baseline gate check",
-    "select_bead": "Selecting bead",
-    "implement_and_validate": "Implementing",
-    "gate_check": "Gate validation",
-    "gate_remediation": "Gate remediation",
-    "review": "Reviewing",
-    "acceptance_check": "Acceptance check",
-    "spec_compliance": "Spec compliance",
-    "commit": "Committing",
-    "record_runway": "Recording runway metrics",
-    # briefing sub-agents
-    "briefing_navigator": "Briefing: Navigator",
-    "briefing_structuralist": "Briefing: Structuralist",
-    "briefing_recon": "Briefing: Recon",
-    "briefing_contrarian": "Briefing: Contrarian",
-    "briefing_scopist": "Briefing: Scopist",
-    "briefing_codebase_analyst": "Briefing: Codebase Analyst",
-    "briefing_criteria_writer": "Briefing: Criteria Writer",
-}
-
 
 def _display_name(step_name: str) -> str:
-    """Get human-readable display name for a step identifier."""
-    return _STEP_DISPLAY_NAMES.get(step_name, step_name.replace("_", " ").title())
+    """Get human-readable display name for a step identifier.
+
+    Simply converts snake_case to Title Case. Callers that need richer
+    labels should use the ``display_label`` field on events instead.
+    """
+    return step_name.replace("_", " ").title()
 
 
 class _AgentTracker:
@@ -239,31 +198,22 @@ async def render_workflow_events(
     _total_steps = total_steps if total_steps is not None else 0
     _agent_streaming = False
     _verbose = verbosity > 0
-    _spinner: Any = None
-    _current_step_name: str = ""
+
+    # State machine for step rendering
+    _header_printed = False
+    _current_label: str = ""
     _agent_tracker: _AgentTracker | None = None
+    _spinner: Any = None
 
-    # Deferred step rendering: buffer start + interims so fast steps
-    # can be collapsed into a single line.
-    _step_started_printed = False  # whether the start line has been flushed
-    _buffered_interims: list[tuple[str, str]] = []  # (style, message)
-
-    def _stop_spinner() -> None:
-        nonlocal _spinner
-        if _spinner is not None:
-            _spinner.stop()
-            _spinner = None
-
-    def _flush_step_header() -> None:
-        """Print the buffered step header + interims if not yet printed."""
-        nonlocal _step_started_printed
-        if not _step_started_printed and _current_step_name:
-            display = _display_name(_current_step_name)
-            console_obj.print(f"[bold]{display}[/]")
-            _step_started_printed = True
-        for style, msg in _buffered_interims:
-            console_obj.print(f"  {style}∟[/] {msg}")
-        _buffered_interims.clear()
+    def _ensure_header() -> None:
+        """Print the step header if not yet printed."""
+        nonlocal _header_printed, _spinner
+        if not _header_printed and _current_label:
+            if _spinner:
+                _spinner.stop()
+                _spinner = None
+            console_obj.print(f"[bold]{_current_label}[/]")
+            _header_printed = True
 
     _level_styles = {
         "info": "[cyan]",
@@ -321,20 +271,15 @@ async def render_workflow_events(
             workflow_depth += 1
 
         elif isinstance(event, StepStarted):
-            _current_step_name = event.step_name
-            _step_started_printed = False
-            _buffered_interims.clear()
+            _current_label = event.display_label or _display_name(event.step_name)
+            _header_printed = False
             step_type_value = event.step_type.value
 
             if workflow_depth == 1:
                 step_index += 1
-                # Don't print yet — defer until we know if the step
-                # completes fast enough to collapse. Start spinner
-                # so the user sees activity.
                 if step_type_value in ("agent", "python") and hasattr(console_obj, "status"):
-                    display = _display_name(event.step_name)
                     _spinner = console_obj.status(
-                        f"[dim]{display}...[/]",
+                        f"[dim]{_current_label}...[/]",
                         spinner="dots",
                     )
                     _spinner.start()
@@ -343,15 +288,16 @@ async def render_workflow_events(
                     workflow_depth += 1
             else:
                 indent = "  " * (workflow_depth - 1)
-                display = _display_name(event.step_name)
-                console_obj.print(f"[dim]{indent}{display}[/]")
-                _step_started_printed = True
+                console_obj.print(f"[dim]{indent}{_current_label}[/]")
+                _header_printed = True
 
         elif isinstance(event, StepCompleted):
             if event.step_type.value in ("loop", "subworkflow"):
                 workflow_depth = max(1, workflow_depth - 1)
 
-            _stop_spinner()
+            if _spinner:
+                _spinner.stop()
+                _spinner = None
 
             # Close any active agent tracker
             if _agent_tracker is not None and _agent_tracker.active:
@@ -362,48 +308,15 @@ async def render_workflow_events(
                 console_obj.print()
                 _agent_streaming = False
 
-            duration_sec = event.duration_ms / 1000
-            display = _display_name(event.step_name)
+            label = event.display_label or _current_label or _display_name(event.step_name)
+            dur = f"{event.duration_ms / 1000:.2f}s"
+            icon = "[green]✓[/]" if event.success else "[red]✗[/]"
 
-            # Collapse simple steps: if the header hasn't been printed
-            # and there's at most 1 interim, show one line.
-            # Steps with multiple interims get the full header + interims.
-            _can_collapse = not _step_started_printed and len(_buffered_interims) <= 1
-            if _can_collapse:
-                # Collapse: show last interim (or step name) as completion
-                if _buffered_interims:
-                    _, last_msg = _buffered_interims[-1]
-                else:
-                    last_msg = display
-                if event.success:
-                    console_obj.print(f"[green]✓[/] {last_msg} [dim]({duration_sec:.2f}s)[/]")
-                else:
-                    error_detail = f": {event.error}" if event.error else ""
-                    console_obj.print(
-                        f"[red]✗[/] {display}{error_detail} [dim]({duration_sec:.2f}s)[/]"
-                    )
-                _buffered_interims.clear()
+            if event.error:
+                console_obj.print(f"{icon} {label}: {event.error} [dim]({dur})[/]")
             else:
-                # Full output: flush header, show earlier interims as ∟ lines,
-                # use the last interim (if any) as the completion text.
-                _flush_step_header()
-                completion_text = display
-                if _buffered_interims:
-                    # Print all but last as ∟ interims
-                    for style, msg in _buffered_interims[:-1]:
-                        console_obj.print(f"  {style}∟[/] {msg}")
-                    # Last interim becomes the completion line
-                    _, completion_text = _buffered_interims[-1]
-                    _buffered_interims.clear()
-                if event.success:
-                    console_obj.print(
-                        f"[green]✓[/] {completion_text} [dim]({duration_sec:.2f}s)[/]"
-                    )
-                else:
-                    error_detail = f": {event.error}" if event.error else ""
-                    console_obj.print(
-                        f"[red]✗[/] {display}{error_detail} [dim]({duration_sec:.2f}s)[/]"
-                    )
+                console_obj.print(f"{icon} {label} [dim]({dur})[/]")
+            _header_printed = False
 
         elif isinstance(event, AgentStreamChunk):
             if _verbose:
@@ -423,12 +336,7 @@ async def render_workflow_events(
 
         elif isinstance(event, AgentStarted):
             if _agent_tracker is None or not _agent_tracker.active:
-                _stop_spinner()
-                # Print phase header from the event's step_name, not the
-                # workflow's current step (which may be stale when agents
-                # run inside a Thespian supervisor).
-                phase_display = _display_name(event.step_name)
-                console_obj.print(f"[bold]{phase_display}[/]")
+                _ensure_header()
                 _agent_tracker = _AgentTracker(console_obj, event.step_name)
             _agent_tracker.agent_started(event.agent_name, event.provider)
 
@@ -437,27 +345,12 @@ async def render_workflow_events(
                 _agent_tracker.agent_completed(event.agent_name, f"{event.duration_seconds:.1f}s")
 
         elif isinstance(event, StepOutput):
-            # Detect implicit step transition from Thespian supervisor
-            # events (no StepStarted emitted for internal phases).
-            if event.step_name and event.step_name != _current_step_name:
-                _current_step_name = event.step_name
-                _step_started_printed = False
-                _buffered_interims.clear()
-
             if _agent_tracker is not None and _agent_tracker.active:
                 _agent_tracker.add_message(event.message)
-            elif _step_started_printed:
-                # Header already shown — print interim immediately
+            else:
+                _ensure_header()
                 style = _level_styles.get(event.level, "[cyan]")
                 console_obj.print(f"  {style}∟[/] {event.message}")
-            else:
-                style = _level_styles.get(event.level, "[cyan]")
-                _buffered_interims.append((style, event.message))
-                # Second interim means this is a long-running step —
-                # flush header + all buffered interims now.
-                if len(_buffered_interims) > 1:
-                    _stop_spinner()
-                    _flush_step_header()
 
         elif isinstance(event, RollbackStarted):
             console_obj.print(f"[yellow]  ↩ Rolling back: {event.step_name}...[/]")
@@ -490,10 +383,13 @@ async def render_workflow_events(
                 )
 
         elif isinstance(event, CheckpointSaved):
-            console_obj.print(f"[dim]  Checkpoint saved: {_display_name(event.step_name)}[/]")
+            label = event.step_name.replace("_", " ").title()
+            console_obj.print(f"[dim]  Checkpoint saved: {label}[/]")
 
         elif isinstance(event, WorkflowCompleted):
-            _stop_spinner()
+            if _spinner:
+                _spinner.stop()
+                _spinner = None
             if _agent_tracker is not None and _agent_tracker.active:
                 _agent_tracker.force_close()
             _agent_tracker = None

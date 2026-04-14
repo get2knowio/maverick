@@ -173,7 +173,7 @@ class GenerateFlightPlanWorkflow(PythonWorkflow):
         # ------------------------------------------------------------------
         # Step 1: Read PRD
         # ------------------------------------------------------------------
-        await self.emit_step_started(READ_PRD)
+        await self.emit_step_started(READ_PRD, display_label="Reading PRD")
         prd_lines = prd_content.strip().splitlines()
         prd_size = len(prd_content)
         title_heuristic = prd_lines[0].lstrip("#").strip() if prd_lines else "(empty)"

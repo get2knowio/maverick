@@ -153,6 +153,8 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
         """Fan out briefing to parallel actors."""
         import time as _time
 
+        self._emit_phase_started("briefing", "Briefing")
+
         prompt = self._initial_payload.get("briefing_prompt", "")
 
         # Emit agent-started events for all parallel agents
@@ -192,6 +194,11 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
 
     def _briefing_complete(self):
         """All briefing done — pass raw results to decomposer."""
+        import time as _time
+
+        elapsed_ms = int((_time.monotonic() - self._briefing_start) * 1000)
+        self._emit_phase_completed("briefing", "Briefing", elapsed_ms)
+
         # Store raw briefing results for decomposer context.
         # No Pydantic validation — the MCP tool schemas and prompt
         # guidance are the single source of truth for field names.
@@ -216,6 +223,11 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
 
     def _start_outline(self):
         """Kick off the outline phase."""
+        import time as _time
+
+        self._emit_phase_started("decompose", "Decomposing")
+        self._decompose_start = _time.monotonic()
+
         self._emit_output(
             "refuel",
             "Requesting outline from decomposer",
@@ -477,6 +489,12 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
 
     def _handle_beads_created(self, message):
         """Decomposition complete — shutdown agents, mark done."""
+        import time as _time
+
+        if hasattr(self, "_decompose_start"):
+            elapsed_ms = int((_time.monotonic() - self._decompose_start) * 1000)
+            self._emit_phase_completed("decompose", "Decomposing", elapsed_ms)
+
         # Shutdown all decomposer actors (primary + pool)
         for addr in [self._decomposer] + list(self._decomposer_pool):
             if addr:

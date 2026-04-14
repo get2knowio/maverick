@@ -134,6 +134,9 @@ class PlanSupervisorActor(SupervisorEventBusMixin, Actor):
             build_preflight_briefing_prompt,
         )
 
+        self._emit_phase_started("briefing", "Briefing")
+        self._briefing_phase_start = _time.monotonic()
+
         prompt = build_preflight_briefing_prompt(self._prd_content)
 
         self._briefing_start_times = {}
@@ -236,6 +239,12 @@ class PlanSupervisorActor(SupervisorEventBusMixin, Actor):
 
     def _synthesize_and_generate(self):
         """Contrarian done — synthesize briefing and send to generator."""
+        import time as _time
+
+        if hasattr(self, "_briefing_phase_start"):
+            elapsed_ms = int((_time.monotonic() - self._briefing_phase_start) * 1000)
+            self._emit_phase_completed("briefing", "Briefing", elapsed_ms)
+
         from maverick.preflight_briefing.serializer import serialize_briefs_to_markdown
 
         self._briefing_markdown = serialize_briefs_to_markdown(

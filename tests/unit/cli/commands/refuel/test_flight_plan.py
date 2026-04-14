@@ -59,13 +59,13 @@ class TestRefuelFromPlan:
         )
 
         assert result.exit_code == 0
-        assert "Parsing flight plan" in result.output
-        assert "Gathering context" in result.output
-        assert "Decomposing" in result.output
-        assert "Validating" in result.output
-        assert "Writing work units" in result.output
-        assert "Creating beads" in result.output
-        assert "Wiring dependencies" in result.output
+        assert "Parse Flight Plan" in result.output
+        assert "Gather Context" in result.output
+        assert "Decompose" in result.output
+        assert "Validate" in result.output
+        assert "Write Work Units" in result.output
+        assert "Create Beads" in result.output
+        assert "Wire Deps" in result.output
 
     @patch(_PATCH_EXECUTE, new_callable=AsyncMock)
     def test_delegates_to_refuel_maverick_workflow(

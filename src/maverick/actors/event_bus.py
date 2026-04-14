@@ -16,7 +16,14 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from maverick.events import AgentCompleted, AgentStarted, ProgressEvent, StepOutput
+from maverick.events import (
+    AgentCompleted,
+    AgentStarted,
+    ProgressEvent,
+    StepCompleted,
+    StepOutput,
+    StepStarted,
+)
 
 
 class SupervisorEventBusMixin:
@@ -58,6 +65,7 @@ class SupervisorEventBusMixin:
         level: Literal["info", "success", "warning", "error"] = "info",
         source: str | None = None,
         metadata: dict[str, Any] | None = None,
+        display_label: str = "",
     ) -> None:
         """Emit a ``StepOutput`` event — the supervisor's default message type.
 
@@ -69,9 +77,44 @@ class SupervisorEventBusMixin:
             StepOutput(
                 step_name=step_name,
                 message=message,
+                display_label=display_label,
                 level=level,
                 source=source,
                 metadata=metadata,
+            )
+        )
+
+    def _emit_phase_started(self, step_name: str, display_label: str) -> None:
+        """Emit a ``StepStarted`` event for a supervisor phase."""
+        from maverick.types import StepType
+
+        self._emit(
+            StepStarted(
+                step_name=step_name,
+                step_type=StepType.PYTHON,
+                display_label=display_label,
+            )
+        )
+
+    def _emit_phase_completed(
+        self,
+        step_name: str,
+        display_label: str,
+        duration_ms: int,
+        success: bool = True,
+        error: str | None = None,
+    ) -> None:
+        """Emit a ``StepCompleted`` event for a supervisor phase."""
+        from maverick.types import StepType
+
+        self._emit(
+            StepCompleted(
+                step_name=step_name,
+                step_type=StepType.PYTHON,
+                success=success,
+                duration_ms=duration_ms,
+                display_label=display_label,
+                error=error,
             )
         )
 

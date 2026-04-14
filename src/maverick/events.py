@@ -55,6 +55,7 @@ class StepStarted:
 
     step_name: str
     step_type: StepType
+    display_label: str = ""
     timestamp: float = field(default_factory=time.time)
     step_path: str | None = None
     provider: str | None = None
@@ -82,6 +83,7 @@ class StepCompleted:
     step_type: StepType
     success: bool
     duration_ms: int
+    display_label: str = ""
     error: str | None = None
     timestamp: float = field(default_factory=time.time)
     step_path: str | None = None
@@ -484,6 +486,7 @@ class StepOutput:
 
     step_name: str
     message: str
+    display_label: str = ""
     level: OutputLevel = "info"
     source: str | None = None
     metadata: dict[str, Any] | None = None
@@ -512,6 +515,7 @@ class AgentStarted:
     step_name: str
     agent_name: str
     provider: str = ""
+    display_label: str = ""
     timestamp: float = field(default_factory=time.time)
 
     def to_dict(self) -> dict[str, Any]:
@@ -535,6 +539,7 @@ class AgentCompleted:
     step_name: str
     agent_name: str
     duration_seconds: float
+    display_label: str = ""
     success: bool = True
     error: str | None = None
     timestamp: float = field(default_factory=time.time)

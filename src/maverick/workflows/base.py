@@ -290,6 +290,7 @@ class PythonWorkflow(ABC):
         step_type: StepType = StepType.PYTHON,
         provider: str | None = None,
         model_id: str | None = None,
+        display_label: str = "",
     ) -> None:
         """Emit a StepStarted event and record the step start time.
 
@@ -298,6 +299,8 @@ class PythonWorkflow(ABC):
             step_type: Step type for the event. Defaults to StepType.PYTHON.
             provider: Optional provider name for display.
             model_id: Optional model identifier for display.
+            display_label: Human-readable label for CLI rendering.
+                Defaults to title-cased step name if empty.
         """
         self._current_step = name
         self._step_start_times[name] = time.time()
@@ -305,6 +308,7 @@ class PythonWorkflow(ABC):
             StepStarted(
                 step_name=name,
                 step_type=step_type,
+                display_label=display_label or name.replace("_", " ").title(),
                 step_path=f"{self._workflow_name}.{name}",
                 provider=provider,
                 model_id=model_id,
@@ -316,6 +320,7 @@ class PythonWorkflow(ABC):
         name: str,
         output: Any = None,
         step_type: StepType = StepType.PYTHON,
+        display_label: str = "",
     ) -> None:
         """Emit a StepCompleted event with success=True.
 
@@ -325,6 +330,8 @@ class PythonWorkflow(ABC):
             name: Step name (must match a prior emit_step_started call).
             output: Step output value (stored in StepResult).
             step_type: Step type for the event.
+            display_label: Human-readable label for CLI rendering.
+                Defaults to title-cased step name if empty.
         """
         duration_ms = self._compute_duration_ms(name)
         if self._current_step == name:
@@ -344,6 +351,7 @@ class PythonWorkflow(ABC):
                 step_type=step_type,
                 success=True,
                 duration_ms=duration_ms,
+                display_label=display_label or name.replace("_", " ").title(),
                 step_path=f"{self._workflow_name}.{name}",
             )
         )
@@ -353,6 +361,7 @@ class PythonWorkflow(ABC):
         name: str,
         error: str,
         step_type: StepType = StepType.PYTHON,
+        display_label: str = "",
     ) -> None:
         """Emit a StepCompleted event with success=False.
 
@@ -363,6 +372,8 @@ class PythonWorkflow(ABC):
             name: Step name (must match a prior emit_step_started call).
             error: Error description.
             step_type: Step type for the event.
+            display_label: Human-readable label for CLI rendering.
+                Defaults to title-cased step name if empty.
         """
         duration_ms = self._compute_duration_ms(name)
         if self._current_step == name:
@@ -382,6 +393,7 @@ class PythonWorkflow(ABC):
                 step_type=step_type,
                 success=False,
                 duration_ms=duration_ms,
+                display_label=display_label or name.replace("_", " ").title(),
                 error=error,
                 step_path=f"{self._workflow_name}.{name}",
             )
@@ -393,6 +405,7 @@ class PythonWorkflow(ABC):
         message: str,
         level: Literal["info", "success", "warning", "error"] = "info",
         source: str | None = None,
+        display_label: str = "",
     ) -> None:
         """Emit a StepOutput event for informational messages.
 
@@ -401,11 +414,13 @@ class PythonWorkflow(ABC):
             message: Human-readable message.
             level: One of "info", "success", "warning", "error".
             source: Optional source identifier (e.g., "github", "jj").
+            display_label: Human-readable label for CLI rendering.
         """
         await self._event_queue.put(
             StepOutput(
                 step_name=step_name,
                 message=message,
+                display_label=display_label,
                 level=level,
                 source=source,
                 step_path=f"{self._workflow_name}.{step_name}",

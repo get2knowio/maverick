@@ -289,29 +289,35 @@ class TestAgentStreamChunkRendering:
 class TestStepDisplayNames:
     """StepStarted shows human-readable display names without type annotations."""
 
-    async def test_python_step_shows_display_name(self) -> None:
-        """Python step shows human-readable name, no (python) annotation."""
+    async def test_python_step_shows_display_label(self) -> None:
+        """Python step shows display_label from event, no (python) annotation."""
         output = await _render_events(
             [
-                StepStarted(step_name="preflight", step_type=StepType.PYTHON),
+                StepStarted(
+                    step_name="preflight",
+                    step_type=StepType.PYTHON,
+                    display_label="Pre-flight checks",
+                ),
                 StepCompleted(
                     step_name="preflight",
                     step_type=StepType.PYTHON,
                     success=True,
                     duration_ms=10,
+                    display_label="Pre-flight checks",
                 ),
             ],
         )
         assert "Pre-flight checks" in output
         assert "(python)" not in output
 
-    async def test_agent_step_shows_display_name(self) -> None:
-        """Agent step shows human-readable name, no (agentic) annotation."""
+    async def test_agent_step_shows_display_label(self) -> None:
+        """Agent step shows display_label, no (agentic) annotation."""
         output = await _render_events(
             [
                 StepStarted(
                     step_name="decompose",
                     step_type=StepType.AGENT,
+                    display_label="Decomposing",
                     provider="copilot",
                     model_id="sonnet",
                 ),
@@ -320,6 +326,7 @@ class TestStepDisplayNames:
                     step_type=StepType.AGENT,
                     success=True,
                     duration_ms=10,
+                    display_label="Decomposing",
                 ),
             ],
         )
@@ -328,8 +335,8 @@ class TestStepDisplayNames:
         assert "copilot" not in output
         assert "sonnet" not in output
 
-    async def test_unknown_step_falls_back_to_title_case(self) -> None:
-        """Unknown step names are title-cased with underscores removed."""
+    async def test_no_display_label_falls_back_to_title_case(self) -> None:
+        """Steps without display_label fall back to title-cased step name."""
         output = await _render_events(
             [
                 StepStarted(step_name="custom_new_step", step_type=StepType.PYTHON),
@@ -411,15 +418,20 @@ class TestStepLifecycleRendering:
     """R1: Step lifecycle with start and completion lines."""
 
     async def test_completion_line_includes_step_name(self) -> None:
-        """R1: Completion line includes step name and timing."""
+        """R1: Completion line includes display label and timing."""
         output = await _render_events(
             [
-                StepStarted(step_name="read_prd", step_type=StepType.PYTHON),
+                StepStarted(
+                    step_name="read_prd",
+                    step_type=StepType.PYTHON,
+                    display_label="Reading PRD",
+                ),
                 StepCompleted(
                     step_name="read_prd",
                     step_type=StepType.PYTHON,
                     success=True,
                     duration_ms=10,
+                    display_label="Reading PRD",
                 ),
             ],
         )
@@ -427,22 +439,25 @@ class TestStepLifecycleRendering:
         assert "Reading PRD" in output
         assert "0.01s" in output
 
-    async def test_completion_line_has_no_message(self) -> None:
-        """R2: Completion line is step name + timing only."""
+    async def test_step_output_shown_as_interim(self) -> None:
+        """R2: StepOutput shown as interim line under header."""
         output = await _render_events(
             [
-                StepStarted(step_name="validate", step_type=StepType.PYTHON),
+                StepStarted(
+                    step_name="validate",
+                    step_type=StepType.PYTHON,
+                    display_label="Validating",
+                ),
                 StepOutput(step_name="validate", message="All checks passed"),
                 StepCompleted(
                     step_name="validate",
                     step_type=StepType.PYTHON,
                     success=True,
                     duration_ms=10,
+                    display_label="Validating",
                 ),
             ],
         )
-        # Fast step (10ms) with an interim is collapsed to one line
-        # showing the interim message as the completion text
         assert "✓" in output
         assert "All checks passed" in output
         assert "0.01s" in output
@@ -451,13 +466,18 @@ class TestStepLifecycleRendering:
         """R1: Failed step shows ✗ with error."""
         output = await _render_events(
             [
-                StepStarted(step_name="validate", step_type=StepType.PYTHON),
+                StepStarted(
+                    step_name="validate",
+                    step_type=StepType.PYTHON,
+                    display_label="Validating",
+                ),
                 StepCompleted(
                     step_name="validate",
                     step_type=StepType.PYTHON,
                     success=False,
                     duration_ms=500,
                     error="schema invalid",
+                    display_label="Validating",
                 ),
             ],
         )
@@ -470,10 +490,14 @@ class TestInterimPrefix:
     """R3: Interim lines use ∟ prefix."""
 
     async def test_step_output_renders_as_interim(self) -> None:
-        """Fast step collapses interim into completion line."""
+        """StepOutput renders as ∟ interim line under header."""
         output = await _render_events(
             [
-                StepStarted(step_name="read_prd", step_type=StepType.PYTHON),
+                StepStarted(
+                    step_name="read_prd",
+                    step_type=StepType.PYTHON,
+                    display_label="Reading PRD",
+                ),
                 StepOutput(
                     step_name="read_prd",
                     message='PRD: "Greet CLI" (3195 chars)',
@@ -483,18 +507,26 @@ class TestInterimPrefix:
                     step_type=StepType.PYTHON,
                     success=True,
                     duration_ms=5,
+                    display_label="Reading PRD",
                 ),
             ],
         )
-        # Fast step — collapsed to single line with interim message
         assert 'PRD: "Greet CLI" (3195 chars)' in output
         assert "✓" in output
+        # Header + interim + completion
+        lines = output.strip().splitlines()
+        interim_lines = [ln for ln in lines if "∟" in ln]
+        assert len(interim_lines) == 1
 
     async def test_all_outputs_shown_as_interims(self) -> None:
         """R3: All StepOutputs shown as ∟ interims."""
         output = await _render_events(
             [
-                StepStarted(step_name="briefing", step_type=StepType.AGENT),
+                StepStarted(
+                    step_name="briefing",
+                    step_type=StepType.AGENT,
+                    display_label="Briefing",
+                ),
                 StepOutput(step_name="briefing", message="Agent A started"),
                 StepOutput(step_name="briefing", message="Agent A done"),
                 StepOutput(step_name="briefing", message="Briefing complete"),
@@ -503,11 +535,12 @@ class TestInterimPrefix:
                     step_type=StepType.AGENT,
                     success=True,
                     duration_ms=5000,
+                    display_label="Briefing",
                 ),
             ],
         )
         lines = output.strip().splitlines()
-        interim_lines = [ln for ln in lines if "\u221f" in ln]
+        interim_lines = [ln for ln in lines if "∟" in ln]
         assert len(interim_lines) == 3
         assert "Agent A started" in interim_lines[0]
         assert "Agent A done" in interim_lines[1]

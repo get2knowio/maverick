@@ -102,7 +102,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
         # ------------------------------------------------------------------
         # Step 1: Parse flight plan
         # ------------------------------------------------------------------
-        await self.emit_step_started(PARSE_FLIGHT_PLAN)
+        await self.emit_step_started(PARSE_FLIGHT_PLAN, display_label="Parsing flight plan")
         try:
             flight_plan = await FlightPlanFile.aload(flight_plan_path)
         except Exception as exc:
@@ -127,7 +127,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
         # ------------------------------------------------------------------
         # Step 2: Gather codebase context
         # ------------------------------------------------------------------
-        await self.emit_step_started(GATHER_CONTEXT)
+        await self.emit_step_started(GATHER_CONTEXT, display_label="Gathering context")
         try:
             plan_dir = flight_plan_path.parent
             cwd = plan_dir.parent.parent.parent if plan_dir.name else None
@@ -177,7 +177,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
         open_bead_result: OpenBeadAnalysisResult | None = None
 
         if not skip_briefing:
-            await self.emit_step_started(ANALYZE_OPEN_BEADS)
+            await self.emit_step_started(ANALYZE_OPEN_BEADS, display_label="Checking open beads")
             try:
                 open_bead_result = await analyze_open_beads(
                     new_plan_in_scope=flight_plan.scope.in_scope,
@@ -224,7 +224,9 @@ class RefuelMaverickWorkflow(PythonWorkflow):
             and len(codebase_context.files) > 0
         )
         if _derive_vp:
-            await self.emit_step_started(DERIVE_VERIFICATION)
+            await self.emit_step_started(
+                DERIVE_VERIFICATION, display_label="Deriving verification"
+            )
             try:
                 from maverick.executor import create_default_executor
 
@@ -344,7 +346,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
         # ------------------------------------------------------------------
         # Step 5: Write work units
         # ------------------------------------------------------------------
-        await self.emit_step_started(WRITE_WORK_UNITS)
+        await self.emit_step_started(WRITE_WORK_UNITS, display_label="Writing work units")
 
         if decomposition is None:
             raise WorkflowError("Decomposition loop exited without producing a result")
@@ -403,7 +405,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
 
         if not dry_run:
             # Step 6: Create beads
-            await self.emit_step_started(CREATE_BEADS)
+            await self.emit_step_started(CREATE_BEADS, display_label="Creating beads")
             try:
                 # Build epic and work definitions
                 epic_definition = {
@@ -520,7 +522,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
             await self.emit_step_completed(CREATE_BEADS, output=bead_result.to_dict())
 
             # Step 7: Wire dependencies
-            await self.emit_step_started(WIRE_DEPS)
+            await self.emit_step_started(WIRE_DEPS, display_label="Wiring dependencies")
             dep_pairs: list[list[str]] = []
             for wu in work_units:
                 for dep_id in wu.depends_on:
@@ -558,7 +560,10 @@ class RefuelMaverickWorkflow(PythonWorkflow):
         all_plan_deps.discard(flight_plan.name)
 
         if all_plan_deps and not dry_run and bead_result and bead_result.epic:
-            await self.emit_step_started(WIRE_CROSS_PLAN_DEPS)
+            await self.emit_step_started(
+                WIRE_CROSS_PLAN_DEPS,
+                display_label="Wiring cross-plan dependencies",
+            )
             try:
                 # Resolve plan names to epic bd_ids
                 resolved, resolve_errors = await resolve_plan_epic_ids(

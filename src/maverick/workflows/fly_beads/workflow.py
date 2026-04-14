@@ -161,7 +161,7 @@ class FlyBeadsWorkflow(PythonWorkflow):
         # ----------------------------------------------------------------
         # Step 1: Preflight
         # ----------------------------------------------------------------
-        await self.emit_step_started(PREFLIGHT)
+        await self.emit_step_started(PREFLIGHT, display_label="Pre-flight checks")
         try:
             preflight_result = await run_preflight_checks(
                 check_providers=True,
@@ -184,7 +184,9 @@ class FlyBeadsWorkflow(PythonWorkflow):
         # the user) left uncommitted files, we need to commit them first so
         # the workspace clone includes everything.
         if not dry_run:
-            await self.emit_step_started(SNAPSHOT_UNCOMMITTED)
+            await self.emit_step_started(
+                SNAPSHOT_UNCOMMITTED, display_label="Snapshotting changes"
+            )
             try:
                 change_status = await git_has_changes()
                 if change_status.has_any:
@@ -238,7 +240,7 @@ class FlyBeadsWorkflow(PythonWorkflow):
         # Step 3: Create workspace (skipped in dry_run)
         # ----------------------------------------------------------------
         if not dry_run:
-            await self.emit_step_started(CREATE_WORKSPACE)
+            await self.emit_step_started(CREATE_WORKSPACE, display_label="Creating workspace")
             try:
                 ws_result = await create_fly_workspace()
             except Exception as exc:
@@ -273,7 +275,7 @@ class FlyBeadsWorkflow(PythonWorkflow):
         # Fail fast if the codebase isn't green before any bead work starts.
         # Pre-existing test/lint failures waste agent budget on unrelated fixes.
         if not dry_run:
-            await self.emit_step_started(BASELINE_GATE)
+            await self.emit_step_started(BASELINE_GATE, display_label="Baseline gate check")
             try:
                 from maverick.workflows.fly_beads.steps import (
                     _build_validation_commands,
@@ -348,7 +350,7 @@ class FlyBeadsWorkflow(PythonWorkflow):
         while beads_succeeded < max_beads and _iteration < max_iterations:
             _iteration += 1
             # --- Select next bead ---
-            await self.emit_step_started(SELECT_BEAD)
+            await self.emit_step_started(SELECT_BEAD, display_label="Selecting bead")
             try:
                 select_result = await select_next_bead(epic_id=epic_id)
             except Exception as exc:
