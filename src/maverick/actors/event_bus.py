@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from maverick.events import ProgressEvent, StepOutput
+from maverick.events import AgentCompleted, AgentStarted, ProgressEvent, StepOutput
 
 
 class SupervisorEventBusMixin:
@@ -72,6 +72,22 @@ class SupervisorEventBusMixin:
                 level=level,
                 source=source,
                 metadata=metadata,
+            )
+        )
+
+    def _emit_agent_started(self, step_name: str, agent_name: str, provider: str = "") -> None:
+        """Emit an ``AgentStarted`` event for Rich Live rendering."""
+        self._emit(AgentStarted(step_name=step_name, agent_name=agent_name, provider=provider))
+
+    def _emit_agent_completed(
+        self, step_name: str, agent_name: str, duration_seconds: float
+    ) -> None:
+        """Emit an ``AgentCompleted`` event."""
+        self._emit(
+            AgentCompleted(
+                step_name=step_name,
+                agent_name=agent_name,
+                duration_seconds=duration_seconds,
             )
         )
 

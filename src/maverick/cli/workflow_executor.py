@@ -9,7 +9,6 @@ See docs/cli-output-rules.md for the rendering rules.
 from __future__ import annotations
 
 import importlib
-import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -40,13 +39,6 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 # Agent fan-out tracker (Rich Live table)
 # ---------------------------------------------------------------------------
-
-# Pattern: "Label... (provider/model)" — agent start message
-_AGENT_START_RE = re.compile(r"^(.+?)\.\.\. \((.+)\)$")
-# Pattern: "✓ Label (123.4s)" — agent completion message
-_AGENT_END_RE = re.compile(r"^✓ (.+?) \((\d+\.?\d*)s\)$")
-# Pattern: "Detail N/M complete" — detail fan-out progress
-_DETAIL_PROGRESS_RE = re.compile(r"^Detail (\d+)/(\d+) complete$")
 
 # Human-readable display names for workflow step identifiers.
 # Steps not in this map are displayed as title-cased with underscores removed.
@@ -230,6 +222,8 @@ async def render_workflow_events(
         verbosity: Verbosity level. 0 = normal, 1+ = verbose.
     """
     from maverick.events import (
+        AgentCompleted,
+        AgentStarted,
         AgentStreamChunk,
         CheckpointSaved,
         LoopIterationCompleted,
@@ -387,32 +381,24 @@ async def render_workflow_events(
                         markup=False,
                     )
 
+        elif isinstance(event, AgentStarted):
+            if _agent_tracker is None:
+                _stop_spinner()
+                _agent_tracker = _AgentTracker(console_obj, _current_step_name)
+            _agent_tracker.agent_started(event.agent_name, event.provider)
+
+        elif isinstance(event, AgentCompleted):
+            if _agent_tracker is not None:
+                _agent_tracker.agent_completed(event.agent_name, f"{event.duration_seconds:.1f}s")
+
         elif isinstance(event, StepOutput):
-            message = event.message
-
-            # Check for agent lifecycle messages → route to tracker
-            start_match = _AGENT_START_RE.match(message)
-            end_match = _AGENT_END_RE.match(message)
-
-            if start_match:
-                label, provider = start_match.groups()
-                if _agent_tracker is None:
-                    _stop_spinner()
-                    _agent_tracker = _AgentTracker(console_obj, _current_step_name)
-                _agent_tracker.agent_started(label, provider)
-
-            elif end_match and _agent_tracker is not None:
-                label, timing = end_match.groups()
-                _agent_tracker.agent_completed(label, f"{timing}s")
-
-            elif _agent_tracker is not None and _agent_tracker.active:
+            if _agent_tracker is not None and _agent_tracker.active:
                 # Non-agent message while tracker is active — buffer it
-                _agent_tracker.add_message(message)
-
+                _agent_tracker.add_message(event.message)
             else:
                 # Normal interim line
                 style = _level_styles.get(event.level, "[cyan]")
-                console_obj.print(f"  {style}∟[/] {message}")
+                console_obj.print(f"  {style}∟[/] {event.message}")
 
         elif isinstance(event, RollbackStarted):
             console_obj.print(f"[yellow]  ↩ Rolling back: {event.step_name}...[/]")

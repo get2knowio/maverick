@@ -480,11 +480,15 @@ class PythonWorkflow(ABC):
         provider = resolved.provider or self._resolve_display_provider() or "default"
         model = resolved.model_id or self._resolve_display_model() or "default"
 
-        # R4/R8: agent start
-        await self.emit_output(
-            emit_step,
-            f"{label}... ({provider}/{model})",
-            level="info",
+        # Emit typed agent-start event for Rich Live rendering
+        from maverick.events import AgentStarted
+
+        await self._event_queue.put(
+            AgentStarted(
+                step_name=emit_step,
+                agent_name=label,
+                provider=f"{provider}/{model}",
+            )
         )
 
         async def _event_cb(event: Any) -> None:
@@ -570,11 +574,15 @@ class PythonWorkflow(ABC):
                     step_name=step_name,
                 )
 
-        # R4: ✓ end
-        await self.emit_output(
-            emit_step,
-            f"\u2713 {label} ({elapsed:.1f}s)",
-            level="success",
+        # Emit typed agent-completed event
+        from maverick.events import AgentCompleted
+
+        await self._event_queue.put(
+            AgentCompleted(
+                step_name=emit_step,
+                agent_name=label,
+                duration_seconds=elapsed,
+            )
         )
         return result
 

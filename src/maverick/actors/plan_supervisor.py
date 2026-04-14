@@ -115,6 +115,7 @@ class PlanSupervisorActor(SupervisorEventBusMixin, Actor):
         self._briefs = {}
         self._briefing_markdown = ""
         self._flight_plan_data = {}
+        self._briefing_start_times: dict[str, float] = {}
 
         self.send(sender, {"type": "init_ok"})
 
@@ -124,18 +125,20 @@ class PlanSupervisorActor(SupervisorEventBusMixin, Actor):
 
     def _start_briefing(self):
         """Send briefing requests to 3 agents in parallel."""
+        import time as _time
+
         from maverick.agents.preflight_briefing.prompts import (
             build_preflight_briefing_prompt,
         )
 
         prompt = build_preflight_briefing_prompt(self._prd_content)
 
-        self._emit_output(
-            "plan",
-            "Dispatching briefing to 3 parallel agents (scopist, analyst, criteria)",
-            level="info",
-            source=_SOURCE,
-        )
+        self._briefing_start_times = {}
+
+        # Emit agent-started events for Rich Live display
+        for name in ("Scopist", "Codebase Analyst", "Criteria Writer"):
+            self._emit_agent_started("plan", name)
+            self._briefing_start_times[name] = _time.monotonic()
 
         # Fan-out: 3 messages sent, Thespian delivers to 3 separate
         # actor processes which run in parallel
@@ -148,45 +151,31 @@ class PlanSupervisorActor(SupervisorEventBusMixin, Actor):
     # ------------------------------------------------------------------
 
     def _handle_tool_call(self, tool, args):
+        import time as _time
+
         # Briefing results
         if tool == "submit_scope":
             self._briefs["scope"] = args
-            self._emit_output(
-                "plan",
-                "Scopist brief received",
-                level="success",
-                source=_SOURCE,
-            )
+            elapsed = _time.monotonic() - self._briefing_start_times.get("Scopist", 0)
+            self._emit_agent_completed("plan", "Scopist", elapsed)
             self._check_briefing_complete()
 
         elif tool == "submit_analysis":
             self._briefs["analysis"] = args
-            self._emit_output(
-                "plan",
-                "Codebase analyst brief received",
-                level="success",
-                source=_SOURCE,
-            )
+            elapsed = _time.monotonic() - self._briefing_start_times.get("Codebase Analyst", 0)
+            self._emit_agent_completed("plan", "Codebase Analyst", elapsed)
             self._check_briefing_complete()
 
         elif tool == "submit_criteria":
             self._briefs["criteria"] = args
-            self._emit_output(
-                "plan",
-                "Criteria writer brief received",
-                level="success",
-                source=_SOURCE,
-            )
+            elapsed = _time.monotonic() - self._briefing_start_times.get("Criteria Writer", 0)
+            self._emit_agent_completed("plan", "Criteria Writer", elapsed)
             self._check_briefing_complete()
 
         elif tool == "submit_challenge":
             self._briefs["challenge"] = args
-            self._emit_output(
-                "plan",
-                "Contrarian challenge received; synthesizing briefing",
-                level="success",
-                source=_SOURCE,
-            )
+            elapsed = _time.monotonic() - self._briefing_start_times.get("Contrarian", 0)
+            self._emit_agent_completed("plan", "Contrarian", elapsed)
             self._synthesize_and_generate()
 
         elif tool == "submit_flight_plan":
@@ -218,6 +207,11 @@ class PlanSupervisorActor(SupervisorEventBusMixin, Actor):
 
     def _send_to_contrarian(self):
         """All 3 briefs collected — send to contrarian."""
+        import time as _time
+
+        self._emit_agent_started("plan", "Contrarian")
+        self._briefing_start_times["Contrarian"] = _time.monotonic()
+
         # Build contrarian prompt manually since the briefs are raw
         # dicts (from MCP tool calls), not Pydantic models.
         scope_json = json.dumps(self._briefs.get("scope", {}), indent=2)

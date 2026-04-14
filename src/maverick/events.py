@@ -495,6 +495,55 @@ class StepOutput:
         return _event_to_dict(self)
 
 
+@dataclass(frozen=True, slots=True)
+class AgentStarted:
+    """Event emitted when an agent begins execution within a step.
+
+    Used by the CLI renderer to track concurrent agents in a Rich Live
+    table during fan-out phases (briefing, decompose detail).
+
+    Attributes:
+        step_name: Parent step (e.g., "briefing", "decompose").
+        agent_name: Display label (e.g., "Navigator", "Contrarian").
+        provider: Provider/model string (e.g., "claude/sonnet").
+        timestamp: Unix timestamp when agent started.
+    """
+
+    step_name: str
+    agent_name: str
+    provider: str = ""
+    timestamp: float = field(default_factory=time.time)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize to a JSON-compatible dictionary."""
+        return _event_to_dict(self)
+
+
+@dataclass(frozen=True, slots=True)
+class AgentCompleted:
+    """Event emitted when an agent finishes execution within a step.
+
+    Attributes:
+        step_name: Parent step (e.g., "briefing", "decompose").
+        agent_name: Display label matching the AgentStarted event.
+        duration_seconds: Wall-clock time in seconds.
+        success: Whether the agent completed without error.
+        error: Error message if the agent failed.
+        timestamp: Unix timestamp when agent completed.
+    """
+
+    step_name: str
+    agent_name: str
+    duration_seconds: float
+    success: bool = True
+    error: str | None = None
+    timestamp: float = field(default_factory=time.time)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize to a JSON-compatible dictionary."""
+        return _event_to_dict(self)
+
+
 # Type alias for all progress events
 ProgressEvent = (
     PreflightStarted
@@ -516,6 +565,8 @@ ProgressEvent = (
     | LoopIterationCompleted
     | LoopConditionChecked
     | AgentStreamChunk
+    | AgentStarted
+    | AgentCompleted
     | StepOutput
 )
 
@@ -548,6 +599,8 @@ _EVENT_CLASSES: dict[str, type] = {
     "LoopIterationCompleted": LoopIterationCompleted,
     "LoopConditionChecked": LoopConditionChecked,
     "AgentStreamChunk": AgentStreamChunk,
+    "AgentStarted": AgentStarted,
+    "AgentCompleted": AgentCompleted,
     "StepOutput": StepOutput,
 }
 
