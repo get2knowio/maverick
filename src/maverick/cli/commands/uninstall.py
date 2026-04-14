@@ -10,6 +10,7 @@ from pathlib import Path
 
 import click
 
+from maverick.cli.console import console, err_console
 from maverick.logging import get_logger
 
 logger = get_logger(__name__)
@@ -92,7 +93,7 @@ def _run_cleanup(
 
     # Check if there's anything to remove
     if not maverick_skills and not (remove_config and config_exists):
-        click.echo("Nothing to remove.")
+        console.print("Nothing to remove.")
         if verbose:
             logger.info(
                 "cleanup_nothing_to_do",
@@ -103,28 +104,28 @@ def _run_cleanup(
 
     # Show what will be removed
     if dry_run or not force:
-        click.echo("The following will be removed:")
-        click.echo()
+        console.print("[bold]The following will be removed:[/]")
+        console.print()
 
         if maverick_skills:
-            click.echo(f"Skills from {user_skills_dir}:")
+            console.print(f"Skills from [dim]{user_skills_dir}[/]:")
             for skill_dir in sorted(maverick_skills):
-                click.echo(f"  - {skill_dir.name}")
-            click.echo()
+                console.print(f"  - {skill_dir.name}")
+            console.print()
 
         if remove_config and config_exists:
-            click.echo("Configuration file:")
-            click.echo(f"  - {config_path}")
-            click.echo()
+            console.print("Configuration file:")
+            console.print(f"  - [dim]{config_path}[/]")
+            console.print()
 
     # Dry run: exit early
     if dry_run:
-        click.echo("[DRY RUN] No files were removed.")
+        console.print("[dim]\\[DRY RUN] No files were removed.[/]")
         return
 
     # Confirm if not forced
     if not force and not click.confirm("Do you want to proceed?"):
-        click.echo("Cleanup canceled.")
+        console.print("Cleanup canceled.")
         return
 
     # Remove skills
@@ -141,9 +142,8 @@ def _run_cleanup(
                 skill=skill_dir.name,
                 error=str(e),
             )
-            click.echo(
-                f"Warning: Failed to remove {skill_dir.name}: {e}",
-                err=True,
+            err_console.print(
+                f"[yellow]Warning:[/yellow] Failed to remove {skill_dir.name}: {e}",
             )
 
     # Remove config if requested
@@ -160,18 +160,17 @@ def _run_cleanup(
                 path=str(config_path),
                 error=str(e),
             )
-            click.echo(
-                f"Warning: Failed to remove {config_path}: {e}",
-                err=True,
+            err_console.print(
+                f"[yellow]Warning:[/yellow] Failed to remove {config_path}: {e}",
             )
 
     # Summary
-    click.echo()
-    click.echo("Cleanup complete:")
+    console.print()
+    console.print("[bold]Cleanup complete:[/]")
     if skills_removed > 0:
-        click.echo(f"  ✓ Removed {skills_removed} skill(s)")
+        console.print(f"  [green]✓[/] Removed {skills_removed} skill(s)")
     if config_removed:
-        click.echo("  ✓ Removed configuration file")
+        console.print("  [green]✓[/] Removed configuration file")
 
     if verbose:
         logger.info(

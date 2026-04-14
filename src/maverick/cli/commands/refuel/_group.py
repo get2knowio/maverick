@@ -108,15 +108,15 @@ async def refuel(
         CREATE_BEADS,
         WIRE_DEPS,
     ]
-    agent_steps = {BRIEFING: "agent (parallel)", DECOMPOSE: "agent"}
 
     if list_steps:
+        from maverick.cli.workflow_executor import _display_name
+
         console.print(f"[bold]Workflow: {WORKFLOW_NAME}[/]")
         console.print()
         console.print("[bold]Steps:[/]")
         for i, step_name in enumerate(steps, 1):
-            step_type = agent_steps.get(step_name, "python")
-            console.print(f"  {i}. {step_name} [dim]({step_type})[/]")
+            console.print(f"  {i}. {_display_name(step_name)}")
         console.print()
         raise SystemExit(ExitCode.SUCCESS)
 

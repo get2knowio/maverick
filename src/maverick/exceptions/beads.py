@@ -1,11 +1,9 @@
 """Bead-related exceptions.
 
-Exceptions for bead creation, dependency wiring, and SpecKit parsing.
+Exceptions for bead creation, dependency wiring, and bead operations.
 """
 
 from __future__ import annotations
-
-from pathlib import Path
 
 from maverick.exceptions.base import MaverickError
 
@@ -106,23 +104,4 @@ class BeadQueryError(BeadError):
             query: The query expression that failed.
         """
         self.query = query
-        super().__init__(message)
-
-
-class SpecKitParseError(BeadError):
-    """Failed to parse a SpecKit specification directory.
-
-    Attributes:
-        message: Human-readable error message.
-        spec_dir: Path to the spec directory that failed to parse.
-    """
-
-    def __init__(self, message: str, spec_dir: Path | str | None = None) -> None:
-        """Initialize the SpecKitParseError.
-
-        Args:
-            message: Human-readable error message.
-            spec_dir: Path to the spec directory that failed to parse.
-        """
-        self.spec_dir = spec_dir
         super().__init__(message)

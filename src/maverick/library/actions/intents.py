@@ -23,8 +23,6 @@ ACTION_INTENTS: dict[str, str] = {
     "sync_dependencies": (
         "Synchronize project dependencies by running the configured install command."
     ),
-    # Tasks
-    "get_phase_names": ("Extract phase names from a tasks.md file for workflow orchestration."),
     # Git
     "git_add": ("Stage specified files in the git index for the next commit."),
     "git_commit": ("Create a git commit with the specified message in the working directory."),
@@ -83,13 +81,6 @@ ACTION_INTENTS: dict[str, str] = {
     "review.generate_review_fix_report": (
         "Generate a summary report of the review-fix process with outcomes and metrics."
     ),
-    # Cleanup
-    "process_selected_issues": (
-        "Process user-selected GitHub issues for cleanup by applying fixes or closing."
-    ),
-    "generate_cleanup_summary": (
-        "Generate a summary of the cleanup workflow results and actions taken."
-    ),
     # Validation
     "run_fix_retry_loop": (
         "Run validation with fix retry loop until all checks pass or max attempts reached."
@@ -116,9 +107,6 @@ ACTION_INTENTS: dict[str, str] = {
     ),
     "verify_bead_completion": (
         "Verify that a bead's implementation satisfies its acceptance criteria."
-    ),
-    "enrich_bead_descriptions": (
-        "Enhance bead descriptions with additional context from spec files and codebase."
     ),
     # Dry-run
     "log_dry_run": (

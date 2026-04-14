@@ -112,12 +112,6 @@ class DecomposerAgent(MaverickAgent[str, dict[str, Any]]):
             max_tokens: Optional maximum output tokens.
             temperature: Optional sampling temperature 0.0-1.0.
         """
-        # Lazy import to avoid circular import chain:
-        # agents → workflows.__init__ → workflow → workflows.base
-        from maverick.workflows.refuel_maverick.models import (
-            DecompositionOutput,
-        )
-
         super().__init__(
             name="decomposer",
             instructions=DECOMPOSER_SYSTEM_PROMPT,
@@ -126,7 +120,6 @@ class DecomposerAgent(MaverickAgent[str, dict[str, Any]]):
             mcp_servers=mcp_servers,
             max_tokens=max_tokens,
             temperature=temperature,
-            output_model=DecompositionOutput,
         )
 
     def build_prompt(self, context: str) -> str:

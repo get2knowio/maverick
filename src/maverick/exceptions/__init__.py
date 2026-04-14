@@ -34,7 +34,6 @@ from maverick.exceptions.beads import (
     BeadCreationError,
     BeadDependencyError,
     BeadError,
-    SpecKitParseError,
 )
 
 # Configuration exceptions
@@ -140,7 +139,6 @@ __all__ = [
     "BeadCreationError",
     "BeadDependencyError",
     "BeadError",
-    "SpecKitParseError",
     # Agent
     "AgentError",
     "AgentNotFoundError",

@@ -20,12 +20,6 @@ from maverick.agents.briefing.structuralist import (
     StructuralistAgent,
 )
 from maverick.agents.tools import PLANNER_TOOLS
-from maverick.briefing.models import (
-    ContrarianBrief,
-    NavigatorBrief,
-    ReconBrief,
-    StructuralistBrief,
-)
 
 
 class TestNavigatorAgent:
@@ -47,12 +41,6 @@ class TestNavigatorAgent:
     def test_tools_are_valid_builtins(self) -> None:
         agent = NavigatorAgent()
         assert set(agent.allowed_tools).issubset(BUILTIN_TOOLS)
-
-    def test_output_model(self) -> None:
-        agent = NavigatorAgent()
-        assert agent._output_model is NavigatorBrief
-        assert agent._output_format is not None
-        assert agent._output_format["type"] == "json_schema"
 
     def test_build_prompt_passthrough(self) -> None:
         agent = NavigatorAgent()
@@ -79,12 +67,6 @@ class TestStructuralistAgent:
         agent = StructuralistAgent()
         assert set(agent.allowed_tools).issubset(BUILTIN_TOOLS)
 
-    def test_output_model(self) -> None:
-        agent = StructuralistAgent()
-        assert agent._output_model is StructuralistBrief
-        assert agent._output_format is not None
-        assert agent._output_format["type"] == "json_schema"
-
     def test_build_prompt_passthrough(self) -> None:
         agent = StructuralistAgent()
         assert agent.build_prompt("test") == "test"
@@ -106,12 +88,6 @@ class TestReconAgent:
         agent = ReconAgent()
         assert set(agent.allowed_tools).issubset(BUILTIN_TOOLS)
 
-    def test_output_model(self) -> None:
-        agent = ReconAgent()
-        assert agent._output_model is ReconBrief
-        assert agent._output_format is not None
-        assert agent._output_format["type"] == "json_schema"
-
     def test_build_prompt_passthrough(self) -> None:
         agent = ReconAgent()
         assert agent.build_prompt("prompt") == "prompt"
@@ -132,12 +108,6 @@ class TestContrarianAgent:
     def test_tools_are_valid_builtins(self) -> None:
         agent = ContrarianAgent()
         assert set(agent.allowed_tools).issubset(BUILTIN_TOOLS)
-
-    def test_output_model(self) -> None:
-        agent = ContrarianAgent()
-        assert agent._output_model is ContrarianBrief
-        assert agent._output_format is not None
-        assert agent._output_format["type"] == "json_schema"
 
     def test_build_prompt_passthrough(self) -> None:
         agent = ContrarianAgent()

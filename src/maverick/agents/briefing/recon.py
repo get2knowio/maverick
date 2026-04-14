@@ -11,7 +11,6 @@ from maverick.agents.prompts.common import (
     TOOL_USAGE_READ,
 )
 from maverick.agents.tools import PLANNER_TOOLS
-from maverick.briefing.models import ReconBrief
 
 RECON_SYSTEM_PROMPT = f"""You are a risk analyst and testing strategist.
 
@@ -85,7 +84,6 @@ class ReconAgent(MaverickAgent[str, dict[str, Any]]):
             mcp_servers=mcp_servers,
             max_tokens=max_tokens,
             temperature=temperature,
-            output_model=ReconBrief,
         )
 
     def build_prompt(self, context: str) -> str:

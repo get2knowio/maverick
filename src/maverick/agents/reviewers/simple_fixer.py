@@ -181,10 +181,6 @@ class ReviewFixerAgent(MaverickAgent[dict[str, Any], list[FixOutcome]]):
         # Add Task tool for spawning subagents
         tools = list(ISSUE_FIXER_TOOLS) + ["Task"]
 
-        # output_model is intentionally NOT set here: the agent uses a wrapper
-        # model (_FixOutcomesWrapper) that doesn't match the actual return type
-        # (list[FixOutcome]), and the validate_output fallback in parse_outcomes
-        # handles extraction and per-item graceful degradation.
         super().__init__(
             name="simple-fixer",
             instructions=SIMPLE_FIXER_PROMPT,

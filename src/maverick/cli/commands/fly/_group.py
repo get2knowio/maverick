@@ -14,6 +14,7 @@ from maverick.cli.console import console
 from maverick.cli.context import ExitCode, async_command
 from maverick.cli.workflow_executor import (
     PythonWorkflowRunConfig,
+    _display_name,
     execute_python_workflow,
 )
 from maverick.workflows.fly_beads import FlyBeadsWorkflow
@@ -139,7 +140,7 @@ async def fly(
         console.print()
         console.print("[bold]Steps:[/]")
         for i, step_name in enumerate(_FLY_BEADS_STEPS, 1):
-            console.print(f"  {i}. {step_name} [dim](python)[/]")
+            console.print(f"  {i}. {_display_name(step_name)}")
         console.print()
         raise SystemExit(ExitCode.SUCCESS)
 

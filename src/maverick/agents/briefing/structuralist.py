@@ -11,7 +11,6 @@ from maverick.agents.prompts.common import (
     TOOL_USAGE_READ,
 )
 from maverick.agents.tools import PLANNER_TOOLS
-from maverick.briefing.models import StructuralistBrief
 
 STRUCTURALIST_SYSTEM_PROMPT = f"""You are a data modeling and type design specialist.
 
@@ -76,7 +75,6 @@ class StructuralistAgent(MaverickAgent[str, dict[str, Any]]):
             mcp_servers=mcp_servers,
             max_tokens=max_tokens,
             temperature=temperature,
-            output_model=StructuralistBrief,
         )
 
     def build_prompt(self, context: str) -> str:

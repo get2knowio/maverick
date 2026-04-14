@@ -19,7 +19,6 @@ from maverick.agents.fixer import (
 )
 from maverick.agents.tools import AUTONOMOUS_FIXER_TOOLS
 from maverick.config import MaverickConfig
-from maverick.models.fixer import FixerResult
 
 # =============================================================================
 # Fixtures
@@ -92,10 +91,6 @@ class TestFixerAgentInitialization:
         mcp_config = {"server1": {"command": "test"}}
         agent = FixerAgent(mcp_servers=mcp_config)
         assert agent.mcp_servers == mcp_config
-
-    def test_output_model_set(self, agent: FixerAgent) -> None:
-        """Test output_model is set to FixerResult."""
-        assert agent._output_model is FixerResult
 
 
 # =============================================================================

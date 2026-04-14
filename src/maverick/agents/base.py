@@ -9,8 +9,6 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Any, Generic, TypeVar
 
-from pydantic import BaseModel
-
 from maverick.constants import DEFAULT_MODEL
 
 __all__ = [
@@ -106,7 +104,6 @@ class MaverickAgent(ABC, Generic[TContext, TResult]):
         mcp_servers: dict[str, Any] | None = None,
         max_tokens: int | None = None,
         temperature: float | None = None,
-        output_model: type[BaseModel] | None = None,
     ) -> None:
         """Initialize the MaverickAgent.
 
@@ -122,9 +119,6 @@ class MaverickAgent(ABC, Generic[TContext, TResult]):
             mcp_servers: Optional MCP server configurations.
             max_tokens: Optional maximum output tokens (default used if None).
             temperature: Optional sampling temperature 0.0-1.0 (default).
-            output_model: Optional Pydantic model class for structured
-                output enforcement. When set, the executor constrains the
-                agent's final output to conform to the model's JSON schema.
 
         Raises:
             InvalidToolError: If any tool in allowed_tools is unknown.
@@ -136,15 +130,6 @@ class MaverickAgent(ABC, Generic[TContext, TResult]):
         self._mcp_servers = mcp_servers or {}
         self._max_tokens = max_tokens
         self._temperature = temperature
-        self._output_model = output_model
-        self._output_format: dict[str, Any] | None = (
-            {
-                "type": "json_schema",
-                "schema": output_model.model_json_schema(),
-            }
-            if output_model is not None
-            else None
-        )
 
         # Validate tools at construction time (FR-002)
         self._validate_tools(self._allowed_tools, self._mcp_servers)

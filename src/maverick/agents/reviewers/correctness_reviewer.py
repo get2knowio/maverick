@@ -222,7 +222,6 @@ class CorrectnessReviewerAgent(MaverickAgent[dict[str, Any], GroupedReviewResult
             model=model,
             max_tokens=max_tokens,
             temperature=temperature,
-            output_model=GroupedReviewResult,
         )
         self._feature_name = feature_name
 

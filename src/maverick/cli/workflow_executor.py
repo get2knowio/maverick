@@ -76,13 +76,6 @@ _STEP_DISPLAY_NAMES: dict[str, str] = {
     "spec_compliance": "Spec compliance",
     "commit": "Committing",
     "record_runway": "Recording runway metrics",
-    # refuel speckit
-    "checkout": "Checking out branch",
-    "checkout_main": "Checking out main",
-    "parse_spec": "Parsing specification",
-    "extract_deps": "Extracting dependencies",
-    "enrich_beads": "Enriching bead descriptions",
-    "merge": "Merging",
     # briefing sub-agents
     "briefing_navigator": "Briefing: Navigator",
     "briefing_structuralist": "Briefing: Structuralist",

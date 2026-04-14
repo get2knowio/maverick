@@ -6,14 +6,8 @@ from __future__ import annotations
 PARSE_FLIGHT_PLAN = "parse_flight_plan"
 GATHER_CONTEXT = "gather_context"
 BRIEFING = "briefing"
-BRIEFING_NAVIGATOR = "briefing_navigator"
-BRIEFING_STRUCTURALIST = "briefing_structuralist"
-BRIEFING_RECON = "briefing_recon"
-BRIEFING_CONTRARIAN = "briefing_contrarian"
 DERIVE_VERIFICATION = "derive_verification"
 DECOMPOSE = "decompose"
-DECOMPOSE_OUTLINE = "decompose_outline"
-DECOMPOSE_DETAIL = "decompose_detail"
 
 #: Maximum work units per detail batch to stay within output token limits.
 #: 10 balances token budget against the number of sequential agent calls

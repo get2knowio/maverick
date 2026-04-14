@@ -13,8 +13,6 @@ EXPECTED_STEPS = {
     "commit_message": (OverridePolicy.REPLACE, False),
     "pr_description": (OverridePolicy.REPLACE, False),
     "pr_title": (OverridePolicy.REPLACE, False),
-    "dependency_extract": (OverridePolicy.REPLACE, False),
-    "bead_enrich": (OverridePolicy.REPLACE, False),
 }
 
 
@@ -69,4 +67,4 @@ class TestBuildDefaultRegistry:
         from maverick.prompts.defaults import build_default_registry
 
         registry = build_default_registry()
-        assert len(registry.step_names()) == 10
+        assert len(registry.step_names()) == 8

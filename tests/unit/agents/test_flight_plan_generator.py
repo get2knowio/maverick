@@ -36,17 +36,6 @@ class TestFlightPlanGeneratorAgentInit:
         agent = FlightPlanGeneratorAgent()
         assert set(agent.allowed_tools).issubset(BUILTIN_TOOLS)
 
-    def test_output_model_is_flight_plan_output(self) -> None:
-        """Agent sets output_model for SDK structured output."""
-        from maverick.workflows.generate_flight_plan.models import (
-            FlightPlanOutput,
-        )
-
-        agent = FlightPlanGeneratorAgent()
-        assert agent._output_model is FlightPlanOutput
-        assert agent._output_format is not None
-        assert agent._output_format["type"] == "json_schema"
-
     def test_custom_model(self) -> None:
         """Agent accepts a custom model."""
         agent = FlightPlanGeneratorAgent(model="claude-sonnet-4-5-20250929")
@@ -85,15 +74,3 @@ class TestDecomposerAgentInit:
 
         agent = DecomposerAgent()
         assert set(agent.allowed_tools).issubset(BUILTIN_TOOLS)
-
-    def test_output_model_is_decomposition_output(self) -> None:
-        """Agent sets output_model for SDK structured output."""
-        from maverick.agents.decomposer import DecomposerAgent
-        from maverick.workflows.refuel_maverick.models import (
-            DecompositionOutput,
-        )
-
-        agent = DecomposerAgent()
-        assert agent._output_model is DecompositionOutput
-        assert agent._output_format is not None
-        assert agent._output_format["type"] == "json_schema"

@@ -24,10 +24,8 @@ from maverick.agents.generators.base import (
     MAX_TURNS,
     GeneratorAgent,
 )
-from maverick.agents.generators.bead_enricher import BeadEnricherGenerator
 from maverick.agents.generators.commit_message import CommitMessageGenerator
 from maverick.agents.generators.consolidator import ConsolidatorAgent
-from maverick.agents.generators.dependency_extractor import DependencyExtractor
 from maverick.agents.generators.pr_description import PRDescriptionGenerator
 from maverick.agents.generators.pr_title import PRTitleGenerator
 
@@ -35,10 +33,8 @@ __all__ = [
     # Base class
     "GeneratorAgent",
     # Concrete generators
-    "BeadEnricherGenerator",
     "CommitMessageGenerator",
     "ConsolidatorAgent",
-    "DependencyExtractor",
     "PRDescriptionGenerator",
     "PRTitleGenerator",
     # Constants

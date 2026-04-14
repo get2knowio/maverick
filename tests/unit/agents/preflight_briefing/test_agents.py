@@ -42,11 +42,6 @@ class TestScopistAgent:
         agent = ScopistAgent()
         assert set(agent.allowed_tools).issubset(BUILTIN_TOOLS)
 
-    def test_no_output_model(self) -> None:
-        """Agents use MCP tools, not output_schema."""
-        agent = ScopistAgent()
-        assert agent._output_model is None
-
     def test_build_prompt_passthrough(self) -> None:
         agent = ScopistAgent()
         assert agent.build_prompt("hello") == "hello"
@@ -72,10 +67,6 @@ class TestCodebaseAnalystAgent:
         agent = CodebaseAnalystAgent()
         assert set(agent.allowed_tools).issubset(BUILTIN_TOOLS)
 
-    def test_no_output_model(self) -> None:
-        agent = CodebaseAnalystAgent()
-        assert agent._output_model is None
-
     def test_build_prompt_passthrough(self) -> None:
         agent = CodebaseAnalystAgent()
         assert agent.build_prompt("test") == "test"
@@ -97,10 +88,6 @@ class TestCriteriaWriterAgent:
         agent = CriteriaWriterAgent()
         assert set(agent.allowed_tools).issubset(BUILTIN_TOOLS)
 
-    def test_no_output_model(self) -> None:
-        agent = CriteriaWriterAgent()
-        assert agent._output_model is None
-
     def test_build_prompt_passthrough(self) -> None:
         agent = CriteriaWriterAgent()
         assert agent.build_prompt("prompt") == "prompt"
@@ -121,10 +108,6 @@ class TestPreFlightContrarianAgent:
     def test_tools_are_valid_builtins(self) -> None:
         agent = PreFlightContrarianAgent()
         assert set(agent.allowed_tools).issubset(BUILTIN_TOOLS)
-
-    def test_no_output_model(self) -> None:
-        agent = PreFlightContrarianAgent()
-        assert agent._output_model is None
 
     def test_build_prompt_passthrough(self) -> None:
         agent = PreFlightContrarianAgent()

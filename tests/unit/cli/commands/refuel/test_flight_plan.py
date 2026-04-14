@@ -52,30 +52,20 @@ class TestRefuelFromPlan:
         self,
         cli_runner: CliRunner,
     ) -> None:
-        """--list-steps prints workflow step names and exits with code 0."""
-        from maverick.workflows.refuel_maverick.constants import (
-            CREATE_BEADS,
-            DECOMPOSE,
-            GATHER_CONTEXT,
-            PARSE_FLIGHT_PLAN,
-            VALIDATE,
-            WIRE_DEPS,
-            WRITE_WORK_UNITS,
-        )
-
+        """--list-steps prints workflow step display names and exits with code 0."""
         result = cli_runner.invoke(
             cli,
             ["refuel", "my-feature", "--list-steps"],
         )
 
         assert result.exit_code == 0
-        assert PARSE_FLIGHT_PLAN in result.output
-        assert GATHER_CONTEXT in result.output
-        assert DECOMPOSE in result.output
-        assert VALIDATE in result.output
-        assert WRITE_WORK_UNITS in result.output
-        assert CREATE_BEADS in result.output
-        assert WIRE_DEPS in result.output
+        assert "Parsing flight plan" in result.output
+        assert "Gathering context" in result.output
+        assert "Decomposing" in result.output
+        assert "Validating" in result.output
+        assert "Writing work units" in result.output
+        assert "Creating beads" in result.output
+        assert "Wiring dependencies" in result.output
 
     @patch(_PATCH_EXECUTE, new_callable=AsyncMock)
     def test_delegates_to_refuel_maverick_workflow(

@@ -24,12 +24,8 @@ def build_default_registry() -> PromptRegistry:
     # Lazy imports to avoid circular dependencies
     from maverick.agents.curator import SYSTEM_PROMPT as CURATOR_SYSTEM_PROMPT
     from maverick.agents.fixer import FIXER_SYSTEM_PROMPT
-    from maverick.agents.generators.bead_enricher import BEAD_ENRICHER_SYSTEM_PROMPT
     from maverick.agents.generators.commit_message import (
         COMMIT_MESSAGE_SYSTEM_PROMPT,
-    )
-    from maverick.agents.generators.dependency_extractor import (
-        DEPENDENCY_EXTRACTOR_SYSTEM_PROMPT,
     )
     from maverick.agents.generators.pr_description import PRDescriptionGenerator
     from maverick.agents.generators.pr_title import PR_TITLE_SYSTEM_PROMPT
@@ -77,14 +73,6 @@ def build_default_registry() -> PromptRegistry:
         ),
         ("pr_title", GENERIC_PROVIDER): PromptEntry(
             text=PR_TITLE_SYSTEM_PROMPT,
-            policy=OverridePolicy.REPLACE,
-        ),
-        ("dependency_extract", GENERIC_PROVIDER): PromptEntry(
-            text=DEPENDENCY_EXTRACTOR_SYSTEM_PROMPT,
-            policy=OverridePolicy.REPLACE,
-        ),
-        ("bead_enrich", GENERIC_PROVIDER): PromptEntry(
-            text=BEAD_ENRICHER_SYSTEM_PROMPT,
             policy=OverridePolicy.REPLACE,
         ),
     }

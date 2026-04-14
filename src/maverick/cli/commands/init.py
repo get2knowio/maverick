@@ -23,7 +23,6 @@ from maverick.init import (
     run_init,
 )
 from maverick.init.provider_discovery import ProviderDiscoveryResult
-from maverick.logging import get_logger
 
 # Exit code for config exists (per CLI contract)
 CONFIG_EXISTS_EXIT_CODE = 2
@@ -97,7 +96,7 @@ def _format_provider_output(
         lines.append(f"  {symbol} {probe.display_name} ({probe.binary}){suffix}")
 
     if not discovery.found_providers:
-        lines.append("  [yellow]⚠[/] No ACP providers found on PATH.")
+        lines.append("  [yellow]Warning:[/yellow] No ACP providers found on PATH.")
 
     lines.append("")
     return lines
@@ -248,8 +247,6 @@ async def init(
 
         maverick init -v
     """
-    _logger = get_logger(__name__)  # noqa: F841 - Reserved for future use
-
     console.print("[bold cyan]Maverick Init[/]")
     console.print()
 

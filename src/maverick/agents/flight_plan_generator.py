@@ -138,12 +138,6 @@ class FlightPlanGeneratorAgent(MaverickAgent[str, dict[str, Any]]):
             max_tokens: Optional maximum output tokens.
             temperature: Optional sampling temperature 0.0-1.0.
         """
-        # Lazy import to avoid circular import chain:
-        # agents → workflows.__init__ → workflow → workflows.base
-        from maverick.workflows.generate_flight_plan.models import (
-            FlightPlanOutput,
-        )
-
         super().__init__(
             name="flight_plan_generator",
             instructions=FLIGHT_PLAN_GENERATOR_SYSTEM_PROMPT,
@@ -152,7 +146,6 @@ class FlightPlanGeneratorAgent(MaverickAgent[str, dict[str, Any]]):
             mcp_servers=mcp_servers,
             max_tokens=max_tokens,
             temperature=temperature,
-            output_model=FlightPlanOutput,
         )
 
     def build_prompt(self, context: str) -> str:

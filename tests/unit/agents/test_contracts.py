@@ -427,11 +427,3 @@ class TestContractsModuleReExports:
             "ReviewResult",
         }
         assert set(contracts_mod.__all__) == expected
-
-    def test_agents_with_output_model_set(self) -> None:
-        """Agents that parse output from Claude have output_model wired."""
-        from maverick.agents.fixer import FixerAgent
-
-        fixer = FixerAgent()
-        assert fixer._output_model is not None
-        assert fixer._output_model.__name__ == "FixerResult"

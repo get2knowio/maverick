@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import click
 
+from maverick.cli.console import err_console
+from maverick.cli.context import ExitCode
 from maverick.logging import get_logger
 
 logger = get_logger(__name__)
@@ -48,12 +50,11 @@ def serve_inbox(tools: str, admin_port: int) -> None:
     if not _server_module._active_tools:
         from maverick.tools.supervisor_inbox.schemas import ALL_TOOL_SCHEMAS
 
-        click.echo(
-            f"Error: no valid tools in '{tools}'. "
-            f"Available: {', '.join(sorted(ALL_TOOL_SCHEMAS))}",
-            err=True,
+        err_console.print(
+            f"[red]Error:[/red] no valid tools in '{tools}'. "
+            f"Available: {', '.join(sorted(ALL_TOOL_SCHEMAS))}"
         )
-        raise SystemExit(1)
+        raise SystemExit(ExitCode.FAILURE)
 
     # Connect to existing Thespian ActorSystem on the specified port
     from thespian.actors import ActorSystem

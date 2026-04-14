@@ -11,7 +11,6 @@ from maverick.agents.prompts.common import (
     TOOL_USAGE_READ,
 )
 from maverick.agents.tools import PLANNER_TOOLS
-from maverick.briefing.models import ContrarianBrief
 
 CONTRARIAN_SYSTEM_PROMPT = f"""You are a devil's advocate and simplification expert.
 
@@ -79,7 +78,6 @@ class ContrarianAgent(MaverickAgent[str, dict[str, Any]]):
             mcp_servers=mcp_servers,
             max_tokens=max_tokens,
             temperature=temperature,
-            output_model=ContrarianBrief,
         )
 
     def build_prompt(self, context: str) -> str:

@@ -4,8 +4,7 @@ import contextlib
 from collections.abc import Generator
 from typing import TYPE_CHECKING
 
-import click
-
+from maverick.cli.console import err_console
 from maverick.cli.context import ExitCode
 from maverick.cli.output import format_error
 from maverick.exceptions import AgentError, GitError, MaverickError
@@ -39,26 +38,26 @@ def cli_error_handler() -> Generator[None, None, None]:
     try:
         yield
     except KeyboardInterrupt:
-        click.echo("\n\nInterrupted by user.", err=True)
+        err_console.print("\n\n[yellow]Interrupted by user.[/]")
         raise SystemExit(ExitCode.INTERRUPTED) from None
     except GitError as e:
         error_msg = format_error(
             e.message,
             details=[f"Operation: {e.operation}"] if e.operation else None,
         )
-        click.echo(error_msg, err=True)
+        err_console.print(f"[red]Error:[/red] {error_msg}")
         raise SystemExit(ExitCode.FAILURE) from e
     except AgentError as e:
         error_msg = format_error(e.message)
-        click.echo(error_msg, err=True)
+        err_console.print(f"[red]Error:[/red] {error_msg}")
         raise SystemExit(ExitCode.FAILURE) from e
     except MaverickError as e:
         error_msg = format_error(e.message)
-        click.echo(error_msg, err=True)
+        err_console.print(f"[red]Error:[/red] {error_msg}")
         raise SystemExit(ExitCode.FAILURE) from e
     except Exception as e:
         logger.exception("Unexpected error in command")
-        click.echo(f"Error: {e!s}", err=True)
+        err_console.print(f"[red]Error:[/red] {e!s}")
         raise SystemExit(ExitCode.FAILURE) from e
 
 

@@ -138,7 +138,6 @@ class FixerAgent(MaverickAgent[AgentContext, FixerResult]):
             mcp_servers=mcp_servers,
             max_tokens=max_tokens,
             temperature=temperature,
-            output_model=FixerResult,
         )
 
     def build_prompt(self, context: AgentContext | dict[str, Any]) -> str:

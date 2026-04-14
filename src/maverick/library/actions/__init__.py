@@ -10,7 +10,6 @@ Actions are organized by domain:
 - github: GitHub operations (issues, PRs)
 - validation: Validation and fix operations
 - review: Code review operations
-- cleanup: Cleanup workflow-specific operations
 - dry_run: Dry-run mode support
 """
 
@@ -27,15 +26,10 @@ from maverick.library.actions.beads import (
     create_beads,
     create_beads_from_failures,
     create_beads_from_findings,
-    enrich_bead_descriptions,
     mark_bead_complete,
     select_next_bead,
     verify_bead_completion,
     wire_dependencies,
-)
-from maverick.library.actions.cleanup import (
-    generate_cleanup_summary,
-    process_selected_issues,
 )
 from maverick.library.actions.dependencies import sync_dependencies
 from maverick.library.actions.dry_run import log_dry_run
@@ -74,7 +68,6 @@ from maverick.library.actions.review import (
     generate_review_fix_report,
     run_review_fix_loop,
 )
-from maverick.library.actions.tasks import get_phase_names
 from maverick.library.actions.validation import (
     generate_validation_report,
     log_message,
@@ -92,7 +85,6 @@ __all__ = [
     "create_beads_from_failures",
     "create_beads_from_findings",
     "verify_bead_completion",
-    "enrich_bead_descriptions",
     # Preflight actions
     "run_preflight_checks",
     # Workspace actions
@@ -100,8 +92,6 @@ __all__ = [
     "create_fly_workspace",
     # Dependency actions
     "sync_dependencies",
-    # Task actions
-    "get_phase_names",
     # Git actions
     "git_add",
     "git_commit",
@@ -132,9 +122,6 @@ __all__ = [
     "analyze_review_findings",
     "run_review_fix_loop",
     "generate_review_fix_report",
-    # Cleanup actions
-    "process_selected_issues",
-    "generate_cleanup_summary",
     # Validation actions
     "run_fix_retry_loop",
     "generate_validation_report",
@@ -174,9 +161,6 @@ def register_all_actions(registry: ComponentRegistry) -> None:
 
     # Dependency actions (no requires - command availability is best-effort)
     registry.actions.register("sync_dependencies", sync_dependencies)
-
-    # Task actions (no external deps)
-    registry.actions.register("get_phase_names", get_phase_names)
 
     # Git actions - require git CLI and repository
     registry.actions.register(
@@ -308,14 +292,6 @@ def register_all_actions(registry: ComponentRegistry) -> None:
     registry.actions.register("review.run_review_fix_loop", run_review_fix_loop)
     registry.actions.register("review.generate_review_fix_report", generate_review_fix_report)
 
-    # Cleanup actions - work with GitHub issues
-    registry.actions.register(
-        "process_selected_issues",
-        process_selected_issues,
-        requires=("gh", "gh_auth"),
-    )
-    registry.actions.register("generate_cleanup_summary", generate_cleanup_summary)
-
     # Validation actions (no external deps - uses configured commands)
     registry.actions.register("run_fix_retry_loop", run_fix_retry_loop)
     registry.actions.register("generate_validation_report", generate_validation_report)
@@ -334,7 +310,6 @@ def register_all_actions(registry: ComponentRegistry) -> None:
         "create_beads_from_findings", create_beads_from_findings, requires=("bd",)
     )
     registry.actions.register("verify_bead_completion", verify_bead_completion)
-    registry.actions.register("enrich_bead_descriptions", enrich_bead_descriptions)
 
     # Dry-run actions (no external deps)
     registry.actions.register("log_dry_run", log_dry_run)
