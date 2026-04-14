@@ -207,7 +207,6 @@ class RefuelMaverickWorkflow(PythonWorkflow):
         # Step 2.6: Analyze open beads for cross-plan context (non-fatal)
         # ------------------------------------------------------------------
         open_bead_result: OpenBeadAnalysisResult | None = None
-        suggested_deps: tuple[str, ...] = ()
 
         if not skip_briefing:
             await self.emit_step_started(ANALYZE_OPEN_BEADS)
@@ -342,123 +341,14 @@ class RefuelMaverickWorkflow(PythonWorkflow):
 
         briefing_doc = None
         briefing_path_str: str | None = None
+        suggested_deps: tuple[str, ...] = ()
 
         if not skip_briefing:
-            from maverick.agents.briefing.prompts import (
-                build_briefing_prompt,
-                build_contrarian_prompt,
-            )
-
-            await self.emit_step_started(BRIEFING, step_type=StepType.AGENT)
-
-            briefing_prompt = build_briefing_prompt(
-                raw_content,
-                codebase_context,
-                open_bead_context=open_bead_result,
-            )
-
-            try:
-                # Parallel: Navigator + Structuralist + Recon
-                nav_result, struct_result, recon_result = await asyncio.gather(
-                    self.execute_agent(
-                        step_name=BRIEFING_NAVIGATOR,
-                        agent_name="navigator",
-                        label="Navigator",
-                        prompt=briefing_prompt,
-                        output_schema=NavigatorBrief,
-                        parent_step=BRIEFING,
-                    ),
-                    self.execute_agent(
-                        step_name=BRIEFING_STRUCTURALIST,
-                        agent_name="structuralist",
-                        label="Structuralist",
-                        prompt=briefing_prompt,
-                        output_schema=StructuralistBrief,
-                        parent_step=BRIEFING,
-                    ),
-                    self.execute_agent(
-                        step_name=BRIEFING_RECON,
-                        agent_name="recon",
-                        label="Recon",
-                        prompt=briefing_prompt,
-                        output_schema=ReconBrief,
-                        parent_step=BRIEFING,
-                    ),
-                )
-
-                if not nav_result.output or not struct_result.output or not recon_result.output:
-                    raise WorkflowError("One or more briefing agents returned no output")
-
-                # Sequential: Contrarian reviews all 3
-                contrarian_prompt = build_contrarian_prompt(
-                    raw_content,
-                    nav_result.output,
-                    struct_result.output,
-                    recon_result.output,
-                )
-                contrarian_result = await self.execute_agent(
-                    step_name=BRIEFING_CONTRARIAN,
-                    agent_name="contrarian",
-                    label="Contrarian",
-                    prompt=contrarian_prompt,
-                    output_schema=ContrarianBrief,
-                    parent_step=BRIEFING,
-                )
-
-                if not contrarian_result.output:
-                    raise WorkflowError("Contrarian agent returned no output")
-
-                # Synthesize (deterministic)
-                briefing_doc = synthesize_briefing(
-                    flight_plan.name,
-                    nav_result.output,
-                    struct_result.output,
-                    recon_result.output,
-                    contrarian_result.output,
-                )
-
-                # Write to disk (colocated with flight plan and work units)
-                plan_dir = Path.cwd() / ".maverick" / "plans" / flight_plan.name
-                await asyncio.to_thread(plan_dir.mkdir, parents=True, exist_ok=True)
-                briefing_path = plan_dir / "refuel-briefing.md"
-                await asyncio.to_thread(
-                    briefing_path.write_text,
-                    serialize_briefing(briefing_doc),
-                    "utf-8",
-                )
-                briefing_path_str = str(briefing_path)
-
-            except Exception as exc:
-                await self.emit_step_failed(BRIEFING, str(exc))
-                raise
-
-            # Extract cross-plan dependency suggestions from recon
-            recon_out = recon_result.output
-            if recon_out and recon_out.suggested_cross_plan_dependencies:
-                suggested_deps = recon_out.suggested_cross_plan_dependencies
-                # Remove self-reference
-                suggested_deps = tuple(d for d in suggested_deps if d != flight_plan.name)
-                if suggested_deps:
-                    await self.emit_output(
-                        BRIEFING,
-                        f"Recon suggested {len(suggested_deps)} cross-plan "
-                        f"dependencies: {', '.join(suggested_deps)}",
-                    )
-
-            await self.emit_output(
-                BRIEFING,
-                f"Briefing complete: {len(briefing_doc.key_decisions)} decisions, "
-                f"{len(briefing_doc.key_risks)} risks, "
-                f"{len(briefing_doc.open_questions)} open questions",
-            )
-            await self.emit_step_completed(
-                BRIEFING,
-                output={
-                    "key_decisions": list(briefing_doc.key_decisions),
-                    "key_risks": list(briefing_doc.key_risks),
-                    "open_questions": list(briefing_doc.open_questions),
-                    "briefing_path": briefing_path_str,
-                },
+            briefing_doc, briefing_path_str, suggested_deps = await self._run_briefing(
+                flight_plan=flight_plan,
+                raw_content=raw_content,
+                codebase_context=codebase_context,
+                open_bead_result=open_bead_result,
             )
 
         # ------------------------------------------------------------------
@@ -794,6 +684,134 @@ class RefuelMaverickWorkflow(PythonWorkflow):
         )
         return result.to_dict()
 
+    async def _run_briefing(
+        self,
+        *,
+        flight_plan: Any,
+        raw_content: str,
+        codebase_context: Any,
+        open_bead_result: Any,
+    ) -> tuple[Any, str | None, tuple[str, ...]]:
+        """Run the briefing room agents (Navigator, Structuralist, Recon, Contrarian).
+
+        Returns:
+            Tuple of (briefing_doc, briefing_path, suggested_cross_plan_deps).
+        """
+        from maverick.agents.briefing.prompts import (
+            build_briefing_prompt,
+            build_contrarian_prompt,
+        )
+
+        await self.emit_step_started(BRIEFING, step_type=StepType.AGENT)
+
+        briefing_prompt = build_briefing_prompt(
+            raw_content,
+            codebase_context,
+            open_bead_context=open_bead_result,
+        )
+
+        try:
+            nav_result, struct_result, recon_result = await asyncio.gather(
+                self.execute_agent(
+                    step_name=BRIEFING_NAVIGATOR,
+                    agent_name="navigator",
+                    label="Navigator",
+                    prompt=briefing_prompt,
+                    output_schema=NavigatorBrief,
+                    parent_step=BRIEFING,
+                ),
+                self.execute_agent(
+                    step_name=BRIEFING_STRUCTURALIST,
+                    agent_name="structuralist",
+                    label="Structuralist",
+                    prompt=briefing_prompt,
+                    output_schema=StructuralistBrief,
+                    parent_step=BRIEFING,
+                ),
+                self.execute_agent(
+                    step_name=BRIEFING_RECON,
+                    agent_name="recon",
+                    label="Recon",
+                    prompt=briefing_prompt,
+                    output_schema=ReconBrief,
+                    parent_step=BRIEFING,
+                ),
+            )
+
+            if not nav_result.output or not struct_result.output or not recon_result.output:
+                raise WorkflowError("One or more briefing agents returned no output")
+
+            contrarian_prompt = build_contrarian_prompt(
+                raw_content,
+                nav_result.output,
+                struct_result.output,
+                recon_result.output,
+            )
+            contrarian_result = await self.execute_agent(
+                step_name=BRIEFING_CONTRARIAN,
+                agent_name="contrarian",
+                label="Contrarian",
+                prompt=contrarian_prompt,
+                output_schema=ContrarianBrief,
+                parent_step=BRIEFING,
+            )
+
+            if not contrarian_result.output:
+                raise WorkflowError("Contrarian agent returned no output")
+
+            briefing_doc = synthesize_briefing(
+                flight_plan.name,
+                nav_result.output,
+                struct_result.output,
+                recon_result.output,
+                contrarian_result.output,
+            )
+
+            plan_dir = Path.cwd() / ".maverick" / "plans" / flight_plan.name
+            await asyncio.to_thread(plan_dir.mkdir, parents=True, exist_ok=True)
+            briefing_path = plan_dir / "refuel-briefing.md"
+            await asyncio.to_thread(
+                briefing_path.write_text,
+                serialize_briefing(briefing_doc),
+                "utf-8",
+            )
+
+        except Exception as exc:
+            await self.emit_step_failed(BRIEFING, str(exc))
+            raise
+
+        # Extract cross-plan dependency suggestions from recon
+        suggested_deps: tuple[str, ...] = ()
+        recon_out = recon_result.output
+        if recon_out and recon_out.suggested_cross_plan_dependencies:
+            deps = tuple(
+                d for d in recon_out.suggested_cross_plan_dependencies if d != flight_plan.name
+            )
+            if deps:
+                await self.emit_output(
+                    BRIEFING,
+                    f"Recon suggested {len(deps)} cross-plan dependencies: {', '.join(deps)}",
+                )
+            suggested_deps = deps
+
+        await self.emit_output(
+            BRIEFING,
+            f"Briefing complete: {len(briefing_doc.key_decisions)} decisions, "
+            f"{len(briefing_doc.key_risks)} risks, "
+            f"{len(briefing_doc.open_questions)} open questions",
+        )
+        await self.emit_step_completed(
+            BRIEFING,
+            output={
+                "key_decisions": list(briefing_doc.key_decisions),
+                "key_risks": list(briefing_doc.key_risks),
+                "open_questions": list(briefing_doc.open_questions),
+                "briefing_path": str(briefing_path),
+            },
+        )
+
+        return briefing_doc, str(briefing_path), suggested_deps
+
     async def _decompose_with_supervisor(
         self,
         *,
@@ -806,10 +824,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
     ) -> Any:
         """Decompose using actor-mailbox supervisor.
 
-        Replaces the retry loop with persistent-session decomposer
-        that receives targeted fix requests instead of full redos.
-
-        Returns a DecompositionOutput (same type as the legacy loop).
+        Returns a DecompositionOutput.
         """
 
         from thespian.actors import ActorSystem
@@ -825,7 +840,6 @@ class RefuelMaverickWorkflow(PythonWorkflow):
 
         await self.emit_step_started(DECOMPOSE, step_type=StepType.AGENT)
 
-        # Build initial payload
         initial_payload = {
             "flight_plan_content": raw_content,
             "codebase_context": codebase_context,
