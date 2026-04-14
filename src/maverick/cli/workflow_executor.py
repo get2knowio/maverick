@@ -167,10 +167,9 @@ class _AgentTracker:
             info = self._agents[label]
             if info["status"] == "done":
                 timing = f"[dim]{info['timing']}[/]"
-                status = "[green]✓[/]"
-                table.add_row(f"  {label}", timing, status)
+                table.add_row(f"  [green]∟[/] {label}", timing, "[green]✓[/]")
             else:
-                table.add_row(f"  {label}", "", Spinner("dots", style="cyan"))
+                table.add_row(f"  [cyan]∟[/] {label}", "", Spinner("dots", style="cyan"))
 
         return table
 
