@@ -370,10 +370,11 @@ async def render_workflow_events(
             duration_sec = event.duration_ms / 1000
             display = _display_name(event.step_name)
 
-            # Collapse fast steps: if < 1s, show one line instead of
-            # start + interim + completion.
-            _is_fast = duration_sec < 1.0
-            if _is_fast and not _step_started_printed:
+            # Collapse simple steps: if the header hasn't been printed
+            # and there's at most 1 interim, show one line.
+            # Steps with multiple interims get the full header + interims.
+            _can_collapse = not _step_started_printed and len(_buffered_interims) <= 1
+            if _can_collapse:
                 # Collapse: show last interim (or step name) as completion
                 if _buffered_interims:
                     _, last_msg = _buffered_interims[-1]

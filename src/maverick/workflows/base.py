@@ -491,7 +491,7 @@ class PythonWorkflow(ABC):
                 # backlog during heavy fan-out). Retry a few times before
                 # giving up — the hard deadline still guards against a
                 # truly wedged supervisor.
-                logger.warning(
+                logger.debug(
                     "drain.ask_timeout",
                     per_ask_timeout=per_ask_timeout_seconds,
                 )

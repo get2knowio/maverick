@@ -883,12 +883,21 @@ class RefuelMaverickWorkflow(PythonWorkflow):
             capabilities={"Admin Port": THESPIAN_PORT},
         )
 
-        # Register atexit handler for crash safety
+        # Register atexit handler for crash safety.
+        # Suppress root logger during shutdown to avoid noisy ACP
+        # errors from child processes being killed mid-prompt.
         def _cleanup_actor_system():
+            import logging as _logging
+
+            _root = _logging.getLogger()
+            _prev = _root.level
+            _root.setLevel(_logging.CRITICAL)
             try:
                 asys.shutdown()
             except Exception:
                 pass
+            finally:
+                _root.setLevel(_prev)
 
         atexit.register(_cleanup_actor_system)
 

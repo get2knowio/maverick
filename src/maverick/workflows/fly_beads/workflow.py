@@ -698,10 +698,17 @@ class FlyBeadsWorkflow(PythonWorkflow):
         )
 
         def _cleanup():
+            import logging as _logging
+
+            _root = _logging.getLogger()
+            _prev = _root.level
+            _root.setLevel(_logging.CRITICAL)
             try:
                 asys.shutdown()
             except Exception:
                 pass
+            finally:
+                _root.setLevel(_prev)
 
         atexit.register(_cleanup)
 
