@@ -218,43 +218,21 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
         self.send(addr, {"type": "briefing", "prompt": contrarian_prompt})
 
     def _briefing_complete(self):
-        """All briefing done — synthesize and proceed to decomposition."""
-        from maverick.briefing.models import (
-            ContrarianBrief,
-            NavigatorBrief,
-            ReconBrief,
-            StructuralistBrief,
+        """All briefing done — pass raw results to decomposer."""
+        # Store raw briefing results for decomposer context.
+        # No Pydantic validation — the MCP tool schemas and prompt
+        # guidance are the single source of truth for field names.
+        # Rigid Pydantic models add a second contract that disagrees
+        # with what agents actually return.
+        self._initial_payload["briefing"] = self._briefing_results
+
+        agent_count = len(self._briefing_results)
+        self._emit_output(
+            "refuel",
+            f"Briefing complete ({agent_count} agents)",
+            level="success",
+            source=_SOURCE,
         )
-        from maverick.briefing.synthesis import synthesize_briefing
-
-        # Reconstruct typed briefs from dicts
-        try:
-            nav = NavigatorBrief.model_validate(self._briefing_results.get("navigator") or {})
-            struct = StructuralistBrief.model_validate(
-                self._briefing_results.get("structuralist") or {}
-            )
-            recon = ReconBrief.model_validate(self._briefing_results.get("recon") or {})
-            contrarian = ContrarianBrief.model_validate(
-                self._briefing_results.get("contrarian") or {}
-            )
-
-            flight_plan = self._config.get("flight_plan")
-            plan_name = flight_plan.name if flight_plan else ""
-            briefing_doc = synthesize_briefing(plan_name, nav, struct, recon, contrarian)
-
-            # Store in initial payload for decomposer
-            self._initial_payload["briefing"] = briefing_doc
-
-            self._emit_output(
-                "refuel",
-                f"{len(briefing_doc.key_decisions)} decisions, "
-                f"{len(briefing_doc.key_risks)} risks, "
-                f"{len(briefing_doc.open_questions)} open questions",
-                level="success",
-                source=_SOURCE,
-            )
-        except Exception as exc:
-            logger.warning("refuel_supervisor.briefing_synthesis_failed", error=str(exc))
 
         # Proceed to decomposition
         self._start_outline()

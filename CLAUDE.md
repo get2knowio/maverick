@@ -258,7 +258,14 @@ are the message types the supervisor accepts. The MCP protocol provides schema g
 the server validates via `jsonschema.validate()` and returns errors for self-correction.
 
 **Do**: Define agent output as MCP tool schemas in `maverick.tools.supervisor_inbox.schemas`
-**Don't**: Ask agents to produce structured JSON in their text response (`output_schema` pattern)
+**Don't**: Use `output_schema` (Pydantic model validation) for agent responses. This pattern
+appends a JSON schema to the prompt and validates the response against a Pydantic model —
+but agents frequently return slightly different field names or structures, causing
+`OutputSchemaValidationError` at runtime. The MCP tool schemas are the single source of
+truth for structured output; Pydantic models add a second, conflicting contract.
+
+For freeform analysis (briefing agents, reviewers): accept raw dicts/text. The supervisor
+serializes them to JSON for downstream consumers. No Pydantic coercion needed.
 
 Built-in tools (Read, Write, Edit, Bash, Glob, Grep) are for doing work in the workspace.
 MCP tools (submit_outline, submit_review, etc.) are for sending results to the supervisor.

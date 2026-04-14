@@ -93,21 +93,20 @@ class BriefingActor(ActorAsyncBridge, Actor):
             )
 
     async def _do_schema_briefing(self, message):
-        import importlib
-
         await self._ensure_executor()
-
-        mod = importlib.import_module(self._schema_module)
-        schema_cls = getattr(mod, self._schema_class)
 
         prompt = message.get("prompt", "")
         result = await self._executor.execute(
             step_name=f"briefing_{self._agent_name}",
             agent_name=self._agent_name,
             prompt=prompt,
-            output_schema=schema_cls,
         )
 
+        # Return raw output — no Pydantic validation.
+        # The MCP tool schema (for plan generate) or the prompt itself
+        # (for refuel) provides sufficient guidance. Rigid Pydantic
+        # validation adds a second contract that disagrees with what
+        # the agent actually returns.
         if result.output is not None:
             if hasattr(result.output, "model_dump"):
                 return result.output.model_dump()

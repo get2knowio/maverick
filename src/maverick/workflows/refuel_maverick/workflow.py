@@ -746,21 +746,15 @@ class RefuelMaverickWorkflow(PythonWorkflow):
             # Create briefing actors (one per agent role)
             briefing_actors: dict[str, Any] = {}
             if not skip_briefing:
-                _briefing_agents = {
-                    "navigator": ("maverick.briefing.models", "NavigatorBrief"),
-                    "structuralist": ("maverick.briefing.models", "StructuralistBrief"),
-                    "recon": ("maverick.briefing.models", "ReconBrief"),
-                    "contrarian": ("maverick.briefing.models", "ContrarianBrief"),
-                }
-                for agent_name, (schema_mod, schema_cls) in _briefing_agents.items():
+                for agent_name in ("navigator", "structuralist", "recon", "contrarian"):
                     addr = asys.createActor(BriefingActor)
                     asys.ask(
                         addr,
                         {
                             "type": "init",
                             "agent_name": agent_name,
-                            "schema_module": schema_mod,
-                            "schema_class": schema_cls,
+                            "schema_module": "maverick.briefing.models",
+                            "schema_class": agent_name.title() + "Brief",
                             "cwd": str(Path.cwd()),
                         },
                         timeout=10,
