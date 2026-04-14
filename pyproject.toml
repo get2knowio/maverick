@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "maverick-cli"
-version = "0.2.0.dev6"
+version = "0.2.0.dev7"
 description = "AI-powered development workflow orchestration"
 readme = "README.md"
 requires-python = ">=3.11"
