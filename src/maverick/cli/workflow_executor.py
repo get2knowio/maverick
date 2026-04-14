@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any
 
 import click
 from rich.live import Live
+from rich.spinner import Spinner
 from rich.table import Table
 
 from maverick.cli.common import (
@@ -167,10 +168,9 @@ class _AgentTracker:
             if info["status"] == "done":
                 timing = f"[dim]{info['timing']}[/]"
                 status = "[green]✓[/]"
+                table.add_row(f"  {label}", timing, status)
             else:
-                timing = "[dim]...[/]"
-                status = "[cyan]⠙[/]"
-            table.add_row(f"  {label}", timing, status)
+                table.add_row(f"  {label}", "", Spinner("dots", style="cyan"))
 
         return table
 
@@ -180,16 +180,11 @@ class _AgentTracker:
 
     def _freeze(self) -> None:
         if self._live is not None:
+            # Render final table state before stopping Live
+            self._refresh()
             self._live.stop()
             self._live = None
-            # Print frozen final state
-            for label in self._order:
-                info = self._agents[label]
-                if info["status"] == "done":
-                    self._console.print(f"  [green]✓[/] {label} [dim]({info['timing']})[/]")
-                else:
-                    self._console.print(f"  [yellow]?[/] {label} [dim](no response)[/]")
-            # Print buffered non-agent messages
+            # Print buffered non-agent messages after the Live table
             for msg in self._non_agent_messages:
                 self._console.print(f"  [cyan]∟[/] {msg}")
             self._non_agent_messages.clear()
@@ -253,11 +248,27 @@ async def render_workflow_events(
     _current_step_name: str = ""
     _agent_tracker: _AgentTracker | None = None
 
+    # Deferred step rendering: buffer start + interims so fast steps
+    # can be collapsed into a single line.
+    _step_started_printed = False  # whether the start line has been flushed
+    _buffered_interims: list[tuple[str, str]] = []  # (style, message)
+
     def _stop_spinner() -> None:
         nonlocal _spinner
         if _spinner is not None:
             _spinner.stop()
             _spinner = None
+
+    def _flush_step_header() -> None:
+        """Print the buffered step header + interims if not yet printed."""
+        nonlocal _step_started_printed
+        if not _step_started_printed and _current_step_name:
+            display = _display_name(_current_step_name)
+            console_obj.print(f"[bold]{display}[/]")
+            _step_started_printed = True
+        for style, msg in _buffered_interims:
+            console_obj.print(f"  {style}∟[/] {msg}")
+        _buffered_interims.clear()
 
     _level_styles = {
         "info": "[cyan]",
@@ -316,28 +327,30 @@ async def render_workflow_events(
 
         elif isinstance(event, StepStarted):
             _current_step_name = event.step_name
-            display = _display_name(event.step_name)
+            _step_started_printed = False
+            _buffered_interims.clear()
             step_type_value = event.step_type.value
-            _use_spinner = step_type_value in ("agent", "python")
 
             if workflow_depth == 1:
                 step_index += 1
-
-                if _use_spinner and hasattr(console_obj, "status"):
-                    console_obj.print(f"[bold]{display}[/]")
+                # Don't print yet — defer until we know if the step
+                # completes fast enough to collapse. Start spinner
+                # so the user sees activity.
+                if step_type_value in ("agent", "python") and hasattr(console_obj, "status"):
+                    display = _display_name(event.step_name)
                     _spinner = console_obj.status(
                         f"[dim]{display}...[/]",
                         spinner="dots",
                     )
                     _spinner.start()
-                else:
-                    console_obj.print(f"[bold]{display}[/]")
 
                 if step_type_value in ("loop", "subworkflow"):
                     workflow_depth += 1
             else:
                 indent = "  " * (workflow_depth - 1)
+                display = _display_name(event.step_name)
                 console_obj.print(f"[dim]{indent}{display}[/]")
+                _step_started_printed = True
 
         elif isinstance(event, StepCompleted):
             if event.step_type.value in ("loop", "subworkflow"):
@@ -357,13 +370,33 @@ async def render_workflow_events(
             duration_sec = event.duration_ms / 1000
             display = _display_name(event.step_name)
 
-            if event.success:
-                console_obj.print(f"[bold green]✓[/] {display} [dim]({duration_sec:.2f}s)[/]")
+            # Collapse fast steps: if < 1s, show one line instead of
+            # start + interim + completion.
+            _is_fast = duration_sec < 1.0
+            if _is_fast and not _step_started_printed:
+                # Collapse: show last interim (or step name) as completion
+                if _buffered_interims:
+                    _, last_msg = _buffered_interims[-1]
+                else:
+                    last_msg = display
+                if event.success:
+                    console_obj.print(f"[green]✓[/] {last_msg} [dim]({duration_sec:.2f}s)[/]")
+                else:
+                    error_detail = f": {event.error}" if event.error else ""
+                    console_obj.print(
+                        f"[red]✗[/] {display}{error_detail} [dim]({duration_sec:.2f}s)[/]"
+                    )
+                _buffered_interims.clear()
             else:
-                error_detail = f": {event.error}" if event.error else ""
-                console_obj.print(
-                    f"[bold red]✗[/] {display}{error_detail} [dim]({duration_sec:.2f}s)[/]"
-                )
+                # Full output: flush header + interims + completion line
+                _flush_step_header()
+                if event.success:
+                    console_obj.print(f"[bold green]✓[/] {display} [dim]({duration_sec:.2f}s)[/]")
+                else:
+                    error_detail = f": {event.error}" if event.error else ""
+                    console_obj.print(
+                        f"[bold red]✗[/] {display}{error_detail} [dim]({duration_sec:.2f}s)[/]"
+                    )
 
         elif isinstance(event, AgentStreamChunk):
             if _verbose:
@@ -384,6 +417,7 @@ async def render_workflow_events(
         elif isinstance(event, AgentStarted):
             if _agent_tracker is None:
                 _stop_spinner()
+                _flush_step_header()
                 _agent_tracker = _AgentTracker(console_obj, _current_step_name)
             _agent_tracker.agent_started(event.agent_name, event.provider)
 
@@ -393,12 +427,12 @@ async def render_workflow_events(
 
         elif isinstance(event, StepOutput):
             if _agent_tracker is not None and _agent_tracker.active:
-                # Non-agent message while tracker is active — buffer it
                 _agent_tracker.add_message(event.message)
             else:
-                # Normal interim line
                 style = _level_styles.get(event.level, "[cyan]")
-                console_obj.print(f"  {style}∟[/] {event.message}")
+                # Buffer interims — they'll be flushed on StepCompleted
+                # or immediately if the step takes > 1s (spinner visible)
+                _buffered_interims.append((style, event.message))
 
         elif isinstance(event, RollbackStarted):
             console_obj.print(f"[yellow]  ↩ Rolling back: {event.step_name}...[/]")

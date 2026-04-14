@@ -171,7 +171,7 @@ async def analyze_open_beads(
     try:
         epics = await client.query("type=epic")
     except Exception as exc:
-        logger.warning("analyze_open_beads_query_failed", error=str(exc))
+        logger.debug("analyze_open_beads_query_failed", error=str(exc))
         return OpenBeadAnalysisResult()
 
     open_epics: list[OpenEpicInfo] = []

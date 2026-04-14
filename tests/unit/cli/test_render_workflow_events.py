@@ -293,9 +293,12 @@ class TestStepDisplayNames:
         """Python step shows human-readable name, no (python) annotation."""
         output = await _render_events(
             [
-                StepStarted(
+                StepStarted(step_name="preflight", step_type=StepType.PYTHON),
+                StepCompleted(
                     step_name="preflight",
                     step_type=StepType.PYTHON,
+                    success=True,
+                    duration_ms=10,
                 ),
             ],
         )
@@ -312,6 +315,12 @@ class TestStepDisplayNames:
                     provider="copilot",
                     model_id="sonnet",
                 ),
+                StepCompleted(
+                    step_name="decompose",
+                    step_type=StepType.AGENT,
+                    success=True,
+                    duration_ms=10,
+                ),
             ],
         )
         assert "Decomposing" in output
@@ -323,9 +332,12 @@ class TestStepDisplayNames:
         """Unknown step names are title-cased with underscores removed."""
         output = await _render_events(
             [
-                StepStarted(
+                StepStarted(step_name="custom_new_step", step_type=StepType.PYTHON),
+                StepCompleted(
                     step_name="custom_new_step",
                     step_type=StepType.PYTHON,
+                    success=True,
+                    duration_ms=10,
                 ),
             ],
         )
@@ -429,12 +441,11 @@ class TestStepLifecycleRendering:
                 ),
             ],
         )
-        lines = output.strip().splitlines()
-        completion = [ln for ln in lines if "✓" in ln and "Validating" in ln]
-        assert len(completion) == 1
-        # No colon — message is not promoted to the completion line
-        assert ":" not in completion[0]
-        assert "All checks passed" not in completion[0]
+        # Fast step (10ms) with an interim is collapsed to one line
+        # showing the interim message as the completion text
+        assert "✓" in output
+        assert "All checks passed" in output
+        assert "0.01s" in output
 
     async def test_failed_step_shows_x_and_error(self) -> None:
         """R1: Failed step shows ✗ with error."""
@@ -459,7 +470,7 @@ class TestInterimPrefix:
     """R3: Interim lines use ∟ prefix."""
 
     async def test_step_output_renders_as_interim(self) -> None:
-        """R3: StepOutput renders as ∟ interim line."""
+        """Fast step collapses interim into completion line."""
         output = await _render_events(
             [
                 StepStarted(step_name="read_prd", step_type=StepType.PYTHON),
@@ -475,8 +486,9 @@ class TestInterimPrefix:
                 ),
             ],
         )
-        assert "\u221f" in output
+        # Fast step — collapsed to single line with interim message
         assert 'PRD: "Greet CLI" (3195 chars)' in output
+        assert "✓" in output
 
     async def test_all_outputs_shown_as_interims(self) -> None:
         """R3: All StepOutputs shown as ∟ interims."""

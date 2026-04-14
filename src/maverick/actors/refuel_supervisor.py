@@ -64,12 +64,6 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
 
         # --- Start signal from workflow ---
         if message == "start":
-            self._emit_output(
-                "refuel",
-                "Starting decomposition",
-                level="info",
-                source=_SOURCE,
-            )
             self._start_outline()
             return
 

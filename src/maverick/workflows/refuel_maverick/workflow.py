@@ -848,12 +848,6 @@ class RefuelMaverickWorkflow(PythonWorkflow):
             "verification_properties": getattr(flight_plan, "verification_properties", ""),
         }
 
-        await self.emit_output(
-            DECOMPOSE,
-            "Decomposing with Thespian actor system",
-            level="info",
-        )
-
         # Start Thespian actor system on a known port.
         # Use a fixed port so the MCP server subprocess can connect.
         # Clean up any stale admin from a previous crashed run.
