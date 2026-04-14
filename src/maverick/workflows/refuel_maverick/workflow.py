@@ -7,14 +7,6 @@ import json
 from pathlib import Path
 from typing import Any
 
-from maverick.briefing.models import (
-    ContrarianBrief,
-    NavigatorBrief,
-    ReconBrief,
-    StructuralistBrief,
-)
-from maverick.briefing.serializer import serialize_briefing
-from maverick.briefing.synthesis import synthesize_briefing
 from maverick.exceptions import WorkflowError
 from maverick.flight.loader import FlightPlanFile
 from maverick.flight.serializer import serialize_work_unit
@@ -48,10 +40,7 @@ from maverick.workflows.refuel_maverick.constants import (
     WORKFLOW_NAME,
     WRITE_WORK_UNITS,
 )
-from maverick.workflows.refuel_maverick.models import (
-    DecompositionOutput,
-    RefuelMaverickResult,
-)
+from maverick.workflows.refuel_maverick.models import RefuelMaverickResult
 
 logger = get_logger(__name__)
 
@@ -320,32 +309,6 @@ class RefuelMaverickWorkflow(PythonWorkflow):
                 error=str(exc),
             )
 
-        briefing_doc = None
-        briefing_path_str: str | None = None
-        suggested_deps: tuple[str, ...] = ()
-
-        if not skip_briefing:
-            briefing_doc, briefing_path_str, suggested_deps = await self._run_briefing(
-                flight_plan=flight_plan,
-                raw_content=raw_content,
-                codebase_context=codebase_context,
-                open_bead_result=open_bead_result,
-            )
-
-        # ------------------------------------------------------------------
-        # Steps 3-4: Decompose + Validate (with retry on validation failure)
-        #
-        # Two-pass chunked decomposition:
-        #   3a. Outline pass: structural skeleton (IDs, tasks, deps, file scopes)
-        #   3b. Detail pass: instructions, acceptance criteria, verification
-        #       (batched to stay within output token limits)
-        #   4.  Validate: dependency graph + SC coverage
-        #
-        # If validation fails (e.g. uncovered SCs), the error is fed back
-        # to the outline prompt and the decomposer retries.
-        # ------------------------------------------------------------------
-        decomposition: DecompositionOutput | None = None
-
         # Retrieve runway context so the decomposer can learn from past runs
         runway_context_text: str | None = None
         try:
@@ -365,16 +328,19 @@ class RefuelMaverickWorkflow(PythonWorkflow):
             logger.warning("refuel_runway_context_failed", error=str(exc))
 
         # ------------------------------------------------------------------
-        # Step 3-4: Decompose + validate via Thespian actor system
+        # Steps 2b-4: Briefing + Decompose + Validate via Thespian actor system
         # ------------------------------------------------------------------
-        decomposition = await self._decompose_with_supervisor(
+        decomposition = await self._run_with_thespian(
             flight_plan=flight_plan,
             raw_content=raw_content,
             codebase_context=codebase_context,
-            briefing_doc=briefing_doc,
+            open_bead_result=open_bead_result,
             runway_context_text=runway_context_text,
             run_dir=run_dir,
+            skip_briefing=skip_briefing,
         )
+        briefing_path_str: str | None = None
+        suggested_deps: tuple[str, ...] = ()
 
         # ------------------------------------------------------------------
         # Step 5: Write work units
@@ -665,156 +631,22 @@ class RefuelMaverickWorkflow(PythonWorkflow):
         )
         return result.to_dict()
 
-    async def _run_briefing(
+    async def _run_with_thespian(
         self,
         *,
         flight_plan: Any,
         raw_content: str,
         codebase_context: Any,
         open_bead_result: Any,
-    ) -> tuple[Any, str | None, tuple[str, ...]]:
-        """Run the briefing room agents (Navigator, Structuralist, Recon, Contrarian).
-
-        Returns:
-            Tuple of (briefing_doc, briefing_path, suggested_cross_plan_deps).
-        """
-        import time as _time
-
-        from maverick.agents.briefing.prompts import (
-            build_briefing_prompt,
-            build_contrarian_prompt,
-        )
-        from maverick.events import AgentCompleted, AgentStarted
-        from maverick.executor import create_default_executor
-
-        await self.emit_step_started(BRIEFING, step_type=StepType.PYTHON)
-
-        briefing_prompt = build_briefing_prompt(
-            raw_content,
-            codebase_context,
-            open_bead_context=open_bead_result,
-        )
-
-        executor = create_default_executor()
-
-        # Resolve provider/model for display
-        _resolved = self.resolve_step_config("briefing", StepType.PYTHON)
-        _provider = _resolved.provider or self._resolve_display_provider() or "default"
-        _model = _resolved.model_id or self._resolve_display_model() or "default"
-        _provider_label = f"{_provider}/{_model}"
-
-        async def _run_briefing_agent(
-            agent_name: str, label: str, prompt: str, output_schema: type
-        ) -> Any:
-            t0 = _time.monotonic()
-            await self._event_queue.put(
-                AgentStarted(step_name=BRIEFING, agent_name=label, provider=_provider_label)
-            )
-            result = await executor.execute(
-                step_name=f"briefing_{agent_name}",
-                agent_name=agent_name,
-                prompt=prompt,
-                output_schema=output_schema,
-            )
-            elapsed = _time.monotonic() - t0
-            await self._event_queue.put(
-                AgentCompleted(
-                    step_name=BRIEFING,
-                    agent_name=label,
-                    duration_seconds=elapsed,
-                )
-            )
-            return result
-
-        try:
-            nav_result, struct_result, recon_result = await asyncio.gather(
-                _run_briefing_agent("navigator", "Navigator", briefing_prompt, NavigatorBrief),
-                _run_briefing_agent(
-                    "structuralist", "Structuralist", briefing_prompt, StructuralistBrief
-                ),
-                _run_briefing_agent("recon", "Recon", briefing_prompt, ReconBrief),
-            )
-
-            if not nav_result.output or not struct_result.output or not recon_result.output:
-                raise WorkflowError("One or more briefing agents returned no output")
-
-            contrarian_prompt = build_contrarian_prompt(
-                raw_content,
-                nav_result.output,
-                struct_result.output,
-                recon_result.output,
-            )
-            contrarian_result = await _run_briefing_agent(
-                "contrarian", "Contrarian", contrarian_prompt, ContrarianBrief
-            )
-
-            if not contrarian_result.output:
-                raise WorkflowError("Contrarian agent returned no output")
-
-            briefing_doc = synthesize_briefing(
-                flight_plan.name,
-                nav_result.output,
-                struct_result.output,
-                recon_result.output,
-                contrarian_result.output,
-            )
-
-            plan_dir = Path.cwd() / ".maverick" / "plans" / flight_plan.name
-            await asyncio.to_thread(plan_dir.mkdir, parents=True, exist_ok=True)
-            briefing_path = plan_dir / "refuel-briefing.md"
-            await asyncio.to_thread(
-                briefing_path.write_text,
-                serialize_briefing(briefing_doc),
-                "utf-8",
-            )
-
-        except Exception as exc:
-            await self.emit_step_failed(BRIEFING, str(exc))
-            raise
-
-        # Extract cross-plan dependency suggestions from recon
-        suggested_deps: tuple[str, ...] = ()
-        recon_out = recon_result.output
-        if recon_out and recon_out.suggested_cross_plan_dependencies:
-            deps = tuple(
-                d for d in recon_out.suggested_cross_plan_dependencies if d != flight_plan.name
-            )
-            if deps:
-                await self.emit_output(
-                    BRIEFING,
-                    f"Recon suggested {len(deps)} cross-plan dependencies: {', '.join(deps)}",
-                )
-            suggested_deps = deps
-
-        await self.emit_output(
-            BRIEFING,
-            f"{len(briefing_doc.key_decisions)} decisions, "
-            f"{len(briefing_doc.key_risks)} risks, "
-            f"{len(briefing_doc.open_questions)} open questions",
-        )
-        await self.emit_step_completed(
-            BRIEFING,
-            output={
-                "key_decisions": list(briefing_doc.key_decisions),
-                "key_risks": list(briefing_doc.key_risks),
-                "open_questions": list(briefing_doc.open_questions),
-                "briefing_path": str(briefing_path),
-            },
-        )
-
-        return briefing_doc, str(briefing_path), suggested_deps
-
-    async def _decompose_with_supervisor(
-        self,
-        *,
-        flight_plan: Any,
-        raw_content: str,
-        codebase_context: Any,
-        briefing_doc: Any,
         runway_context_text: str | None,
         run_dir: Path | None,
+        skip_briefing: bool = False,
     ) -> Any:
-        """Decompose using actor-mailbox supervisor.
+        """Run briefing + decomposition via Thespian actor system.
+
+        Creates briefing actors (Navigator, Structuralist, Recon, Contrarian)
+        and decomposer actors in the same ActorSystem. The supervisor
+        orchestrates: briefing → decompose → validate.
 
         Returns a DecompositionOutput.
         """
@@ -822,20 +654,28 @@ class RefuelMaverickWorkflow(PythonWorkflow):
         from thespian.actors import ActorSystem
 
         from maverick.actors.bead_creator import BeadCreatorActor
+        from maverick.actors.briefing import BriefingActor
         from maverick.actors.decomposer import DecomposerActor
         from maverick.actors.refuel_supervisor import RefuelSupervisorActor
         from maverick.actors.validator import ValidatorActor
+        from maverick.agents.briefing.prompts import build_briefing_prompt
         from maverick.workflows.refuel_maverick.models import (
             DecompositionOutput,
             WorkUnitSpec,
         )
 
-        await self.emit_step_started(DECOMPOSE, step_type=StepType.PYTHON)
+        # Build briefing prompt (needed by supervisor for agent dispatch)
+        briefing_prompt = build_briefing_prompt(
+            raw_content,
+            codebase_context,
+            open_bead_context=open_bead_result,
+        )
 
         initial_payload = {
             "flight_plan_content": raw_content,
             "codebase_context": codebase_context,
-            "briefing": briefing_doc,
+            "briefing": None,  # populated by supervisor after briefing
+            "briefing_prompt": briefing_prompt,
             "runway_context": runway_context_text or None,
             "verification_properties": getattr(flight_plan, "verification_properties", ""),
         }
@@ -904,6 +744,42 @@ class RefuelMaverickWorkflow(PythonWorkflow):
             validator_addr = asys.createActor(ValidatorActor)
             bead_creator_addr = asys.createActor(BeadCreatorActor)
 
+            # Create briefing actors (one per agent role)
+            briefing_actors: dict[str, Any] = {}
+            if not skip_briefing:
+                _briefing_agents = {
+                    "navigator": ("maverick.briefing.models", "NavigatorBrief"),
+                    "structuralist": ("maverick.briefing.models", "StructuralistBrief"),
+                    "recon": ("maverick.briefing.models", "ReconBrief"),
+                    "contrarian": ("maverick.briefing.models", "ContrarianBrief"),
+                }
+                for agent_name, (schema_mod, schema_cls) in _briefing_agents.items():
+                    addr = asys.createActor(BriefingActor)
+                    asys.ask(
+                        addr,
+                        {
+                            "type": "init",
+                            "agent_name": agent_name,
+                            "schema_module": schema_mod,
+                            "schema_class": schema_cls,
+                            "cwd": str(Path.cwd()),
+                        },
+                        timeout=10,
+                    )
+                    briefing_actors[agent_name] = addr
+
+            # Resolve provider/model label for CLI display
+            _resolved = self.resolve_step_config(BRIEFING, StepType.PYTHON)
+            _prov = _resolved.provider or self._resolve_display_provider() or "default"
+            _mod = _resolved.model_id or self._resolve_display_model() or "default"
+            _label = f"{_prov}/{_mod}"
+            provider_labels = {
+                "Navigator": _label,
+                "Structuralist": _label,
+                "Recon": _label,
+                "Contrarian": _label,
+            }
+
             # Create supervisor with globalName for MCP server discovery
             supervisor_addr = asys.createActor(
                 RefuelSupervisorActor,
@@ -951,6 +827,9 @@ class RefuelMaverickWorkflow(PythonWorkflow):
                     "decomposer_pool": decomposer_pool,
                     "validator_addr": validator_addr,
                     "bead_creator_addr": bead_creator_addr,
+                    "briefing_actors": briefing_actors,
+                    "provider_labels": provider_labels,
+                    "skip_briefing": skip_briefing,
                     "initial_payload": initial_payload,
                     "config": {"flight_plan": flight_plan},
                 },
@@ -960,15 +839,16 @@ class RefuelMaverickWorkflow(PythonWorkflow):
             # Start decomposition (fire-and-drain)
             asys.tell(supervisor_addr, "start")
 
-            # Scale timeout: outline (~10min) + parallel detail waves
-            # (~10min per wave) + up to 3 validation/fix rounds (~10min each).
+            # Scale timeout: briefing (~10min parallel + ~10min contrarian)
+            # + outline (~10min) + parallel detail waves (~10min each)
+            # + up to 3 validation/fix rounds (~10min each).
             sc_count = len(flight_plan.success_criteria)
             estimated_units = max(1, int(sc_count * 1.5))
             detail_waves = max(
                 1, (estimated_units + DECOMPOSER_POOL_SIZE - 1) // DECOMPOSER_POOL_SIZE
             )
-            # 600s per agent call × (1 outline + N waves + 3 fix rounds)
-            drain_timeout = 600.0 * (1 + detail_waves + MAX_DECOMPOSE_ATTEMPTS)
+            briefing_phases = 2 if not skip_briefing else 0  # parallel + contrarian
+            drain_timeout = 600.0 * (briefing_phases + 1 + detail_waves + MAX_DECOMPOSE_ATTEMPTS)
             result = await self._drain_supervisor_events(
                 asys=asys,
                 supervisor=supervisor_addr,

@@ -18,6 +18,7 @@ been detailed.
 """
 
 import json
+from typing import Any
 
 from thespian.actors import Actor
 
@@ -64,7 +65,15 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
 
         # --- Start signal from workflow ---
         if message == "start":
-            self._start_outline()
+            if self._skip_briefing or not self._briefing_actors:
+                self._start_outline()
+            else:
+                self._start_briefing()
+            return
+
+        # --- Briefing result from briefing actors ---
+        if isinstance(message, dict) and message.get("type") == "briefing_result":
+            self._handle_briefing_result(message)
             return
 
         # --- Decomposer prompt confirmation ---
@@ -111,9 +120,13 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
         self._validator = message.get("validator_addr")
         self._bead_creator = message.get("bead_creator_addr")
 
-        # Decomposer pool: the primary decomposer handles outlines/fixes.
-        # Additional pool members handle detail requests in parallel.
+        # Decomposer pool
         self._decomposer_pool: list = message.get("decomposer_pool", [])
+
+        # Briefing actors (optional — empty if skip_briefing)
+        self._briefing_actors: dict[str, Any] = message.get("briefing_actors", {})
+        self._provider_labels: dict[str, str] = message.get("provider_labels", {})
+        self._skip_briefing: bool = message.get("skip_briefing", False)
 
         # State
         self._outline = None
@@ -123,6 +136,14 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
         self._nudge_count = 0
         self._initial_payload = message.get("initial_payload", {})
 
+        # Briefing state
+        self._briefing_results: dict[str, Any] = {}
+        self._briefing_expected: set[str] = set()
+        import time as _time
+
+        self._briefing_start_times: dict[str, float] = {}
+        self._briefing_start = _time.monotonic()
+
         # Detail fan-out state
         self._pending_detail_ids: set[str] = set()
         self._accumulated_details: list[dict] = []
@@ -130,7 +151,116 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
         self.send(sender, {"type": "init_ok"})
 
     # ------------------------------------------------------------------
-    # Routing
+    # Briefing
+    # ------------------------------------------------------------------
+
+    def _start_briefing(self):
+        """Fan out briefing to parallel actors."""
+        import time as _time
+
+        prompt = self._initial_payload.get("briefing_prompt", "")
+
+        # Emit agent-started events for all parallel agents
+        parallel_agents = [n for n in self._briefing_actors if n != "contrarian"]
+        for name in parallel_agents:
+            label = name.replace("_", " ").title()
+            self._emit_agent_started("refuel", label, self._provider_labels.get(label, ""))
+            self._briefing_start_times[name] = _time.monotonic()
+            self._briefing_expected.add(name)
+
+        # Send briefing prompts to parallel actors
+        for name in parallel_agents:
+            addr = self._briefing_actors[name]
+            self.send(addr, {"type": "briefing", "prompt": prompt})
+
+    def _handle_briefing_result(self, message):
+        """Collect briefing result and check if all parallel agents done."""
+        import time as _time
+
+        agent_name = message.get("agent_name", "")
+        output = message.get("output")
+        self._briefing_results[agent_name] = output
+        self._briefing_expected.discard(agent_name)
+
+        label = agent_name.replace("_", " ").title()
+        elapsed = _time.monotonic() - self._briefing_start_times.get(agent_name, 0)
+        self._emit_agent_completed("refuel", label, elapsed)
+
+        if self._briefing_expected:
+            return  # Still waiting for more parallel agents
+
+        # All parallel agents done — check if we need contrarian
+        if "contrarian" in self._briefing_actors:
+            self._start_contrarian()
+        else:
+            self._briefing_complete()
+
+    def _start_contrarian(self):
+        """Send contrarian prompt with all briefing results."""
+        import time as _time
+
+        from maverick.agents.briefing.prompts import build_contrarian_prompt
+
+        raw_content = self._initial_payload.get("flight_plan_content", "")
+        contrarian_prompt = build_contrarian_prompt(
+            raw_content,
+            self._briefing_results.get("navigator"),
+            self._briefing_results.get("structuralist"),
+            self._briefing_results.get("recon"),
+        )
+
+        label = "Contrarian"
+        self._emit_agent_started("refuel", label, self._provider_labels.get(label, ""))
+        self._briefing_start_times["contrarian"] = _time.monotonic()
+        self._briefing_expected.add("contrarian")
+
+        addr = self._briefing_actors["contrarian"]
+        self.send(addr, {"type": "briefing", "prompt": contrarian_prompt})
+
+    def _briefing_complete(self):
+        """All briefing done — synthesize and proceed to decomposition."""
+        from maverick.briefing.models import (
+            ContrarianBrief,
+            NavigatorBrief,
+            ReconBrief,
+            StructuralistBrief,
+        )
+        from maverick.briefing.synthesis import synthesize_briefing
+
+        # Reconstruct typed briefs from dicts
+        try:
+            nav = NavigatorBrief.model_validate(self._briefing_results.get("navigator") or {})
+            struct = StructuralistBrief.model_validate(
+                self._briefing_results.get("structuralist") or {}
+            )
+            recon = ReconBrief.model_validate(self._briefing_results.get("recon") or {})
+            contrarian = ContrarianBrief.model_validate(
+                self._briefing_results.get("contrarian") or {}
+            )
+
+            flight_plan = self._config.get("flight_plan")
+            plan_name = flight_plan.name if flight_plan else ""
+            briefing_doc = synthesize_briefing(plan_name, nav, struct, recon, contrarian)
+
+            # Store in initial payload for decomposer
+            self._initial_payload["briefing"] = briefing_doc
+
+            self._emit_output(
+                "refuel",
+                f"{len(briefing_doc.key_decisions)} decisions, "
+                f"{len(briefing_doc.key_risks)} risks, "
+                f"{len(briefing_doc.open_questions)} open questions",
+                level="success",
+                source=_SOURCE,
+            )
+        except Exception as exc:
+            logger.warning("refuel_supervisor.briefing_synthesis_failed", error=str(exc))
+
+        # Proceed to decomposition
+        self._start_outline()
+
+    # ------------------------------------------------------------------
+    # Decomposition
     # ------------------------------------------------------------------
 
     def _start_outline(self):

@@ -282,7 +282,7 @@ def patch_cwd(tmp_path: Path) -> Any:
 def patch_decompose_supervisor(
     decomp: DecompositionOutput | None = None,
 ) -> Any:
-    """Return a context manager that patches _decompose_with_supervisor.
+    """Return a context manager that patches _run_with_thespian.
 
     The Thespian actor path is now the only decomposition path.  Tests that
     previously mocked ``executor.execute`` to return two-pass results should
@@ -292,8 +292,7 @@ def patch_decompose_supervisor(
     if decomp is None:
         decomp = make_simple_decomposition_output()
     return patch(
-        "maverick.workflows.refuel_maverick.workflow."
-        "RefuelMaverickWorkflow._decompose_with_supervisor",
+        "maverick.workflows.refuel_maverick.workflow.RefuelMaverickWorkflow._run_with_thespian",
         new=AsyncMock(return_value=decomp),
     )
 

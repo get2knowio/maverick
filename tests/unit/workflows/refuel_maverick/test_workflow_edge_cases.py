@@ -260,7 +260,7 @@ class TestErrorHandling:
             ),
             patch.object(
                 workflow,
-                "_decompose_with_supervisor",
+                "_run_with_thespian",
                 new=AsyncMock(
                     side_effect=WorkflowError("Circular dependency detected in decomposition")
                 ),
@@ -593,7 +593,7 @@ class TestParallelGroups:
         tmp_path: Path,
     ) -> None:
         """Parallel decomposition has named parallel groups in work units."""
-        # Validation now runs inside _decompose_with_supervisor (Thespian).
+        # Validation now runs inside _run_with_thespian (Thespian).
         # Verify that the decomposition output itself contains parallel groups.
         parallel_decomp = _make_parallel_decomp()
         group_units = [wu for wu in parallel_decomp.work_units if wu.parallel_group]

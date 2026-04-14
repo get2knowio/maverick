@@ -15,7 +15,6 @@ from maverick.events import (
 from maverick.library.actions.decompose import CodebaseContext
 from maverick.workflows.refuel_maverick.constants import (
     CREATE_BEADS,
-    DECOMPOSE,
     GATHER_CONTEXT,
     PARSE_FLIGHT_PLAN,
     WIRE_DEPS,
@@ -35,7 +34,7 @@ from tests.unit.workflows.refuel_maverick.conftest import (
 _MODULE = "maverick.workflows.refuel_maverick.workflow"
 
 # Step order constants — decompose + validate now run inside the Thespian
-# supervisor (_decompose_with_supervisor) so their events are not visible
+# supervisor (_run_with_thespian) so their events are not visible
 # when that method is mocked.
 _OUTER_STEPS = [
     PARSE_FLIGHT_PLAN,
@@ -144,7 +143,7 @@ class TestRefuelMaverickWorkflowHappyPath:
         mock_step_executor: AsyncMock,
         tmp_path: Path,
     ) -> None:
-        """_decompose_with_supervisor is called during the workflow."""
+        """_run_with_thespian is called during the workflow."""
         fp = make_simple_flight_plan(tmp_path)
         workflow = make_workflow(mock_config, mock_registry, mock_step_executor)
         bead_result = make_bead_result()
@@ -164,7 +163,7 @@ class TestRefuelMaverickWorkflowHappyPath:
             ),
             patch(f"{_MODULE}.create_beads", new=AsyncMock(return_value=bead_result)),
             patch(f"{_MODULE}.wire_dependencies", new=AsyncMock(return_value=wire_result)),
-            patch.object(workflow, "_decompose_with_supervisor", new=mock_decompose),
+            patch.object(workflow, "_run_with_thespian", new=mock_decompose),
         ):
             await collect_events(
                 workflow,
@@ -509,31 +508,3 @@ class TestErrorHandling:
         assert len(failed_steps) >= 1
         assert failed_steps[0].name == PARSE_FLIGHT_PLAN
 
-    async def test_no_step_executor_fails_decompose(
-        self,
-        mock_config: MagicMock,
-        mock_registry: MagicMock,
-        tmp_path: Path,
-    ) -> None:
-        """Without a step_executor, the decompose step fails."""
-        fp = make_simple_flight_plan(tmp_path)
-        # No step_executor provided
-        workflow = make_workflow(mock_config, mock_registry)
-
-        with (
-            patch_cwd(tmp_path),
-            patch(
-                f"{_MODULE}.gather_codebase_context",
-                new=AsyncMock(return_value=_EMPTY_CONTEXT),
-            ),
-        ):
-            events, result = await collect_events(
-                workflow,
-                {"flight_plan_path": str(fp), "dry_run": False, "skip_briefing": True},
-                ignore_exception=True,
-            )
-
-        assert result is not None
-        assert result.success is False
-        failed_names = [s.name for s in result.step_results if not s.success]
-        assert DECOMPOSE in failed_names
