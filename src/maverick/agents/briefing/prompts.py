@@ -58,6 +58,7 @@ def build_contrarian_prompt(
     Returns:
         Formatted prompt with flight plan and all 3 agent briefs.
     """
+
     def _to_json(obj: Any) -> str:
         if hasattr(obj, "model_dump_json"):
             return obj.model_dump_json(indent=2)

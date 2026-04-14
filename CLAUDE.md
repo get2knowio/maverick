@@ -264,11 +264,15 @@ but agents frequently return slightly different field names or structures, causi
 `OutputSchemaValidationError` at runtime. The MCP tool schemas are the single source of
 truth for structured output; Pydantic models add a second, conflicting contract.
 
-For freeform analysis (briefing agents, reviewers): accept raw dicts/text. The supervisor
-serializes them to JSON for downstream consumers. No Pydantic coercion needed.
-
 Built-in tools (Read, Write, Edit, Bash, Glob, Grep) are for doing work in the workspace.
 MCP tools (submit_outline, submit_review, etc.) are for sending results to the supervisor.
+
+**Every agent actor MUST use an MCP tool to deliver results.** When adding a new agent:
+1. Define an MCP tool schema in `maverick.tools.supervisor_inbox.schemas`
+2. Register it in `ALL_TOOL_SCHEMAS`
+3. Initialize the BriefingActor with `mcp_tool=<tool_name>` and `admin_port=<port>`
+4. The agent's prompt instructs it to call the tool (appended automatically)
+5. The supervisor routes the tool call in `_handle_tool_call()`
 
 **Provider compatibility**: Claude reliably calls MCP tools. Copilot agents currently do not
 call MCP tools in ACP sessions — use the text fallback path for Copilot-routed steps.

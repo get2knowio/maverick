@@ -376,6 +376,157 @@ SUBMIT_FLIGHT_PLAN = _tool(
 )
 
 # -------------------------------------------------------------------------
+# Refuel briefing tools
+# -------------------------------------------------------------------------
+
+SUBMIT_NAVIGATOR_BRIEF = _tool(
+    name="submit_navigator_brief",
+    description="Submit architecture and module layout analysis to the supervisor.",
+    schema={
+        "type": "object",
+        "properties": {
+            "architecture_decisions": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "title": {"type": "string"},
+                        "decision": {"type": "string"},
+                        "rationale": {"type": "string"},
+                        "alternatives_considered": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                        },
+                    },
+                    "required": ["title", "decision"],
+                },
+            },
+            "module_structure": {"type": "string"},
+            "integration_points": {
+                "type": "array",
+                "items": {"type": "string"},
+            },
+            "summary": {"type": "string"},
+        },
+        "required": ["architecture_decisions", "summary"],
+    },
+)
+
+SUBMIT_STRUCTURALIST_BRIEF = _tool(
+    name="submit_structuralist_brief",
+    description="Submit data model and interface analysis to the supervisor.",
+    schema={
+        "type": "object",
+        "properties": {
+            "entities": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                        "module_path": {"type": "string"},
+                        "fields": {"type": "array", "items": {"type": "string"}},
+                        "relationships": {"type": "array", "items": {"type": "string"}},
+                    },
+                    "required": ["name"],
+                },
+            },
+            "interfaces": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                        "methods": {"type": "array", "items": {"type": "string"}},
+                        "consumers": {"type": "array", "items": {"type": "string"}},
+                    },
+                    "required": ["name"],
+                },
+            },
+            "summary": {"type": "string"},
+        },
+        "required": ["entities", "summary"],
+    },
+)
+
+SUBMIT_RECON_BRIEF = _tool(
+    name="submit_recon_brief",
+    description="Submit risks, ambiguities, and testing strategy to the supervisor.",
+    schema={
+        "type": "object",
+        "properties": {
+            "risks": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "description": {"type": "string"},
+                        "severity": {"type": "string", "enum": ["low", "medium", "high"]},
+                        "mitigation": {"type": "string"},
+                    },
+                    "required": ["description"],
+                },
+            },
+            "ambiguities": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "question": {"type": "string"},
+                        "context": {"type": "string"},
+                        "suggested_resolution": {"type": "string"},
+                    },
+                    "required": ["question"],
+                },
+            },
+            "testing_strategy": {"type": "string"},
+            "summary": {"type": "string"},
+        },
+        "required": ["risks", "summary"],
+    },
+)
+
+SUBMIT_CONTRARIAN_BRIEF = _tool(
+    name="submit_contrarian_brief",
+    description="Submit challenges and simplifications to the supervisor.",
+    schema={
+        "type": "object",
+        "properties": {
+            "challenges": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "target": {"type": "string"},
+                        "counter_argument": {"type": "string"},
+                        "recommendation": {"type": "string"},
+                    },
+                    "required": ["target", "counter_argument"],
+                },
+            },
+            "simplifications": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "current_approach": {"type": "string"},
+                        "simpler_alternative": {"type": "string"},
+                        "tradeoff": {"type": "string"},
+                    },
+                    "required": ["current_approach", "simpler_alternative"],
+                },
+            },
+            "consensus_points": {
+                "type": "array",
+                "items": {"type": "string"},
+            },
+            "summary": {"type": "string"},
+        },
+        "required": ["challenges", "summary"],
+    },
+)
+
+# -------------------------------------------------------------------------
 # Registry: all tools by name
 # -------------------------------------------------------------------------
 
@@ -391,4 +542,8 @@ ALL_TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
     "submit_criteria": SUBMIT_CRITERIA,
     "submit_challenge": SUBMIT_CHALLENGE,
     "submit_flight_plan": SUBMIT_FLIGHT_PLAN,
+    "submit_navigator_brief": SUBMIT_NAVIGATOR_BRIEF,
+    "submit_structuralist_brief": SUBMIT_STRUCTURALIST_BRIEF,
+    "submit_recon_brief": SUBMIT_RECON_BRIEF,
+    "submit_contrarian_brief": SUBMIT_CONTRARIAN_BRIEF,
 }

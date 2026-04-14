@@ -71,11 +71,6 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
                 self._start_briefing()
             return
 
-        # --- Briefing result from briefing actors ---
-        if isinstance(message, dict) and message.get("type") == "briefing_result":
-            self._handle_briefing_result(message)
-            return
-
         # --- Decomposer prompt confirmation ---
         # Check BEFORE tool routing — prompt_sent may contain a "tool" key
         if isinstance(message, dict) and message.get("type") == "prompt_sent":
@@ -172,28 +167,6 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
         for name in parallel_agents:
             addr = self._briefing_actors[name]
             self.send(addr, {"type": "briefing", "prompt": prompt})
-
-    def _handle_briefing_result(self, message):
-        """Collect briefing result and check if all parallel agents done."""
-        import time as _time
-
-        agent_name = message.get("agent_name", "")
-        output = message.get("output")
-        self._briefing_results[agent_name] = output
-        self._briefing_expected.discard(agent_name)
-
-        label = agent_name.replace("_", " ").title()
-        elapsed = _time.monotonic() - self._briefing_start_times.get(agent_name, 0)
-        self._emit_agent_completed("refuel", label, elapsed)
-
-        if self._briefing_expected:
-            return  # Still waiting for more parallel agents
-
-        # All parallel agents done — check if we need contrarian
-        if "contrarian" in self._briefing_actors:
-            self._start_contrarian()
-        else:
-            self._briefing_complete()
 
     def _start_contrarian(self):
         """Send contrarian prompt with all briefing results."""
@@ -338,11 +311,43 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
             },
         )
 
+    # Briefing tool name → agent name mapping
+    _BRIEFING_TOOLS: dict[str, str] = {
+        "submit_navigator_brief": "navigator",
+        "submit_structuralist_brief": "structuralist",
+        "submit_recon_brief": "recon",
+        "submit_contrarian_brief": "contrarian",
+    }
+
     def _handle_tool_call(self, message):
         """Route MCP tool call to appropriate handler."""
         tool = message.get("tool", "")
         args = message.get("arguments", {})
         self._nudge_count = 0  # Reset on successful tool call
+
+        # Briefing tools
+        if tool in self._BRIEFING_TOOLS:
+            agent_name = self._BRIEFING_TOOLS[tool]
+            self._briefing_results[agent_name] = args
+            self._briefing_expected.discard(agent_name)
+
+            import time as _time
+
+            label = agent_name.replace("_", " ").title()
+            elapsed = _time.monotonic() - self._briefing_start_times.get(agent_name, 0)
+            self._emit_agent_completed("refuel", label, elapsed)
+
+            if self._briefing_expected:
+                return  # Still waiting
+
+            if (
+                "contrarian" in self._briefing_actors
+                and "contrarian" not in self._briefing_results
+            ):
+                self._start_contrarian()
+            else:
+                self._briefing_complete()
+            return
 
         if tool == "submit_outline":
             self._outline = args

@@ -743,18 +743,24 @@ class RefuelMaverickWorkflow(PythonWorkflow):
             validator_addr = asys.createActor(ValidatorActor)
             bead_creator_addr = asys.createActor(BeadCreatorActor)
 
-            # Create briefing actors (one per agent role)
+            # Create briefing actors (one per agent role, each with its MCP tool)
             briefing_actors: dict[str, Any] = {}
             if not skip_briefing:
-                for agent_name in ("navigator", "structuralist", "recon", "contrarian"):
+                _briefing_tools = {
+                    "navigator": "submit_navigator_brief",
+                    "structuralist": "submit_structuralist_brief",
+                    "recon": "submit_recon_brief",
+                    "contrarian": "submit_contrarian_brief",
+                }
+                for agent_name, mcp_tool in _briefing_tools.items():
                     addr = asys.createActor(BriefingActor)
                     asys.ask(
                         addr,
                         {
                             "type": "init",
                             "agent_name": agent_name,
-                            "schema_module": "maverick.briefing.models",
-                            "schema_class": agent_name.title() + "Brief",
+                            "mcp_tool": mcp_tool,
+                            "admin_port": THESPIAN_PORT,
                             "cwd": str(Path.cwd()),
                         },
                         timeout=10,
