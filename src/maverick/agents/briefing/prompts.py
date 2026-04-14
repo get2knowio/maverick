@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+import json
+from typing import TYPE_CHECKING, Any
 
 from maverick.library.actions.decompose import _format_codebase_context
 
 if TYPE_CHECKING:
-    from maverick.briefing.models import NavigatorBrief, ReconBrief, StructuralistBrief
     from maverick.library.actions.decompose import CodebaseContext
     from maverick.library.actions.open_bead_analysis import OpenBeadAnalysisResult
 
@@ -41,9 +41,9 @@ def build_briefing_prompt(
 
 def build_contrarian_prompt(
     flight_plan_content: str,
-    navigator: NavigatorBrief,
-    structuralist: StructuralistBrief,
-    recon: ReconBrief,
+    navigator: Any,
+    structuralist: Any,
+    recon: Any,
 ) -> str:
     """Build the prompt for the Contrarian agent.
 
@@ -58,9 +58,14 @@ def build_contrarian_prompt(
     Returns:
         Formatted prompt with flight plan and all 3 agent briefs.
     """
-    nav_json = navigator.model_dump_json(indent=2)
-    struct_json = structuralist.model_dump_json(indent=2)
-    recon_json = recon.model_dump_json(indent=2)
+    def _to_json(obj: Any) -> str:
+        if hasattr(obj, "model_dump_json"):
+            return obj.model_dump_json(indent=2)
+        return json.dumps(obj, indent=2, default=str)
+
+    nav_json = _to_json(navigator)
+    struct_json = _to_json(structuralist)
+    recon_json = _to_json(recon)
     return (
         f"## Flight Plan\n\n{flight_plan_content}"
         f"\n\n## Navigator Brief\n\n```json\n{nav_json}\n```"
