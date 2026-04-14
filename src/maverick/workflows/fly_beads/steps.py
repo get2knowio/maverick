@@ -7,8 +7,7 @@ responsibility:
 - :mod:`._vcs_queries` — git-diff helpers shared across steps
 - :mod:`._verification` — deterministic acceptance + spec compliance checks
 - :mod:`._runway` — runway retrieval, recording, and provenance walking
-- :mod:`._implement` — implement-and-validate, gate check, gate remediation
-- :mod:`._review` — dual reviewer + fixer step
+- :mod:`._implement` — snapshot and describe (agent steps handled by actors)
 - :mod:`._commit` — commit, rollback, prior-attempt snapshot, follow-up creation
 
 This module exists so ``from maverick.workflows.fly_beads.steps import X``
@@ -25,11 +24,7 @@ from maverick.workflows.fly_beads._commit import (
     snapshot_prior_attempt,
 )
 from maverick.workflows.fly_beads._implement import (
-    _is_research_only,
     _is_verification_only,
-    run_gate_check,
-    run_gate_remediation,
-    run_implement_and_validate,
     snapshot_and_describe,
 )
 from maverick.workflows.fly_beads._plan_parsing import (
@@ -41,7 +36,6 @@ from maverick.workflows.fly_beads._plan_parsing import (
     load_work_unit_files,
     match_bead_to_work_unit,
 )
-from maverick.workflows.fly_beads._review import run_review_and_remediate
 from maverick.workflows.fly_beads._runway import (
     fetch_runway_context,
     record_runway_outcome,
@@ -56,7 +50,6 @@ from maverick.workflows.fly_beads._verification import (
 
 __all__ = [
     "_build_validation_commands",
-    "_is_research_only",
     "_is_verification_only",
     "_parse_file_scope",
     "_parse_verification_commands",
@@ -73,10 +66,6 @@ __all__ = [
     "resolve_provenance",
     "rollback_bead",
     "run_acceptance_check",
-    "run_gate_check",
-    "run_gate_remediation",
-    "run_implement_and_validate",
-    "run_review_and_remediate",
     "run_spec_compliance_check",
     "snapshot_and_describe",
     "snapshot_prior_attempt",

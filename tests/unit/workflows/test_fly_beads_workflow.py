@@ -187,20 +187,6 @@ _PATCH_SPECS: list[tuple[str, str, str | None, str]] = [
     ("select", f"{_WF_MOD}.select_next_bead", "select_side_effect", _SE),
     ("snapshot", f"{_IMPL_MOD}.jj_snapshot_operation", "snapshot_return", _RV),
     ("describe", f"{_IMPL_MOD}.jj_describe", "describe_return", _RV),
-    ("gate", f"{_IMPL_MOD}.run_independent_gate", "gate_return", _RV),
-    (
-        "gather_ctx",
-        f"{_REVIEW_MOD}.gather_local_review_context",
-        "review_context_return",
-        _RV,
-    ),
-    ("review_loop", f"{_REVIEW_MOD}.run_review_fix_loop", "review_loop_return", _RV),
-    (
-        "create_findings",
-        f"{_REVIEW_MOD}.create_beads_from_findings",
-        "create_findings_return",
-        _RV,
-    ),
     ("commit", f"{_COMMIT_MOD}.jj_commit_bead", "commit_return", _RV),
     (
         "mark_complete_steps",
@@ -415,14 +401,12 @@ class TestFlyBeadsWorkflow:
 
     async def test_skip_review_mode(self, fly_workflow: Any) -> None:
         """When skip_review=True, review step is skipped."""
-        with _patch_all_actions() as mocks:
+        with _patch_all_actions():
             events = await _collect_events(
                 fly_workflow,
-                {"epic_id": "", "max_beads": 5, "skip_review": True},
+                {"epic_id": "", "max_beads": 5},
             )
 
-        mocks["gather_ctx"].assert_not_called()
-        mocks["review_loop"].assert_not_called()
         completed = next(e for e in events if isinstance(e, WorkflowCompleted))
         assert completed.success is True
 

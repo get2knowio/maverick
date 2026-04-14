@@ -807,32 +807,6 @@ class CheckEpicDoneResult:
 
 
 @dataclass(frozen=True, slots=True)
-class SpecKitParseResult:
-    """Result of parsing a SpecKit specification directory.
-
-    Attributes:
-        epic_definition: Serialized BeadDefinition for the epic.
-        work_definitions: Serialized BeadDefinitions for work beads.
-        tasks_content: Raw tasks.md content for dependency extraction.
-        dependency_section: Extracted "User Story Dependencies" text block.
-    """
-
-    epic_definition: dict[str, Any]
-    work_definitions: tuple[dict[str, Any], ...]
-    tasks_content: str
-    dependency_section: str
-
-    def to_dict(self) -> dict[str, Any]:
-        """Convert to dictionary representation."""
-        return {
-            "epic_definition": self.epic_definition,
-            "work_definitions": list(self.work_definitions),
-            "tasks_content": self.tasks_content,
-            "dependency_section": self.dependency_section,
-        }
-
-
-@dataclass(frozen=True, slots=True)
 class BeadCreationResult:
     """Result of creating epic and work beads via bd CLI.
 

@@ -507,4 +507,3 @@ class TestErrorHandling:
         failed_steps = [s for s in result.step_results if not s.success]
         assert len(failed_steps) >= 1
         assert failed_steps[0].name == PARSE_FLIGHT_PLAN
-
