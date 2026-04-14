@@ -491,7 +491,7 @@ async def execute_python_workflow(
         ctx: Click context for accessing CLI-level settings.
         run_config: Configuration for the workflow execution.
     """
-    from maverick.checkpoint.store import CheckpointStore
+    from maverick.checkpoint.store import FileCheckpointStore
     from maverick.session_journal import SessionJournal
 
     # Extract workflow name from the workflow class's module WORKFLOW_NAME constant.
@@ -513,7 +513,7 @@ async def execute_python_workflow(
 
         # Checkpoint support
         checkpoint_dir = Path(".maverick/checkpoints")
-        checkpoint_store = CheckpointStore(checkpoint_dir)
+        checkpoint_store = FileCheckpointStore(checkpoint_dir)
 
         # Instantiate workflow — actors create their own ACP executors
         wf = workflow_class(
