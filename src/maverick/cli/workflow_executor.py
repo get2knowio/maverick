@@ -165,11 +165,14 @@ class _AgentTracker:
 
         for label in self._order:
             info = self._agents[label]
+            provider_dim = f" [dim]({info['provider']})[/]" if info["provider"] else ""
             if info["status"] == "done":
                 timing = f"[dim]{info['timing']}[/]"
-                table.add_row(f"  [green]∟[/] {label}", timing, "[green]✓[/]")
+                table.add_row(f"  [green]∟[/] {label}{provider_dim}", timing, "[green]✓[/]")
             else:
-                table.add_row(f"  [cyan]∟[/] {label}", "", Spinner("dots", style="cyan"))
+                table.add_row(
+                    f"  [cyan]∟[/] {label}{provider_dim}", "", Spinner("dots", style="cyan")
+                )
 
         return table
 

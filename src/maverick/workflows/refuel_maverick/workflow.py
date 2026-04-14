@@ -697,11 +697,19 @@ class RefuelMaverickWorkflow(PythonWorkflow):
 
         executor = create_default_executor()
 
+        # Resolve provider/model for display
+        _resolved = self.resolve_step_config("briefing", StepType.PYTHON)
+        _provider = _resolved.provider or self._resolve_display_provider() or "default"
+        _model = _resolved.model_id or self._resolve_display_model() or "default"
+        _provider_label = f"{_provider}/{_model}"
+
         async def _run_briefing_agent(
             agent_name: str, label: str, prompt: str, output_schema: type
         ) -> Any:
             t0 = _time.monotonic()
-            await self._event_queue.put(AgentStarted(step_name=BRIEFING, agent_name=label))
+            await self._event_queue.put(
+                AgentStarted(step_name=BRIEFING, agent_name=label, provider=_provider_label)
+            )
             result = await executor.execute(
                 step_name=f"briefing_{agent_name}",
                 agent_name=agent_name,
