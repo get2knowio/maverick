@@ -389,14 +389,25 @@ async def render_workflow_events(
                     )
                 _buffered_interims.clear()
             else:
-                # Full output: flush header + interims + completion line
+                # Full output: flush header, show earlier interims as ∟ lines,
+                # use the last interim (if any) as the completion text.
                 _flush_step_header()
+                completion_text = display
+                if _buffered_interims:
+                    # Print all but last as ∟ interims
+                    for style, msg in _buffered_interims[:-1]:
+                        console_obj.print(f"  {style}∟[/] {msg}")
+                    # Last interim becomes the completion line
+                    _, completion_text = _buffered_interims[-1]
+                    _buffered_interims.clear()
                 if event.success:
-                    console_obj.print(f"[bold green]✓[/] {display} [dim]({duration_sec:.2f}s)[/]")
+                    console_obj.print(
+                        f"[green]✓[/] {completion_text} [dim]({duration_sec:.2f}s)[/]"
+                    )
                 else:
                     error_detail = f": {event.error}" if event.error else ""
                     console_obj.print(
-                        f"[bold red]✗[/] {display}{error_detail} [dim]({duration_sec:.2f}s)[/]"
+                        f"[red]✗[/] {display}{error_detail} [dim]({duration_sec:.2f}s)[/]"
                     )
 
         elif isinstance(event, AgentStreamChunk):

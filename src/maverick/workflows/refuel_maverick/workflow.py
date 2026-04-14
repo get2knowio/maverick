@@ -796,7 +796,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
 
         await self.emit_output(
             BRIEFING,
-            f"Briefing complete: {len(briefing_doc.key_decisions)} decisions, "
+            f"{len(briefing_doc.key_decisions)} decisions, "
             f"{len(briefing_doc.key_risks)} risks, "
             f"{len(briefing_doc.open_questions)} open questions",
         )
