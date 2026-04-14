@@ -101,8 +101,8 @@ For each task:
 
 **IMPORTANT**: Every source file you create MUST have a corresponding test file.
 If you create `src/foo/bar.py`, you must also create `tests/test_bar.py` (or
-the equivalent path for the project's test layout). Do not defer test creation
-to a later phase — write tests in the same session as the implementation.
+the equivalent path for the project's test layout). Write tests in the same
+session as the implementation.
 
 ## Tool Usage Guidelines
 
@@ -198,7 +198,6 @@ def _coerce_implementer_context(data: dict[str, Any]) -> ImplementerContext:
     return ImplementerContext(
         task_file=task_file,
         task_description=data.get("task_description"),
-        phase_name=data.get("phase_name"),
         branch=data.get("branch") or data.get("branch_name") or "main",
         cwd=cwd,
         skip_validation=data.get("skip_validation", False),
@@ -276,14 +275,10 @@ class ImplementerAgent(MaverickAgent[ImplementerContext, ImplementationResult]):
         )
 
     def build_prompt(self, context: ImplementerContext | dict[str, Any]) -> str:
-        """Construct the prompt string from context (FR-017).
-
-        Delegates to internal prompt builders based on context mode.
-        For phase mode, uses the phase prompt template. For task mode,
-        uses the task description as the prompt.
+        """Construct the prompt string from context.
 
         Args:
-            context: Execution context with task source and options.
+            context: Execution context with task description and options.
                 Can be an ImplementerContext or a dict (auto-coerced).
 
         Returns:
@@ -292,17 +287,13 @@ class ImplementerAgent(MaverickAgent[ImplementerContext, ImplementationResult]):
         if isinstance(context, dict):
             context = _coerce_implementer_context(context)
 
-        if context.is_single_task and context.task_description:
-            synthetic_task = Task(
-                id="T000",
-                description=context.task_description,
-                status=TaskStatus.PENDING,
-                parallel=False,
-            )
-            return self._build_task_prompt(synthetic_task, context)
-
-        # Fallback: task_file description
-        return f"Implement tasks from: {context.task_file}"
+        synthetic_task = Task(
+            id="T000",
+            description=context.task_description or "",
+            status=TaskStatus.PENDING,
+            parallel=False,
+        )
+        return self._build_task_prompt(synthetic_task, context)
 
     def _build_task_prompt(self, task: Task, context: ImplementerContext) -> str:
         """Build the prompt for executing a bead/task.

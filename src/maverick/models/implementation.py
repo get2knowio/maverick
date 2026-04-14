@@ -619,10 +619,6 @@ class ImplementerContext(BaseModel):
         min_length=10,
         description="Direct task description",
     )
-    phase_name: str | None = Field(
-        default=None,
-        description="Phase name to execute (enables phase-level execution mode)",
-    )
     branch: str = Field(min_length=1, description="Git branch name")
     cwd: Path = Field(default_factory=Path.cwd, description="Working directory")
     skip_validation: bool = Field(default=False, description="Skip validation steps")
@@ -640,16 +636,9 @@ class ImplementerContext(BaseModel):
             raise ValueError("Provide task_file OR task_description, not both")
         if not self.task_file and not self.task_description:
             raise ValueError("Must provide task_file or task_description")
-        if self.phase_name and self.task_description:
-            raise ValueError("phase_name requires task_file, not task_description")
         return self
 
     @property
     def is_single_task(self) -> bool:
         """Check if executing a single task description."""
         return self.task_description is not None
-
-    @property
-    def is_phase_mode(self) -> bool:
-        """Check if executing in phase-level mode."""
-        return self.phase_name is not None and self.task_file is not None
