@@ -91,6 +91,5 @@ def concrete_workflow(
         config=mock_config,
         registry=mock_registry,
         checkpoint_store=memory_checkpoint_store,
-        step_executor=mock_step_executor,
         workflow_name="test-workflow",
     )

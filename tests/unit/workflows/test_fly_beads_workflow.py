@@ -342,7 +342,6 @@ def fly_workflow(
         config=mock_config,
         registry=mock_registry,
         checkpoint_store=checkpoint_store,
-        step_executor=mock_step_executor,
     )
 
 
@@ -358,7 +357,6 @@ def fly_workflow_no_executor(
         config=mock_config,
         registry=mock_registry,
         checkpoint_store=checkpoint_store,
-        step_executor=None,
     )
 
 

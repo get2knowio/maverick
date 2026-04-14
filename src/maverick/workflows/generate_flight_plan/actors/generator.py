@@ -28,7 +28,7 @@ class GeneratorActor:
         self,
         *,
         session_registry: BeadSessionRegistry,
-        executor: Any,
+        executor: Any = None,
         cwd: Path | None = None,
         config: StepConfig | None = None,
         inbox_path: Path,
@@ -63,6 +63,11 @@ class GeneratorActor:
             "supervisor can only receive it via the submit_flight_plan "
             "tool call."
         )
+
+        if self._executor is None:
+            from maverick.executor import create_default_executor
+
+            self._executor = create_default_executor()
 
         mcp_servers = [self._mcp_config] if self._mcp_config else None
         session_id = await self._registry.get_or_create(

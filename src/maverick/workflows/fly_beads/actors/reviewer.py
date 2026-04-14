@@ -40,7 +40,7 @@ class ReviewerActor:
         self,
         *,
         session_registry: BeadSessionRegistry,
-        executor: Any,
+        executor: Any = None,
         cwd: Path | None = None,
         config: StepConfig | None = None,
         bead_description: str = "",
@@ -94,6 +94,11 @@ class ReviewerActor:
             "approved=true if no critical/major issues, or approved=false "
             "with a findings array describing each issue."
         )
+
+        if self._executor is None:
+            from maverick.executor import create_default_executor
+
+            self._executor = create_default_executor()
 
         mcp_servers = [self._mcp_config] if self._mcp_config else None
         session_id = await self._registry.get_or_create(

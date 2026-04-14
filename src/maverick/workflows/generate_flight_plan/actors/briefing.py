@@ -38,7 +38,7 @@ class BriefingActor:
         actor_name: str,
         mcp_tool_name: str,
         session_registry: BeadSessionRegistry,
-        executor: Any,
+        executor: Any = None,
         cwd: Path | None = None,
         config: StepConfig | None = None,
         inbox_path: Path,
@@ -47,7 +47,7 @@ class BriefingActor:
         self._actor_name = actor_name
         self._mcp_tool_name = mcp_tool_name
         self._registry = session_registry
-        self._executor = executor
+        self._executor = executor  # lazy: created on first use if None
         self._cwd = cwd
         self._config = config
         self._inbox_path = inbox_path
@@ -77,6 +77,12 @@ class BriefingActor:
             f"supervisor can only receive your work via the "
             f"{self._mcp_tool_name} tool call."
         )
+
+        # Lazy executor creation — actors are self-contained
+        if self._executor is None:
+            from maverick.executor import create_default_executor
+
+            self._executor = create_default_executor()
 
         # Create session with MCP server
         mcp_servers = [self._mcp_config] if self._mcp_config else None

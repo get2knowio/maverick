@@ -982,7 +982,6 @@ class FlyBeadsWorkflow(PythonWorkflow):
         actors: dict[str, Any] = {
             "implementer": ImplementerActor(
                 session_registry=session_registry,
-                executor=self._step_executor,
                 cwd=ctx.cwd,
                 config=impl_config,
                 allowed_tools=allowed_tools,
@@ -1006,7 +1005,6 @@ class FlyBeadsWorkflow(PythonWorkflow):
             ),
             "reviewer": ReviewerActor(
                 session_registry=session_registry,
-                executor=self._step_executor,
                 cwd=ctx.cwd,
                 config=review_config,
                 bead_description=ctx.description,

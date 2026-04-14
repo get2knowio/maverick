@@ -130,10 +130,14 @@ class TestBriefingStep:
         """Briefing step executes when skip_briefing=False."""
         fp_path = make_simple_flight_plan(tmp_path)
         executor = _make_executor_with_briefing()
-        workflow = make_workflow(mock_config, mock_registry, step_executor=executor)
+        workflow = make_workflow(mock_config, mock_registry)
 
         with (
             patch_cwd(tmp_path),
+            patch(
+                "maverick.executor.create_default_executor",
+                return_value=executor,
+            ),
             patch(
                 "maverick.workflows.refuel_maverick.workflow.create_beads",
                 return_value=make_bead_result(),
@@ -170,10 +174,14 @@ class TestBriefingStep:
         """Briefing step is skipped when skip_briefing=True."""
         fp_path = make_simple_flight_plan(tmp_path)
         executor = _make_executor_with_briefing()
-        workflow = make_workflow(mock_config, mock_registry, step_executor=executor)
+        workflow = make_workflow(mock_config, mock_registry)
 
         with (
             patch_cwd(tmp_path),
+            patch(
+                "maverick.executor.create_default_executor",
+                return_value=executor,
+            ),
             patch(
                 "maverick.workflows.refuel_maverick.workflow.create_beads",
                 return_value=make_bead_result(),
@@ -208,10 +216,14 @@ class TestBriefingStep:
         """Briefing step writes refuel-briefing.md artifact to disk."""
         fp_path = make_simple_flight_plan(tmp_path)
         executor = _make_executor_with_briefing()
-        workflow = make_workflow(mock_config, mock_registry, step_executor=executor)
+        workflow = make_workflow(mock_config, mock_registry)
 
         with (
             patch_cwd(tmp_path),
+            patch(
+                "maverick.executor.create_default_executor",
+                return_value=executor,
+            ),
             patch(
                 "maverick.workflows.refuel_maverick.workflow.create_beads",
                 return_value=make_bead_result(),
@@ -245,10 +257,14 @@ class TestBriefingStep:
         """Workflow result includes briefing_path when briefing runs."""
         fp_path = make_simple_flight_plan(tmp_path)
         executor = _make_executor_with_briefing()
-        workflow = make_workflow(mock_config, mock_registry, step_executor=executor)
+        workflow = make_workflow(mock_config, mock_registry)
 
         with (
             patch_cwd(tmp_path),
+            patch(
+                "maverick.executor.create_default_executor",
+                return_value=executor,
+            ),
             patch(
                 "maverick.workflows.refuel_maverick.workflow.create_beads",
                 return_value=make_bead_result(),
@@ -279,10 +295,14 @@ class TestBriefingStep:
         """Workflow result has briefing_path=None when briefing is skipped."""
         fp_path = make_simple_flight_plan(tmp_path)
         executor = _make_executor_with_briefing()
-        workflow = make_workflow(mock_config, mock_registry, step_executor=executor)
+        workflow = make_workflow(mock_config, mock_registry)
 
         with (
             patch_cwd(tmp_path),
+            patch(
+                "maverick.executor.create_default_executor",
+                return_value=executor,
+            ),
             patch(
                 "maverick.workflows.refuel_maverick.workflow.create_beads",
                 return_value=make_bead_result(),
@@ -312,10 +332,14 @@ class TestBriefingStep:
         """Navigator, Structuralist, and Recon run in parallel (gather verifies)."""
         fp_path = make_simple_flight_plan(tmp_path)
         executor = _make_executor_with_briefing()
-        workflow = make_workflow(mock_config, mock_registry, step_executor=executor)
+        workflow = make_workflow(mock_config, mock_registry)
 
         with (
             patch_cwd(tmp_path),
+            patch(
+                "maverick.executor.create_default_executor",
+                return_value=executor,
+            ),
             patch(
                 "maverick.workflows.refuel_maverick.workflow.create_beads",
                 return_value=make_bead_result(),

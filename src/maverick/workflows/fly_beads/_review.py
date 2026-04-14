@@ -40,7 +40,7 @@ async def run_review_and_remediate(
         return
 
     cwd_str = str(ctx.cwd) if ctx.cwd else None
-    await wf.emit_step_started(REVIEW, step_type=StepType.AGENT)
+    await wf.emit_step_started(REVIEW, step_type=StepType.PYTHON)
 
     # Scope the review to files this bead actually changed (not the
     # full workspace diff which includes prior beads' commits).

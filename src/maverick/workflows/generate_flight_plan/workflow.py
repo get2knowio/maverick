@@ -280,7 +280,6 @@ class GenerateFlightPlanWorkflow(PythonWorkflow):
                 actor_name=agent_name,
                 mcp_tool_name=tool_name,
                 session_registry=session_registry,
-                executor=self._step_executor,
                 cwd=Path.cwd(),
                 config=config,
                 inbox_path=inbox_dir / f"{agent_name}-inbox.json",
@@ -294,7 +293,6 @@ class GenerateFlightPlanWorkflow(PythonWorkflow):
         )
         actors["generator"] = GeneratorActor(
             session_registry=session_registry,
-            executor=self._step_executor,
             cwd=Path.cwd(),
             config=gen_config,
             inbox_path=inbox_dir / "generator-inbox.json",

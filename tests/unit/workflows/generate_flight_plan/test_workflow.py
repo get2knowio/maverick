@@ -53,7 +53,6 @@ def _make_workflow(
     return GenerateFlightPlanWorkflow(
         config=mock_config,
         registry=mock_registry,
-        step_executor=mock_step_executor,
         workflow_name=WORKFLOW_NAME,
     )
 

@@ -493,7 +493,6 @@ async def execute_python_workflow(
     """
     from maverick.checkpoint.store import CheckpointStore
     from maverick.session_journal import SessionJournal
-    from maverick.types import StepType
 
     # Extract workflow name from the workflow class's module WORKFLOW_NAME constant.
     _wf_module = importlib.import_module(run_config.workflow_class.__module__)
@@ -516,15 +515,11 @@ async def execute_python_workflow(
         checkpoint_dir = Path(".maverick/checkpoints")
         checkpoint_store = CheckpointStore(checkpoint_dir)
 
-        # Resolve step executor from registry
-        step_executor = registry.get("step_executor")
-
-        # Instantiate workflow with all required dependencies
+        # Instantiate workflow — actors create their own ACP executors
         wf = workflow_class(
             config=config,
             registry=registry,
             checkpoint_store=checkpoint_store,
-            step_executor=step_executor,
         )
 
         if run_config.restart:
@@ -568,18 +563,6 @@ async def execute_python_workflow(
         # Count workflow steps for progress display.
         steps_meta = getattr(workflow_class, "STEPS", None) or {}
         step_count = len(steps_meta) if isinstance(steps_meta, dict) else 0
-
-        # Count agent steps for display purposes.
-        agent_steps = sum(
-            1
-            for meta in (steps_meta.values() if isinstance(steps_meta, dict) else [])
-            if getattr(meta, "step_type", None) == StepType.AGENT
-        )
-        if agent_steps > 0:
-            logger.debug(
-                "workflow_executor.agent_steps_detected",
-                agent_steps=agent_steps,
-            )
 
         # Run the workflow and render events.
         events = wf.execute(run_config.inputs)

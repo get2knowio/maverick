@@ -518,7 +518,7 @@ class TestErrorHandling:
         """Without a step_executor, the decompose step fails."""
         fp = make_simple_flight_plan(tmp_path)
         # No step_executor provided
-        workflow = make_workflow(mock_config, mock_registry, step_executor=None)
+        workflow = make_workflow(mock_config, mock_registry)
 
         with (
             patch_cwd(tmp_path),

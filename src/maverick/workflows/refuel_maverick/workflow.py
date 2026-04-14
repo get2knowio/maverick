@@ -37,10 +37,6 @@ from maverick.workflows.base import PythonWorkflow
 from maverick.workflows.refuel_maverick.constants import (
     ANALYZE_OPEN_BEADS,
     BRIEFING,
-    BRIEFING_CONTRARIAN,
-    BRIEFING_NAVIGATOR,
-    BRIEFING_RECON,
-    BRIEFING_STRUCTURALIST,
     CREATE_BEADS,
     DECOMPOSE,
     DERIVE_VERIFICATION,
@@ -251,15 +247,16 @@ class RefuelMaverickWorkflow(PythonWorkflow):
         verification_properties = getattr(flight_plan, "verification_properties", "")
         _derive_vp = (
             not verification_properties
-            and self._step_executor is not None
             and not dry_run
             and len(flight_plan.success_criteria) > 0
             and len(codebase_context.files) > 0
         )
         if _derive_vp:
-            assert self._step_executor is not None  # noqa: S101 — narrowed above
             await self.emit_step_started(DERIVE_VERIFICATION)
             try:
+                from maverick.executor import create_default_executor
+
+                _vp_executor = create_default_executor()
                 sc_text = "\n".join(
                     f"SC-{i + 1:03d}: {sc.text}"
                     for i, sc in enumerate(flight_plan.success_criteria)
@@ -281,7 +278,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
                     + "\n"
                 )
                 try:
-                    vp_result = await self._step_executor.execute(
+                    vp_result = await _vp_executor.execute(
                         step_name=DERIVE_VERIFICATION,
                         agent_name="flight_plan_generator",
                         prompt=vp_prompt,
@@ -697,12 +694,16 @@ class RefuelMaverickWorkflow(PythonWorkflow):
         Returns:
             Tuple of (briefing_doc, briefing_path, suggested_cross_plan_deps).
         """
+        import time as _time
+
         from maverick.agents.briefing.prompts import (
             build_briefing_prompt,
             build_contrarian_prompt,
         )
+        from maverick.events import AgentCompleted, AgentStarted
+        from maverick.executor import create_default_executor
 
-        await self.emit_step_started(BRIEFING, step_type=StepType.AGENT)
+        await self.emit_step_started(BRIEFING, step_type=StepType.PYTHON)
 
         briefing_prompt = build_briefing_prompt(
             raw_content,
@@ -710,32 +711,36 @@ class RefuelMaverickWorkflow(PythonWorkflow):
             open_bead_context=open_bead_result,
         )
 
+        executor = create_default_executor()
+
+        async def _run_briefing_agent(
+            agent_name: str, label: str, prompt: str, output_schema: type
+        ) -> Any:
+            t0 = _time.monotonic()
+            await self._event_queue.put(AgentStarted(step_name=BRIEFING, agent_name=label))
+            result = await executor.execute(
+                step_name=f"briefing_{agent_name}",
+                agent_name=agent_name,
+                prompt=prompt,
+                output_schema=output_schema,
+            )
+            elapsed = _time.monotonic() - t0
+            await self._event_queue.put(
+                AgentCompleted(
+                    step_name=BRIEFING,
+                    agent_name=label,
+                    duration_seconds=elapsed,
+                )
+            )
+            return result
+
         try:
             nav_result, struct_result, recon_result = await asyncio.gather(
-                self.execute_agent(
-                    step_name=BRIEFING_NAVIGATOR,
-                    agent_name="navigator",
-                    label="Navigator",
-                    prompt=briefing_prompt,
-                    output_schema=NavigatorBrief,
-                    parent_step=BRIEFING,
+                _run_briefing_agent("navigator", "Navigator", briefing_prompt, NavigatorBrief),
+                _run_briefing_agent(
+                    "structuralist", "Structuralist", briefing_prompt, StructuralistBrief
                 ),
-                self.execute_agent(
-                    step_name=BRIEFING_STRUCTURALIST,
-                    agent_name="structuralist",
-                    label="Structuralist",
-                    prompt=briefing_prompt,
-                    output_schema=StructuralistBrief,
-                    parent_step=BRIEFING,
-                ),
-                self.execute_agent(
-                    step_name=BRIEFING_RECON,
-                    agent_name="recon",
-                    label="Recon",
-                    prompt=briefing_prompt,
-                    output_schema=ReconBrief,
-                    parent_step=BRIEFING,
-                ),
+                _run_briefing_agent("recon", "Recon", briefing_prompt, ReconBrief),
             )
 
             if not nav_result.output or not struct_result.output or not recon_result.output:
@@ -747,13 +752,8 @@ class RefuelMaverickWorkflow(PythonWorkflow):
                 struct_result.output,
                 recon_result.output,
             )
-            contrarian_result = await self.execute_agent(
-                step_name=BRIEFING_CONTRARIAN,
-                agent_name="contrarian",
-                label="Contrarian",
-                prompt=contrarian_prompt,
-                output_schema=ContrarianBrief,
-                parent_step=BRIEFING,
+            contrarian_result = await _run_briefing_agent(
+                "contrarian", "Contrarian", contrarian_prompt, ContrarianBrief
             )
 
             if not contrarian_result.output:
@@ -838,7 +838,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
             WorkUnitSpec,
         )
 
-        await self.emit_step_started(DECOMPOSE, step_type=StepType.AGENT)
+        await self.emit_step_started(DECOMPOSE, step_type=StepType.PYTHON)
 
         initial_payload = {
             "flight_plan_content": raw_content,

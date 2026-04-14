@@ -29,14 +29,13 @@ from maverick.events import (
     WorkflowCompleted,
     WorkflowStarted,
 )
-from maverick.exceptions import MalformedResponseError, WorkflowError
+from maverick.exceptions import WorkflowError
 from maverick.executor.config import (
     StepConfig,
 )
 from maverick.executor.config import (
     resolve_step_config as _resolve_step_config,
 )
-from maverick.executor.errors import OutputSchemaValidationError
 from maverick.logging import get_logger
 from maverick.results import StepResult, WorkflowResult
 from maverick.types import StepType
@@ -44,7 +43,6 @@ from maverick.types import StepType
 if TYPE_CHECKING:
     from maverick.checkpoint.store import CheckpointStore
     from maverick.config import MaverickConfig
-    from maverick.executor.protocol import StepExecutor
     from maverick.registry import ComponentRegistry
 
 logger = get_logger(__name__)
@@ -83,7 +81,6 @@ class PythonWorkflow(ABC):
         config: MaverickConfig,
         registry: ComponentRegistry,
         checkpoint_store: CheckpointStore | None = None,
-        step_executor: StepExecutor | None = None,
         workflow_name: str,
     ) -> None:
         if config is None:
@@ -94,7 +91,6 @@ class PythonWorkflow(ABC):
         self._config = config
         self._registry = registry
         self._checkpoint_store = checkpoint_store
-        self._step_executor = step_executor
         self._workflow_name = workflow_name
 
         # Public result attribute — populated after execute() completes.
@@ -120,11 +116,6 @@ class PythonWorkflow(ABC):
     def registry(self) -> ComponentRegistry:
         """Read-only access to the component registry."""
         return self._registry
-
-    @property
-    def step_executor(self) -> StepExecutor | None:
-        """Read-only access to the optional step executor."""
-        return self._step_executor
 
     def _resolve_display_provider(self) -> str | None:
         """Return the default provider name for display purposes."""
@@ -396,195 +387,6 @@ class PythonWorkflow(ABC):
                 step_path=f"{self._workflow_name}.{name}",
             )
         )
-
-    async def execute_agent(
-        self,
-        *,
-        step_name: str,
-        agent_name: str,
-        label: str,
-        prompt: Any,
-        output_schema: type[Any] | None = None,
-        output_file_path: str | None = None,
-        parent_step: str | None = None,
-        timeout: int = 300,
-        max_retries: int = 3,
-        agent_kwargs: dict[str, Any] | None = None,
-    ) -> Any:
-        """Execute an agent with retry, progress messaging, and timing.
-
-        Wraps ``self._step_executor.execute()`` with:
-        - R4/R8 agent lifecycle interims (start, ✓ end)
-        - Exponential-backoff retry on transient/timeout errors
-        - Retry progress messages (↻ label retry N/max...)
-
-        When ``output_file_path`` is provided, the agent is expected to
-        write its structured output to that file (via the Write tool).
-        The executor will NOT try to parse JSON from the agent's text
-        response — the file IS the output contract.  After the agent
-        completes, the file is read and validated against
-        ``output_schema`` (if provided).  This avoids the fragile
-        dual-expectation pattern where agents must produce valid JSON
-        in both their conversational text AND a file.
-
-        Args:
-            step_name: Executor step name for observability.
-            agent_name: Registry key of the agent.
-            label: Human-readable label for progress messages.
-            prompt: Prompt passed to the agent.
-            output_schema: Optional Pydantic model for structured output.
-                When used with ``output_file_path``, validates the file
-                contents rather than the text response.
-            output_file_path: Path where the agent writes structured
-                output.  When set, ``output_schema`` is NOT passed to
-                the underlying executor (no text extraction).  The file
-                is read and validated after the agent finishes.
-            parent_step: Step name for emitting progress events.
-                Defaults to ``step_name``.
-            timeout: Per-attempt timeout in seconds.
-            max_retries: Maximum number of attempts.
-
-        Returns:
-            The ``ExecutorResult`` from the executor.  When
-            ``output_file_path`` is used with ``output_schema``, the
-            result's ``.output`` is replaced with the validated model
-            instance from the file.
-
-        Raises:
-            WorkflowError: If no step executor is configured.
-        """
-        import json as _json
-        from pathlib import Path
-
-        from tenacity import (
-            AsyncRetrying,
-            retry_if_exception_type,
-            stop_after_attempt,
-            wait_exponential,
-        )
-
-        from maverick.exceptions.agent import MaverickTimeoutError
-
-        if self._step_executor is None:
-            raise WorkflowError(f"step_executor required for agent step '{step_name}'")
-
-        emit_step = parent_step or step_name
-
-        # Resolve per-step config (provider, model, timeout, etc.) from the
-        # 5-layer precedence chain so that per-step YAML overrides are honoured.
-        resolved = self.resolve_step_config(step_name, StepType.PYTHON, agent_name=agent_name)
-        # Config timeout takes precedence; fall back to caller-supplied value.
-        effective_timeout = resolved.timeout if resolved.timeout is not None else timeout
-        resolved = resolved.model_copy(update={"timeout": effective_timeout})
-
-        provider = resolved.provider or self._resolve_display_provider() or "default"
-        model = resolved.model_id or self._resolve_display_model() or "default"
-
-        # Emit typed agent-start event for Rich Live rendering
-        from maverick.events import AgentStarted
-
-        await self._event_queue.put(
-            AgentStarted(
-                step_name=emit_step,
-                agent_name=label,
-                provider=f"{provider}/{model}",
-            )
-        )
-
-        async def _event_cb(event: Any) -> None:
-            await self._event_queue.put(event)
-
-        _transient = (
-            TimeoutError,
-            ConnectionError,
-            OSError,
-            MaverickTimeoutError,
-            # Agent returned unparseable or schema-invalid output — retry
-            # since this is non-deterministic (the same prompt may succeed
-            # on the next attempt).
-            MalformedResponseError,
-            OutputSchemaValidationError,
-        )
-
-        # When output_file_path is set, the file is the output contract.
-        # Don't pass output_schema to the executor — it would try to
-        # extract JSON from the agent's conversational text response,
-        # which fails across models (Gemini, Codex, even Claude sometimes).
-        executor_schema = None if output_file_path else output_schema
-
-        t0 = time.monotonic()
-        async for attempt in AsyncRetrying(
-            stop=stop_after_attempt(max_retries),
-            wait=wait_exponential(multiplier=2, min=2, max=30),
-            retry=retry_if_exception_type(_transient),
-            reraise=True,
-        ):
-            with attempt:
-                if attempt.retry_state.attempt_number > 1:
-                    n = attempt.retry_state.attempt_number
-                    await self.emit_output(
-                        emit_step,
-                        f"\u21bb {label} retry {n}/{max_retries}...",
-                        level="warning",
-                    )
-                result = await self._step_executor.execute(
-                    step_name=step_name,
-                    agent_name=agent_name,
-                    prompt=prompt,
-                    output_schema=executor_schema,
-                    event_callback=_event_cb,
-                    config=resolved,
-                    agent_kwargs=agent_kwargs,
-                )
-
-        elapsed = time.monotonic() - t0
-
-        # File-based output: read and validate the file the agent wrote.
-        if output_file_path and output_schema:
-            file_path = Path(output_file_path)
-            if file_path.exists():
-                try:
-                    data = _json.loads(file_path.read_text(encoding="utf-8"))
-                    validated = output_schema.model_validate(data)
-                    # Replace the raw text output with the validated model
-                    result = result.__class__(
-                        output=validated,
-                        success=result.success,
-                        usage=result.usage,
-                        events=result.events,
-                        model_label=getattr(result, "model_label", None),
-                    )
-                    logger.info(
-                        "execute_agent.output_from_file",
-                        path=str(file_path),
-                        step_name=step_name,
-                    )
-                except Exception as exc:
-                    logger.warning(
-                        "execute_agent.file_parse_failed",
-                        path=str(file_path),
-                        error=str(exc),
-                        step_name=step_name,
-                    )
-                    # Fall through — return the raw result as-is
-            else:
-                logger.debug(
-                    "execute_agent.output_file_not_found",
-                    path=str(file_path),
-                    step_name=step_name,
-                )
-
-        # Emit typed agent-completed event
-        from maverick.events import AgentCompleted
-
-        await self._event_queue.put(
-            AgentCompleted(
-                step_name=emit_step,
-                agent_name=label,
-                duration_seconds=elapsed,
-            )
-        )
-        return result
 
     async def emit_output(
         self,

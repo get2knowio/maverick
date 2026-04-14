@@ -84,7 +84,7 @@ async def run_implement_and_validate(wf: FlyBeadsWorkflow, ctx: BeadContext) -> 
     Does NOT propagate — bead continues to gate check.
     """
     cwd_str = str(ctx.cwd) if ctx.cwd else None
-    await wf.emit_step_started(IMPLEMENT_AND_VALIDATE, step_type=StepType.AGENT)
+    await wf.emit_step_started(IMPLEMENT_AND_VALIDATE, step_type=StepType.PYTHON)
 
     if wf._step_executor is not None:
         parsed = _parse_work_unit_sections(ctx.description)
@@ -269,7 +269,7 @@ async def run_gate_remediation(wf: FlyBeadsWorkflow, ctx: BeadContext) -> None:
 
     Non-fatal on executor failure.
     """
-    await wf.emit_step_started(GATE_REMEDIATION, step_type=StepType.AGENT)
+    await wf.emit_step_started(GATE_REMEDIATION, step_type=StepType.PYTHON)
     ctx.remediation_attempted = True
 
     if wf._step_executor is None:
