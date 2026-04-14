@@ -159,7 +159,7 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
         parallel_agents = [n for n in self._briefing_actors if n != "contrarian"]
         for name in parallel_agents:
             label = name.replace("_", " ").title()
-            self._emit_agent_started("refuel", label, self._provider_labels.get(label, ""))
+            self._emit_agent_started("briefing", label, self._provider_labels.get(label, ""))
             self._briefing_start_times[name] = _time.monotonic()
             self._briefing_expected.add(name)
 
@@ -183,7 +183,7 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
         )
 
         label = "Contrarian"
-        self._emit_agent_started("refuel", label, self._provider_labels.get(label, ""))
+        self._emit_agent_started("briefing", label, self._provider_labels.get(label, ""))
         self._briefing_start_times["contrarian"] = _time.monotonic()
         self._briefing_expected.add("contrarian")
 
@@ -335,7 +335,7 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
 
             label = agent_name.replace("_", " ").title()
             elapsed = _time.monotonic() - self._briefing_start_times.get(agent_name, 0)
-            self._emit_agent_completed("refuel", label, elapsed)
+            self._emit_agent_completed("briefing", label, elapsed)
 
             if self._briefing_expected:
                 return  # Still waiting

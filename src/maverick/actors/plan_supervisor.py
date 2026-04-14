@@ -140,7 +140,7 @@ class PlanSupervisorActor(SupervisorEventBusMixin, Actor):
 
         # Emit agent-started events for Rich Live display
         for name in ("Scopist", "Codebase Analyst", "Criteria Writer"):
-            self._emit_agent_started("plan", name, self._provider_labels.get(name, ""))
+            self._emit_agent_started("briefing", name, self._provider_labels.get(name, ""))
             self._briefing_start_times[name] = _time.monotonic()
 
         # Fan-out: 3 messages sent, Thespian delivers to 3 separate
@@ -160,25 +160,25 @@ class PlanSupervisorActor(SupervisorEventBusMixin, Actor):
         if tool == "submit_scope":
             self._briefs["scope"] = args
             elapsed = _time.monotonic() - self._briefing_start_times.get("Scopist", 0)
-            self._emit_agent_completed("plan", "Scopist", elapsed)
+            self._emit_agent_completed("briefing", "Scopist", elapsed)
             self._check_briefing_complete()
 
         elif tool == "submit_analysis":
             self._briefs["analysis"] = args
             elapsed = _time.monotonic() - self._briefing_start_times.get("Codebase Analyst", 0)
-            self._emit_agent_completed("plan", "Codebase Analyst", elapsed)
+            self._emit_agent_completed("briefing", "Codebase Analyst", elapsed)
             self._check_briefing_complete()
 
         elif tool == "submit_criteria":
             self._briefs["criteria"] = args
             elapsed = _time.monotonic() - self._briefing_start_times.get("Criteria Writer", 0)
-            self._emit_agent_completed("plan", "Criteria Writer", elapsed)
+            self._emit_agent_completed("briefing", "Criteria Writer", elapsed)
             self._check_briefing_complete()
 
         elif tool == "submit_challenge":
             self._briefs["challenge"] = args
             elapsed = _time.monotonic() - self._briefing_start_times.get("Contrarian", 0)
-            self._emit_agent_completed("plan", "Contrarian", elapsed)
+            self._emit_agent_completed("briefing", "Contrarian", elapsed)
             self._synthesize_and_generate()
 
         elif tool == "submit_flight_plan":
@@ -212,7 +212,9 @@ class PlanSupervisorActor(SupervisorEventBusMixin, Actor):
         """All 3 briefs collected — send to contrarian."""
         import time as _time
 
-        self._emit_agent_started("plan", "Contrarian", self._provider_labels.get("Contrarian", ""))
+        self._emit_agent_started(
+            "briefing", "Contrarian", self._provider_labels.get("Contrarian", "")
+        )
         self._briefing_start_times["Contrarian"] = _time.monotonic()
 
         # Build contrarian prompt manually since the briefs are raw

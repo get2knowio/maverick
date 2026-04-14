@@ -424,8 +424,12 @@ async def render_workflow_events(
         elif isinstance(event, AgentStarted):
             if _agent_tracker is None or not _agent_tracker.active:
                 _stop_spinner()
-                _flush_step_header()
-                _agent_tracker = _AgentTracker(console_obj, _current_step_name)
+                # Print phase header from the event's step_name, not the
+                # workflow's current step (which may be stale when agents
+                # run inside a Thespian supervisor).
+                phase_display = _display_name(event.step_name)
+                console_obj.print(f"[bold]{phase_display}[/]")
+                _agent_tracker = _AgentTracker(console_obj, event.step_name)
             _agent_tracker.agent_started(event.agent_name, event.provider)
 
         elif isinstance(event, AgentCompleted):
@@ -433,6 +437,13 @@ async def render_workflow_events(
                 _agent_tracker.agent_completed(event.agent_name, f"{event.duration_seconds:.1f}s")
 
         elif isinstance(event, StepOutput):
+            # Detect implicit step transition from Thespian supervisor
+            # events (no StepStarted emitted for internal phases).
+            if event.step_name and event.step_name != _current_step_name:
+                _current_step_name = event.step_name
+                _step_started_printed = False
+                _buffered_interims.clear()
+
             if _agent_tracker is not None and _agent_tracker.active:
                 _agent_tracker.add_message(event.message)
             elif _step_started_printed:
