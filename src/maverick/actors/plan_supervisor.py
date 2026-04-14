@@ -111,6 +111,9 @@ class PlanSupervisorActor(SupervisorEventBusMixin, Actor):
         self._validator = message.get("validator_addr")
         self._writer = message.get("writer_addr")
 
+        # Provider labels for CLI display (resolved by workflow from config)
+        self._provider_labels: dict[str, str] = message.get("provider_labels", {})
+
         # State
         self._briefs = {}
         self._briefing_markdown = ""
@@ -137,7 +140,7 @@ class PlanSupervisorActor(SupervisorEventBusMixin, Actor):
 
         # Emit agent-started events for Rich Live display
         for name in ("Scopist", "Codebase Analyst", "Criteria Writer"):
-            self._emit_agent_started("plan", name)
+            self._emit_agent_started("plan", name, self._provider_labels.get(name, ""))
             self._briefing_start_times[name] = _time.monotonic()
 
         # Fan-out: 3 messages sent, Thespian delivers to 3 separate
@@ -209,7 +212,7 @@ class PlanSupervisorActor(SupervisorEventBusMixin, Actor):
         """All 3 briefs collected — send to contrarian."""
         import time as _time
 
-        self._emit_agent_started("plan", "Contrarian")
+        self._emit_agent_started("plan", "Contrarian", self._provider_labels.get("Contrarian", ""))
         self._briefing_start_times["Contrarian"] = _time.monotonic()
 
         # Build contrarian prompt manually since the briefs are raw

@@ -456,6 +456,20 @@ class GenerateFlightPlanWorkflow(PythonWorkflow):
                 PlanSupervisorActor,
                 globalName="supervisor-inbox",
             )
+            # Resolve provider/model label for CLI display
+            from maverick.types import StepType as _StepType
+
+            _resolved = self.resolve_step_config("briefing", _StepType.PYTHON)
+            _prov = _resolved.provider or self._resolve_display_provider() or "default"
+            _mod = _resolved.model_id or self._resolve_display_model() or "default"
+            _label = f"{_prov}/{_mod}"
+            _provider_labels = {
+                "Scopist": _label,
+                "Codebase Analyst": _label,
+                "Criteria Writer": _label,
+                "Contrarian": _label,
+            }
+
             asys.ask(
                 supervisor,
                 {
@@ -470,14 +484,9 @@ class GenerateFlightPlanWorkflow(PythonWorkflow):
                     "generator_addr": gen,
                     "validator_addr": validator,
                     "writer_addr": writer,
+                    "provider_labels": _provider_labels,
                 },
                 timeout=10,
-            )
-
-            await self.emit_output(
-                BRIEFING,
-                "Generating flight plan with Thespian actor system",
-                level="info",
             )
 
             # Start and drain events
