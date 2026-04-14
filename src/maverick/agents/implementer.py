@@ -190,14 +190,11 @@ def _coerce_implementer_context(data: dict[str, Any]) -> ImplementerContext:
     Python workflows pass dicts via ClaudeStepExecutor; this converts them
     to the typed model the agent expects.
     """
-    task_file_str = data.get("task_file")
-    task_file = Path(task_file_str) if task_file_str else None
     cwd_str = data.get("cwd")
     cwd = Path(cwd_str) if cwd_str else Path.cwd()
 
     return ImplementerContext(
-        task_file=task_file,
-        task_description=data.get("task_description"),
+        task_description=data.get("task_description", ""),
         branch=data.get("branch") or data.get("branch_name") or "main",
         cwd=cwd,
         skip_validation=data.get("skip_validation", False),
@@ -226,8 +223,7 @@ class ImplementerAgent(MaverickAgent[ImplementerContext, ImplementationResult]):
     Example:
         >>> agent = ImplementerAgent()
         >>> context = ImplementerContext(
-        ...     task_file=Path("specs/004/tasks.md"),
-        ...     branch="feature/implement"
+        ...     task_description="Implement the greeting CLI command",
         ... )
         >>> result = await agent.execute(context)
         >>> result.success
@@ -289,7 +285,7 @@ class ImplementerAgent(MaverickAgent[ImplementerContext, ImplementationResult]):
 
         synthetic_task = Task(
             id="T000",
-            description=context.task_description or "",
+            description=context.task_description,
             status=TaskStatus.PENDING,
             parallel=False,
         )

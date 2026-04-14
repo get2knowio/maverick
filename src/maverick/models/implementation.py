@@ -10,7 +10,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field
 
 # =============================================================================
 # Enums (T009)
@@ -601,25 +601,16 @@ class ImplementationResult(BaseModel):
 class ImplementerContext(BaseModel):
     """Input context for ImplementerAgent execution.
 
-    Provides task source (file or description) and execution environment.
-
     Attributes:
-        task_file: Path to tasks.md file (mutually exclusive with task_description).
-        task_description: Direct task description (mutually exclusive with task_file).
-        phase_name: Optional phase name to filter tasks to a specific phase.
+        task_description: Task description for the implementer.
         branch: Git branch name for context.
         cwd: Working directory for execution.
         skip_validation: If True, skip validation steps.
         dry_run: If True, don't commit changes.
     """
 
-    task_file: Path | None = Field(default=None, description="Path to tasks.md file")
-    task_description: str | None = Field(
-        default=None,
-        min_length=10,
-        description="Direct task description",
-    )
-    branch: str = Field(min_length=1, description="Git branch name")
+    task_description: str = Field(min_length=1, description="Task description")
+    branch: str = Field(default="main", min_length=1, description="Git branch name")
     cwd: Path = Field(default_factory=Path.cwd, description="Working directory")
     skip_validation: bool = Field(default=False, description="Skip validation steps")
     dry_run: bool = Field(default=False, description="Don't create commits")
@@ -628,17 +619,3 @@ class ImplementerContext(BaseModel):
     runway_context: str | None = Field(default=None, description="Historical runway context")
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
-
-    @model_validator(mode="after")
-    def validate_task_source(self) -> ImplementerContext:
-        """Ensure exactly one task source is provided."""
-        if self.task_file and self.task_description:
-            raise ValueError("Provide task_file OR task_description, not both")
-        if not self.task_file and not self.task_description:
-            raise ValueError("Must provide task_file or task_description")
-        return self
-
-    @property
-    def is_single_task(self) -> bool:
-        """Check if executing a single task description."""
-        return self.task_description is not None
