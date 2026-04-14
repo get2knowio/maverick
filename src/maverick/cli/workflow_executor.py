@@ -495,7 +495,11 @@ async def execute_python_workflow(
     from maverick.session_journal import SessionJournal
     from maverick.types import StepType
 
-    workflow_name = run_config.workflow_class.workflow_name()
+    # Extract workflow name: instantiate briefly to read the name set in __init__,
+    # then discard. Each workflow class sets workflow_name in __init__ from its
+    # module WORKFLOW_NAME constant.
+    _probe = run_config.workflow_class()
+    workflow_name = _probe._workflow_name
 
     with cli_error_handler():
         registry = create_registered_registry(ctx)
