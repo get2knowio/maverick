@@ -6,9 +6,6 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
-
-from maverick.executor.protocol import StepExecutor
 from maverick.executor.result import ExecutorResult
 from maverick.library.actions.types import BeadCreationResult, DependencyWiringResult
 from maverick.workflows.refuel_maverick.constants import DETAIL_BATCH_SIZE
@@ -264,7 +261,6 @@ async def collect_events(
 def make_workflow(
     mock_config: MagicMock,
     mock_registry: MagicMock,
-    _step_executor: Any = None,
     **_kwargs: Any,
 ) -> RefuelMaverickWorkflow:
     """Create a RefuelMaverickWorkflow with the given mocks."""
@@ -300,13 +296,3 @@ def patch_decompose_supervisor(
 # ---------------------------------------------------------------------------
 # pytest fixtures
 # ---------------------------------------------------------------------------
-
-
-@pytest.fixture
-def mock_step_executor() -> AsyncMock:
-    """Return an AsyncMock StepExecutor pre-configured for two-pass decomposition."""
-    executor = AsyncMock(spec=StepExecutor)
-    decomp = make_simple_decomposition_output()
-    results = decomposition_to_two_pass_results(decomp)
-    executor.execute.side_effect = results
-    return executor

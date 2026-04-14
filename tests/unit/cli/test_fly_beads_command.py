@@ -43,12 +43,6 @@ class TestFlyCommand:
         assert result.exit_code == 0
         assert "--dry-run" in result.output
 
-    def test_help_shows_skip_review_option(self) -> None:
-        runner = CliRunner()
-        result = runner.invoke(fly, ["--help"])
-        assert result.exit_code == 0
-        assert "--skip-review" in result.output
-
     def test_help_shows_list_steps_option(self) -> None:
         runner = CliRunner()
         result = runner.invoke(fly, ["--help"])

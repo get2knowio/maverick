@@ -64,12 +64,11 @@ class TestRefuelMaverickWorkflowHappyPath:
         self,
         mock_config: MagicMock,
         mock_registry: MagicMock,
-        mock_step_executor: AsyncMock,
         tmp_path: Path,
     ) -> None:
         """All 7 steps produce StepCompleted events in the non-dry-run path."""
         fp = make_simple_flight_plan(tmp_path)
-        workflow = make_workflow(mock_config, mock_registry, mock_step_executor)
+        workflow = make_workflow(mock_config, mock_registry)
         bead_result = make_bead_result()
         wire_result = make_wire_result()
 
@@ -102,12 +101,11 @@ class TestRefuelMaverickWorkflowHappyPath:
         self,
         mock_config: MagicMock,
         mock_registry: MagicMock,
-        mock_step_executor: AsyncMock,
         tmp_path: Path,
     ) -> None:
         """RefuelMaverickResult fields are populated correctly after a full run."""
         fp = make_simple_flight_plan(tmp_path)
-        workflow = make_workflow(mock_config, mock_registry, mock_step_executor)
+        workflow = make_workflow(mock_config, mock_registry)
         bead_result = make_bead_result()
         wire_result = make_wire_result()
 
@@ -140,12 +138,11 @@ class TestRefuelMaverickWorkflowHappyPath:
         self,
         mock_config: MagicMock,
         mock_registry: MagicMock,
-        mock_step_executor: AsyncMock,
         tmp_path: Path,
     ) -> None:
         """_run_with_thespian is called during the workflow."""
         fp = make_simple_flight_plan(tmp_path)
-        workflow = make_workflow(mock_config, mock_registry, mock_step_executor)
+        workflow = make_workflow(mock_config, mock_registry)
         bead_result = make_bead_result()
         wire_result = make_wire_result()
 
@@ -176,12 +173,11 @@ class TestRefuelMaverickWorkflowHappyPath:
         self,
         mock_config: MagicMock,
         mock_registry: MagicMock,
-        mock_step_executor: AsyncMock,
         tmp_path: Path,
     ) -> None:
         """Work unit files use {seq:03d}-{id}.md naming inside .maverick/plans/."""
         fp = make_simple_flight_plan(tmp_path)
-        workflow = make_workflow(mock_config, mock_registry, mock_step_executor)
+        workflow = make_workflow(mock_config, mock_registry)
         bead_result = make_bead_result()
         wire_result = make_wire_result()
 
@@ -222,12 +218,11 @@ class TestRefuelMaverickWorkflowHappyPath:
         self,
         mock_config: MagicMock,
         mock_registry: MagicMock,
-        mock_step_executor: AsyncMock,
         tmp_path: Path,
     ) -> None:
         """WorkflowStarted is the first event and WorkflowCompleted is the last."""
         fp = make_simple_flight_plan(tmp_path)
-        workflow = make_workflow(mock_config, mock_registry, mock_step_executor)
+        workflow = make_workflow(mock_config, mock_registry)
         bead_result = make_bead_result()
         wire_result = make_wire_result()
 
@@ -255,12 +250,11 @@ class TestRefuelMaverickWorkflowHappyPath:
         self,
         mock_config: MagicMock,
         mock_registry: MagicMock,
-        mock_step_executor: AsyncMock,
         tmp_path: Path,
     ) -> None:
         """wire_dependencies is called with extracted_deps built from depends_on."""
         fp = make_simple_flight_plan(tmp_path)
-        workflow = make_workflow(mock_config, mock_registry, mock_step_executor)
+        workflow = make_workflow(mock_config, mock_registry)
         bead_result = make_bead_result()
         wire_result = make_wire_result()
 
@@ -308,12 +302,11 @@ class TestDryRunMode:
         self,
         mock_config: MagicMock,
         mock_registry: MagicMock,
-        mock_step_executor: AsyncMock,
         tmp_path: Path,
     ) -> None:
         """create_beads and wire_dependencies are NOT called in dry-run mode."""
         fp = make_simple_flight_plan(tmp_path)
-        workflow = make_workflow(mock_config, mock_registry, mock_step_executor)
+        workflow = make_workflow(mock_config, mock_registry)
 
         with (
             patch_cwd(tmp_path),
@@ -337,12 +330,11 @@ class TestDryRunMode:
         self,
         mock_config: MagicMock,
         mock_registry: MagicMock,
-        mock_step_executor: AsyncMock,
         tmp_path: Path,
     ) -> None:
         """Work unit files ARE written in dry-run mode (steps 1-5 execute normally)."""
         fp = make_simple_flight_plan(tmp_path)
-        workflow = make_workflow(mock_config, mock_registry, mock_step_executor)
+        workflow = make_workflow(mock_config, mock_registry)
 
         with (
             patch_cwd(tmp_path),
@@ -368,12 +360,11 @@ class TestDryRunMode:
         self,
         mock_config: MagicMock,
         mock_registry: MagicMock,
-        mock_step_executor: AsyncMock,
         tmp_path: Path,
     ) -> None:
         """RefuelMaverickResult has correct field values in dry-run mode."""
         fp = make_simple_flight_plan(tmp_path)
-        workflow = make_workflow(mock_config, mock_registry, mock_step_executor)
+        workflow = make_workflow(mock_config, mock_registry)
 
         with (
             patch_cwd(tmp_path),
@@ -403,12 +394,11 @@ class TestDryRunMode:
         self,
         mock_config: MagicMock,
         mock_registry: MagicMock,
-        mock_step_executor: AsyncMock,
         tmp_path: Path,
     ) -> None:
         """Outer steps have StepCompleted events; steps 6-7 do not appear."""
         fp = make_simple_flight_plan(tmp_path)
-        workflow = make_workflow(mock_config, mock_registry, mock_step_executor)
+        workflow = make_workflow(mock_config, mock_registry)
 
         with (
             patch_cwd(tmp_path),
@@ -435,12 +425,11 @@ class TestDryRunMode:
         self,
         mock_config: MagicMock,
         mock_registry: MagicMock,
-        mock_step_executor: AsyncMock,
         tmp_path: Path,
     ) -> None:
         """Workflow result is success=True in dry-run mode."""
         fp = make_simple_flight_plan(tmp_path)
-        workflow = make_workflow(mock_config, mock_registry, mock_step_executor)
+        workflow = make_workflow(mock_config, mock_registry)
 
         with (
             patch_cwd(tmp_path),

@@ -136,7 +136,6 @@ class GenerateFlightPlanWorkflow(PythonWorkflow):
         config: Project configuration (MaverickConfig).
         registry: Component registry for action/agent dispatch.
         checkpoint_store: Optional checkpoint persistence backend.
-        step_executor: StepExecutor for agent step execution (required for generate).
         workflow_name: Identifier for this workflow instance.
     """
 

@@ -10,7 +10,7 @@ Maverick is a Python CLI application that orchestrates AI-powered development wo
 
 | Category        | Technology              | Notes                                    |
 | --------------- | ----------------------- | ---------------------------------------- |
-| Language        | Python 3.10+            | Use `from __future__ import annotations` |
+| Language        | Python 3.11+            | Use `from __future__ import annotations` |
 | Package Manager | uv                      | Fast, reproducible builds via `uv.lock`  |
 | Build System    | Make                    | AI-friendly commands with minimal output |
 | AI/Agents       | Agent Client Protocol   | `agent-client-protocol` SDK + `claude-agent-acp` subprocess |
@@ -614,7 +614,7 @@ Iterates over ready beads. Each bead is processed by a BeadSupervisor using the 
 The supervisor routes messages: implement → gate → review → (fix loop if needed) → commit.
 Implementer and reviewer share persistent sessions — no context loss between rounds.
 
-Options: `--epic`, `--max-beads` (default 30), `--dry-run`, `--skip-review`, `--auto-commit`
+Options: `--epic`, `--max-beads` (default 30), `--dry-run`, `--auto-commit`
 
 ### land (Curate and Push)
 
@@ -627,14 +627,6 @@ Finalizes work from `fly` by reorganizing commits into clean history and pushing
 Uses an AI agent (CuratorAgent) for intelligent reorganization, with user approval. Falls back to git push when no workspace exists.
 
 Options: `--no-curate`, `--dry-run`, `--yes`/`-y`, `--base` (default "main"), `--heuristic-only`, `--eject`, `--finalize`, `--branch`
-
-### refuel speckit (Bead Creation)
-
-Creates beads from a SpecKit specification directory containing `tasks.md`:
-
-1. **Parse**: Extract phases and tasks from tasks.md
-2. **Create**: Generate epic and work beads via `bd`
-3. **Wire**: Set up dependencies between beads
 
 ### Review-and-Fix with Registry Fragment
 
@@ -691,13 +683,6 @@ pwd            # Check working directory
 confusion and requires cleanup. See `.specify/memory/constitution.md` Appendix D for full
 conventions and recovery procedures.
 
-## Legacy Plugin Reference
-
-The `plugins/maverick/` directory contains the legacy Claude Code plugin implementation being migrated. Reference for workflow logic:
-
-- `plugins/maverick/commands/` - Slash command definitions
-- `plugins/maverick/scripts/` - Shell scripts (sync, validation, PR management)
-
 ## Active Technologies
 - Python 3.11+ with `from __future__ import annotations`
 - Agent Client Protocol (ACP) via `agent-client-protocol` SDK + `claude-agent-acp` subprocess
@@ -708,9 +693,8 @@ The `plugins/maverick/` directory contains the legacy Claude Code plugin impleme
 - Beads via `bd` CLI for work unit management
 
 ## Recent Changes
-- Actor-mailbox architecture: all three workflows (plan/refuel/fly) use supervisor actors with MCP tool-based agent output
-- MCP supervisor inbox: `maverick serve-inbox` subcommand with jsonschema validation
-- Thespian integration: cross-process messaging for refuel (async bridge in progress)
-- Fly improvements: persistent ACP sessions eliminate review oscillation (0-1 rounds vs 11→10→12)
-- Curator prompt: strips bead IDs from commit messages for clean git history
-- Behavioral verification commands in decomposer (tests pass, not code pattern greps)
+- All workflows use Thespian actor system exclusively (no legacy fallbacks)
+- Rich Live CLI output with agent fan-out rendering
+- Parallel decomposer pool for detail pass
+- Self-contained actors (create own ACP executors)
+- Completeness enforcement in agent prompts

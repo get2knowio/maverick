@@ -79,7 +79,7 @@ _LAZY_COMMANDS: dict[str, tuple[str, str]] = {
     ),
     "uninstall": (
         "maverick.cli.commands.uninstall:uninstall",
-        "Remove Maverick-installed skills and optionally the CLI itself.",
+        "Remove Maverick-installed skills and optionally the config file.",
     ),
     "workspace": (
         "maverick.cli.commands.workspace:workspace",

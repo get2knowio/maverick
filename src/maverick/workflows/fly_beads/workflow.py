@@ -59,7 +59,6 @@ class FlyBeadsWorkflow(PythonWorkflow):
         config: Project configuration.
         registry: Component registry.
         checkpoint_store: Optional checkpoint persistence.
-        step_executor: Optional agent step executor for implement steps.
         workflow_name: Identifier for this workflow instance.
     """
 
@@ -75,7 +74,6 @@ class FlyBeadsWorkflow(PythonWorkflow):
                 - epic_id: Optional epic to filter beads (default "")
                 - max_beads: Maximum beads to process (default MAX_BEADS)
                 - dry_run: If True, skip workspace creation (default False)
-                - skip_review: If True, skip review step (default False)
 
         Returns:
             Summary dict with counts and workspace info.

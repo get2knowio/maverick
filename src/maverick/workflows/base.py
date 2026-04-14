@@ -68,7 +68,6 @@ class PythonWorkflow(ABC):
         config: Project configuration (MaverickConfig).
         registry: Component registry for action/agent dispatch.
         checkpoint_store: Optional checkpoint persistence backend.
-        step_executor: Optional agent step executor (StepExecutor protocol).
         workflow_name: Identifier for this workflow instance.
 
     Raises:

@@ -4,12 +4,11 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
 
 from maverick.checkpoint.store import MemoryCheckpointStore
-from maverick.executor.protocol import StepExecutor
 
 
 def _make_concrete_workflow_class() -> type:
@@ -73,17 +72,10 @@ def memory_checkpoint_store() -> MemoryCheckpointStore:
 
 
 @pytest.fixture
-def mock_step_executor() -> AsyncMock:
-    """Return an AsyncMock satisfying the StepExecutor protocol."""
-    return AsyncMock(spec=StepExecutor)
-
-
-@pytest.fixture
 def concrete_workflow(
     mock_config: MagicMock,
     mock_registry: MagicMock,
     memory_checkpoint_store: MemoryCheckpointStore,
-    mock_step_executor: AsyncMock,
 ) -> Any:
     """Return a ConcreteTestWorkflow with default no-op _run behaviour."""
     ConcreteTestWorkflow = _make_concrete_workflow_class()

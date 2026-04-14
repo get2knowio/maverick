@@ -5,7 +5,7 @@ from __future__ import annotations
 import contextlib
 from pathlib import Path
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -301,38 +301,7 @@ def checkpoint_store() -> MemoryCheckpointStore:
 
 
 @pytest.fixture
-def mock_step_executor() -> AsyncMock:
-    from maverick.executor.protocol import StepExecutor
-    from maverick.executor.result import ExecutorResult
-
-    executor = AsyncMock(spec=StepExecutor)
-    executor.execute.return_value = ExecutorResult(
-        success=True,
-        output="Implementation complete",
-        usage=None,
-        events=(),
-    )
-    return executor
-
-
-@pytest.fixture
 def fly_workflow(
-    mock_config: MagicMock,
-    mock_registry: MagicMock,
-    checkpoint_store: MemoryCheckpointStore,
-    mock_step_executor: AsyncMock,
-) -> Any:
-    from maverick.workflows.fly_beads.workflow import FlyBeadsWorkflow
-
-    return FlyBeadsWorkflow(
-        config=mock_config,
-        registry=mock_registry,
-        checkpoint_store=checkpoint_store,
-    )
-
-
-@pytest.fixture
-def fly_workflow_no_executor(
     mock_config: MagicMock,
     mock_registry: MagicMock,
     checkpoint_store: MemoryCheckpointStore,
@@ -352,12 +321,12 @@ def fly_workflow_no_executor(
 
 
 class TestFlyBeadsWorkflow:
-    async def test_happy_path(self, fly_workflow: Any, mock_step_executor: AsyncMock) -> None:
+    async def test_happy_path(self, fly_workflow: Any) -> None:
         """Complete workflow: preflight -> workspace -> bead -> commit -> done."""
         with _patch_all_actions():
             events = await _collect_events(
                 fly_workflow,
-                {"epic_id": "", "max_beads": 5, "dry_run": False, "skip_review": False},
+                {"epic_id": "", "max_beads": 5, "dry_run": False},
             )
 
         completed = [e for e in events if isinstance(e, WorkflowCompleted)]
@@ -506,16 +475,6 @@ class TestFlyBeadsWorkflow:
         assert fly_workflow.result is not None
         final = fly_workflow.result.final_output
         assert final["beads_succeeded"] == 3
-
-    async def test_no_executor_skips_implement(self, fly_workflow_no_executor: Any) -> None:
-        """When step_executor is None, the implement step is skipped with a warning."""
-        with _patch_all_actions():
-            events = await _collect_events(
-                fly_workflow_no_executor, {"epic_id": "", "max_beads": 5}
-            )
-
-        completed = next(e for e in events if isinstance(e, WorkflowCompleted))
-        assert completed.success is True
 
     async def test_multiple_beads_processed(self, fly_workflow: Any) -> None:
         """Multiple beads reported by Thespian appear in result."""

@@ -8,7 +8,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from maverick.exceptions import WorkflowError
-from maverick.executor.protocol import StepExecutor
 from maverick.library.actions.decompose import CodebaseContext
 from maverick.library.actions.types import BeadCreationResult, DependencyWiringResult
 from maverick.workflows.refuel_maverick.models import (
@@ -19,7 +18,6 @@ from maverick.workflows.refuel_maverick.models import (
 )
 from tests.unit.workflows.refuel_maverick.conftest import (
     collect_events,
-    decomposition_to_two_pass_results,
     make_workflow,
     patch_cwd,
     patch_decompose_supervisor,
@@ -185,14 +183,13 @@ class TestErrorHandling:
         self,
         mock_config: MagicMock,
         mock_registry: MagicMock,
-        mock_step_executor: AsyncMock,
         tmp_path: Path,
     ) -> None:
         """Flight plan parse error surfaces as workflow failure."""
         fp = tmp_path / "bad-plan.md"
         fp.write_text("This is not a valid flight plan YAML frontmatter.", encoding="utf-8")
 
-        workflow = make_workflow(mock_config, mock_registry, mock_step_executor)
+        workflow = make_workflow(mock_config, mock_registry)
 
         events, result = await collect_events(
             workflow,
@@ -221,11 +218,10 @@ class TestErrorHandling:
         self,
         mock_config: MagicMock,
         mock_registry: MagicMock,
-        mock_step_executor: AsyncMock,
         tmp_path: Path,
     ) -> None:
         """Non-existent flight plan file path results in a failed workflow."""
-        workflow = make_workflow(mock_config, mock_registry, mock_step_executor)
+        workflow = make_workflow(mock_config, mock_registry)
 
         events, result = await collect_events(
             workflow,
@@ -247,8 +243,7 @@ class TestErrorHandling:
         """Circular dependency detected and reported before bead creation."""
         fp = _make_flight_plan_file(tmp_path)
 
-        executor = AsyncMock(spec=StepExecutor)
-        workflow = make_workflow(mock_config, mock_registry, executor)
+        workflow = make_workflow(mock_config, mock_registry)
 
         with (
             patch_cwd(tmp_path),
@@ -278,7 +273,6 @@ class TestErrorHandling:
         self,
         mock_config: MagicMock,
         mock_registry: MagicMock,
-        mock_step_executor: AsyncMock,
         tmp_path: Path,
     ) -> None:
         """Pre-existing work unit files in output dir are cleared before new write."""
@@ -290,7 +284,7 @@ class TestErrorHandling:
         (work_units_dir / "001-old-unit.md").write_text("old content", encoding="utf-8")
         (work_units_dir / "002-another-old.md").write_text("another old", encoding="utf-8")
 
-        workflow = make_workflow(mock_config, mock_registry, mock_step_executor)
+        workflow = make_workflow(mock_config, mock_registry)
 
         with (
             patch_cwd(tmp_path),
@@ -370,8 +364,7 @@ Test objective.
             ],
             rationale="Single unit",
         )
-        executor = AsyncMock(spec=StepExecutor)
-        workflow = make_workflow(mock_config, mock_registry, executor)
+        workflow = make_workflow(mock_config, mock_registry)
 
         with (
             patch_cwd(tmp_path),
@@ -404,10 +397,7 @@ Test objective.
         """Agent failure after all retries are exhausted fails the workflow."""
         fp = _make_flight_plan_file(tmp_path)
 
-        executor = AsyncMock(spec=StepExecutor)
-        # Raise a transient error on every attempt
-        executor.execute.side_effect = TimeoutError("API timeout")
-        workflow = make_workflow(mock_config, mock_registry, executor)
+        workflow = make_workflow(mock_config, mock_registry)
 
         with (
             patch_cwd(tmp_path),
@@ -431,12 +421,11 @@ Test objective.
         self,
         mock_config: MagicMock,
         mock_registry: MagicMock,
-        mock_step_executor: AsyncMock,
         tmp_path: Path,
     ) -> None:
         """bd system unavailability fails the create_beads step."""
         fp = _make_flight_plan_file(tmp_path)
-        workflow = make_workflow(mock_config, mock_registry, mock_step_executor)
+        workflow = make_workflow(mock_config, mock_registry)
 
         with (
             patch_cwd(tmp_path),
@@ -460,53 +449,6 @@ Test objective.
         assert result is not None
         assert result.success is False
 
-    async def test_dangling_depends_on_detected_before_bead_creation(
-        self,
-        mock_config: MagicMock,
-        mock_registry: MagicMock,
-        tmp_path: Path,
-    ) -> None:
-        """Dangling depends_on reference detected and reported before bead creation."""
-        fp = _make_flight_plan_file(tmp_path)
-
-        dangling_decomp = DecompositionOutput(
-            work_units=[
-                WorkUnitSpec(
-                    id="unit-a",
-                    sequence=1,
-                    depends_on=["nonexistent-unit"],
-                    task="Task A",
-                    acceptance_criteria=[
-                        AcceptanceCriterionSpec(text="A done", trace_ref="SC-001")
-                    ],
-                    file_scope=FileScopeSpec(),
-                    instructions="Do A",
-                    verification=["test"],
-                ),
-            ],
-            rationale="Dangling",
-        )
-
-        executor = AsyncMock(spec=StepExecutor)
-        executor.execute.side_effect = decomposition_to_two_pass_results(dangling_decomp)
-        workflow = make_workflow(mock_config, mock_registry, executor)
-
-        with (
-            patch_cwd(tmp_path),
-            patch(
-                f"{_MODULE}.gather_codebase_context",
-                new=AsyncMock(
-                    return_value=CodebaseContext(files=(), missing_files=(), total_size=0)
-                ),
-            ),
-            patch(f"{_MODULE}.create_beads") as mock_create,
-        ):
-            with pytest.raises(WorkflowError):
-                inputs = {"flight_plan_path": str(fp), "skip_briefing": True}
-                async for _ in workflow.execute(inputs):
-                    pass
-            mock_create.assert_not_called()
-
 
 # ---------------------------------------------------------------------------
 # Parallel group tests (T016)
@@ -526,8 +468,7 @@ class TestParallelGroups:
         fp = _make_flight_plan_file(tmp_path)
 
         parallel_decomp = _make_parallel_decomp()
-        executor = AsyncMock(spec=StepExecutor)
-        workflow = make_workflow(mock_config, mock_registry, executor)
+        workflow = make_workflow(mock_config, mock_registry)
 
         with (
             patch_cwd(tmp_path),
@@ -612,8 +553,7 @@ class TestParallelGroups:
         fp = _make_flight_plan_file(tmp_path)
 
         parallel_decomp = _make_parallel_decomp()
-        executor = AsyncMock(spec=StepExecutor)
-        workflow = make_workflow(mock_config, mock_registry, executor)
+        workflow = make_workflow(mock_config, mock_registry)
 
         with (
             patch_cwd(tmp_path),

@@ -27,13 +27,8 @@ from maverick.cli.context import ExitCode, async_command
     help="Path to PRD file, or '-' for STDIN.",
 )
 @click.option(
-    "--interactive",
-    is_flag=True,
-    default=False,
-    help="Agent asks clarifying questions before generating (coming soon).",
-)
-@click.option(
-    "--output-dir",
+    "--plans-dir",
+    "output_dir",
     default=DEFAULT_PLANS_DIR,
     show_default=True,
     help="Base plans directory.",
@@ -56,7 +51,6 @@ async def generate(
     ctx: click.Context,
     name: str,
     from_prd: str,
-    interactive: bool,
     output_dir: str,
     skip_briefing: bool,
     session_log: Path | None,
@@ -90,13 +84,6 @@ async def generate(
             "starting with a letter and not ending with a hyphen.",
         )
         raise SystemExit(ExitCode.FAILURE)
-
-    # Interactive mode warning
-    if interactive:
-        console.print(
-            "[yellow]Warning:[/yellow] --interactive mode is not yet implemented. "
-            "Proceeding in non-interactive mode.",
-        )
 
     # Read PRD content
     if from_prd == "-":

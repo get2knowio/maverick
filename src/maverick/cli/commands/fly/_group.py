@@ -65,12 +65,6 @@ _FLY_BEADS_STEPS = [
     help="Preview mode — skip git and bd mutations.",
 )
 @click.option(
-    "--skip-review",
-    is_flag=True,
-    default=False,
-    help="Skip code review step for each bead.",
-)
-@click.option(
     "--list-steps",
     is_flag=True,
     default=False,
@@ -108,7 +102,6 @@ async def fly(
     epic: str | None,
     max_beads: int,
     dry_run: bool,
-    skip_review: bool,
     list_steps: bool,
     auto_commit: bool,
     session_log: Path | None,
@@ -132,7 +125,7 @@ async def fly(
         maverick fly
         maverick fly --epic my-epic
         maverick fly --epic my-epic --dry-run
-        maverick fly --skip-review --max-beads 5
+        maverick fly --max-beads 5
         maverick fly --watch
     """
     if list_steps:
@@ -152,7 +145,6 @@ async def fly(
                 "epic_id": epic or "",
                 "max_beads": max_beads,
                 "dry_run": dry_run,
-                "skip_review": skip_review,
                 "auto_commit": auto_commit,
                 "watch": watch,
                 "watch_interval": watch_interval,

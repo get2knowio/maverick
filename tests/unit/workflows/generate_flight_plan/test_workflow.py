@@ -47,7 +47,6 @@ def _make_flight_plan_output(name: str = "test-plan") -> FlightPlanOutput:
 def _make_workflow(
     mock_config: MagicMock,
     mock_registry: MagicMock,
-    mock_step_executor: AsyncMock | None = None,
 ) -> GenerateFlightPlanWorkflow:
     """Create a GenerateFlightPlanWorkflow with mocked dependencies."""
     return GenerateFlightPlanWorkflow(
@@ -196,14 +195,13 @@ class TestGenerateFlightPlanWorkflowHappyPath:
         self,
         mock_config: MagicMock,
         mock_registry: MagicMock,
-        mock_step_executor: AsyncMock,
         tmp_path: Path,
     ) -> None:
         """read_prd step produces a StepCompleted event (other steps run inside Thespian)."""
         plan_dir = tmp_path / "test-plan"
         thespian_result = _make_thespian_result(plan_dir)
 
-        workflow = _make_workflow(mock_config, mock_registry, mock_step_executor)
+        workflow = _make_workflow(mock_config, mock_registry)
         with patch.object(
             workflow,
             "_generate_with_thespian",
@@ -227,14 +225,13 @@ class TestGenerateFlightPlanWorkflowHappyPath:
         self,
         mock_config: MagicMock,
         mock_registry: MagicMock,
-        mock_step_executor: AsyncMock,
         tmp_path: Path,
     ) -> None:
         """Workflow emits WorkflowStarted at the beginning."""
         plan_dir = tmp_path / "test-plan"
         thespian_result = _make_thespian_result(plan_dir)
 
-        workflow = _make_workflow(mock_config, mock_registry, mock_step_executor)
+        workflow = _make_workflow(mock_config, mock_registry)
         with patch.object(
             workflow,
             "_generate_with_thespian",
@@ -257,14 +254,13 @@ class TestGenerateFlightPlanWorkflowHappyPath:
         self,
         mock_config: MagicMock,
         mock_registry: MagicMock,
-        mock_step_executor: AsyncMock,
         tmp_path: Path,
     ) -> None:
         """Workflow emits WorkflowCompleted with success=True."""
         plan_dir = tmp_path / "test-plan"
         thespian_result = _make_thespian_result(plan_dir)
 
-        workflow = _make_workflow(mock_config, mock_registry, mock_step_executor)
+        workflow = _make_workflow(mock_config, mock_registry)
         with patch.object(
             workflow,
             "_generate_with_thespian",
@@ -288,14 +284,13 @@ class TestGenerateFlightPlanWorkflowHappyPath:
         self,
         mock_config: MagicMock,
         mock_registry: MagicMock,
-        mock_step_executor: AsyncMock,
         tmp_path: Path,
     ) -> None:
         """Thespian actor system writes the flight plan file to disk."""
         plan_dir = tmp_path / "test-plan"
         thespian_result = _make_thespian_result(plan_dir)
 
-        workflow = _make_workflow(mock_config, mock_registry, mock_step_executor)
+        workflow = _make_workflow(mock_config, mock_registry)
         with patch.object(
             workflow,
             "_generate_with_thespian",
@@ -321,14 +316,13 @@ class TestGenerateFlightPlanWorkflowHappyPath:
         self,
         mock_config: MagicMock,
         mock_registry: MagicMock,
-        mock_step_executor: AsyncMock,
         tmp_path: Path,
     ) -> None:
         """Workflow result includes the output path."""
         plan_dir = tmp_path / "test-plan"
         thespian_result = _make_thespian_result(plan_dir)
 
-        workflow = _make_workflow(mock_config, mock_registry, mock_step_executor)
+        workflow = _make_workflow(mock_config, mock_registry)
         with patch.object(
             workflow,
             "_generate_with_thespian",
@@ -356,10 +350,9 @@ class TestGenerateFlightPlanWorkflowErrors:
         self,
         mock_config: MagicMock,
         mock_registry: MagicMock,
-        mock_step_executor: AsyncMock,
     ) -> None:
         """Missing prd_content input raises WorkflowError."""
-        workflow = _make_workflow(mock_config, mock_registry, mock_step_executor)
+        workflow = _make_workflow(mock_config, mock_registry)
         with pytest.raises(WorkflowError, match="prd_content"):
             await _collect_events(workflow, {"name": "test"})
 
@@ -367,46 +360,20 @@ class TestGenerateFlightPlanWorkflowErrors:
         self,
         mock_config: MagicMock,
         mock_registry: MagicMock,
-        mock_step_executor: AsyncMock,
     ) -> None:
         """Missing name input raises WorkflowError."""
-        workflow = _make_workflow(mock_config, mock_registry, mock_step_executor)
+        workflow = _make_workflow(mock_config, mock_registry)
         with pytest.raises(WorkflowError, match="name"):
             await _collect_events(workflow, {"prd_content": "Some PRD"})
-
-    async def test_no_step_executor_raises(
-        self,
-        mock_config: MagicMock,
-        mock_registry: MagicMock,
-        tmp_path: Path,
-    ) -> None:
-        """Missing step_executor causes Thespian generation to fail."""
-        workflow = _make_workflow(mock_config, mock_registry, mock_step_executor=None)
-        with patch.object(
-            workflow,
-            "_generate_with_thespian",
-            new=AsyncMock(side_effect=WorkflowError("step_executor is required for generation")),
-        ):
-            with pytest.raises(WorkflowError, match="step_executor"):
-                await _collect_events(
-                    workflow,
-                    {
-                        "prd_content": "Some PRD",
-                        "name": "test-plan",
-                        "output_dir": str(tmp_path),
-                        "skip_briefing": True,
-                    },
-                )
 
     async def test_agent_returns_none_raises(
         self,
         mock_config: MagicMock,
         mock_registry: MagicMock,
-        mock_step_executor: AsyncMock,
         tmp_path: Path,
     ) -> None:
         """Agent returning no output causes Thespian to report failure."""
-        workflow = _make_workflow(mock_config, mock_registry, mock_step_executor)
+        workflow = _make_workflow(mock_config, mock_registry)
         with patch.object(
             workflow,
             "_generate_with_thespian",

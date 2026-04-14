@@ -82,7 +82,7 @@ def detect_task_file(branch_name: str | None = None) -> Path | None:
     """Auto-detect task file location.
 
     Looks for tasks.md in standard locations:
-    1. specs/<branch_name>/tasks.md (if branch_name provided, Speckit convention)
+    1. specs/<branch_name>/tasks.md (if branch_name provided)
     2. tasks.md (in current directory)
 
     Args:
@@ -99,7 +99,6 @@ def detect_task_file(branch_name: str | None = None) -> Path | None:
     potential_paths: list[Path] = []
 
     if branch_name:
-        # Speckit convention
         potential_paths.append(Path(f"specs/{branch_name}/tasks.md"))
 
     potential_paths.append(Path("tasks.md"))

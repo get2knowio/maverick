@@ -29,7 +29,7 @@ class TestFlightPlanCreateRegistered:
         """'maverick plan create --help' shows NAME argument and options."""
         result = cli_runner.invoke(cli, ["plan", "create", "--help"])
         assert result.exit_code == 0
-        assert "--output-dir" in result.output
+        assert "--plans-dir" in result.output
 
 
 class TestFlightPlanCreateHappyPath:
@@ -100,11 +100,11 @@ class TestFlightPlanCreateHappyPath:
         cli_runner: CliRunner,
         flight_plan_env: Path,
     ) -> None:
-        """With --output-dir, file is created in the specified directory."""
+        """With --plans-dir, file is created in the specified directory."""
         custom_dir = flight_plan_env / "custom" / "plans"
         result = cli_runner.invoke(
             cli,
-            ["plan", "create", "my-feature", "--output-dir", str(custom_dir)],
+            ["plan", "create", "my-feature", "--plans-dir", str(custom_dir)],
         )
 
         assert result.exit_code == 0, f"Unexpected exit: {result.output}"
@@ -122,7 +122,7 @@ class TestFlightPlanCreateHappyPath:
         custom_dir = flight_plan_env / "plans"
         cli_runner.invoke(
             cli,
-            ["plan", "create", "api-setup", "--output-dir", str(custom_dir)],
+            ["plan", "create", "api-setup", "--plans-dir", str(custom_dir)],
         )
 
         file_path = custom_dir / "api-setup" / "flight-plan.md"
@@ -160,7 +160,7 @@ class TestFlightPlanCreateDirectoryCreation:
 
         result = cli_runner.invoke(
             cli,
-            ["plan", "create", "my-plan", "--output-dir", str(nested_dir)],
+            ["plan", "create", "my-plan", "--plans-dir", str(nested_dir)],
         )
 
         assert result.exit_code == 0, f"Unexpected exit: {result.output}"
@@ -178,7 +178,7 @@ class TestFlightPlanCreateDirectoryCreation:
 
         result = cli_runner.invoke(
             cli,
-            ["plan", "create", "my-plan", "--output-dir", str(existing_dir)],
+            ["plan", "create", "my-plan", "--plans-dir", str(existing_dir)],
         )
 
         assert result.exit_code == 0
@@ -241,7 +241,7 @@ class TestFlightPlanCreateOverwriteGuard:
         cli_runner: CliRunner,
         flight_plan_env: Path,
     ) -> None:
-        """Overwrite guard also applies when --output-dir is specified."""
+        """Overwrite guard also applies when --plans-dir is specified."""
         custom_dir = flight_plan_env / "plans"
         custom_dir.mkdir(parents=True)
         existing_file = custom_dir / "my-plan" / "flight-plan.md"
@@ -250,7 +250,7 @@ class TestFlightPlanCreateOverwriteGuard:
 
         result = cli_runner.invoke(
             cli,
-            ["plan", "create", "my-plan", "--output-dir", str(custom_dir)],
+            ["plan", "create", "my-plan", "--plans-dir", str(custom_dir)],
         )
 
         assert result.exit_code == 1
@@ -351,21 +351,21 @@ class TestFlightPlanCreateNameValidation:
 
 
 class TestFlightPlanCreateOutputDirIsFile:
-    """Tests for when --output-dir points to an existing file (not a directory)."""
+    """Tests for when --plans-dir points to an existing file (not a directory)."""
 
     def test_output_dir_is_file_exits_with_code_1(
         self,
         cli_runner: CliRunner,
         flight_plan_env: Path,
     ) -> None:
-        """If --output-dir is an existing file, command fails with exit code 1."""
+        """If --plans-dir is an existing file, command fails with exit code 1."""
         # Create a regular file where a directory is expected
         file_not_dir = flight_plan_env / "not-a-dir"
         file_not_dir.write_text("I am a file, not a directory")
 
         result = cli_runner.invoke(
             cli,
-            ["plan", "create", "my-plan", "--output-dir", str(file_not_dir)],
+            ["plan", "create", "my-plan", "--plans-dir", str(file_not_dir)],
         )
 
         assert result.exit_code == 1
@@ -375,13 +375,13 @@ class TestFlightPlanCreateOutputDirIsFile:
         cli_runner: CliRunner,
         flight_plan_env: Path,
     ) -> None:
-        """If --output-dir is a file, error message is shown."""
+        """If --plans-dir is a file, error message is shown."""
         file_not_dir = flight_plan_env / "not-a-dir"
         file_not_dir.write_text("I am a file")
 
         result = cli_runner.invoke(
             cli,
-            ["plan", "create", "my-plan", "--output-dir", str(file_not_dir)],
+            ["plan", "create", "my-plan", "--plans-dir", str(file_not_dir)],
         )
 
         assert result.exit_code == 1

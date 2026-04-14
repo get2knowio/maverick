@@ -30,8 +30,7 @@ class TestFlightPlanGenerateRegistered:
         result = cli_runner.invoke(cli, ["plan", "generate", "--help"])
         assert result.exit_code == 0
         assert "--from-prd" in result.output
-        assert "--output-dir" in result.output
-        assert "--interactive" in result.output
+        assert "--plans-dir" in result.output
         assert "--session-log" in result.output
 
 
@@ -192,7 +191,7 @@ class TestFlightPlanGenerateOutputDir:
         cli_runner: CliRunner,
         flight_plan_env: Path,
     ) -> None:
-        """If --output-dir is an existing file, command fails with exit code 1."""
+        """If --plans-dir is an existing file, command fails with exit code 1."""
         file_not_dir = flight_plan_env / "not-a-dir"
         file_not_dir.write_text("I am a file")
 
@@ -204,7 +203,7 @@ class TestFlightPlanGenerateOutputDir:
                 "my-plan",
                 "--from-prd",
                 "-",
-                "--output-dir",
+                "--plans-dir",
                 str(file_not_dir),
             ],
             input="PRD content",

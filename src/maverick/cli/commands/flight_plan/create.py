@@ -23,7 +23,7 @@ from maverick.cli.context import ExitCode
 @flight_plan.command("create")
 @click.argument("name", metavar="NAME")
 @click.option(
-    "--output-dir",
+    "--plans-dir",
     "plans_dir",
     default=DEFAULT_PLANS_DIR,
     show_default=True,

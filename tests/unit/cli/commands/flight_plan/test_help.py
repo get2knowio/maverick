@@ -92,7 +92,7 @@ class TestFlightPlanNoSubcommand:
 
 
 class TestFlightPlanCreateHelp:
-    """``maverick plan create --help`` shows NAME argument and --output-dir."""
+    """``maverick plan create --help`` shows NAME argument and --plans-dir."""
 
     def test_create_help_exits_zero(self, cli_runner: CliRunner) -> None:
         """``maverick plan create --help`` exits with code 0."""
@@ -106,13 +106,13 @@ class TestFlightPlanCreateHelp:
         assert "NAME" in result.output
 
     def test_create_help_shows_output_dir_option(self, cli_runner: CliRunner) -> None:
-        """``create --help`` shows the ``--output-dir`` option."""
+        """``create --help`` shows the ``--plans-dir`` option."""
         result = cli_runner.invoke(cli, ["plan", "create", "--help"])
         assert result.exit_code == 0
-        assert "--output-dir" in result.output
+        assert "--plans-dir" in result.output
 
     def test_create_help_shows_output_dir_default(self, cli_runner: CliRunner) -> None:
-        """``create --help`` shows the default value for ``--output-dir``."""
+        """``create --help`` shows the default value for ``--plans-dir``."""
         result = cli_runner.invoke(cli, ["plan", "create", "--help"])
         assert result.exit_code == 0
         # Default should mention the standard path

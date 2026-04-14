@@ -115,7 +115,7 @@ class BeadDependency(BaseModel):
 
 
 class BeadGenerationResult(BaseModel):
-    """Result of generating beads from a source (e.g., SpecKit).
+    """Result of generating beads from a flight plan decomposition.
 
     Attributes:
         epic: The created epic bead (if successful).
