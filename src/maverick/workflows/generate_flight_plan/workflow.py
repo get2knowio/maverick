@@ -2,30 +2,19 @@
 
 from __future__ import annotations
 
-import asyncio
 from datetime import date
 from pathlib import Path
 from typing import Any
 
 from maverick.exceptions import WorkflowError
-from maverick.executor.errors import OutputSchemaValidationError
 from maverick.flight.models import FlightPlan, Scope, SuccessCriterion
-from maverick.flight.serializer import serialize_flight_plan
-from maverick.flight.validator import validate_flight_plan_file
 from maverick.logging import get_logger
-from maverick.types import StepType
 from maverick.workflows.base import PythonWorkflow
 from maverick.workflows.generate_flight_plan.constants import (
     BRIEFING,
-    BRIEFING_CODEBASE_ANALYST,
-    BRIEFING_CONTRARIAN,
-    BRIEFING_CRITERIA_WRITER,
-    BRIEFING_SCOPIST,
     GENERATE,
     READ_PRD,
-    VALIDATE,
     WORKFLOW_NAME,
-    WRITE_FLIGHT_PLAN,
 )
 from maverick.workflows.generate_flight_plan.models import (
     FlightPlanOutput,
@@ -181,7 +170,6 @@ class GenerateFlightPlanWorkflow(PythonWorkflow):
         output_path = Path(output_dir)
         plan_dir = output_path / name
         target_file = plan_dir / "flight-plan.md"
-        today = date.today()
 
         # ------------------------------------------------------------------
         # Step 1: Read PRD
@@ -196,224 +184,23 @@ class GenerateFlightPlanWorkflow(PythonWorkflow):
         )
         await self.emit_step_completed(READ_PRD, output={"prd_size": prd_size})
 
-        # Check if executor supports multi-turn (actor-mailbox path)
-        _can_use_supervisor = self._step_executor is not None and hasattr(
-            self._step_executor, "create_session"
-        )
-
-        # Use Thespian actor system when available and executor supports it
-        _can_use_thespian = self._step_executor is not None and hasattr(
-            self._step_executor, "create_session"
-        )
-
-        if _can_use_thespian:
-            result = await self._generate_with_thespian(
-                prd_content=prd_content,
-                name=name,
-                plan_dir=plan_dir,
-                skip_briefing=skip_briefing,
-            )
-            return GenerateFlightPlanResult(
-                flight_plan_path=result.get("flight_plan_path", str(target_file)),
-                name=name,
-                success_criteria_count=result.get("success_criteria_count", 0),
-                validation_passed=result.get("validation_passed", True),
-                briefing_generated=result.get("briefing_path") is not None,
-            ).to_dict()
-
         # ------------------------------------------------------------------
-        # Legacy path: Step 2: Pre-Flight Briefing Room (optional)
+        # Steps 2-5: Thespian actor system handles briefing, generation,
+        # validation, and writing via supervisor-driven message routing.
         # ------------------------------------------------------------------
-        briefing_content: str | None = None
-        briefing_generated = False
-
-        if not skip_briefing:
-            from maverick.agents.preflight_briefing.prompts import (
-                build_preflight_briefing_prompt,
-                build_preflight_contrarian_prompt,
-            )
-            from maverick.preflight_briefing.serializer import serialize_briefs_to_markdown
-
-            await self.emit_step_started(BRIEFING, step_type=StepType.AGENT)
-
-            briefing_prompt = build_preflight_briefing_prompt(prd_content)
-
-            try:
-                # Parallel: Scopist + CodebaseAnalyst + CriteriaWriter
-                scopist_result, analyst_result, criteria_result = await asyncio.gather(
-                    self.execute_agent(
-                        step_name=BRIEFING_SCOPIST,
-                        agent_name="scopist",
-                        label="Scopist",
-                        prompt=briefing_prompt,
-                        parent_step=BRIEFING,
-                    ),
-                    self.execute_agent(
-                        step_name=BRIEFING_CODEBASE_ANALYST,
-                        agent_name="codebase_analyst",
-                        label="CodebaseAnalyst",
-                        prompt=briefing_prompt,
-                        parent_step=BRIEFING,
-                    ),
-                    self.execute_agent(
-                        step_name=BRIEFING_CRITERIA_WRITER,
-                        agent_name="criteria_writer",
-                        label="CriteriaWriter",
-                        prompt=briefing_prompt,
-                        parent_step=BRIEFING,
-                    ),
-                )
-
-                if (
-                    not scopist_result.output
-                    or not analyst_result.output
-                    or not criteria_result.output
-                ):
-                    raise WorkflowError("One or more briefing agents returned no output")
-
-                # Sequential: Contrarian reviews all 3
-                contrarian_prompt = build_preflight_contrarian_prompt(
-                    prd_content,
-                    scopist_result.output,
-                    analyst_result.output,
-                    criteria_result.output,
-                )
-                contrarian_result = await self.execute_agent(
-                    step_name=BRIEFING_CONTRARIAN,
-                    agent_name="preflight_contrarian",
-                    label="Contrarian",
-                    prompt=contrarian_prompt,
-                    parent_step=BRIEFING,
-                )
-
-                if not contrarian_result.output:
-                    raise WorkflowError("Contrarian agent returned no output")
-
-                # Synthesize to markdown (deterministic)
-                briefing_content = serialize_briefs_to_markdown(
-                    name,
-                    scope=scopist_result.output,
-                    analysis=analyst_result.output,
-                    criteria=criteria_result.output,
-                    challenge=contrarian_result.output,
-                )
-                briefing_generated = True
-
-            except Exception as exc:
-                await self.emit_step_failed(BRIEFING, str(exc))
-                raise
-
-            await self.emit_output(BRIEFING, "Briefing complete")
-            await self.emit_step_completed(BRIEFING)
-
-        # ------------------------------------------------------------------
-        # Step 3: Generate flight plan via agent
-        # ------------------------------------------------------------------
-        await self.emit_step_started(GENERATE, step_type=StepType.AGENT)
-
-        prompt = _build_generate_prompt(
-            prd_content, name, today, briefing_content=briefing_content
-        )
-
-        try:
-            executor_result = await self.execute_agent(
-                step_name=GENERATE,
-                agent_name="flight_plan_generator",
-                label="FlightPlanGenerator",
-                prompt=prompt,
-                output_schema=FlightPlanOutput,
-                timeout=600,
-            )
-        except OutputSchemaValidationError:
-            await self.emit_step_failed(GENERATE, "Agent output failed schema validation")
-            raise
-        except Exception as exc:
-            await self.emit_step_failed(GENERATE, str(exc))
-            raise
-
-        flight_plan_output = executor_result.output
-        if flight_plan_output is None:
-            raise WorkflowError("Generate step completed but produced no output")
-        await self.emit_output(
-            GENERATE,
-            f"Generated {len(flight_plan_output.success_criteria)} success criteria",
-        )
-        await self.emit_step_completed(
-            GENERATE,
-            step_type=StepType.AGENT,
-        )
-
-        # Convert agent output to FlightPlan model
-        flight_plan = _convert_output_to_flight_plan(flight_plan_output, today)
-
-        # ------------------------------------------------------------------
-        # Step 3: Write flight plan file
-        # ------------------------------------------------------------------
-        await self.emit_step_started(WRITE_FLIGHT_PLAN)
-        try:
-            plan_dir.mkdir(parents=True, exist_ok=True)
-            content = serialize_flight_plan(flight_plan)
-            target_file.write_text(content, encoding="utf-8")
-
-            # Persist briefing alongside the flight plan
-            if briefing_generated and briefing_content:
-                briefing_file = plan_dir / "briefing.md"
-                briefing_file.write_text(briefing_content, encoding="utf-8")
-        except Exception as exc:
-            await self.emit_step_failed(WRITE_FLIGHT_PLAN, str(exc))
-            raise
-        await self.emit_output(
-            WRITE_FLIGHT_PLAN,
-            f"Wrote flight plan to {target_file}",
-        )
-        await self.emit_step_completed(WRITE_FLIGHT_PLAN)
-
-        # ------------------------------------------------------------------
-        # Step 4: Validate generated flight plan
-        # ------------------------------------------------------------------
-        await self.emit_step_started(VALIDATE)
-        validation_passed = True
-        try:
-            issues = validate_flight_plan_file(target_file)
-            if issues:
-                validation_passed = False
-                for issue in issues:
-                    await self.emit_output(
-                        VALIDATE,
-                        f"[{issue.location}] {issue.message}",
-                        level="warning",
-                    )
-                await self.emit_output(
-                    VALIDATE,
-                    f"{len(issues)} validation issue(s) found (non-blocking)",
-                    level="warning",
-                )
-            else:
-                await self.emit_output(
-                    VALIDATE,
-                    "Flight plan passes all V1-V9 validation checks",
-                    level="success",
-                )
-        except Exception as exc:
-            validation_passed = False
-            await self.emit_output(
-                VALIDATE,
-                f"Validation error: {exc}",
-                level="warning",
-            )
-        await self.emit_step_completed(VALIDATE, output={"passed": validation_passed})
-
-        # ------------------------------------------------------------------
-        # Final result
-        # ------------------------------------------------------------------
-        final_result = GenerateFlightPlanResult(
-            flight_plan_path=str(target_file),
+        result = await self._generate_with_thespian(
+            prd_content=prd_content,
             name=name,
-            success_criteria_count=len(flight_plan_output.success_criteria),
-            validation_passed=validation_passed,
-            briefing_generated=briefing_generated,
+            plan_dir=plan_dir,
+            skip_briefing=skip_briefing,
         )
-        return final_result.to_dict()
+        return GenerateFlightPlanResult(
+            flight_plan_path=result.get("flight_plan_path", str(target_file)),
+            name=name,
+            success_criteria_count=result.get("success_criteria_count", 0),
+            validation_passed=result.get("validation_passed", True),
+            briefing_generated=result.get("briefing_path") is not None,
+        ).to_dict()
 
     async def _generate_with_supervisor(
         self,

@@ -16,7 +16,6 @@ from maverick.briefing.models import (
 from maverick.briefing.serializer import serialize_briefing
 from maverick.briefing.synthesis import synthesize_briefing
 from maverick.exceptions import WorkflowError
-from maverick.executor.errors import OutputSchemaValidationError
 from maverick.flight.loader import FlightPlanFile
 from maverick.flight.serializer import serialize_work_unit
 from maverick.library.actions.beads import create_beads, wire_dependencies
@@ -25,13 +24,8 @@ from maverick.library.actions.cross_plan_deps import (
     wire_cross_plan_dependencies,
 )
 from maverick.library.actions.decompose import (
-    SCCoverageError,
-    build_detail_prompt,
-    build_outline_prompt,
     convert_specs_to_work_units,
     gather_codebase_context,
-    merge_outline_and_details,
-    validate_decomposition,
 )
 from maverick.library.actions.open_bead_analysis import (
     OpenBeadAnalysisResult,
@@ -49,23 +43,17 @@ from maverick.workflows.refuel_maverick.constants import (
     BRIEFING_STRUCTURALIST,
     CREATE_BEADS,
     DECOMPOSE,
-    DECOMPOSE_DETAIL,
-    DECOMPOSE_OUTLINE,
     DERIVE_VERIFICATION,
-    DETAIL_BATCH_SIZE,
     GATHER_CONTEXT,
     MAX_DECOMPOSE_ATTEMPTS,
     PARSE_FLIGHT_PLAN,
-    VALIDATE,
     WIRE_CROSS_PLAN_DEPS,
     WIRE_DEPS,
     WORKFLOW_NAME,
     WRITE_WORK_UNITS,
 )
 from maverick.workflows.refuel_maverick.models import (
-    DecompositionOutline,
     DecompositionOutput,
-    DetailBatchOutput,
     RefuelMaverickResult,
 )
 
@@ -486,8 +474,6 @@ class RefuelMaverickWorkflow(PythonWorkflow):
         # to the outline prompt and the decomposer retries.
         # ------------------------------------------------------------------
         decomposition: DecompositionOutput | None = None
-        coverage_warnings: list[str] = []
-        validation_feedback: str | None = None
 
         # Retrieve runway context so the decomposer can learn from past runs
         runway_context_text: str | None = None
@@ -507,266 +493,17 @@ class RefuelMaverickWorkflow(PythonWorkflow):
         except Exception as exc:
             logger.warning("refuel_runway_context_failed", error=str(exc))
 
-        # Check if executor supports multi-turn sessions (actor-mailbox path)
-        _can_use_supervisor = self._step_executor is not None and hasattr(
-            self._step_executor, "create_session"
+        # ------------------------------------------------------------------
+        # Step 3-4: Decompose + validate via Thespian actor system
+        # ------------------------------------------------------------------
+        decomposition = await self._decompose_with_supervisor(
+            flight_plan=flight_plan,
+            raw_content=raw_content,
+            codebase_context=codebase_context,
+            briefing_doc=briefing_doc,
+            runway_context_text=runway_context_text,
+            run_dir=run_dir,
         )
-
-        if _can_use_supervisor:
-            decomposition = await self._decompose_with_supervisor(
-                flight_plan=flight_plan,
-                raw_content=raw_content,
-                codebase_context=codebase_context,
-                briefing_doc=briefing_doc,
-                runway_context_text=runway_context_text,
-                run_dir=run_dir,
-            )
-        else:
-            # --- Legacy decompose retry loop ---
-            pass  # fall through to existing for-loop below
-
-        if not _can_use_supervisor:
-            pass  # marker
-
-        for attempt in range(1, MAX_DECOMPOSE_ATTEMPTS + 1):
-            if _can_use_supervisor:
-                break  # skip legacy loop — supervisor already ran
-            await self.emit_step_started(DECOMPOSE, step_type=StepType.AGENT)
-
-            # --- 3a: Outline pass ---
-            outline_prompt = build_outline_prompt(
-                raw_content,
-                codebase_context,
-                briefing=briefing_doc,
-                runway_context=runway_context_text,
-            )
-            if validation_feedback:
-                outline_prompt += (
-                    f"\n\n## PREVIOUS ATTEMPT FAILED VALIDATION\n"
-                    f"Your previous decomposition was rejected:\n"
-                    f"{validation_feedback}\n\n"
-                    f"Fix these issues in your new decomposition."
-                )
-
-            try:
-                outline_result = await self.execute_agent(
-                    step_name=DECOMPOSE_OUTLINE,
-                    agent_name="decomposer",
-                    label=f"Decomposer (outline, attempt {attempt}/{MAX_DECOMPOSE_ATTEMPTS})",
-                    prompt=outline_prompt,
-                    output_schema=DecompositionOutline,
-                    timeout=600,
-                )
-            except OutputSchemaValidationError:
-                await self.emit_step_failed(DECOMPOSE, "Outline pass failed schema validation")
-                raise
-            except Exception as exc:
-                await self.emit_step_failed(DECOMPOSE, str(exc))
-                raise
-
-            outline: DecompositionOutline | None = outline_result.output
-            if outline is None:
-                raise WorkflowError("Outline pass completed but produced no output")
-
-            unit_count = len(outline.work_units)
-            await self.emit_output(
-                DECOMPOSE,
-                f"Outline: {unit_count} work units identified",
-            )
-
-            # --- 3b: Detail pass (batched) ---
-            all_ids = [wu.id for wu in outline.work_units]
-            batches: list[list[str]] = [
-                all_ids[i : i + DETAIL_BATCH_SIZE]
-                for i in range(0, len(all_ids), DETAIL_BATCH_SIZE)
-            ]
-            outline_json = outline.model_dump_json(indent=2)
-
-            detail_outputs: list[DetailBatchOutput] = []
-
-            async def _run_detail_batch(
-                batch_ids: list[str], label_prefix: str
-            ) -> list[DetailBatchOutput]:
-                """Run a detail batch with file-based output + binary-split retry."""
-
-                from maverick.exceptions.agent import MalformedResponseError
-
-                # Create file path for decomposer to write JSON to
-                detail_dir = run_dir / "decompose-output"
-                detail_dir.mkdir(parents=True, exist_ok=True)
-                batch_file = detail_dir / f"detail-{'_'.join(batch_ids[:3])}.json"
-                batch_file.unlink(missing_ok=True)
-
-                detail_prompt = build_detail_prompt(
-                    raw_content,
-                    outline_json,  # noqa: B023
-                    batch_ids,
-                    output_file_path=str(batch_file),
-                    verification_properties=getattr(flight_plan, "verification_properties", ""),
-                )
-                try:
-                    detail_result = await self.execute_agent(
-                        step_name=DECOMPOSE_DETAIL,
-                        agent_name="decomposer",
-                        label=label_prefix,
-                        prompt=detail_prompt,
-                        output_schema=DetailBatchOutput,
-                        output_file_path=str(batch_file),
-                        timeout=600,
-                    )
-                    if isinstance(detail_result.output, DetailBatchOutput):
-                        return [detail_result.output]
-                    raise WorkflowError(
-                        f"{label_prefix} completed but no output file or parseable text produced"
-                    )
-                except (
-                    OutputSchemaValidationError,
-                    MalformedResponseError,
-                    WorkflowError,
-                    Exception,
-                ) as exc:
-                    # File fallback failed — proceed with binary split
-                    # only for parse errors, not quota/network errors
-                    if not isinstance(
-                        exc,
-                        (
-                            OutputSchemaValidationError,
-                            MalformedResponseError,
-                        ),
-                    ):
-                        raise
-                    if len(batch_ids) <= 1:
-                        raise  # Can't split a single unit further
-                    # Binary split: retry each half separately
-                    mid = len(batch_ids) // 2
-                    left_ids, right_ids = batch_ids[:mid], batch_ids[mid:]
-                    await self.emit_output(
-                        DECOMPOSE,
-                        f"Detail batch truncated ({len(batch_ids)} units),"
-                        f" splitting into {len(left_ids)}+{len(right_ids)}",
-                        level="warning",
-                    )
-                    left = await _run_detail_batch(left_ids, f"{label_prefix} [L]")
-                    right = await _run_detail_batch(right_ids, f"{label_prefix} [R]")
-                    return left + right
-
-            for batch_idx, batch_ids in enumerate(batches):
-                batch_label = f"Decomposer (detail {batch_idx + 1}/{len(batches)})"
-                try:
-                    batch_results = await _run_detail_batch(batch_ids, batch_label)
-                    detail_outputs.extend(batch_results)
-                except Exception as exc:
-                    await self.emit_step_failed(DECOMPOSE, str(exc))
-                    raise
-
-            # --- Merge outline + details ---
-            try:
-                decomposition = merge_outline_and_details(outline, detail_outputs)
-            except ValueError as exc:
-                await self.emit_step_failed(DECOMPOSE, str(exc))
-                raise WorkflowError(f"Failed to merge outline and detail passes: {exc}") from exc
-
-            await self.emit_output(
-                DECOMPOSE,
-                f"Decomposed into {len(decomposition.work_units)} work units"
-                f" ({len(batches)} detail batch(es))",
-            )
-            if decomposition.rationale:
-                first_sentence = decomposition.rationale.split(". ")[0].rstrip(".")
-                await self.emit_output(
-                    DECOMPOSE,
-                    f"Rationale: {first_sentence}",
-                    level="info",
-                )
-            await self.emit_step_completed(
-                DECOMPOSE,
-                output={
-                    "work_unit_count": len(decomposition.work_units),
-                    "rationale": decomposition.rationale,
-                },
-            )
-
-            # --- Step 4: Validate ---
-            await self.emit_step_started(VALIDATE)
-            try:
-                # Extract SC ref IDs from the flight plan text.
-                # Success criteria may use "SC-B1-default: ..." prefix
-                # format, which we extract via regex.
-                import re as _re
-
-                _sc_prefix_re = _re.compile(r"^(SC-[\w-]+):\s+")
-                sc_refs: list[str] = []
-                for sc in flight_plan.success_criteria:
-                    m = _sc_prefix_re.match(sc.text)
-                    if m:
-                        sc_refs.append(m.group(1))
-
-                coverage_warnings = validate_decomposition(
-                    specs=decomposition.work_units,
-                    success_criteria_count=len(flight_plan.success_criteria),
-                    expected_sc_refs=sc_refs if sc_refs else None,
-                )
-            except SCCoverageError as exc:
-                if attempt < MAX_DECOMPOSE_ATTEMPTS:
-                    # Build enriched feedback with the actual SC text so
-                    # the decomposer knows *what* each missing criterion says,
-                    # not just its reference number.
-                    feedback_lines = [str(exc), ""]
-                    for gap in exc.gaps:
-                        # gap format: "SC-017 not explicitly covered …"
-                        ref = gap.split(" ", 1)[0]  # "SC-017"
-                        try:
-                            idx = int(ref.split("-")[1]) - 1  # 0-based
-                            sc_text = flight_plan.success_criteria[idx].text
-                            feedback_lines.append(f"- {ref}: {sc_text}")
-                        except (IndexError, ValueError):
-                            feedback_lines.append(f"- {ref}: (could not resolve text)")
-                    feedback_lines.append(
-                        "\nEnsure every criterion above has at least one "
-                        "work-unit acceptance criterion with a matching trace_ref."
-                    )
-                    validation_feedback = "\n".join(feedback_lines)
-                    await self.emit_output(
-                        VALIDATE,
-                        f"Validation failed (attempt {attempt}/{MAX_DECOMPOSE_ATTEMPTS}): {exc}",
-                        level="warning",
-                    )
-                    await self.emit_step_failed(VALIDATE, str(exc))
-                    continue
-                # Final attempt — propagate the failure
-                await self.emit_step_failed(VALIDATE, str(exc))
-                raise WorkflowError(str(exc)) from exc
-            except ValueError as exc:
-                # Structural errors (circular deps, dangling refs) — no retry
-                await self.emit_step_failed(VALIDATE, str(exc))
-                raise WorkflowError(str(exc)) from exc
-
-            # Validation passed — break out of retry loop
-            for warning in coverage_warnings:
-                await self.emit_output(VALIDATE, f"Warning: {warning}", level="warning")
-
-            parallel_group_count = len(
-                {
-                    wu.parallel_group
-                    for wu in decomposition.work_units
-                    if wu.parallel_group is not None
-                }
-            )
-            await self.emit_output(
-                VALIDATE,
-                f"Dependency graph is acyclic ({parallel_group_count} parallel groups)",
-            )
-            await self.emit_step_completed(
-                VALIDATE,
-                output={
-                    "coverage_warnings": coverage_warnings,
-                    "parallel_group_count": parallel_group_count,
-                },
-            )
-            break  # Success — exit retry loop
-        else:
-            # Loop exhausted without break (should not reach here due to raise above)
-            raise WorkflowError(f"Decomposition failed after {MAX_DECOMPOSE_ATTEMPTS} attempts")
 
         # ------------------------------------------------------------------
         # Step 5: Write work units
@@ -1043,7 +780,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
             work_beads=bead_result.work_beads if bead_result else (),
             dependencies=wire_result.dependencies if wire_result else (),
             errors=bead_result.errors if bead_result else (),
-            coverage_warnings=tuple(coverage_warnings),
+            coverage_warnings=(),
             dry_run=dry_run,
             briefing_path=briefing_path_str,
             cross_plan_deps=(
