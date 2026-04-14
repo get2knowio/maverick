@@ -11,13 +11,11 @@ from collections.abc import Callable
 from typing import Any
 
 from maverick.agents.base import MaverickAgent
-from maverick.agents.generators import GeneratorAgent
 
 __all__ = [
     "validate_callable",
     "validate_signature",
     "validate_agent_class",
-    "validate_generator_class",
     "is_async_callable",
 ]
 
@@ -154,45 +152,6 @@ def validate_agent_class(cls: Any, component_name: str) -> None:
         methods = ", ".join(m for m in dir(cls) if not m.startswith("_"))
         raise TypeError(
             f"Agent class '{component_name}' must implement the "
-            f"'build_prompt' method. Available methods: {methods}"
-        )
-
-
-def validate_generator_class(cls: Any, component_name: str) -> None:
-    """Validate that a class inherits from GeneratorAgent.
-
-    Args:
-        cls: Class to validate.
-        component_name: Name of the component (for error messages).
-
-    Raises:
-        TypeError: If class is not a class or doesn't inherit from GeneratorAgent.
-
-    Example:
-        ```python
-        validate_generator_class(CommitMessageGenerator, "commit_msg")
-        ```
-    """
-    # First check if it's a class
-    if not inspect.isclass(cls):
-        raise TypeError(
-            f"Generator '{component_name}' must be a class, got {type(cls).__name__} instead."
-        )
-
-    # Check if it inherits from GeneratorAgent
-    if not issubclass(cls, GeneratorAgent):
-        raise TypeError(
-            f"Generator class '{component_name}' must inherit from "
-            f"GeneratorAgent. Got {cls.__name__} which inherits from: "
-            f"{', '.join(base.__name__ for base in cls.__bases__)}"
-        )
-
-    # Check that it implements build_prompt method (ACP-native interface)
-    build_prompt_method = getattr(cls, "build_prompt", None)
-    if not build_prompt_method or getattr(build_prompt_method, "__isabstractmethod__", False):
-        methods = ", ".join(m for m in dir(cls) if not m.startswith("_"))
-        raise TypeError(
-            f"Generator class '{component_name}' must implement the "
             f"'build_prompt' method. Available methods: {methods}"
         )
 

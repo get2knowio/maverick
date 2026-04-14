@@ -10,9 +10,6 @@ EXPECTED_STEPS = {
     "correctness_review": (OverridePolicy.AUGMENT_ONLY, False),
     "fix": (OverridePolicy.AUGMENT_ONLY, False),
     "curator": (OverridePolicy.AUGMENT_ONLY, False),
-    "commit_message": (OverridePolicy.REPLACE, False),
-    "pr_description": (OverridePolicy.REPLACE, False),
-    "pr_title": (OverridePolicy.REPLACE, False),
 }
 
 
@@ -63,8 +60,8 @@ class TestBuildDefaultRegistry:
                 f"{step_name} missing generic provider entry"
             )
 
-    def test_exactly_twelve_step_names(self) -> None:
+    def test_exactly_five_step_names(self) -> None:
         from maverick.prompts.defaults import build_default_registry
 
         registry = build_default_registry()
-        assert len(registry.step_names()) == 8
+        assert len(registry.step_names()) == 5

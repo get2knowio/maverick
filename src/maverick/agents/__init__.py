@@ -19,8 +19,6 @@ Public API:
     GENERATOR_TOOLS: Empty set for text generation agents
     ImplementerAgent: Concrete agent for task implementation (if available)
 
-Submodules:
-    generators: Lightweight text generators (CommitMessageGenerator, etc.)
 """
 
 from __future__ import annotations
@@ -80,8 +78,6 @@ __all__: list[str] = [
     "AgentRegistry",
     "register",
     "registry",
-    # Submodules
-    "generators",
 ]
 
 if ImplementerAgent is not None:

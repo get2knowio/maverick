@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from maverick.agents.generators.base import GeneratorAgent
+from maverick.agents.generator_base import GeneratorAgent
 
 # =============================================================================
 # Test Implementation of GeneratorAgent

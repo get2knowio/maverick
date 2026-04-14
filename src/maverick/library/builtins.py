@@ -6,5 +6,4 @@ because it had no implementations and no consumers.
 
 Built-in components are now registered via:
 - ``maverick.library.agents.register_all_agents``
-- ``maverick.library.generators.register_all_generators``
 """

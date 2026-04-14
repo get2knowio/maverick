@@ -168,7 +168,7 @@ async def _synthesize_summary(
     Returns:
         True if summary was updated, False on failure.
     """
-    from maverick.agents.generators.consolidator import ConsolidatorAgent
+    from maverick.agents.consolidator import ConsolidatorAgent
     from maverick.executor import create_default_executor
 
     existing_summary = await store.read_semantic_file(_INSIGHTS_FILE)

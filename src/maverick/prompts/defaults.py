@@ -1,4 +1,4 @@
-"""Build the default PromptRegistry from shipped agent/generator prompts."""
+"""Build the default PromptRegistry from shipped agent prompts."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ _cached_registry: PromptRegistry | None = None
 
 
 def build_default_registry() -> PromptRegistry:
-    """Build the default PromptRegistry from shipped agent/generator prompts.
+    """Build the default PromptRegistry from shipped agent prompts.
 
     Imports prompt constants from agent modules by reference (no duplication).
     Each entry declares its override policy. The result is cached at module level
@@ -24,11 +24,6 @@ def build_default_registry() -> PromptRegistry:
     # Lazy imports to avoid circular dependencies
     from maverick.agents.curator import SYSTEM_PROMPT as CURATOR_SYSTEM_PROMPT
     from maverick.agents.fixer import FIXER_SYSTEM_PROMPT
-    from maverick.agents.generators.commit_message import (
-        COMMIT_MESSAGE_SYSTEM_PROMPT,
-    )
-    from maverick.agents.generators.pr_description import PRDescriptionGenerator
-    from maverick.agents.generators.pr_title import PR_TITLE_SYSTEM_PROMPT
     from maverick.agents.implementer import IMPLEMENTER_SYSTEM_PROMPT_TEMPLATE
     from maverick.agents.reviewers.completeness_reviewer import (
         COMPLETENESS_REVIEWER_PROMPT_TEMPLATE,
@@ -36,10 +31,6 @@ def build_default_registry() -> PromptRegistry:
     from maverick.agents.reviewers.correctness_reviewer import (
         CORRECTNESS_REVIEWER_PROMPT_TEMPLATE,
     )
-
-    # Get PR description default by instantiating with default sections
-    pr_desc_gen = PRDescriptionGenerator()
-    pr_desc_default = pr_desc_gen.system_prompt
 
     entries: dict[tuple[str, str], PromptEntry] = {
         ("implement", GENERIC_PROVIDER): PromptEntry(
@@ -62,18 +53,6 @@ def build_default_registry() -> PromptRegistry:
         ("curator", GENERIC_PROVIDER): PromptEntry(
             text=CURATOR_SYSTEM_PROMPT,
             policy=OverridePolicy.AUGMENT_ONLY,
-        ),
-        ("commit_message", GENERIC_PROVIDER): PromptEntry(
-            text=COMMIT_MESSAGE_SYSTEM_PROMPT,
-            policy=OverridePolicy.REPLACE,
-        ),
-        ("pr_description", GENERIC_PROVIDER): PromptEntry(
-            text=pr_desc_default,
-            policy=OverridePolicy.REPLACE,
-        ),
-        ("pr_title", GENERIC_PROVIDER): PromptEntry(
-            text=PR_TITLE_SYSTEM_PROMPT,
-            policy=OverridePolicy.REPLACE,
         ),
     }
 

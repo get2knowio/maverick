@@ -22,9 +22,6 @@ ActionType: TypeAlias = Callable[..., Any]
 # Agents are MaverickAgent subclasses
 AgentType: TypeAlias = type["MaverickAgent[Any, Any]"]
 
-# Generators are MaverickAgent subclasses (same as AgentType)
-GeneratorType: TypeAlias = type["MaverickAgent[Any, Any]"]
-
 
 class Registry(Protocol[T]):
     """Protocol for component registries.

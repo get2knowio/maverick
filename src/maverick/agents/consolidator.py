@@ -13,7 +13,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from maverick.agents.generators.base import GeneratorAgent
+from maverick.agents.generator_base import GeneratorAgent
 from maverick.logging import get_logger
 
 __all__ = ["ConsolidatorAgent"]

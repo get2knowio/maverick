@@ -9,7 +9,7 @@ See specs/021-agent-tool-permissions/research.md for prompt patterns.
 
 from __future__ import annotations
 
-from maverick.agents.generators.base import GeneratorAgent
+from maverick.agents.generator_base import GeneratorAgent
 from maverick.agents.implementer import ImplementerAgent
 from maverick.agents.reviewers import (
     CompletenessReviewerAgent,

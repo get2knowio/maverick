@@ -12,7 +12,6 @@ Submodules:
 from __future__ import annotations
 
 from maverick.library.agents import register_all_agents
-from maverick.library.generators import register_all_generators
 from maverick.library.scaffold import (
     InvalidNameError,
     OutputExistsError,
@@ -50,5 +49,4 @@ __all__ = [
     "create_scaffold_service",
     # Registration functions
     "register_all_agents",
-    "register_all_generators",
 ]

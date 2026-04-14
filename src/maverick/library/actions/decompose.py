@@ -9,12 +9,11 @@ import asyncio
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from maverick.logging import get_logger
 
 if TYPE_CHECKING:
-    from maverick.briefing.models import BriefingDocument
     from maverick.flight.models import WorkUnit
     from maverick.workflows.refuel_maverick.models import (
         DecompositionOutline,
@@ -261,11 +260,14 @@ def _format_codebase_context(context: CodebaseContext) -> str:
     return result
 
 
-def _format_briefing_section(briefing: BriefingDocument) -> str:
-    """Format a BriefingDocument as a prompt section.
+def _format_briefing_section(briefing: Any) -> str:
+    """Format a briefing object as a prompt section.
+
+    Uses duck typing (attribute access) so any object with the expected
+    fields (key_decisions, structuralist, key_risks, open_questions) works.
 
     Args:
-        briefing: Synthesized briefing document.
+        briefing: Synthesized briefing document (duck-typed).
 
     Returns:
         Markdown-formatted briefing analysis section.
@@ -309,14 +311,14 @@ def _format_briefing_section(briefing: BriefingDocument) -> str:
 def build_decomposition_prompt(
     flight_plan_content: str,
     context: CodebaseContext,
-    briefing: BriefingDocument | None = None,
+    briefing: Any = None,
 ) -> str:
     """Build the decomposition agent prompt.
 
     Args:
         flight_plan_content: Raw flight plan markdown content.
         context: Gathered codebase context.
-        briefing: Optional synthesized briefing document from the briefing room.
+        briefing: Optional synthesized briefing document (duck-typed).
 
     Returns:
         Formatted prompt string for the decomposition agent.
@@ -410,7 +412,7 @@ def build_decomposition_prompt(
 def build_outline_prompt(
     flight_plan_content: str,
     context: CodebaseContext,
-    briefing: BriefingDocument | None = None,
+    briefing: Any = None,
     runway_context: str | None = None,
 ) -> str:
     """Build the outline pass prompt for chunked decomposition.
@@ -423,7 +425,7 @@ def build_outline_prompt(
     Args:
         flight_plan_content: Raw flight plan markdown content.
         context: Gathered codebase context.
-        briefing: Optional synthesized briefing document from the briefing room.
+        briefing: Optional synthesized briefing document (duck-typed).
 
     Returns:
         Formatted prompt string for the outline pass.

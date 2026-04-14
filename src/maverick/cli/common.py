@@ -10,7 +10,6 @@ from maverick.cli.output import format_error
 from maverick.exceptions import AgentError, GitError, MaverickError
 from maverick.library.actions import register_all_actions
 from maverick.library.agents import register_all_agents
-from maverick.library.generators import register_all_generators
 from maverick.logging import get_logger
 
 if TYPE_CHECKING:
@@ -83,6 +82,5 @@ def create_registered_registry(strict: bool = False) -> ComponentRegistry:
     # Register all built-in components
     register_all_actions(registry)
     register_all_agents(registry)
-    register_all_generators(registry)
 
     return registry
