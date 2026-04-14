@@ -500,7 +500,10 @@ async def execute_python_workflow(
     workflow_name = getattr(_wf_module, "WORKFLOW_NAME", run_config.workflow_class.__name__)
 
     with cli_error_handler():
-        registry = create_registered_registry(ctx)
+        from maverick.config import load_config
+
+        config = load_config()
+        registry = create_registered_registry()
         workflow_class = run_config.workflow_class
 
         # Ensure workflow_class is a class, not a string.
@@ -509,15 +512,20 @@ async def execute_python_workflow(
             module = importlib.import_module(module_path)
             workflow_class = getattr(module, class_name)
 
-        # Instantiate and inject dependencies
-        wf = workflow_class()
-        step_executor = registry.get("step_executor")
-        if step_executor is not None:
-            wf.set_step_executor(step_executor)
-
         # Checkpoint support
         checkpoint_dir = Path(".maverick/checkpoints")
         checkpoint_store = CheckpointStore(checkpoint_dir)
+
+        # Resolve step executor from registry
+        step_executor = registry.get("step_executor")
+
+        # Instantiate workflow with all required dependencies
+        wf = workflow_class(
+            config=config,
+            registry=registry,
+            checkpoint_store=checkpoint_store,
+            step_executor=step_executor,
+        )
 
         if run_config.restart:
             await checkpoint_store.clear(workflow_name)
@@ -574,10 +582,7 @@ async def execute_python_workflow(
             )
 
         # Run the workflow and render events.
-        events = wf.run(
-            run_config.inputs,
-            checkpoint_store=checkpoint_store,
-        )
+        events = wf.execute(run_config.inputs)
 
         try:
             await render_workflow_events(
