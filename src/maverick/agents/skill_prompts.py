@@ -45,8 +45,8 @@ PROJECT_TYPE_SKILLS: dict[str, list[str]] = {
     "ansible_collection": [
         "maverick-ansible",
     ],
-    "nodejs": [],  # TODO: Add Node.js skills
-    "go": [],  # TODO: Add Go skills
+    "nodejs": [],
+    "go": [],
     "unknown": [],
 }
 

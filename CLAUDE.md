@@ -223,6 +223,8 @@ See `.specify/memory/constitution.md` for the authoritative reference.
 
 6. **Simplicity**: No global mutable state, no god-classes, no premature abstractions.
 
+7. **Complete Work**: Every bead must be self-contained and leave the codebase clean. No deferred work — if a change requires updating callers, removing dead code, or migrating tests, do it in the same bead. No TODO/FIXME/HACK comments that punt work to "later". The agent workflow runs autonomously; there is no human watching output to catch "good enough for now."
+
 ## Operating Standard (Ownership & Follow-Through)
 
 The default stance is full ownership of the repository state while you work. “That’s not my problem” is not an acceptable response.

@@ -74,7 +74,22 @@ You focus on:
 6. Sync dependencies if you changed dependency files
 7. Run validation commands via Bash (format, lint, typecheck, test)
 8. Fix any validation failures and re-run until clean
-9. If you cannot resolve a failure after genuine effort, stop and report what you tried
+9. Clean up after yourself: remove dead code, unused imports, stale
+   comments, and orphaned files created by your changes
+10. If you cannot resolve a failure after genuine effort, stop and report what you tried
+
+## Completeness Standard
+
+Your work is NOT done until:
+- All acceptance criteria are satisfied (not partially — fully)
+- All validation commands pass (format, lint, typecheck, test)
+- No dead code remains from your changes (unused functions, imports,
+  variables, or files that your refactoring made obsolete)
+- No TODO/FIXME/HACK comments are left behind — resolve them now or
+  remove the code they reference
+- No deferred work — if a change requires a follow-up (e.g., updating
+  callers, removing a shim, migrating tests), do it in this session.
+  There is no "later" — this bead must be complete and self-contained
 
 ## Task Execution
 For each task:
@@ -128,126 +143,6 @@ Reading and analyzing is NOT enough — actually implement the code.
 
 $project_conventions
 """
-
-# DEPRECATED: Phase mode is speckit-era code. The bead-driven fly workflow
-# exclusively uses _execute_task_mode with single-task ImplementerContext
-# (task_description set from bead description). Phase mode may still be used
-# by `refuel speckit` invocations. Do not invest in this template.
-PHASE_PROMPT_TEMPLATE = """\
-## Phase Execution: {phase_name}
-
-You are implementing a single phase from the task file at `{task_file}`.
-
-### Step 1: Load Context
-
-Read and internalize the following spec artifacts before writing any code:
-- **REQUIRED**: Read `{task_file}` for the complete task list
-- **REQUIRED**: Read the spec directory for `plan.md` (tech stack, architecture,
-  directory structure, key design decisions)
-- **REQUIRED**: Read `CLAUDE.md` (if it exists) for project conventions, coding
-  standards, and development patterns you must follow
-- **IF EXISTS**: Read `data-model.md` for schema definitions and entity relationships
-- **IF EXISTS**: Read files in `contracts/` for API contracts and interface definitions
-- **IF EXISTS**: Read `research.md` for technology choices, trade-offs, and decisions
-- **IF EXISTS**: Read `quickstart.md` for setup patterns and project entry points
-
-Internalize the tech stack, directory layout, naming conventions, and testing
-patterns from these artifacts. All code you write must align with them.
-
-### Step 2: Project Setup Verification
-
-Before implementing features, verify that the project has appropriate ignore
-files (`.gitignore`, etc.) for its tech stack. If `plan.md` specifies a tech
-stack and no ignore files exist yet, create them with standard patterns for
-that technology.
-
-Common patterns by technology:
-- **Python**: `__pycache__/`, `*.pyc`, `.venv/`, `dist/`, `*.egg-info/`,
-  `.mypy_cache/`, `.pytest_cache/`, `.ruff_cache/`
-- **Node.js**: `node_modules/`, `dist/`, `.next/`, `.nuxt/`, `coverage/`
-- **Rust**: `target/`, `Cargo.lock` (for libraries)
-- **Go**: `vendor/` (if vendoring), binary outputs
-- **General**: `.env`, `.env.local`, `*.log`, `.DS_Store`, `*.swp`
-
-### Step 3: Identify Tasks
-
-From `{task_file}`, find ALL tasks listed under the **"{phase_name}"** section.
-
-Parse the task structure carefully:
-- Extract task IDs (e.g., `T001`, `T002`) and their full descriptions
-- Identify dependency markers — tasks that reference other task IDs as
-  prerequisites must wait until those complete
-- Identify **[P]** parallel markers — these tasks have no inter-dependencies
-  and can execute simultaneously
-- Determine execution flow: sequential tasks first, then parallel batches,
-  then any sequential tasks that depend on the parallel batch
-
-These are the tasks you MUST implement in this session.
-
-### Step 4: Execute Tasks
-
-Implement tasks using a TDD (Test-Driven Development) approach:
-
-**For each task:**
-1. **Read** existing files that will be affected (use Read tool)
-2. **Write tests first** — create or update test files that define the expected
-   behavior. Test files must cover the public API of any new module.
-3. **Implement the source code** — use Write (new files) or Edit (existing files)
-   to create the minimal implementation that satisfies the tests
-4. **Verify consistency** — re-read modified files to confirm edits applied
-   correctly and the code is syntactically valid
-
-**Parallel task execution ([P] markers):**
-- Tasks marked with **[P]** can be executed simultaneously by spawning
-  separate subagents via the Task tool
-- Launch all [P] tasks in a single response with multiple Task tool calls
-- Each subagent prompt must include: the task description, relevant file paths,
-  project conventions from CLAUDE.md, and the tech stack context
-- Sequential tasks must be completed in order before moving to the next
-
-**Phase ordering:**
-- Complete all tasks in a phase before the orchestration layer advances to
-  the next phase. You only handle the current phase.
-
-### Step 5: Progress Tracking
-
-After completing each task:
-- Mark it as done in `{task_file}` by changing `- [ ]` to `- [x]` for that
-  task line using the Edit tool
-- If a task fails or cannot be completed, leave it unchecked and continue
-  with the next task — do not let one failure block the entire phase
-- If a parallel [P] subagent fails, continue with remaining tasks and report
-  the failure
-
-### Step 6: Completion Validation
-
-After all tasks in the phase are attempted:
-- Re-read `{task_file}` to verify all tasks in **"{phase_name}"** are marked
-  `[x]` (or documented as failed with a reason)
-- Verify that the implemented features match what the task descriptions
-  specified — do not leave partial implementations
-- Confirm that every new source file has a corresponding test file
-- Run the project's validation commands via Bash (sync dependencies if you
-  modified dependency files, then format, lint, test). Fix any issues found
-  before completing.
-
-### Rules
-
-- You MUST use Write and Edit to create and modify actual source files.
-  Reading and analyzing is NOT enough — you must produce working code.
-- You MUST create test files for every source module you create. If you
-  create `src/foo/bar.py`, also create `tests/test_bar.py`. Do not skip
-  tests or defer them to a later phase.
-- Use Bash to run validation commands (sync deps, format, lint, test)
-  before completing. The orchestration workflow handles git commits after
-  you finish.
-- Do NOT include commit messages in your output — the workflow generates
-  them automatically.
-- Follow the project's conventions from CLAUDE.md if it exists.
-- Read files before editing them. Do not guess at file contents.
-- Prefer Edit over Write for existing files to make targeted changes.
-"""
-
 
 # =============================================================================
 # Helpers
@@ -397,9 +292,6 @@ class ImplementerAgent(MaverickAgent[ImplementerContext, ImplementationResult]):
         if isinstance(context, dict):
             context = _coerce_implementer_context(context)
 
-        if context.is_phase_mode and context.phase_name:
-            return self._build_phase_prompt(context.phase_name, context)
-
         if context.is_single_task and context.task_description:
             synthetic_task = Task(
                 id="T000",
@@ -456,26 +348,3 @@ class ImplementerAgent(MaverickAgent[ImplementerContext, ImplementationResult]):
         if context.previous_failures:
             sections.append(f"## Previous Failures\n{context.previous_failures}")
         return "\n\n".join(sections)
-
-    def _build_phase_prompt(
-        self,
-        phase_name: str,
-        context: ImplementerContext,
-    ) -> str:
-        """Build prompt for phase-level execution.
-
-        Creates a focused prompt that tells the agent exactly what to do
-        for a single phase: read spec artifacts, find the phase's tasks,
-        and implement them by writing code with Write/Edit tools.
-
-        Args:
-            phase_name: Name of the phase to implement.
-            context: Execution context (provides task_file path and cwd).
-
-        Returns:
-            Formatted prompt for Claude.
-        """
-        return PHASE_PROMPT_TEMPLATE.format(
-            phase_name=phase_name,
-            task_file=context.task_file,
-        )

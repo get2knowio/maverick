@@ -355,6 +355,12 @@ def build_decomposition_prompt(
             " layouts, or patterns than anticipated. Only verify:"
             " (1) tests pass, (2) build succeeds, (3) CLI output/exit"
             " codes. NEVER grep source for expected code patterns.",
+            "- COMPLETENESS: Each work unit's acceptance criteria MUST"
+            " include cleanup of dead code, unused imports, and orphaned"
+            " files caused by the change. If a work unit refactors or"
+            " replaces existing code, include removing the old code,"
+            " updating callers, and removing stale tests in the"
+            " instructions. No deferred cleanup.",
             "- Use depends_on to express ordering constraints"
             " (list of work unit IDs that must complete first)",
             "- Assign parallel_group labels to work units that can execute"
@@ -566,6 +572,12 @@ def build_detail_prompt(
             " layouts, or patterns than anticipated. Only verify:"
             " (1) tests pass, (2) build succeeds, (3) CLI output/exit"
             " codes. NEVER grep source for expected code patterns.",
+            "- COMPLETENESS: Each work unit's acceptance criteria MUST"
+            " include cleanup of dead code, unused imports, and orphaned"
+            " files caused by the change. If a work unit refactors or"
+            " replaces existing code, include removing the old code,"
+            " updating callers, and removing stale tests in the"
+            " instructions. No deferred cleanup.",
             "",
             "## CRITICAL: Output Format",
             "Write the JSON to the file path specified in the"

@@ -93,6 +93,12 @@ You have access to: **Read, Glob, Grep**
 6. **Security** — No command injection, no hardcoded secrets, proper input validation
    at boundaries.
 
+7. **Dead Code & Completeness** — No unused imports, functions, variables, or
+   files left behind by this change. No TODO/FIXME/HACK comments that defer
+   work to "later". No shims, compatibility wrappers, or backwards-compat
+   code that could be cleaned up now. If the change makes existing code
+   unreachable, that code must be removed in this same bead.
+
 {FRAMEWORK_CONVENTIONS}
 
 $project_conventions
