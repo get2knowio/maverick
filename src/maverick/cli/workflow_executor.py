@@ -416,7 +416,7 @@ async def render_workflow_events(
                     )
 
         elif isinstance(event, AgentStarted):
-            if _agent_tracker is None:
+            if _agent_tracker is None or not _agent_tracker.active:
                 _stop_spinner()
                 _flush_step_header()
                 _agent_tracker = _AgentTracker(console_obj, _current_step_name)
