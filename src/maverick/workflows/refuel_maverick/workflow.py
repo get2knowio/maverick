@@ -140,16 +140,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
         # Step 2: Gather codebase context
         # ------------------------------------------------------------------
         await self.emit_step_started(GATHER_CONTEXT)
-        await self.emit_output(
-            GATHER_CONTEXT,
-            f"Reading {len(flight_plan.scope.in_scope)} in-scope files...",
-        )
         try:
-            # Resolve cwd for in-scope file paths. Convention: flight plans live in
-            # .maverick/plans/<name>/flight-plan.md, so we need to go up 4 levels
-            # (flight-plan.md → <name> → plans → .maverick → repo root).
-            # If the flight plan is at the filesystem root (parent.name is empty),
-            # fall back to None (which gather_codebase_context resolves to Path.cwd()).
             plan_dir = flight_plan_path.parent
             cwd = plan_dir.parent.parent.parent if plan_dir.name else None
             codebase_context = await gather_codebase_context(
@@ -163,25 +154,18 @@ class RefuelMaverickWorkflow(PythonWorkflow):
         total_scope = len(flight_plan.scope.in_scope)
         found_count = len(codebase_context.files)
         missing_count = len(codebase_context.missing_files)
+        size_kb = codebase_context.total_size // 1024
 
         if missing_count > 0 and found_count == 0:
-            # All files missing — greenfield project, not an error
-            await self.emit_output(
-                GATHER_CONTEXT,
-                f"Greenfield project \u2014 none of {total_scope} in-scope files exist yet",
-            )
+            summary = f"Greenfield project — {total_scope} in-scope files (none exist yet)"
         elif missing_count > 0:
-            # Partial — some files exist, some don't
-            await self.emit_output(
-                GATHER_CONTEXT,
-                f"{missing_count} of {total_scope} in-scope files not found (may not exist yet)",
-                level="warning",
+            summary = (
+                f"{found_count} of {total_scope} files ({size_kb}KB), "
+                f"{missing_count} not found yet"
             )
-        size_kb = codebase_context.total_size // 1024
-        await self.emit_output(
-            GATHER_CONTEXT,
-            f"Gathered context ({found_count} files, {size_kb}KB)",
-        )
+        else:
+            summary = f"{found_count} files ({size_kb}KB)"
+        await self.emit_output(GATHER_CONTEXT, summary)
         await self.emit_step_completed(
             GATHER_CONTEXT,
             output={
