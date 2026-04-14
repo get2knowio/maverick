@@ -22,22 +22,20 @@ class TestRefuelHelp:
     ) -> None:
         result = cli_runner.invoke(cli, ["refuel", "--help"])
         assert result.exit_code == 0
-        assert "--from" in result.output
-        assert "plan" in result.output
-        assert "speckit" in result.output
+        assert "--dry-run" in result.output
+        assert "--skip-briefing" in result.output
 
     def test_help_shows_correct_options(
         self,
         cli_runner: CliRunner,
     ) -> None:
-        """Help text shows --dry-run, --list-steps, --session-log, --from options."""
+        """Help text shows --dry-run, --list-steps, --session-log options."""
         result = cli_runner.invoke(cli, ["refuel", "--help"])
 
         assert result.exit_code == 0
         assert "--dry-run" in result.output
         assert "--list-steps" in result.output
         assert "--session-log" in result.output
-        assert "--from" in result.output
         assert "--skip-briefing" in result.output
 
 
@@ -194,65 +192,3 @@ class TestRefuelFromPlan:
         mock_execute.assert_called_once()
         run_config = mock_execute.call_args[0][1]
         assert run_config.inputs["skip_briefing"] is True
-
-
-class TestRefuelFromSpeckit:
-    """Tests for 'maverick refuel --from speckit <spec>'."""
-
-    @pytest.fixture(autouse=True)
-    def _mock_bd_available(self):
-        """Mock bd availability — CI doesn't have bd installed."""
-        with patch("shutil.which", return_value="/usr/bin/bd"):
-            yield
-
-    def test_list_steps_speckit(
-        self,
-        cli_runner: CliRunner,
-    ) -> None:
-        """--list-steps with --from speckit prints speckit workflow steps."""
-        result = cli_runner.invoke(
-            cli,
-            ["refuel", "--from", "speckit", "001-greet-cli", "--list-steps"],
-        )
-
-        assert result.exit_code == 0
-        assert "parse_spec" in result.output
-
-    @patch(_PATCH_EXECUTE, new_callable=AsyncMock)
-    def test_delegates_to_refuel_speckit_workflow(
-        self,
-        mock_execute: AsyncMock,
-        cli_runner: CliRunner,
-    ) -> None:
-        """--from speckit delegates to RefuelSpeckitWorkflow."""
-        from maverick.workflows.refuel_speckit import RefuelSpeckitWorkflow
-
-        result = cli_runner.invoke(
-            cli,
-            ["refuel", "--from", "speckit", "001-greet-cli"],
-        )
-
-        assert result.exit_code == 0
-        assert result.exception is None
-        mock_execute.assert_called_once()
-        run_config = mock_execute.call_args[0][1]
-        assert run_config.workflow_class is RefuelSpeckitWorkflow
-        assert run_config.inputs["spec"] == "001-greet-cli"
-
-    @patch(_PATCH_EXECUTE, new_callable=AsyncMock)
-    def test_speckit_dry_run(
-        self,
-        mock_execute: AsyncMock,
-        cli_runner: CliRunner,
-    ) -> None:
-        """--dry-run with --from speckit is passed through."""
-        result = cli_runner.invoke(
-            cli,
-            ["refuel", "--from", "speckit", "001-greet-cli", "--dry-run"],
-        )
-
-        assert result.exit_code == 0
-        assert result.exception is None
-        mock_execute.assert_called_once()
-        run_config = mock_execute.call_args[0][1]
-        assert run_config.inputs["dry_run"] is True

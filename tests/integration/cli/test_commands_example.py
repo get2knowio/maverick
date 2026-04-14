@@ -188,10 +188,10 @@ class TestErrorHandling:
             with open(config_file, "w") as f:
                 yaml.dump(sample_config, f)
 
-            # Run refuel speckit without required spec_dir argument
-            result = cli_runner.invoke(cli, ["refuel", "speckit"])
+            # Run refuel without required name argument
+            result = cli_runner.invoke(cli, ["refuel"])
 
-            # Should fail with usage error
+            # Should fail with usage error (missing NAME argument)
             assert result.exit_code != 0
             assert "Error" in result.output or "Usage" in result.output
 

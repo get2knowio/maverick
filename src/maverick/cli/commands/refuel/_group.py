@@ -1,14 +1,12 @@
 """``maverick refuel`` command.
 
-Single command that loads work into beads from various sources.
-Default source is a flight plan (``--from plan``); use ``--from speckit``
-to load from a SpecKit specification.
+Decomposes a flight plan into beads (work units) using the Thespian
+actor system for parallel agent execution.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 import click
 
@@ -16,20 +14,9 @@ from maverick.cli.commands.flight_plan._group import DEFAULT_PLANS_DIR
 from maverick.cli.console import console
 from maverick.cli.context import ExitCode, async_command
 
-if TYPE_CHECKING:
-    pass
-
 
 @click.command()
-@click.argument("name_or_path")
-@click.option(
-    "--from",
-    "source_type",
-    type=click.Choice(["plan", "speckit"]),
-    default="plan",
-    show_default=True,
-    help="Source type: 'plan' (flight plan) or 'speckit' (SpecKit spec).",
-)
+@click.argument("name")
 @click.option(
     "--dry-run",
     is_flag=True,
@@ -58,29 +45,23 @@ if TYPE_CHECKING:
     "--plans-dir",
     default=DEFAULT_PLANS_DIR,
     show_default=True,
-    help="Base plans directory (only used with --from plan).",
+    help="Base plans directory.",
 )
 @click.pass_context
 @async_command
 async def refuel(
     ctx: click.Context,
-    name_or_path: str,
-    source_type: str,
+    name: str,
     dry_run: bool,
     list_steps: bool,
     session_log: Path | None,
     skip_briefing: bool,
     plans_dir: str,
 ) -> None:
-    """Load work into beads from a flight plan or SpecKit specification.
+    """Decompose a flight plan into beads.
 
-    NAME_OR_PATH is the plan name (default) or speckit spec path.
-
-    With --from plan (default), NAME_OR_PATH is a kebab-case plan name.
-    The flight plan is read from .maverick/plans/<name>/flight-plan.md.
-
-    With --from speckit, NAME_OR_PATH is the spec identifier (branch name
-    and directory under specs/).
+    NAME is a kebab-case plan name. The flight plan is read from
+    .maverick/plans/<name>/flight-plan.md.
 
     Examples:
 
@@ -89,12 +70,7 @@ async def refuel(
         maverick refuel my-feature --dry-run
 
         maverick refuel my-feature --skip-briefing
-
-        maverick refuel --from speckit 001-greet-cli
-
-        maverick refuel --from speckit 001-greet-cli --dry-run
     """
-    # Preflight: verify bd is available before starting a long workflow
     import shutil
 
     if shutil.which("bd") is None:
@@ -105,30 +81,6 @@ async def refuel(
         )
         raise SystemExit(ExitCode.FAILURE)
 
-    if source_type == "plan":
-        await _refuel_from_plan(
-            ctx,
-            name_or_path,
-            plans_dir,
-            dry_run,
-            list_steps,
-            session_log,
-            skip_briefing,
-        )
-    else:
-        await _refuel_from_speckit(ctx, name_or_path, dry_run, list_steps, session_log)
-
-
-async def _refuel_from_plan(
-    ctx: click.Context,
-    name: str,
-    plans_dir: str,
-    dry_run: bool,
-    list_steps: bool,
-    session_log: Path | None,
-    skip_briefing: bool,
-) -> None:
-    """Refuel from a flight plan."""
     from maverick.cli.workflow_executor import (
         PythonWorkflowRunConfig,
         execute_python_workflow,
@@ -178,66 +130,6 @@ async def _refuel_from_plan(
                 "flight_plan_path": str(flight_plan_path),
                 "dry_run": dry_run,
                 "skip_briefing": skip_briefing,
-            },
-            session_log_path=session_log,
-        ),
-    )
-
-
-async def _refuel_from_speckit(
-    ctx: click.Context,
-    spec: str,
-    dry_run: bool,
-    list_steps: bool,
-    session_log: Path | None,
-) -> None:
-    """Refuel from a SpecKit specification."""
-    from maverick.cli.workflow_executor import (
-        PythonWorkflowRunConfig,
-        execute_python_workflow,
-    )
-    from maverick.workflows.refuel_speckit import RefuelSpeckitWorkflow
-    from maverick.workflows.refuel_speckit.constants import (
-        CHECKOUT,
-        CHECKOUT_MAIN,
-        COMMIT,
-        CREATE_BEADS,
-        ENRICH_BEADS,
-        EXTRACT_DEPS,
-        MERGE,
-        PARSE_SPEC,
-        WIRE_DEPS,
-        WORKFLOW_NAME,
-    )
-
-    steps = [
-        CHECKOUT,
-        PARSE_SPEC,
-        EXTRACT_DEPS,
-        ENRICH_BEADS,
-        CREATE_BEADS,
-        WIRE_DEPS,
-        COMMIT,
-        CHECKOUT_MAIN,
-        MERGE,
-    ]
-
-    if list_steps:
-        console.print(f"[bold]Workflow: {WORKFLOW_NAME}[/]")
-        console.print()
-        console.print("[bold]Steps:[/]")
-        for i, step_name in enumerate(steps, 1):
-            console.print(f"  {i}. {step_name} [dim](python)[/]")
-        console.print()
-        raise SystemExit(ExitCode.SUCCESS)
-
-    await execute_python_workflow(
-        ctx,
-        PythonWorkflowRunConfig(
-            workflow_class=RefuelSpeckitWorkflow,
-            inputs={
-                "spec": spec,
-                "dry_run": dry_run,
             },
             session_log_path=session_log,
         ),

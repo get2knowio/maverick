@@ -99,8 +99,7 @@ ACTION_INTENTS: dict[str, str] = {
     ),
     "log_message": ("Log a structured message to the workflow event stream."),
     # Beads
-    "parse_speckit": ("Parse a SpecKit specification directory to extract phases and tasks."),
-    "create_beads": ("Create epic and work beads from parsed SpecKit tasks via the bd CLI."),
+    "create_beads": ("Create epic and work beads via the bd CLI."),
     "wire_dependencies": (
         "Establish dependency relationships between beads based on task ordering."
     ),

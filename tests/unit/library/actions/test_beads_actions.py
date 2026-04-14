@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -11,7 +10,6 @@ import pytest
 from maverick.beads.models import BeadDefinition
 from maverick.library.actions.beads import (
     create_beads,
-    parse_speckit,
     wire_dependencies,
 )
 
@@ -44,96 +42,6 @@ class TestBeadActionRegistration:
 
         requires = registry.actions.get_requires("wire_dependencies")
         assert "bd" in requires
-
-    def test_parse_speckit_has_no_requires(self) -> None:
-        """parse_speckit should not require bd."""
-        from maverick.library.actions import register_all_actions
-        from maverick.registry import ComponentRegistry
-
-        registry = ComponentRegistry()
-        register_all_actions(registry)
-
-        requires = registry.actions.get_requires("parse_speckit")
-        assert "bd" not in requires
-
-
-# =============================================================================
-# parse_speckit
-# =============================================================================
-
-
-class TestParseSpeckit:
-    """Tests for parse_speckit action."""
-
-    @pytest.mark.asyncio
-    async def test_raises_on_nonexistent_dir(self, temp_dir: Path) -> None:
-        nonexistent = temp_dir / "does-not-exist"
-        with pytest.raises(RuntimeError, match="does not exist"):
-            await parse_speckit(str(nonexistent))
-
-    @pytest.mark.asyncio
-    async def test_raises_on_missing_tasks_md(self, temp_dir: Path) -> None:
-        spec_dir = temp_dir / "spec"
-        spec_dir.mkdir()
-        with pytest.raises(RuntimeError, match="tasks.md not found"):
-            await parse_speckit(str(spec_dir))
-
-    @pytest.mark.asyncio
-    async def test_raises_on_no_phases(self, temp_dir: Path) -> None:
-        spec_dir = temp_dir / "spec"
-        spec_dir.mkdir()
-        (spec_dir / "tasks.md").write_text("no phases here\n")
-        with pytest.raises(RuntimeError, match="No phases found"):
-            await parse_speckit(str(spec_dir))
-
-    @pytest.mark.asyncio
-    async def test_parses_simple_spec(self, temp_dir: Path) -> None:
-        spec_dir = temp_dir / "001-test"
-        spec_dir.mkdir()
-        (spec_dir / "tasks.md").write_text(
-            "## Phase 1: Setup\n\n"
-            "- [ ] T001 Initialize project\n\n"
-            "## Phase 2: User Story 1 - Greeting\n\n"
-            "- [ ] T002 Add greeting CLI\n\n"
-            "## Phase 3: Polish\n\n"
-            "- [ ] T003 Add tests\n\n"
-            "## User Story Dependencies\n\n"
-            "US1 has no inter-story dependencies.\n"
-        )
-
-        result = await parse_speckit(str(spec_dir))
-
-        assert result.epic_definition["title"] == "001-test"
-        assert result.epic_definition["bead_type"] == "epic"
-        assert len(result.work_definitions) >= 1
-        assert "T001" in result.tasks_content or ("Initialize project" in result.tasks_content)
-
-    @pytest.mark.asyncio
-    async def test_extracts_dependency_section(self, temp_dir: Path) -> None:
-        spec_dir = temp_dir / "spec"
-        spec_dir.mkdir()
-        (spec_dir / "tasks.md").write_text(
-            "## Phase 1: User Story 1 - Foo\n\n"
-            "- [ ] T001 Foo task\n\n"
-            "## Dependencies\n\n"
-            "US3 depends on US1 for the data model.\n"
-        )
-
-        result = await parse_speckit(str(spec_dir))
-
-        assert "US3 depends on US1" in result.dependency_section
-
-    @pytest.mark.asyncio
-    async def test_empty_dependency_section(self, temp_dir: Path) -> None:
-        spec_dir = temp_dir / "spec"
-        spec_dir.mkdir()
-        (spec_dir / "tasks.md").write_text(
-            "## Phase 1: User Story 1 - Foo\n\n- [ ] T001 Foo task\n"
-        )
-
-        result = await parse_speckit(str(spec_dir))
-
-        assert result.dependency_section == ""
 
 
 # =============================================================================

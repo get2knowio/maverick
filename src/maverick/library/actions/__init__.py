@@ -29,7 +29,6 @@ from maverick.library.actions.beads import (
     create_beads_from_findings,
     enrich_bead_descriptions,
     mark_bead_complete,
-    parse_speckit,
     select_next_bead,
     verify_bead_completion,
     wire_dependencies,
@@ -85,7 +84,6 @@ from maverick.library.actions.workspace import create_fly_workspace, init_worksp
 
 __all__ = [
     # Bead actions
-    "parse_speckit",
     "create_beads",
     "wire_dependencies",
     "select_next_bead",
@@ -323,9 +321,7 @@ def register_all_actions(registry: ComponentRegistry) -> None:
     registry.actions.register("generate_validation_report", generate_validation_report)
     registry.actions.register("log_message", log_message)
 
-    # Bead actions - parse_speckit only reads spec files (no bd needed),
-    # but create_beads and wire_dependencies require the bd CLI.
-    registry.actions.register("parse_speckit", parse_speckit)
+    # Bead actions — create_beads and wire_dependencies require the bd CLI.
     registry.actions.register("create_beads", create_beads, requires=("bd",))
     registry.actions.register("wire_dependencies", wire_dependencies, requires=("bd",))
     registry.actions.register("select_next_bead", select_next_bead, requires=("bd",))

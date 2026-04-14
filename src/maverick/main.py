@@ -63,7 +63,7 @@ _LAZY_COMMANDS: dict[str, tuple[str, str]] = {
     ),
     "refuel": (
         "maverick.cli.commands.refuel:refuel",
-        "Load work into beads from a flight plan or SpecKit specification.",
+        "Decompose a flight plan into beads.",
     ),
     "review": (
         "maverick.cli.commands.review:review",

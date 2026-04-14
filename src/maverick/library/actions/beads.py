@@ -7,7 +7,6 @@ Each action receives and returns JSON-serializable dicts/primitives.
 from __future__ import annotations
 
 import json
-import re
 from pathlib import Path
 from typing import Any
 
@@ -19,106 +18,11 @@ from maverick.library.actions.types import (
     DependencyWiringResult,
     MarkBeadCompleteResult,
     SelectNextBeadResult,
-    SpecKitParseResult,
     VerifyBeadCompletionResult,
 )
 from maverick.logging import get_logger
 
 logger = get_logger(__name__)
-
-# Regex for extracting the dependency section from tasks.md
-_DEP_SECTION_PATTERN = re.compile(
-    r"#+\s*(?:User\s+Story\s+)?Dependencies\s*\n(.*?)(?=\n#+\s|\Z)",
-    re.IGNORECASE | re.DOTALL,
-)
-
-
-async def parse_speckit(spec_dir: str) -> SpecKitParseResult:
-    """Parse a SpecKit spec directory into bead definitions.
-
-    Args:
-        spec_dir: Path to the spec directory containing tasks.md.
-
-    Returns:
-        SpecKitParseResult with epic/work definitions and dependency section.
-
-    Raises:
-        RuntimeError: If spec_dir or tasks.md is invalid or has no phases.
-    """
-    from maverick.beads.models import BeadCategory, BeadDefinition, BeadType
-    from maverick.beads.speckit import (
-        SpecKitContextExtractor,
-        group_phases_into_beads,
-    )
-    from maverick.models.implementation import TaskFile
-
-    spec_path = Path(spec_dir).resolve()
-    tasks_path = spec_path / "tasks.md"
-
-    if not spec_path.is_dir():
-        raise RuntimeError(f"Spec directory does not exist: {spec_path}")
-
-    if not tasks_path.is_file():
-        raise RuntimeError(f"tasks.md not found in {spec_path}")
-
-    # Parse tasks.md
-    logger.info("parsing_tasks", spec_dir=str(spec_path))
-    task_file = await TaskFile.parse_async(tasks_path)
-
-    if not task_file.phases:
-        raise RuntimeError(f"No phases found in {tasks_path}")
-
-    # Classify and group phases
-    bead_definitions = group_phases_into_beads(task_file.phases)
-    logger.info(
-        "phases_grouped",
-        total_beads=len(bead_definitions),
-        phases=len(task_file.phases),
-    )
-
-    # Build context
-    extractor = SpecKitContextExtractor(spec_path, task_file)
-
-    # Build epic definition
-    epic_title = spec_path.name
-    epic_description = extractor.build_epic_description()
-    epic_definition = BeadDefinition(
-        title=epic_title,
-        bead_type=BeadType.EPIC,
-        priority=1,
-        category=BeadCategory.FOUNDATION,
-        description=epic_description,
-        phase_names=list(task_file.phases.keys()),
-        task_ids=[t.id for t in task_file.tasks],
-    )
-
-    # Enrich work bead definitions with descriptions
-    enriched_definitions: list[BeadDefinition] = []
-    for defn in bead_definitions:
-        description = extractor.build_bead_description(defn)
-        enriched = BeadDefinition(
-            title=defn.title,
-            bead_type=defn.bead_type,
-            priority=defn.priority,
-            category=defn.category,
-            description=description,
-            phase_names=defn.phase_names,
-            user_story_id=defn.user_story_id,
-            task_ids=defn.task_ids,
-        )
-        enriched_definitions.append(enriched)
-
-    # Read tasks content and extract dependency section
-    tasks_content = tasks_path.read_text(encoding="utf-8")
-    dep_match = _DEP_SECTION_PATTERN.search(tasks_content)
-    dependency_section = dep_match.group(1).strip() if dep_match else ""
-
-    return SpecKitParseResult(
-        epic_definition=epic_definition.model_dump(mode="json"),
-        work_definitions=tuple(d.model_dump(mode="json") for d in enriched_definitions),
-        tasks_content=tasks_content,
-        dependency_section=dependency_section,
-    )
 
 
 async def create_beads(
