@@ -440,11 +440,18 @@ async def render_workflow_events(
         elif isinstance(event, StepOutput):
             if _agent_tracker is not None and _agent_tracker.active:
                 _agent_tracker.add_message(event.message)
+            elif _step_started_printed:
+                # Header already shown — print interim immediately
+                style = _level_styles.get(event.level, "[cyan]")
+                console_obj.print(f"  {style}∟[/] {event.message}")
             else:
                 style = _level_styles.get(event.level, "[cyan]")
-                # Buffer interims — they'll be flushed on StepCompleted
-                # or immediately if the step takes > 1s (spinner visible)
                 _buffered_interims.append((style, event.message))
+                # Second interim means this is a long-running step —
+                # flush header + all buffered interims now.
+                if len(_buffered_interims) > 1:
+                    _stop_spinner()
+                    _flush_step_header()
 
         elif isinstance(event, RollbackStarted):
             console_obj.print(f"[yellow]  ↩ Rolling back: {event.step_name}...[/]")
