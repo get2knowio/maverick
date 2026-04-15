@@ -378,6 +378,12 @@ async def render_workflow_events(
                 _ensure_header()
                 style = _level_styles.get(event.level, "[cyan]")
                 console_obj.print(f"  {style}∟[/] {event.message}")
+                # Restart spinner so user sees activity between events
+                if hasattr(console_obj, "status") and not _spinner:
+                    _spinner = console_obj.status(
+                        f"[dim]{_current_label}...[/]", spinner="dots"
+                    )
+                    _spinner.start()
 
         elif isinstance(event, RollbackStarted):
             console_obj.print(f"[yellow]  ↩ Rolling back: {event.step_name}...[/]")
