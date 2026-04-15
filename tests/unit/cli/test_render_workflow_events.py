@@ -511,12 +511,9 @@ class TestInterimPrefix:
                 ),
             ],
         )
+        # Single-interim fast step collapses to one line
         assert 'PRD: "Greet CLI" (3195 chars)' in output
         assert "✓" in output
-        # Header + interim + completion
-        lines = output.strip().splitlines()
-        interim_lines = [ln for ln in lines if "∟" in ln]
-        assert len(interim_lines) == 1
 
     async def test_all_outputs_shown_as_interims(self) -> None:
         """R3: All StepOutputs shown as ∟ interims."""

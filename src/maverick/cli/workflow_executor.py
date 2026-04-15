@@ -202,6 +202,7 @@ async def render_workflow_events(
     # State machine for step rendering
     _header_printed = False
     _current_label: str = ""
+    _first_interim: str | None = None  # buffered for collapsing
     _agent_tracker: _AgentTracker | None = None
     _spinner: Any = None
 
@@ -273,6 +274,7 @@ async def render_workflow_events(
         elif isinstance(event, StepStarted):
             _current_label = event.display_label or _display_name(event.step_name)
             _header_printed = False
+            _first_interim = None
             step_type_value = event.step_type.value
 
             if workflow_depth == 1:
@@ -312,11 +314,27 @@ async def render_workflow_events(
             dur = f"{event.duration_ms / 1000:.2f}s"
             icon = "[green]✓[/]" if event.success else "[red]✗[/]"
 
-            if event.error:
+            # Collapse: if header wasn't printed and we have a buffered
+            # interim, show one line using the interim as the message.
+            if not _header_printed and _first_interim and not event.error:
+                console_obj.print(f"{icon} {_first_interim} [dim]({dur})[/]")
+            elif event.error:
+                _ensure_header()
+                if _first_interim:
+                    style = _level_styles.get("info", "[cyan]")
+                    console_obj.print(f"  {style}∟[/] {_first_interim}")
                 console_obj.print(f"{icon} {label}: {event.error} [dim]({dur})[/]")
+            elif not _header_printed:
+                # No interims at all — just show the label
+                console_obj.print(f"{icon} {label} [dim]({dur})[/]")
             else:
+                # Header was printed (multi-interim step) — show completion
+                if _first_interim:
+                    style = _level_styles.get("info", "[cyan]")
+                    console_obj.print(f"  {style}∟[/] {_first_interim}")
                 console_obj.print(f"{icon} {label} [dim]({dur})[/]")
             _header_printed = False
+            _first_interim = None
 
         elif isinstance(event, AgentStreamChunk):
             if _verbose:
@@ -347,7 +365,16 @@ async def render_workflow_events(
         elif isinstance(event, StepOutput):
             if _agent_tracker is not None and _agent_tracker.active:
                 _agent_tracker.add_message(event.message)
+            elif not _header_printed and not _first_interim:
+                # Buffer first interim — enables collapsing for simple steps
+                _first_interim = event.message
             else:
+                # Second+ interim — flush header and all interims
+                if _first_interim:
+                    _ensure_header()
+                    style = _level_styles.get("info", "[cyan]")
+                    console_obj.print(f"  {style}∟[/] {_first_interim}")
+                    _first_interim = None
                 _ensure_header()
                 style = _level_styles.get(event.level, "[cyan]")
                 console_obj.print(f"  {style}∟[/] {event.message}")

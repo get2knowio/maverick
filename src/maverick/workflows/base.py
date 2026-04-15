@@ -349,7 +349,7 @@ class PythonWorkflow(ABC):
                 step_type=step_type,
                 success=True,
                 duration_ms=duration_ms,
-                display_label=display_label or name.replace("_", " ").title(),
+                display_label=display_label,
                 step_path=f"{self._workflow_name}.{name}",
             )
         )
@@ -391,7 +391,7 @@ class PythonWorkflow(ABC):
                 step_type=step_type,
                 success=False,
                 duration_ms=duration_ms,
-                display_label=display_label or name.replace("_", " ").title(),
+                display_label=display_label,
                 error=error,
                 step_path=f"{self._workflow_name}.{name}",
             )
