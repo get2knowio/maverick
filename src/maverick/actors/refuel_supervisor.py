@@ -84,9 +84,11 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
             return
 
         if isinstance(message, dict) and message.get("type") == "prompt_error":
-            self._handle_error(
-                f"Decomposer error ({message.get('phase')}): {message.get('error')}"
-            )
+            phase = message.get("phase", "")
+            if phase == "briefing":
+                self._handle_briefing_error(message)
+            else:
+                self._handle_error(message)
             return
 
         # --- Validation result ---
@@ -348,6 +350,18 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
             return
 
         if tool == "submit_outline":
+            # Guard: only accept the first outline. Pool decomposers
+            # have access to submit_outline (same actor class) and
+            # sometimes call it instead of submit_details when they
+            # see the outline JSON in their detail prompt context.
+            # Each duplicate triggers a full re-fan-out (33 new detail
+            # requests), cascading into 10x quota usage.
+            if self._outline is not None:
+                logger.debug(
+                    "refuel_supervisor.duplicate_outline_ignored",
+                    existing_units=len(self._outline.get("work_units", [])),
+                )
+                return
             self._outline = args
             unit_ids = [
                 wu.get("id", "") for wu in args.get("work_units", []) if isinstance(wu, dict)
@@ -505,11 +519,86 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
             }
         )
 
-    def _handle_error(self, error_msg):
+    def _handle_briefing_error(self, message):
+        """Handle a briefing actor error — mark agent failed, check for quota."""
+        import time as _time
+
+        agent_name = message.get("agent_name", "")
+        error_str = message.get("error", "unknown error")
+        is_quota = message.get("quota_exhausted", False)
+
+        # Mark the agent as failed in the tracker (✗ instead of ✓)
+        label = agent_name.replace("_", " ").title()
+        elapsed = _time.monotonic() - self._briefing_start_times.get(agent_name, 0)
+        self._emit_agent_completed_with_error("briefing", label, elapsed, error_str)
+        self._briefing_expected.discard(agent_name)
+
+        if is_quota:
+            # Quota exhausted — abort the entire workflow immediately.
+            # No point continuing: other agents will hit the same wall.
+            from maverick.exceptions.quota import parse_quota_reset
+
+            reset_time = parse_quota_reset(error_str)
+            reset_suffix = f" (resets {reset_time})" if reset_time else ""
+            clean_msg = f"Provider quota exhausted{reset_suffix}"
+            self._emit_output(
+                "refuel",
+                clean_msg,
+                level="error",
+                source=_SOURCE,
+            )
+            # Close the briefing phase as failed
+            elapsed_ms = int((_time.monotonic() - self._briefing_start) * 1000)
+            self._emit_phase_completed(
+                "briefing", "Briefing", elapsed_ms, success=False, error=clean_msg
+            )
+            self._shutdown_all()
+            self._mark_done(
+                {
+                    "success": False,
+                    "error": clean_msg,
+                    "specs": self._specs,
+                    "fix_rounds": self._fix_rounds,
+                }
+            )
+            return
+
+        # Non-quota error: record as failed but continue with remaining agents.
+        # The briefing result will be None for this agent.
+        if not self._briefing_expected:
+            # All expected agents have responded (or failed).
+            if (
+                "contrarian" in self._briefing_actors
+                and "contrarian" not in self._briefing_results
+                and agent_name != "contrarian"
+            ):
+                self._start_contrarian()
+            else:
+                self._briefing_complete()
+
+    def _handle_error(self, message):
         """Report error to workflow — shutdown agents first."""
-        for addr in [self._decomposer] + list(self._decomposer_pool):
-            if addr:
-                self.send(addr, {"type": "shutdown"})
+        if isinstance(message, dict):
+            phase = message.get("phase", "")
+            error_str = message.get("error", "unknown error")
+            is_quota = message.get("quota_exhausted", False)
+        else:
+            # Legacy string path
+            phase = ""
+            error_str = str(message)
+            is_quota = False
+
+        if is_quota:
+            from maverick.exceptions.quota import parse_quota_reset
+
+            reset_time = parse_quota_reset(error_str)
+            reset_suffix = f" (resets {reset_time})" if reset_time else ""
+            error_msg = f"Provider quota exhausted{reset_suffix}"
+        else:
+            prefix = f"Decomposer error ({phase}): " if phase else ""
+            error_msg = f"{prefix}{error_str}"
+
+        self._shutdown_all()
         self._emit_output(
             "refuel",
             f"Decomposition failed: {error_msg}",
@@ -523,6 +612,31 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
                 "specs": self._specs,
                 "fix_rounds": self._fix_rounds,
             }
+        )
+
+    def _shutdown_all(self):
+        """Shutdown all agent actors (decomposer + briefing)."""
+        for addr in [self._decomposer] + list(self._decomposer_pool):
+            if addr:
+                self.send(addr, {"type": "shutdown"})
+        for addr in self._briefing_actors.values():
+            if addr:
+                self.send(addr, {"type": "shutdown"})
+
+    def _emit_agent_completed_with_error(
+        self, step_name: str, agent_name: str, duration_seconds: float, error: str
+    ) -> None:
+        """Emit an AgentCompleted event with failure status."""
+        from maverick.events import AgentCompleted
+
+        self._emit(
+            AgentCompleted(
+                step_name=step_name,
+                agent_name=agent_name,
+                duration_seconds=duration_seconds,
+                success=False,
+                error=error,
+            )
         )
 
     # ------------------------------------------------------------------

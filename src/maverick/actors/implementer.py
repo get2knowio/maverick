@@ -65,13 +65,17 @@ class ImplementerActor(ActorAsyncBridge, Actor):
             logger.debug("implementer.phase_completed", phase=phase)
             self.send(sender, {"type": "prompt_sent", "phase": phase})
         except Exception as exc:
-            logger.error("implementer.phase_failed", phase=phase, error=str(exc))
+            from maverick.exceptions.quota import is_quota_error
+
+            error_str = str(exc)
+            logger.debug("implementer.phase_failed", phase=phase, error=error_str)
             self.send(
                 sender,
                 {
                     "type": "prompt_error",
                     "phase": phase,
-                    "error": str(exc),
+                    "error": error_str,
+                    "quota_exhausted": is_quota_error(error_str),
                 },
             )
 

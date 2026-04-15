@@ -7,6 +7,12 @@ not from this actor's response.
 
 This actor confirms "prompt sent" and the supervisor waits for the
 MCP tool call to arrive in its inbox.
+
+Two roles:
+- **primary**: handles outline, detail, and fix phases.
+  Tools: submit_outline, submit_details, submit_fix
+- **pool**: handles detail phase only.
+  Tools: submit_details
 """
 
 import sys
@@ -35,7 +41,11 @@ class DecomposerActor(ActorAsyncBridge, Actor):
 
         if msg_type == "init":
             self._cwd = message.get("cwd")
-            self._mcp_tools = message.get("mcp_tools", "")
+            role = message.get("role", "primary")
+            if role == "pool":
+                self._mcp_tools = "submit_details"
+            else:
+                self._mcp_tools = "submit_outline,submit_details,submit_fix"
             self._admin_port = message.get("admin_port", 19500)
             self._supervisor_addr = sender
             self._executor = None
@@ -83,13 +93,18 @@ class DecomposerActor(ActorAsyncBridge, Actor):
             logger.debug("decomposer.phase_completed", phase=phase)
             self.send(sender, {"type": "prompt_sent", "phase": phase})
         except Exception as exc:
-            logger.error("decomposer.phase_failed", phase=phase, error=str(exc))
+            from maverick.exceptions.quota import is_quota_error
+
+            error_str = str(exc)
+            _is_quota = is_quota_error(error_str)
+            logger.debug("decomposer.phase_failed", phase=phase, error=error_str)
             self.send(
                 sender,
                 {
                     "type": "prompt_error",
                     "phase": phase,
-                    "error": str(exc),
+                    "error": error_str,
+                    "quota_exhausted": _is_quota,
                 },
             )
 

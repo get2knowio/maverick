@@ -80,13 +80,35 @@ class FlySupervisorActor(SupervisorEventBusMixin, Actor):
             return
 
         if isinstance(message, dict) and message.get("type") == "prompt_error":
-            self._emit_output(
-                "fly",
-                f"Agent prompt error: {message.get('error', 'unknown')}",
-                level="error",
-                source=_SOURCE,
-            )
-            self._escalate_to_human(f"Agent prompt error: {message.get('error', 'unknown')}")
+            error_str = message.get("error", "unknown")
+            is_quota = message.get("quota_exhausted", False)
+            if is_quota:
+                from maverick.exceptions.quota import parse_quota_reset
+
+                reset_time = parse_quota_reset(error_str)
+                reset_suffix = f" (resets {reset_time})" if reset_time else ""
+                clean_msg = f"Provider quota exhausted{reset_suffix}"
+                self._emit_output("fly", clean_msg, level="error", source=_SOURCE)
+                if self._implementer:
+                    self.send(self._implementer, {"type": "shutdown"})
+                if self._reviewer:
+                    self.send(self._reviewer, {"type": "shutdown"})
+                self._mark_done(
+                    {
+                        "success": False,
+                        "error": clean_msg,
+                        "beads_completed": len(self._completed_beads),
+                        "completed_bead_ids": self._completed_beads,
+                    }
+                )
+            else:
+                self._emit_output(
+                    "fly",
+                    f"Agent prompt error: {error_str}",
+                    level="error",
+                    source=_SOURCE,
+                )
+                self._escalate_to_human(f"Agent prompt error: {error_str}")
             return
 
         # Gate result

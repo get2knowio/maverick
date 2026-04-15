@@ -70,12 +70,27 @@ class BriefingActor(ActorAsyncBridge, Actor):
                     },
                 )
             except Exception as exc:
-                logger.error(
-                    "briefing.prompt_failed",
-                    agent=self._agent_name,
-                    tool=self._mcp_tool,
-                    error=str(exc),
-                )
+                from maverick.exceptions.quota import is_quota_error
+
+                error_str = str(exc)
+                _is_quota = is_quota_error(error_str)
+                # Quota errors are expected operational events, not bugs.
+                # Log at debug to prevent raw structlog ERROR lines
+                # leaking to the terminal.
+                if _is_quota:
+                    logger.debug(
+                        "briefing.quota_exhausted",
+                        agent=self._agent_name,
+                        tool=self._mcp_tool,
+                        error=error_str,
+                    )
+                else:
+                    logger.debug(
+                        "briefing.prompt_failed",
+                        agent=self._agent_name,
+                        tool=self._mcp_tool,
+                        error=error_str,
+                    )
                 self.send(
                     sender,
                     {
@@ -83,7 +98,8 @@ class BriefingActor(ActorAsyncBridge, Actor):
                         "phase": "briefing",
                         "tool": self._mcp_tool,
                         "agent_name": self._agent_name,
-                        "error": str(exc),
+                        "error": error_str,
+                        "quota_exhausted": _is_quota,
                     },
                 )
 

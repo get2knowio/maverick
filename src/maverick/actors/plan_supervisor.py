@@ -79,7 +79,15 @@ class PlanSupervisorActor(SupervisorEventBusMixin, Actor):
 
         if isinstance(message, dict) and message.get("type") == "prompt_error":
             error = message.get("error", "unknown")
-            self._handle_error(f"Agent error: {error}")
+            is_quota = message.get("quota_exhausted", False)
+            if is_quota:
+                from maverick.exceptions.quota import parse_quota_reset
+
+                reset_time = parse_quota_reset(error)
+                reset_suffix = f" (resets {reset_time})" if reset_time else ""
+                self._handle_error(f"Provider quota exhausted{reset_suffix}")
+            else:
+                self._handle_error(f"Agent error: {error}")
             return
 
         # --- Validation result ---

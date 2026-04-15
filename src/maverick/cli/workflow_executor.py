@@ -82,10 +82,14 @@ class _AgentTracker:
         self._ensure_live()
         self._refresh()
 
-    def agent_completed(self, label: str, timing: str) -> None:
+    def agent_completed(
+        self, label: str, timing: str, success: bool = True, error: str | None = None
+    ) -> None:
         if label in self._agents:
-            self._agents[label]["status"] = "done"
+            self._agents[label]["status"] = "done" if success else "failed"
             self._agents[label]["timing"] = timing
+            if error:
+                self._agents[label]["error"] = error
         self._refresh()
         if not self.has_pending:
             self._freeze()
@@ -121,6 +125,9 @@ class _AgentTracker:
             if info["status"] == "done":
                 timing = f"[dim]{info['timing']}[/]"
                 table.add_row(f"  [green]∟[/] {label}{provider_dim}", timing, "[green]✓[/]")
+            elif info["status"] == "failed":
+                timing = f"[dim]{info['timing']}[/]"
+                table.add_row(f"  [red]∟[/] {label}{provider_dim}", timing, "[red]✗[/]")
             else:
                 table.add_row(
                     f"  [cyan]∟[/] {label}{provider_dim}", "", Spinner("dots", style="cyan")
@@ -366,7 +373,12 @@ async def render_workflow_events(
 
         elif isinstance(event, AgentCompleted):
             if _agent_tracker is not None:
-                _agent_tracker.agent_completed(event.agent_name, f"{event.duration_seconds:.1f}s")
+                _agent_tracker.agent_completed(
+                    event.agent_name,
+                    f"{event.duration_seconds:.1f}s",
+                    success=event.success,
+                    error=event.error,
+                )
 
         elif isinstance(event, StepOutput):
             if _agent_tracker is not None and _agent_tracker.active:

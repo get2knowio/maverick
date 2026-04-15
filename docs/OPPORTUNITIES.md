@@ -628,8 +628,33 @@ has quota available.
 
 **Implementation phases:**
 1. **Tier 1 (clean failure):** Error classification, clean exit, clear message
+   — **Implemented** (2026-04-15): `ProviderQuotaError` exception,
+   `is_quota_error()` detection in all actors, failed agents show ✗,
+   supervisor aborts immediately on quota, raw structlog ERROR lines
+   suppressed.
 2. **Tier 2 (wait and resume):** Parse reset time, countdown, retry on reset
 3. **Tier 3 (failover):** Multi-provider routing, automatic switching
+
+### ACP UsageUpdate Events (Tier 2 prerequisite)
+
+The ACP SDK streams `UsageUpdate` notifications during session execution
+with fields: `size` (total context window in tokens), `used` (tokens
+currently in context), and `cost` (cumulative session cost with amount
+and currency). Maverick's `MaverickAcpClient.session_update()` does not
+currently handle `UsageUpdate` events — `ExecutorResult.usage` is always
+`None`.
+
+Wiring up `UsageUpdate` handling would enable:
+- Tracking context window utilization per agent (useful for the supervisor
+  in Opportunity 8)
+- Cumulative cost tracking per workflow run
+- Proactive warning when context is nearly full (before a hard failure)
+
+However, **quota remaining is NOT exposed** via `UsageUpdate` or any other
+ACP session metadata. Quota exhaustion is only discoverable when a request
+fails with an error message containing the reset time. This means Tier 2
+(wait and resume) must rely on parsing the error message, not on proactive
+quota checking.
 
 **Expected impact:** Tier 1 eliminates confusing crash output. Tier 2 enables
 unattended overnight runs that survive temporary quota exhaustion. Tier 3

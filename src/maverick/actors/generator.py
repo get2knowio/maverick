@@ -43,13 +43,17 @@ class GeneratorActor(ActorAsyncBridge, Actor):
                 logger.debug("generator.prompt_completed")
                 self.send(sender, {"type": "prompt_sent", "phase": "generate"})
             except Exception as exc:
-                logger.error("generator.prompt_failed", error=str(exc))
+                from maverick.exceptions.quota import is_quota_error
+
+                error_str = str(exc)
+                logger.debug("generator.prompt_failed", error=error_str)
                 self.send(
                     sender,
                     {
                         "type": "prompt_error",
                         "phase": "generate",
-                        "error": str(exc),
+                        "error": error_str,
+                        "quota_exhausted": is_quota_error(error_str),
                     },
                 )
 

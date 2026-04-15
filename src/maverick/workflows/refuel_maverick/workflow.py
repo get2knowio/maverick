@@ -788,16 +788,30 @@ class RefuelMaverickWorkflow(PythonWorkflow):
                 globalName="supervisor-inbox",
             )
 
-            # Init all decomposer actors (primary + pool)
-            decomposer_init = {
-                "type": "init",
-                "cwd": str(Path.cwd()),
-                "mcp_tools": "submit_outline,submit_details,submit_fix",
-                "admin_port": THESPIAN_PORT,
-            }
-            asys.ask(decomposer_addr, decomposer_init, timeout=10)
+            # Init decomposer actors — tools are hardcoded per role
+            # inside the actor (primary gets outline+details+fix,
+            # pool members only get details).
+            asys.ask(
+                decomposer_addr,
+                {
+                    "type": "init",
+                    "cwd": str(Path.cwd()),
+                    "role": "primary",
+                    "admin_port": THESPIAN_PORT,
+                },
+                timeout=10,
+            )
             for pool_addr in decomposer_pool:
-                asys.ask(pool_addr, decomposer_init, timeout=10)
+                asys.ask(
+                    pool_addr,
+                    {
+                        "type": "init",
+                        "cwd": str(Path.cwd()),
+                        "role": "pool",
+                        "admin_port": THESPIAN_PORT,
+                    },
+                    timeout=10,
+                )
 
             asys.ask(
                 validator_addr,

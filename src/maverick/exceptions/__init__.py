@@ -98,6 +98,9 @@ from maverick.exceptions.jj import (
 # Preflight validation exceptions
 from maverick.exceptions.preflight import PreflightValidationError
 
+# Provider quota exceptions
+from maverick.exceptions.quota import ProviderQuotaError, is_quota_error, parse_quota_reset
+
 # Runner-related exceptions
 from maverick.exceptions.runner import (
     CommandNotFoundError,
@@ -191,6 +194,10 @@ __all__ = [
     "PrerequisiteError",
     # Preflight
     "PreflightValidationError",
+    # Quota
+    "ProviderQuotaError",
+    "is_quota_error",
+    "parse_quota_reset",
     # Runner
     "CommandNotFoundError",
     "CommandTimeoutError",
