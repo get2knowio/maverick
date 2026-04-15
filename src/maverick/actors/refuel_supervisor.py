@@ -271,10 +271,10 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
         # Map phase to expected tool and state check
         phase_tool_map = {
             "outline": ("submit_outline", lambda: self._outline is not None),
-            "detail": (
-                "submit_details",
-                lambda: len(self._pending_detail_ids) == 0,
-            ),
+            # Don't nudge for detail — pool actors work independently.
+            # Nudging the primary decomposer about another actor's missing
+            # response causes it to re-submit the outline, cascading into
+            # a full re-fan-out.
             "fix": ("submit_fix", lambda: self._fix_rounds > 0 and self._details is not None),
         }
 
@@ -296,11 +296,10 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
             return
 
         self._nudge_count += 1
-        self._emit_output(
-            "refuel",
-            f"No {tool_name} received; nudging decomposer (attempt {self._nudge_count})",
-            level="warning",
-            source=_SOURCE,
+        logger.debug(
+            "refuel_supervisor.nudging",
+            tool=tool_name,
+            attempt=self._nudge_count,
         )
         self.send(
             self._decomposer,

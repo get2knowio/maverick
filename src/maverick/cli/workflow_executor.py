@@ -205,6 +205,7 @@ async def render_workflow_events(
     _first_interim: str | None = None  # buffered for collapsing
     _agent_tracker: _AgentTracker | None = None
     _spinner: Any = None
+    _progress_live: Any = None  # Rich Live for detail progress counter
 
     def _ensure_header() -> None:
         """Print the step header if not yet printed."""
@@ -301,6 +302,11 @@ async def render_workflow_events(
                 _spinner.stop()
                 _spinner = None
 
+            # Close progress live display
+            if _progress_live is not None:
+                _progress_live.stop()
+                _progress_live = None
+
             # Close any active agent tracker
             if _agent_tracker is not None and _agent_tracker.active:
                 _agent_tracker.force_close()
@@ -369,15 +375,46 @@ async def render_workflow_events(
                 # Buffer first interim — enables collapsing for simple steps
                 _first_interim = event.message
             else:
-                # Second+ interim — flush header and all interims
-                if _first_interim:
+                # Check for progress-counter messages (e.g., "Detail 3/45 complete")
+                # and render as a single updating line instead of 45 separate lines.
+                import re as _re
+
+                _progress_match = _re.match(r"^Detail (\d+)/(\d+) complete$", event.message)
+                if _progress_match:
+                    done_n, total_n = _progress_match.groups()
+                    # Overwrite the previous progress line using Rich Live
+                    if _first_interim:
+                        _ensure_header()
+                        style = _level_styles.get("info", "[cyan]")
+                        console_obj.print(f"  {style}∟[/] {_first_interim}")
+                        _first_interim = None
                     _ensure_header()
-                    style = _level_styles.get("info", "[cyan]")
-                    console_obj.print(f"  {style}∟[/] {_first_interim}")
-                    _first_interim = None
-                _ensure_header()
-                style = _level_styles.get(event.level, "[cyan]")
-                console_obj.print(f"  {style}∟[/] {event.message}")
+                    # Use carriage return to overwrite progress in-place
+                    if _progress_live is None:
+                        _progress_live = Live(console=console_obj, refresh_per_second=4)
+                        _progress_live.start()
+                    from rich.text import Text
+
+                    _progress_live.update(
+                        Text(
+                            f"  ∟ Details: {done_n}/{total_n} complete",
+                            style="cyan",
+                        )
+                    )
+                else:
+                    # Stop progress live if it was running
+                    if _progress_live is not None:
+                        _progress_live.stop()
+                        _progress_live = None
+                    # Second+ interim — flush header and all interims
+                    if _first_interim:
+                        _ensure_header()
+                        style = _level_styles.get("info", "[cyan]")
+                        console_obj.print(f"  {style}∟[/] {_first_interim}")
+                        _first_interim = None
+                    _ensure_header()
+                    style = _level_styles.get(event.level, "[cyan]")
+                    console_obj.print(f"  {style}∟[/] {event.message}")
 
         elif isinstance(event, RollbackStarted):
             console_obj.print(f"[yellow]  ↩ Rolling back: {event.step_name}...[/]")
