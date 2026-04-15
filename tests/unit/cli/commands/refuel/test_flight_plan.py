@@ -22,18 +22,16 @@ class TestRefuelHelp:
     ) -> None:
         result = cli_runner.invoke(cli, ["refuel", "--help"])
         assert result.exit_code == 0
-        assert "--dry-run" in result.output
         assert "--skip-briefing" in result.output
 
     def test_help_shows_correct_options(
         self,
         cli_runner: CliRunner,
     ) -> None:
-        """Help text shows --dry-run, --list-steps, --session-log options."""
+        """Help text shows --list-steps, --session-log options."""
         result = cli_runner.invoke(cli, ["refuel", "--help"])
 
         assert result.exit_code == 0
-        assert "--dry-run" in result.output
         assert "--list-steps" in result.output
         assert "--session-log" in result.output
         assert "--skip-briefing" in result.output
@@ -107,42 +105,6 @@ class TestRefuelFromPlan:
         assert run_config.inputs["flight_plan_path"] == str(
             Path(".maverick/plans/my-feature/flight-plan.md")
         )
-
-    @patch(_PATCH_EXECUTE, new_callable=AsyncMock)
-    def test_dry_run_flag_passed_to_workflow(
-        self,
-        mock_execute: AsyncMock,
-        cli_runner: CliRunner,
-    ) -> None:
-        """--dry-run flag is passed as input to the workflow."""
-        result = cli_runner.invoke(
-            cli,
-            ["refuel", "my-feature", "--dry-run"],
-        )
-
-        assert result.exit_code == 0
-        assert result.exception is None
-        mock_execute.assert_called_once()
-        run_config = mock_execute.call_args[0][1]
-        assert run_config.inputs["dry_run"] is True
-
-    @patch(_PATCH_EXECUTE, new_callable=AsyncMock)
-    def test_dry_run_is_false_by_default(
-        self,
-        mock_execute: AsyncMock,
-        cli_runner: CliRunner,
-    ) -> None:
-        """--dry-run defaults to False when not specified."""
-        result = cli_runner.invoke(
-            cli,
-            ["refuel", "my-feature"],
-        )
-
-        assert result.exit_code == 0
-        assert result.exception is None
-        mock_execute.assert_called_once()
-        run_config = mock_execute.call_args[0][1]
-        assert run_config.inputs["dry_run"] is False
 
     @patch(_PATCH_EXECUTE, new_callable=AsyncMock)
     def test_session_log_passed_to_run_config(

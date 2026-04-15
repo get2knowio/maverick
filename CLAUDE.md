@@ -625,7 +625,7 @@ Iterates over ready beads. Each bead is processed by a BeadSupervisor using the 
 The supervisor routes messages: implement → gate → review → (fix loop if needed) → commit.
 Implementer and reviewer share persistent sessions — no context loss between rounds.
 
-Options: `--epic`, `--max-beads` (default 30), `--dry-run`, `--auto-commit`
+Options: `--epic`, `--max-beads` (default 30), `--auto-commit`
 
 ### land (Curate and Push)
 

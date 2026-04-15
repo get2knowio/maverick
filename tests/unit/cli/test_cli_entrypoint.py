@@ -524,7 +524,7 @@ def test_fly_without_maverick_yaml_exits_with_error(
         ]
 
         # No maverick.yaml in temp_dir
-        result = cli_runner.invoke(cli, ["fly", "--dry-run"])
+        result = cli_runner.invoke(cli, ["fly"])
 
         assert result.exit_code == 1
         assert "configuration not found" in result.output.lower()
@@ -580,7 +580,7 @@ def test_fly_with_maverick_yaml_passes_config_check(
             DependencyStatus(name="gh", available=True, version="2.20.0", path="/usr/bin/gh"),
         ]
 
-        result = cli_runner.invoke(cli, ["fly", "--dry-run"])
+        result = cli_runner.invoke(cli, ["fly"])
 
         # Should NOT fail with "configuration not found"
         assert "configuration not found" not in result.output.lower()

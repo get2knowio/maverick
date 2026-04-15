@@ -238,9 +238,7 @@ class FlyBeadsWorkflow(PythonWorkflow):
         # jj git clone only picks up committed state. If maverick init (or
         # the user) left uncommitted files, we need to commit them first so
         # the workspace clone includes everything.
-        await self.emit_step_started(
-            SNAPSHOT_UNCOMMITTED, display_label="Snapshotting changes"
-        )
+        await self.emit_step_started(SNAPSHOT_UNCOMMITTED, display_label="Snapshotting changes")
         try:
             change_status = await git_has_changes()
             if change_status.has_any:
@@ -587,9 +585,7 @@ class FlyBeadsWorkflow(PythonWorkflow):
                 await fetch_runway_context(self, ctx)
                 await snapshot_and_describe(self, ctx)
 
-                # Actor-mailbox path (Thespian handles this in
-                # non-dry-run mode; this branch is only reached
-                # in dry-run when the loop is active)
+                # Actor-mailbox path — per-bead supervisor
                 outcome = await self._process_bead_with_supervisor(
                     ctx=ctx,
                     verification_properties=_verification_properties,

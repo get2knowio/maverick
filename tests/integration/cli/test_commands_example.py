@@ -104,7 +104,7 @@ class TestFlyCommandExamples:
 
             assert result.exit_code == 0
             assert "--epic" in result.output
-            assert "--dry-run" in result.output
+            assert "--max-beads" in result.output
 
 
 class TestVerbosityOptions:

@@ -43,12 +43,6 @@ _OUTER_STEPS = [
     CREATE_BEADS,
     WIRE_DEPS,
 ]
-_DRY_RUN_STEPS = [
-    PARSE_FLIGHT_PLAN,
-    GATHER_CONTEXT,
-    WRITE_WORK_UNITS,
-]
-
 _EMPTY_CONTEXT = CodebaseContext(files=(), missing_files=(), total_size=0)
 
 
@@ -58,7 +52,7 @@ _EMPTY_CONTEXT = CodebaseContext(files=(), missing_files=(), total_size=0)
 
 
 class TestRefuelMaverickWorkflowHappyPath:
-    """Tests for the full (non-dry-run) workflow happy path."""
+    """Tests for the full workflow happy path."""
 
     async def test_all_7_steps_execute(
         self,
@@ -66,7 +60,7 @@ class TestRefuelMaverickWorkflowHappyPath:
         mock_registry: MagicMock,
         tmp_path: Path,
     ) -> None:
-        """All 7 steps produce StepCompleted events in the non-dry-run path."""
+        """All 7 steps produce StepCompleted events."""
         fp = make_simple_flight_plan(tmp_path)
         workflow = make_workflow(mock_config, mock_registry)
         bead_result = make_bead_result()
@@ -84,7 +78,7 @@ class TestRefuelMaverickWorkflowHappyPath:
         ):
             events, result = await collect_events(
                 workflow,
-                {"flight_plan_path": str(fp), "dry_run": False, "skip_briefing": True},
+                {"flight_plan_path": str(fp), "skip_briefing": True},
             )
 
         # StepStarted events for outer steps (decompose/validate run inside Thespian)
@@ -121,7 +115,7 @@ class TestRefuelMaverickWorkflowHappyPath:
         ):
             _events, workflow_result = await collect_events(
                 workflow,
-                {"flight_plan_path": str(fp), "dry_run": False, "skip_briefing": True},
+                {"flight_plan_path": str(fp), "skip_briefing": True},
             )
 
         assert workflow_result is not None
@@ -131,7 +125,6 @@ class TestRefuelMaverickWorkflowHappyPath:
         assert ".maverick/plans/add-user-auth" in final["work_units_dir"]
         assert final["epic"] == {"bd_id": "epic-1", "title": "add-user-auth"}
         assert len(final["work_beads"]) == 4
-        assert final["dry_run"] is False
         assert isinstance(final["errors"], list)
 
     async def test_decompose_supervisor_called(
@@ -164,7 +157,7 @@ class TestRefuelMaverickWorkflowHappyPath:
         ):
             await collect_events(
                 workflow,
-                {"flight_plan_path": str(fp), "dry_run": False, "skip_briefing": True},
+                {"flight_plan_path": str(fp), "skip_briefing": True},
             )
 
         mock_decompose.assert_called_once()
@@ -193,7 +186,7 @@ class TestRefuelMaverickWorkflowHappyPath:
         ):
             await collect_events(
                 workflow,
-                {"flight_plan_path": str(fp), "dry_run": False, "skip_briefing": True},
+                {"flight_plan_path": str(fp), "skip_briefing": True},
             )
 
         work_units_dir = tmp_path / ".maverick" / "plans" / "add-user-auth"
@@ -238,7 +231,7 @@ class TestRefuelMaverickWorkflowHappyPath:
         ):
             events, result = await collect_events(
                 workflow,
-                {"flight_plan_path": str(fp), "dry_run": False, "skip_briefing": True},
+                {"flight_plan_path": str(fp), "skip_briefing": True},
             )
 
         assert isinstance(events[0], WorkflowStarted)
@@ -271,7 +264,7 @@ class TestRefuelMaverickWorkflowHappyPath:
         ):
             await collect_events(
                 workflow,
-                {"flight_plan_path": str(fp), "dry_run": False, "skip_briefing": True},
+                {"flight_plan_path": str(fp), "skip_briefing": True},
             )
 
         mock_wire.assert_called_once()
@@ -288,168 +281,6 @@ class TestRefuelMaverickWorkflowHappyPath:
         assert ["add-registration-endpoint", "add-user-model"] in dep_pairs
         assert ["add-login-endpoint", "add-user-model"] in dep_pairs
         assert ["add-auth-middleware", "add-login-endpoint"] in dep_pairs
-
-
-# ---------------------------------------------------------------------------
-# Dry-run mode tests
-# ---------------------------------------------------------------------------
-
-
-class TestDryRunMode:
-    """Tests for dry-run mode (steps 1-5 only; steps 6-7 skipped)."""
-
-    async def test_dry_run_skips_create_beads_and_wire_deps(
-        self,
-        mock_config: MagicMock,
-        mock_registry: MagicMock,
-        tmp_path: Path,
-    ) -> None:
-        """create_beads and wire_dependencies are NOT called in dry-run mode."""
-        fp = make_simple_flight_plan(tmp_path)
-        workflow = make_workflow(mock_config, mock_registry)
-
-        with (
-            patch_cwd(tmp_path),
-            patch(
-                f"{_MODULE}.gather_codebase_context",
-                new=AsyncMock(return_value=_EMPTY_CONTEXT),
-            ),
-            patch(f"{_MODULE}.create_beads") as mock_create,
-            patch(f"{_MODULE}.wire_dependencies") as mock_wire,
-            patch_decompose_supervisor(),
-        ):
-            await collect_events(
-                workflow,
-                {"flight_plan_path": str(fp), "dry_run": True, "skip_briefing": True},
-            )
-
-        mock_create.assert_not_called()
-        mock_wire.assert_not_called()
-
-    async def test_dry_run_work_unit_files_still_written(
-        self,
-        mock_config: MagicMock,
-        mock_registry: MagicMock,
-        tmp_path: Path,
-    ) -> None:
-        """Work unit files ARE written in dry-run mode (steps 1-5 execute normally)."""
-        fp = make_simple_flight_plan(tmp_path)
-        workflow = make_workflow(mock_config, mock_registry)
-
-        with (
-            patch_cwd(tmp_path),
-            patch(
-                f"{_MODULE}.gather_codebase_context",
-                new=AsyncMock(return_value=_EMPTY_CONTEXT),
-            ),
-            patch(f"{_MODULE}.create_beads"),
-            patch(f"{_MODULE}.wire_dependencies"),
-            patch_decompose_supervisor(),
-        ):
-            await collect_events(
-                workflow,
-                {"flight_plan_path": str(fp), "dry_run": True, "skip_briefing": True},
-            )
-
-        work_units_dir = tmp_path / ".maverick" / "plans" / "add-user-auth"
-        assert work_units_dir.exists(), f"Expected {work_units_dir} to exist"
-        files = list(work_units_dir.glob("[0-9][0-9][0-9]-*.md"))
-        assert len(files) == 4
-
-    async def test_dry_run_result_fields(
-        self,
-        mock_config: MagicMock,
-        mock_registry: MagicMock,
-        tmp_path: Path,
-    ) -> None:
-        """RefuelMaverickResult has correct field values in dry-run mode."""
-        fp = make_simple_flight_plan(tmp_path)
-        workflow = make_workflow(mock_config, mock_registry)
-
-        with (
-            patch_cwd(tmp_path),
-            patch(
-                f"{_MODULE}.gather_codebase_context",
-                new=AsyncMock(return_value=_EMPTY_CONTEXT),
-            ),
-            patch(f"{_MODULE}.create_beads"),
-            patch(f"{_MODULE}.wire_dependencies"),
-            patch_decompose_supervisor(),
-        ):
-            _events, workflow_result = await collect_events(
-                workflow,
-                {"flight_plan_path": str(fp), "dry_run": True, "skip_briefing": True},
-            )
-
-        assert workflow_result is not None
-        assert workflow_result.success is True
-        final = workflow_result.final_output
-        assert final["dry_run"] is True
-        assert final["epic"] is None
-        assert final["work_beads"] == []
-        assert final["dependencies"] == []
-        assert final["work_units_written"] == 4
-
-    async def test_dry_run_steps_1_to_5_in_completed_events(
-        self,
-        mock_config: MagicMock,
-        mock_registry: MagicMock,
-        tmp_path: Path,
-    ) -> None:
-        """Outer steps have StepCompleted events; steps 6-7 do not appear."""
-        fp = make_simple_flight_plan(tmp_path)
-        workflow = make_workflow(mock_config, mock_registry)
-
-        with (
-            patch_cwd(tmp_path),
-            patch(
-                f"{_MODULE}.gather_codebase_context",
-                new=AsyncMock(return_value=_EMPTY_CONTEXT),
-            ),
-            patch(f"{_MODULE}.create_beads"),
-            patch(f"{_MODULE}.wire_dependencies"),
-            patch_decompose_supervisor(),
-        ):
-            events, _ = await collect_events(
-                workflow,
-                {"flight_plan_path": str(fp), "dry_run": True, "skip_briefing": True},
-            )
-
-        completed_names = {e.step_name for e in events if isinstance(e, StepCompleted)}
-        for step in _DRY_RUN_STEPS:
-            assert step in completed_names, f"Expected StepCompleted for {step}"
-        assert CREATE_BEADS not in completed_names
-        assert WIRE_DEPS not in completed_names
-
-    async def test_dry_run_workflow_succeeds(
-        self,
-        mock_config: MagicMock,
-        mock_registry: MagicMock,
-        tmp_path: Path,
-    ) -> None:
-        """Workflow result is success=True in dry-run mode."""
-        fp = make_simple_flight_plan(tmp_path)
-        workflow = make_workflow(mock_config, mock_registry)
-
-        with (
-            patch_cwd(tmp_path),
-            patch(
-                f"{_MODULE}.gather_codebase_context",
-                new=AsyncMock(return_value=_EMPTY_CONTEXT),
-            ),
-            patch(f"{_MODULE}.create_beads"),
-            patch(f"{_MODULE}.wire_dependencies"),
-            patch_decompose_supervisor(),
-        ):
-            events, result = await collect_events(
-                workflow,
-                {"flight_plan_path": str(fp), "dry_run": True, "skip_briefing": True},
-            )
-
-        assert result is not None
-        assert result.success is True
-        workflow_completed = next(e for e in events if isinstance(e, WorkflowCompleted))
-        assert workflow_completed.success is True
 
 
 # ---------------------------------------------------------------------------

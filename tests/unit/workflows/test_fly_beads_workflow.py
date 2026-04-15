@@ -326,7 +326,7 @@ class TestFlyBeadsWorkflow:
         with _patch_all_actions():
             events = await _collect_events(
                 fly_workflow,
-                {"epic_id": "", "max_beads": 5, "dry_run": False},
+                {"epic_id": "", "max_beads": 5},
             )
 
         completed = [e for e in events if isinstance(e, WorkflowCompleted)]
@@ -353,20 +353,6 @@ class TestFlyBeadsWorkflow:
 
         started = next(e for e in events if isinstance(e, WorkflowStarted))
         assert started.workflow_name == "fly-beads"
-
-    async def test_dry_run_mode(self, fly_workflow: Any) -> None:
-        """When dry_run=True, create_fly_workspace is NOT called."""
-        mv = _make_mock_actions(select_side_effect=[_done_select_result()])
-
-        with _patch_all_actions(mv) as mocks:
-            events = await _collect_events(
-                fly_workflow,
-                {"epic_id": "", "max_beads": 5, "dry_run": True},
-            )
-
-        mocks["workspace"].assert_not_called()
-        completed = next(e for e in events if isinstance(e, WorkflowCompleted))
-        assert completed.success is True
 
     async def test_skip_review_mode(self, fly_workflow: Any) -> None:
         """When skip_review=True, review step is skipped."""
@@ -434,18 +420,11 @@ class TestFlyBeadsWorkflow:
         assert completed.success is False
 
     async def test_thespian_path_invoked(self, fly_workflow: Any) -> None:
-        """Thespian path is invoked for non-dry-run execution."""
+        """Thespian path is invoked for execution."""
         with _patch_all_actions() as mocks:
             await _collect_events(fly_workflow, {"epic_id": "", "max_beads": 5})
 
         mocks["thespian"].assert_called_once()
-
-    async def test_dry_run_skips_thespian(self, fly_workflow: Any) -> None:
-        """Dry run does not invoke Thespian path."""
-        with _patch_all_actions() as mocks:
-            await _collect_events(fly_workflow, {"epic_id": "", "max_beads": 5, "dry_run": True})
-
-        mocks["thespian"].assert_not_called()
 
     async def test_max_beads_limit(self, fly_workflow: Any) -> None:
         """Thespian result beads_completed used for final count."""
@@ -490,18 +469,6 @@ class TestFlyBeadsWorkflow:
                 pass
 
         assert fly_workflow.result.final_output["beads_succeeded"] == 2
-
-    async def test_epic_id_passed_to_select_next_bead(self, fly_workflow: Any) -> None:
-        """When epic_id is passed as input, select_next_bead is called with it."""
-        mv = _make_mock_actions(select_side_effect=[_done_select_result()])
-
-        with _patch_all_actions(mv) as mocks:
-            async for _ in fly_workflow.execute(
-                {"epic_id": "epic-42", "max_beads": 5, "dry_run": True}
-            ):
-                pass
-
-        mocks["select"].assert_called_once_with(epic_id="epic-42")
 
     async def test_epic_id_passed_to_thespian(self, fly_workflow: Any) -> None:
         """Epic ID is passed to the Thespian path for processing."""

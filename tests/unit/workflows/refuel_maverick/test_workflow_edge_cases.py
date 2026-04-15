@@ -306,7 +306,7 @@ class TestErrorHandling:
         ):
             await collect_events(
                 workflow,
-                {"flight_plan_path": str(fp), "dry_run": False, "skip_briefing": True},
+                {"flight_plan_path": str(fp), "skip_briefing": True},
             )
 
         # Old work unit files should be gone
@@ -380,7 +380,7 @@ Test objective.
         ):
             events, result = await collect_events(
                 workflow,
-                {"flight_plan_path": str(fp), "dry_run": False, "skip_briefing": True},
+                {"flight_plan_path": str(fp), "skip_briefing": True},
             )
 
         # Should succeed without error
@@ -442,7 +442,7 @@ Test objective.
         ):
             events, result = await collect_events(
                 workflow,
-                {"flight_plan_path": str(fp), "dry_run": False, "skip_briefing": True},
+                {"flight_plan_path": str(fp), "skip_briefing": True},
                 ignore_exception=True,
             )
 
@@ -490,7 +490,7 @@ class TestParallelGroups:
         ):
             events, result = await collect_events(
                 workflow,
-                {"flight_plan_path": str(fp), "dry_run": False, "skip_briefing": True},
+                {"flight_plan_path": str(fp), "skip_briefing": True},
             )
 
         # 4 work units written
@@ -575,7 +575,7 @@ class TestParallelGroups:
         ):
             await collect_events(
                 workflow,
-                {"flight_plan_path": str(fp), "dry_run": False, "skip_briefing": True},
+                {"flight_plan_path": str(fp), "skip_briefing": True},
             )
 
         work_units_dir = tmp_path / ".maverick" / "plans" / "test-plan"

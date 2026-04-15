@@ -29,5 +29,4 @@ class TestRefuelGroupRegistered:
         monkeypatch.setattr(Path, "home", lambda: temp_dir)
         result = cli_runner.invoke(cli, ["refuel", "--help"])
         assert result.exit_code == 0
-        assert "--dry-run" in result.output
         assert "--skip-briefing" in result.output
