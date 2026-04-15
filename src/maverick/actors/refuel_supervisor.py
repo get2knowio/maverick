@@ -199,20 +199,7 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
         elapsed_ms = int((_time.monotonic() - self._briefing_start) * 1000)
         self._emit_phase_completed("briefing", "Briefing", elapsed_ms)
 
-        # Store raw briefing results for decomposer context.
-        # No Pydantic validation — the MCP tool schemas and prompt
-        # guidance are the single source of truth for field names.
-        # Rigid Pydantic models add a second contract that disagrees
-        # with what agents actually return.
         self._initial_payload["briefing"] = self._briefing_results
-
-        agent_count = len(self._briefing_results)
-        self._emit_output(
-            "refuel",
-            f"Briefing complete ({agent_count} agents)",
-            level="success",
-            source=_SOURCE,
-        )
 
         # Proceed to decomposition
         self._start_outline()
