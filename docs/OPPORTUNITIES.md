@@ -563,6 +563,7 @@ is buried in `raw_response` and never surfaced to the user.
 **Known error strings:**
 - Copilot quota: `"402 You have no quota (Request ID: [id])"`
 - Claude quota: `"You're out of extra usage · resets 3pm (UTC)"`
+- Claude quota (via ACP): `"You've hit your limit · resets 8pm (undefined)"`
 
 **Observed symptoms:**
 - Copilot gpt-5.3-codex returned `402 You have no quota` in ~800ms for
@@ -573,40 +574,66 @@ is buried in `raw_response` and never surfaced to the user.
 - Claude sonnet hit "out of extra usage" and failed with `NetworkError`
   after the first retry. Error message was clear but not classified as
   a quota issue.
-- The supervisor agent (Opportunity 8) would detect this pattern (sub-second
-  failures, same error repeated) but currently doesn't exist.
+- During refuel briefing, 3 of 4 Thespian briefing actors hit quota
+  mid-session. The supervisor marked them as "completed" (✓) with null
+  results, proceeded to the contrarian (which also hit quota), then
+  passed empty briefing results to the decomposer which crashed on
+  `'dict' object has no attribute 'key_decisions'`. The workflow did
+  not exit cleanly — raw ERROR lines leaked to the terminal.
 
-**Design direction:**
+**Three-tier design direction:**
 
-1. **Error classification:** In `AcpStepExecutor.execute()`, check
-   `MalformedResponseError.raw_response` and `NetworkError` messages for
-   quota patterns: "rate limit", "quota", "plan limit", "usage limit",
-   "out of extra usage", "exceeded", "resets", "You have no quota",
-   "402". Classify as a new `ProviderQuotaError` (non-retryable).
+### Tier 1: Clean failure (minimum viable)
 
-2. **Automatic failover:** When a provider quota error is detected, the
-   executor should try the next available provider from the registry
-   rather than retrying the same one. The `agent_providers` config
-   already defines multiple providers — the failover just needs to
-   iterate through them.
+When an agent hits quota, the workflow should exit cleanly with a clear
+message instead of crashing with an AttributeError downstream.
 
-3. **Sub-second failure detection:** If 3 consecutive responses from
-   the same provider complete in <2 seconds, treat it as a provider
-   degradation signal regardless of the error type. Real LLM responses
-   take 10+ seconds minimum.
+- Classify quota errors as a specific `ProviderQuotaError` exception type
+- In `AcpStepExecutor.execute()`, detect quota patterns in error messages:
+  "rate limit", "quota", "plan limit", "usage limit", "out of extra usage",
+  "exceeded", "resets", "You have no quota", "hit your limit", "402"
+- Mark `ProviderQuotaError` as **non-retryable** (don't waste retries
+  against a dead provider)
+- Supervisor should detect agent failures (null results) and abort the
+  phase cleanly instead of proceeding with missing data
+- Surface quota errors via structured CLI output:
+  `[red]Error:[/red] Provider 'claude' hit usage quota (resets 8pm UTC)`
 
-4. **User notification:** Surface quota errors clearly in the workflow
-   output: "Provider 'copilot' hit usage quota (resets 3pm UTC).
-   Switching to provider 'claude'." Don't bury it in retry noise.
+### Tier 2: Wait and resume
+
+When quota is hit, pause the affected agents and wait for quota to reset
+instead of failing immediately.
+
+- Parse the reset time from the error message ("resets 8pm UTC")
+- Display a countdown: `Quota exhausted. Waiting for reset at 8pm UTC...`
+- Keep the Thespian actor system alive — actors retain their ACP sessions
+- When reset time arrives, retry the failed prompts
+- Briefing agents that already succeeded don't need to re-run — only
+  retry the ones that failed
+- Use a configurable max wait time (default: 60 min) to avoid infinite waits
+
+### Tier 3: Automatic provider failover
+
+When one provider hits quota, switch to an alternative provider that still
+has quota available.
+
+- The `agent_providers` config already defines multiple providers
+- When `ProviderQuotaError` is raised for provider A, check if provider B
+  is configured and available
+- Create a new executor for provider B and retry the failed step
+- Surface the failover in CLI output:
+  `Provider 'claude' hit quota. Switching to 'copilot' for remaining agents.`
+- Sub-second failure detection: if 3 consecutive responses complete in
+  <2 seconds, treat as provider degradation regardless of error type
 
 **Implementation phases:**
-1. **MVP:** Classify quota errors as non-retryable. Log clearly.
-2. **V2:** Automatic failover to next available provider.
-3. **V3:** Sub-second degradation detection + supervisor integration.
+1. **Tier 1 (clean failure):** Error classification, clean exit, clear message
+2. **Tier 2 (wait and resume):** Parse reset time, countdown, retry on reset
+3. **Tier 3 (failover):** Multi-provider routing, automatic switching
 
-**Expected impact:** Eliminate 20+ minutes of wasted retries against
-dead providers. Enable truly unattended runs that survive provider
-outages by failing over automatically.
+**Expected impact:** Tier 1 eliminates confusing crash output. Tier 2 enables
+unattended overnight runs that survive temporary quota exhaustion. Tier 3
+enables truly resilient runs across provider outages.
 
 ---
 

@@ -261,50 +261,58 @@ def _format_codebase_context(context: CodebaseContext) -> str:
 
 
 def _format_briefing_section(briefing: Any) -> str:
-    """Format a briefing object as a prompt section.
+    """Format briefing results as a prompt section.
 
-    Uses duck typing (attribute access) so any object with the expected
-    fields (key_decisions, structuralist, key_risks, open_questions) works.
+    Accepts raw dicts from MCP tool calls (the current architecture)
+    or any duck-typed object. Uses json.dumps as a safe fallback when
+    the briefing structure doesn't match expected fields.
 
     Args:
-        briefing: Synthesized briefing document (duck-typed).
+        briefing: Raw briefing dict (from supervisor) or any object.
 
     Returns:
         Markdown-formatted briefing analysis section.
     """
-    parts: list[str] = []
-    parts.append("## Briefing Room Analysis")
-    parts.append("")
+    import json as _json
 
-    if briefing.key_decisions:
-        parts.append("### Key Architecture Decisions")
-        parts.append("")
-        for decision in briefing.key_decisions:
-            parts.append(f"- {decision}")
-        parts.append("")
+    parts: list[str] = ["## Briefing Room Analysis", ""]
 
-    if briefing.structuralist.entities:
-        parts.append("### Data Model")
-        parts.append("")
-        for entity in briefing.structuralist.entities:
-            fields_str = ", ".join(entity.fields) if entity.fields else "none"
-            parts.append(f"- **{entity.name}** (`{entity.module_path}`): {fields_str}")
-        parts.append("")
+    # Handle raw dict of per-agent results (current Thespian architecture)
+    if isinstance(briefing, dict):
+        for agent_name, agent_data in briefing.items():
+            label = agent_name.replace("_", " ").title()
+            parts.append(f"### {label}")
+            parts.append("")
+            if isinstance(agent_data, dict):
+                # Render key fields as bullet points
+                summary = agent_data.get("summary", "")
+                if summary:
+                    parts.append(summary)
+                    parts.append("")
+                for key, value in agent_data.items():
+                    if key == "summary":
+                        continue
+                    if isinstance(value, list) and value:
+                        parts.append(f"**{key.replace('_', ' ').title()}:**")
+                        for item in value[:10]:  # cap to avoid huge prompts
+                            if isinstance(item, dict):
+                                parts.append(f"- {_json.dumps(item, default=str)}")
+                            else:
+                                parts.append(f"- {item}")
+                        parts.append("")
+                    elif isinstance(value, str) and value:
+                        parts.append(f"**{key.replace('_', ' ').title()}:** {value}")
+                        parts.append("")
+            elif agent_data is not None:
+                parts.append(str(agent_data))
+                parts.append("")
+        return "\n".join(parts)
 
-    if briefing.key_risks:
-        parts.append("### Key Risks")
-        parts.append("")
-        for risk in briefing.key_risks:
-            parts.append(f"- {risk}")
-        parts.append("")
-
-    if briefing.open_questions:
-        parts.append("### Open Questions")
-        parts.append("")
-        for question in briefing.open_questions:
-            parts.append(f"- {question}")
-        parts.append("")
-
+    # Fallback: dump as JSON
+    try:
+        parts.append(f"```json\n{_json.dumps(briefing, indent=2, default=str)}\n```")
+    except Exception:
+        parts.append(str(briefing))
     return "\n".join(parts)
 
 
