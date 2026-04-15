@@ -1,15 +1,15 @@
-"""Intent descriptions for registered workflow actions.
+"""Intent descriptions for workflow actions.
 
-Each entry in ACTION_INTENTS maps an action name (as registered in
-ComponentRegistry.actions) to a short, human-readable description of
-WHAT the action accomplishes. These descriptions are used by the
+Each entry in ACTION_INTENTS maps an action function name (as exported in
+``maverick.library.actions.__all__``) to a short, human-readable description
+of WHAT the action accomplishes. These descriptions are used by the
 mode-aware dispatch system to provide observability and context.
 """
 
 from __future__ import annotations
 
 # Module-level constant mapping action names to intent descriptions.
-# Every registered action in ComponentRegistry.actions MUST have an entry.
+# Every exported action in maverick.library.actions.__all__ MUST have an entry.
 ACTION_INTENTS: dict[str, str] = {
     # Preflight
     "run_preflight_checks": (
@@ -68,17 +68,6 @@ ACTION_INTENTS: dict[str, str] = {
         "findings are resolved or max attempts reached."
     ),
     "generate_review_fix_report": (
-        "Generate a summary report of the review-fix process with outcomes and metrics."
-    ),
-    # Review (prefixed aliases)
-    "review.analyze_review_findings": (
-        "Analyze combined review findings and build an issue registry with deduplication."
-    ),
-    "review.run_review_fix_loop": (
-        "Iterate review-fix cycles until all actionable "
-        "findings are resolved or max attempts reached."
-    ),
-    "review.generate_review_fix_report": (
         "Generate a summary report of the review-fix process with outcomes and metrics."
     ),
     # Validation

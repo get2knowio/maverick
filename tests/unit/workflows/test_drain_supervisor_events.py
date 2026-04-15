@@ -14,7 +14,6 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from maverick.checkpoint.store import MemoryCheckpointStore
 from maverick.events import StepOutput, StepStarted
 from maverick.exceptions import WorkflowError
 from maverick.types import StepType
@@ -56,7 +55,6 @@ def _make_workflow(workflow_name: str = "drain-test") -> Any:
         run_fn=None,
         config=cfg,
         registry=MagicMock(spec=ComponentRegistry),
-        checkpoint_store=MemoryCheckpointStore(),
         workflow_name=workflow_name,
     )
     # execute() normally sets _event_queue; the drain helper is usually

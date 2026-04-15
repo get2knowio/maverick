@@ -15,10 +15,6 @@ if TYPE_CHECKING:
 # Type aliases for registry components
 T = TypeVar("T")
 
-# Actions are callable functions that accept keyword arguments and return Any
-# They can be sync or async functions
-ActionType: TypeAlias = Callable[..., Any]
-
 # Agents are MaverickAgent subclasses
 AgentType: TypeAlias = type["MaverickAgent[Any, Any]"]
 

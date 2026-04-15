@@ -8,8 +8,6 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from maverick.checkpoint.store import MemoryCheckpointStore
-
 
 def _make_concrete_workflow_class() -> type:
     """Lazily import PythonWorkflow and return a concrete test subclass.
@@ -66,22 +64,14 @@ def mock_registry() -> MagicMock:
 
 
 @pytest.fixture
-def memory_checkpoint_store() -> MemoryCheckpointStore:
-    """Return a real MemoryCheckpointStore instance."""
-    return MemoryCheckpointStore()
-
-
-@pytest.fixture
 def concrete_workflow(
     mock_config: MagicMock,
     mock_registry: MagicMock,
-    memory_checkpoint_store: MemoryCheckpointStore,
 ) -> Any:
     """Return a ConcreteTestWorkflow with default no-op _run behaviour."""
     ConcreteTestWorkflow = _make_concrete_workflow_class()
     return ConcreteTestWorkflow(
         config=mock_config,
         registry=mock_registry,
-        checkpoint_store=memory_checkpoint_store,
         workflow_name="test-workflow",
     )

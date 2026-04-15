@@ -19,7 +19,6 @@ from collections.abc import AsyncGenerator, Awaitable, Callable
 from typing import TYPE_CHECKING, Any, Literal
 
 from maverick.events import (
-    CheckpointSaved,
     ProgressEvent,
     RollbackCompleted,
     RollbackStarted,
@@ -89,7 +88,6 @@ class PythonWorkflow(ABC):
 
         self._config = config
         self._registry = registry
-        self._checkpoint_store = checkpoint_store
         self._workflow_name = workflow_name
 
         # Public result attribute — populated after execute() completes.
@@ -556,60 +554,6 @@ class PythonWorkflow(ABC):
             action: Async callable (no params) to execute during rollback.
         """
         self._rollback_stack.append((name, action))
-
-    # ------------------------------------------------------------------
-    # Checkpointing
-    # ------------------------------------------------------------------
-
-    async def save_checkpoint(self, data: dict[str, Any]) -> None:
-        """Save a checkpoint via the configured CheckpointStore.
-
-        No-op if checkpoint_store is None.
-
-        Args:
-            data: Checkpoint data to persist.
-        """
-        if self._checkpoint_store is None:
-            return
-
-        from datetime import UTC, datetime
-
-        from maverick.checkpoint.data import CheckpointData, compute_inputs_hash
-
-        checkpoint_id = self._current_step or "checkpoint"
-        cp = CheckpointData(
-            checkpoint_id=checkpoint_id,
-            workflow_name=self._workflow_name,
-            inputs_hash=compute_inputs_hash(data),
-            step_results=tuple(r.to_dict() for r in self._step_results),
-            saved_at=datetime.now(tz=UTC).isoformat(),
-            user_data=data,
-        )
-        await self._checkpoint_store.save(self._workflow_name, cp)
-
-        await self._event_queue.put(
-            CheckpointSaved(
-                step_name=self._current_step or "checkpoint",
-                workflow_id=self._workflow_name,
-            )
-        )
-
-    async def load_checkpoint(self) -> dict[str, Any] | None:
-        """Load the latest checkpoint for this workflow.
-
-        Returns:
-            Checkpoint data dict, or None if no checkpoint exists or
-            checkpoint_store is None.
-        """
-        if self._checkpoint_store is None:
-            return None
-
-        cp = await self._checkpoint_store.load_latest(self._workflow_name)
-        if cp is None:
-            return None
-
-        # Return the user-provided data from the checkpoint (not the metadata)
-        return cp.user_data
 
     # ------------------------------------------------------------------
     # Abstract method

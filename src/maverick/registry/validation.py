@@ -13,33 +13,10 @@ from typing import Any
 from maverick.agents.base import MaverickAgent
 
 __all__ = [
-    "validate_callable",
     "validate_signature",
     "validate_agent_class",
     "is_async_callable",
 ]
-
-
-def validate_callable(component: Any, component_name: str) -> None:
-    """Validate that a component is callable.
-
-    Args:
-        component: Component to validate.
-        component_name: Name of the component (for error messages).
-
-    Raises:
-        TypeError: If component is not callable.
-
-    Example:
-        ```python
-        validate_callable(my_function, "my_action")
-        ```
-    """
-    if not callable(component):
-        raise TypeError(
-            f"Component '{component_name}' must be callable. "
-            f"Got {type(component).__name__} instead."
-        )
 
 
 def validate_signature(

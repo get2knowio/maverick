@@ -15,9 +15,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from maverick.checkpoint.store import MemoryCheckpointStore
 from maverick.events import (
-    CheckpointSaved,
     RollbackCompleted,
     RollbackStarted,
     StepCompleted,
@@ -38,7 +36,6 @@ def _make_workflow(
     run_fn: Callable[[dict[str, Any]], Awaitable[Any]] | None = None,
     *,
     workflow_name: str = "test-workflow",
-    checkpoint_store: MemoryCheckpointStore | None = None,
     steps_override: dict[str, Any] | None = None,
     agents_override: dict[str, Any] | None = None,
 ) -> Any:
@@ -64,7 +61,6 @@ def _make_workflow(
         run_fn=run_fn,
         config=mock_config,
         registry=mock_registry,
-        checkpoint_store=checkpoint_store or MemoryCheckpointStore(),
         workflow_name=workflow_name,
     )
 
@@ -547,89 +543,3 @@ class TestRollback:
         with contextlib.suppress(asyncio.CancelledError, Exception):
             await _collect_events(wf, {})
         assert rollback_called == [True]
-
-
-# ---------------------------------------------------------------------------
-# T005-f: save_checkpoint / load_checkpoint
-# ---------------------------------------------------------------------------
-
-
-class TestCheckpointing:
-    """Checkpoint delegation to CheckpointStore."""
-
-    async def test_save_checkpoint_delegates_to_store(self) -> None:
-        """save_checkpoint stores data via the checkpoint store."""
-        store = MemoryCheckpointStore()
-
-        async def _run(inputs: dict[str, Any]) -> None:
-            await wf.save_checkpoint({"progress": 1})
-
-        wf = _make_workflow(run_fn=_run, checkpoint_store=store)
-        await _collect_events(wf, {})
-        loaded = await store.load_latest("test-workflow")
-        assert loaded is not None
-
-    async def test_save_checkpoint_emits_event(self) -> None:
-        """save_checkpoint emits a CheckpointSaved event."""
-
-        async def _run(inputs: dict[str, Any]) -> None:
-            await wf.save_checkpoint({"step": "one"})
-
-        wf = _make_workflow(run_fn=_run)
-        events = await _collect_events(wf, {})
-        cp_events = [e for e in events if isinstance(e, CheckpointSaved)]
-        assert len(cp_events) == 1
-        assert cp_events[0].workflow_id == "test-workflow"
-
-    async def test_load_checkpoint_returns_data(self) -> None:
-        """load_checkpoint returns previously saved checkpoint data."""
-        store = MemoryCheckpointStore()
-
-        async def _run(inputs: dict[str, Any]) -> dict[str, Any] | None:
-            await wf.save_checkpoint({"progress": 42})
-            return await wf.load_checkpoint()
-
-        wf = _make_workflow(run_fn=_run, checkpoint_store=store)
-        await _collect_events(wf, {})
-        assert wf.result is not None
-        # The return value of _run (the loaded checkpoint) is stored in final_output
-        loaded = wf.result.final_output
-        assert loaded is not None
-
-    async def test_load_checkpoint_returns_none_when_no_checkpoint(self) -> None:
-        """load_checkpoint returns None when no checkpoint has been saved."""
-
-        async def _run(inputs: dict[str, Any]) -> Any:
-            return await wf.load_checkpoint()
-
-        wf = _make_workflow(run_fn=_run)
-        await _collect_events(wf, {})
-        assert wf.result is not None
-        assert wf.result.final_output is None
-
-    async def test_save_checkpoint_noop_without_store(self) -> None:
-        """save_checkpoint is a no-op when checkpoint_store is None."""
-        from maverick.config import MaverickConfig, ModelConfig
-        from maverick.registry import ComponentRegistry
-        from maverick.workflows.base import PythonWorkflow
-
-        class _Impl(PythonWorkflow):
-            async def _run(self, inputs: dict[str, Any]) -> None:
-                await self.save_checkpoint({"x": 1})
-
-        mock_cfg = MagicMock(spec=MaverickConfig)
-        mock_cfg.model = ModelConfig()
-        mock_cfg.steps = {}
-        mock_cfg.agents = {}
-
-        wf = _Impl(
-            config=mock_cfg,
-            registry=MagicMock(spec=ComponentRegistry),
-            checkpoint_store=None,
-            workflow_name="wf-no-store",
-        )
-        # Must not raise
-        events = await _collect_events(wf, {})
-        completed = events[-1]
-        assert isinstance(completed, WorkflowCompleted)
-        assert completed.success is True

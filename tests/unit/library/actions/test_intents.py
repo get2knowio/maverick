@@ -1,29 +1,26 @@
 """Unit tests for action intent registry.
 
 Tests the intents.py module including:
-- T030: All registered actions have intent descriptions
+- T030: All action functions exported in __all__ have intent descriptions
 - T031: No orphan keys in ACTION_INTENTS
 - T032: get_intent() returns correct values
 """
 
 from __future__ import annotations
 
-from maverick.library.actions import register_all_actions
+from maverick.library.actions import __all__ as action_exports
 from maverick.library.actions.intents import ACTION_INTENTS, get_intent
-from maverick.registry import ComponentRegistry
 
 
 class TestActionIntentCoverage:
-    """T030: Every registered action must have a non-empty intent description."""
+    """T030: Every exported action must have a non-empty intent description."""
 
-    def test_all_registered_actions_have_intents(self) -> None:
-        """Every action in ComponentRegistry.actions has a non-empty entry."""
-        registry = ComponentRegistry()
-        register_all_actions(registry)
-        registered = set(registry.actions.list_names())
+    def test_all_exported_actions_have_intents(self) -> None:
+        """Every action in __all__ has a non-empty entry in ACTION_INTENTS."""
+        exported = set(action_exports)
         intents = set(ACTION_INTENTS.keys())
 
-        missing = registered - intents
+        missing = exported - intents
         assert not missing, f"Actions missing intent descriptions: {missing}"
 
     def test_all_intent_values_are_non_empty_strings(self) -> None:
@@ -39,21 +36,19 @@ class TestNoOrphanIntentKeys:
     """T031: No orphan keys exist in ACTION_INTENTS."""
 
     def test_no_orphan_intent_keys(self) -> None:
-        """Every key in ACTION_INTENTS must correspond to a registered action."""
-        registry = ComponentRegistry()
-        register_all_actions(registry)
-        registered = set(registry.actions.list_names())
+        """Every key in ACTION_INTENTS must correspond to an exported action."""
+        exported = set(action_exports)
         intents = set(ACTION_INTENTS.keys())
 
-        orphans = intents - registered
-        assert not orphans, f"Orphan intent keys (no registered action): {orphans}"
+        orphans = intents - exported
+        assert not orphans, f"Orphan intent keys (no exported action): {orphans}"
 
 
 class TestGetIntent:
     """T032: get_intent() returns correct description for known actions."""
 
     def test_returns_description_for_known_action(self) -> None:
-        """get_intent() returns the intent string for a registered action."""
+        """get_intent() returns the intent string for a known action."""
         result = get_intent("run_preflight_checks")
         assert result is not None
         assert isinstance(result, str)

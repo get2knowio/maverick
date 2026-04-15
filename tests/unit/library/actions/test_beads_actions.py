@@ -14,37 +14,6 @@ from maverick.library.actions.beads import (
 )
 
 # =============================================================================
-# Action registration
-# =============================================================================
-
-
-class TestBeadActionRegistration:
-    """Tests for bead action registration metadata."""
-
-    def test_create_beads_requires_bd(self) -> None:
-        """create_beads is registered with requires=('bd',) via register_all_actions."""
-        from maverick.library.actions import register_all_actions
-        from maverick.registry import ComponentRegistry
-
-        registry = ComponentRegistry()
-        register_all_actions(registry)
-
-        requires = registry.actions.get_requires("create_beads")
-        assert "bd" in requires
-
-    def test_wire_dependencies_requires_bd(self) -> None:
-        """wire_dependencies is registered with requires=('bd',)."""
-        from maverick.library.actions import register_all_actions
-        from maverick.registry import ComponentRegistry
-
-        registry = ComponentRegistry()
-        register_all_actions(registry)
-
-        requires = registry.actions.get_requires("wire_dependencies")
-        assert "bd" in requires
-
-
-# =============================================================================
 # create_beads
 # =============================================================================
 

@@ -8,7 +8,6 @@ from maverick.cli.console import err_console
 from maverick.cli.context import ExitCode
 from maverick.cli.output import format_error
 from maverick.exceptions import AgentError, GitError, MaverickError
-from maverick.library.actions import register_all_actions
 from maverick.library.agents import register_all_agents
 from maverick.logging import get_logger
 
@@ -80,7 +79,6 @@ def create_registered_registry(strict: bool = False) -> ComponentRegistry:
     registry = ComponentRegistry(strict=strict)
 
     # Register all built-in components
-    register_all_actions(registry)
     register_all_agents(registry)
 
     return registry

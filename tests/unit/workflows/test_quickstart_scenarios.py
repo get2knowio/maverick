@@ -12,11 +12,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from maverick.checkpoint.store import MemoryCheckpointStore
 from maverick.events import (
     StepCompleted,
     StepOutput,
-    StepStarted,
     WorkflowCompleted,
     WorkflowStarted,
 )
@@ -234,66 +232,3 @@ class TestQuickstartRollback:
         last = events[-1]
         assert isinstance(last, WorkflowCompleted)
         assert last.success is False
-
-
-class TestQuickstartCheckpointing:
-    """Verify save_checkpoint() / load_checkpoint() pattern from quickstart.md."""
-
-    async def test_checkpoint_save_and_load(
-        self, mock_config: MagicMock, mock_registry: MagicMock
-    ) -> None:
-        """Checkpoint persists completed bead IDs across workflow runs."""
-        store = MemoryCheckpointStore()
-
-        class _CheckpointWorkflow(PythonWorkflow):
-            async def _run(self, inputs: dict[str, Any]) -> Any:
-                # Load existing checkpoint (if resuming)
-                checkpoint = await self.load_checkpoint()
-                completed_beads = checkpoint.get("completed_beads", []) if checkpoint else []
-
-                # Process a "bead"
-                bead_id = "bead-001"
-                if bead_id not in completed_beads:
-                    await self.emit_step_started("process_bead")
-                    completed_beads.append(bead_id)
-                    await self.emit_step_completed("process_bead")
-
-                    # Save checkpoint after each bead (quickstart pattern)
-                    await self.save_checkpoint(
-                        {
-                            "completed_beads": completed_beads,
-                            "workspace_path": "/tmp/ws",
-                        }
-                    )
-
-                return {"completed": completed_beads}
-
-        wf = _CheckpointWorkflow(
-            config=mock_config,
-            registry=mock_registry,
-            checkpoint_store=store,
-            workflow_name="test-qs-checkpoint",
-        )
-        events = []
-        async for event in wf.execute({}):
-            events.append(event)
-
-        assert wf.result is not None
-        assert wf.result.success is True
-        assert wf.result.final_output["completed"] == ["bead-001"]
-
-        # Checkpoint was saved — a second run skips the bead
-        wf2 = _CheckpointWorkflow(
-            config=mock_config,
-            registry=mock_registry,
-            checkpoint_store=store,
-            workflow_name="test-qs-checkpoint",
-        )
-        events2 = []
-        async for event in wf2.execute({}):
-            events2.append(event)
-
-        assert wf2.result is not None
-        started_events = [e for e in events2 if isinstance(e, StepStarted)]
-        # Bead already completed — no process_bead step started
-        assert not any(e.step_name == "process_bead" for e in started_events)

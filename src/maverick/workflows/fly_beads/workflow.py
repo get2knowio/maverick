@@ -63,8 +63,65 @@ class FlyBeadsWorkflow(PythonWorkflow):
     """
 
     def __init__(self, **kwargs: Any) -> None:
+        # Extract checkpoint_store before passing to super (which ignores it)
+        self._checkpoint_store = kwargs.pop("checkpoint_store", None)
         workflow_name = kwargs.pop("workflow_name", WORKFLOW_NAME)
         super().__init__(workflow_name=workflow_name, **kwargs)
+
+    # ------------------------------------------------------------------
+    # Checkpointing (fly-specific)
+    # ------------------------------------------------------------------
+
+    async def save_checkpoint(self, data: dict[str, Any]) -> None:
+        """Save a checkpoint via the configured CheckpointStore.
+
+        No-op if checkpoint_store is None.
+
+        Args:
+            data: Checkpoint data to persist.
+        """
+        if self._checkpoint_store is None:
+            return
+
+        from datetime import UTC, datetime
+
+        from maverick.checkpoint.data import CheckpointData, compute_inputs_hash
+        from maverick.events import CheckpointSaved
+
+        checkpoint_id = self._current_step or "checkpoint"
+        cp = CheckpointData(
+            checkpoint_id=checkpoint_id,
+            workflow_name=self._workflow_name,
+            inputs_hash=compute_inputs_hash(data),
+            step_results=tuple(r.to_dict() for r in self._step_results),
+            saved_at=datetime.now(tz=UTC).isoformat(),
+            user_data=data,
+        )
+        await self._checkpoint_store.save(self._workflow_name, cp)
+
+        await self._event_queue.put(
+            CheckpointSaved(
+                step_name=self._current_step or "checkpoint",
+                workflow_id=self._workflow_name,
+            )
+        )
+
+    async def load_checkpoint(self) -> dict[str, Any] | None:
+        """Load the latest checkpoint for this workflow.
+
+        Returns:
+            Checkpoint data dict, or None if no checkpoint exists or
+            checkpoint_store is None.
+        """
+        if self._checkpoint_store is None:
+            return None
+
+        cp = await self._checkpoint_store.load_latest(self._workflow_name)
+        if cp is None:
+            return None
+
+        # Return the user-provided data from the checkpoint (not the metadata)
+        return cp.user_data
 
     async def _run(self, inputs: dict[str, Any]) -> dict[str, Any]:
         """Execute the fly-beads workflow.
