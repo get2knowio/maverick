@@ -54,8 +54,8 @@ class RefuelMaverickWorkflow(PythonWorkflow):
     3. decompose - Agent decomposes flight plan into work units (via StepExecutor)
     4. validate - Validate dependency graph (acyclic), unique IDs, SC coverage
     5. write_work_units - Write work unit files to .maverick/plans/<name>/
-    6. create_beads - Create epic + task beads via BeadClient (skipped on dry_run)
-    7. wire_deps - Wire bead dependencies from depends_on fields (skipped on dry_run)
+    6. create_beads - Create epic + task beads via BeadClient
+    7. wire_deps - Wire bead dependencies from depends_on fields
 
     Args:
         config: Project configuration (MaverickConfig).
@@ -74,7 +74,6 @@ class RefuelMaverickWorkflow(PythonWorkflow):
 
         Args:
             inputs: Workflow inputs. Required: ``flight_plan_path`` (str).
-                Optional: ``dry_run`` (bool, default False).
 
         Returns:
             Output dict matching RefuelMaverickResult.to_dict() contract.
@@ -85,7 +84,6 @@ class RefuelMaverickWorkflow(PythonWorkflow):
         flight_plan_path_str: str = inputs.get("flight_plan_path", "")
         if not flight_plan_path_str:
             raise WorkflowError("'flight_plan_path' input is required")
-        dry_run: bool = bool(inputs.get("dry_run", False))
         skip_briefing: bool = bool(inputs.get("skip_briefing", False))
 
         flight_plan_path = Path(flight_plan_path_str)
@@ -219,7 +217,6 @@ class RefuelMaverickWorkflow(PythonWorkflow):
         verification_properties = getattr(flight_plan, "verification_properties", "")
         _derive_vp = (
             not verification_properties
-            and not dry_run
             and len(flight_plan.success_criteria) > 0
             and len(codebase_context.files) > 0
         )
@@ -398,157 +395,156 @@ class RefuelMaverickWorkflow(PythonWorkflow):
         )
 
         # ------------------------------------------------------------------
-        # Steps 6-7: Create beads and wire deps (skipped in dry_run)
+        # Steps 6-7: Create beads and wire deps
         # ------------------------------------------------------------------
         bead_result = None
         wire_result = None
 
-        if not dry_run:
-            # Step 6: Create beads
-            await self.emit_step_started(CREATE_BEADS, display_label="Creating beads")
-            try:
-                # Build epic and work definitions
-                epic_definition = {
-                    "title": flight_plan.name,
-                    "bead_type": "epic",
-                    "priority": 1,
-                    "category": "foundation",
-                    "description": flight_plan.objective,
+        # Step 6: Create beads
+        await self.emit_step_started(CREATE_BEADS, display_label="Creating beads")
+        try:
+            # Build epic and work definitions
+            epic_definition = {
+                "title": flight_plan.name,
+                "bead_type": "epic",
+                "priority": 1,
+                "category": "foundation",
+                "description": flight_plan.objective,
+                "phase_names": [],
+                "task_ids": [wu.id for wu in work_units],
+            }
+            work_definitions = [
+                {
+                    "title": wu.id if len(wu.task) > 200 else wu.task[:200],
+                    "bead_type": "task",
+                    "priority": 2,
+                    "category": "user_story",
+                    "description": (wu.instructions[:500] if wu.instructions else wu.task),
                     "phase_names": [],
-                    "task_ids": [wu.id for wu in work_units],
+                    "user_story_id": wu.id,
+                    "task_ids": [wu.id],
                 }
-                work_definitions = [
-                    {
-                        "title": wu.id if len(wu.task) > 200 else wu.task[:200],
-                        "bead_type": "task",
-                        "priority": 2,
-                        "category": "user_story",
-                        "description": (wu.instructions[:500] if wu.instructions else wu.task),
-                        "phase_names": [],
-                        "user_story_id": wu.id,
-                        "task_ids": [wu.id],
-                    }
-                    for wu in work_units
-                ]
+                for wu in work_units
+            ]
 
-                bead_result = await create_beads(
-                    epic_definition=epic_definition,
-                    work_definitions=work_definitions,
-                    dry_run=False,
+            bead_result = await create_beads(
+                epic_definition=epic_definition,
+                work_definitions=work_definitions,
+                dry_run=False,
+            )
+        except Exception as exc:
+            await self.emit_step_failed(CREATE_BEADS, str(exc))
+            raise
+
+        # Update run metadata with epic ID
+        if bead_result.epic:
+            run_meta.epic_id = bead_result.epic["bd_id"]
+            run_meta.status = "refueled"
+            write_metadata(run_dir, run_meta)
+
+        # Attach flight_plan_name to the epic for downstream lookup,
+        # and wire cross-epic dependencies so new epics wait for
+        # existing open epics to complete first.
+        if bead_result.epic:
+            from maverick.beads.client import BeadClient
+            from maverick.beads.models import BeadDependency
+
+            _bead_client = BeadClient(cwd=Path.cwd())
+            new_epic_id = bead_result.epic["bd_id"]
+
+            try:
+                await _bead_client.set_state(
+                    new_epic_id,
+                    {"flight_plan_name": flight_plan.name},
+                    reason="refuel: link epic to flight plan",
                 )
             except Exception as exc:
-                await self.emit_step_failed(CREATE_BEADS, str(exc))
-                raise
+                logger.warning(
+                    "set_flight_plan_state_failed",
+                    epic_id=new_epic_id,
+                    error=str(exc),
+                )
 
-            # Update run metadata with epic ID
-            if bead_result.epic:
-                run_meta.epic_id = bead_result.epic["bd_id"]
-                run_meta.status = "refueled"
-                write_metadata(run_dir, run_meta)
-
-            # Attach flight_plan_name to the epic for downstream lookup,
-            # and wire cross-epic dependencies so new epics wait for
-            # existing open epics to complete first.
-            if bead_result.epic:
-                from maverick.beads.client import BeadClient
-                from maverick.beads.models import BeadDependency
-
-                _bead_client = BeadClient(cwd=Path.cwd())
-                new_epic_id = bead_result.epic["bd_id"]
-
-                try:
-                    await _bead_client.set_state(
-                        new_epic_id,
-                        {"flight_plan_name": flight_plan.name},
-                        reason="refuel: link epic to flight plan",
-                    )
-                except Exception as exc:
-                    logger.warning(
-                        "set_flight_plan_state_failed",
-                        epic_id=new_epic_id,
-                        error=str(exc),
-                    )
-
-                # Wire cross-epic dependency: new epic is blocked by the
-                # most recent existing open epic (the tail of the chain).
-                # This serializes epics without creating redundant fan-in
-                # dependencies — if A→B already exists, C only needs B→C.
-                try:
-                    all_beads = await _bead_client.query("type=epic AND status=open")
-                    existing_epics = [b for b in all_beads if b.id != new_epic_id]
-                    if existing_epics:
-                        # Use the last one (most recently created = tail)
-                        tail_epic = existing_epics[-1]
-                        await _bead_client.add_dependency(
-                            BeadDependency(
-                                blocker_id=tail_epic.id,
-                                blocked_id=new_epic_id,
-                            )
+            # Wire cross-epic dependency: new epic is blocked by the
+            # most recent existing open epic (the tail of the chain).
+            # This serializes epics without creating redundant fan-in
+            # dependencies — if A→B already exists, C only needs B→C.
+            try:
+                all_beads = await _bead_client.query("type=epic AND status=open")
+                existing_epics = [b for b in all_beads if b.id != new_epic_id]
+                if existing_epics:
+                    # Use the last one (most recently created = tail)
+                    tail_epic = existing_epics[-1]
+                    await _bead_client.add_dependency(
+                        BeadDependency(
+                            blocker_id=tail_epic.id,
+                            blocked_id=new_epic_id,
                         )
-                        logger.info(
-                            "cross_epic_dep_wired",
-                            blocker=tail_epic.id,
-                            blocked=new_epic_id,
-                        )
-                        await self.emit_output(
-                            CREATE_BEADS,
-                            f"New epic blocked by {tail_epic.id} "
-                            f"— tasks start when prior epic completes",
-                        )
-                except Exception as exc:
-                    logger.warning(
-                        "cross_epic_dep_failed",
-                        epic_id=new_epic_id,
-                        error=str(exc),
                     )
-
-            if bead_result.errors:
-                for error in bead_result.errors:
+                    logger.info(
+                        "cross_epic_dep_wired",
+                        blocker=tail_epic.id,
+                        blocked=new_epic_id,
+                    )
                     await self.emit_output(
                         CREATE_BEADS,
-                        error,
-                        level="error",
+                        f"New epic blocked by {tail_epic.id} "
+                        f"— tasks start when prior epic completes",
                     )
-                raise WorkflowError(f"Failed to create {len(bead_result.errors)} beads")
-
-            await self.emit_output(
-                CREATE_BEADS,
-                f"Created epic: {flight_plan.name}",
-            )
-            await self.emit_output(
-                CREATE_BEADS,
-                f"Created {len(bead_result.work_beads)} task beads",
-            )
-            await self.emit_step_completed(CREATE_BEADS, output=bead_result.to_dict())
-
-            # Step 7: Wire dependencies
-            await self.emit_step_started(WIRE_DEPS, display_label="Wiring dependencies")
-            dep_pairs: list[list[str]] = []
-            for wu in work_units:
-                for dep_id in wu.depends_on:
-                    dep_pairs.append([wu.id, dep_id])
-            extracted_deps = json.dumps(dep_pairs) if dep_pairs else ""
-
-            try:
-                wire_result = await wire_dependencies(
-                    work_definitions=work_definitions,
-                    created_map=bead_result.created_map,
-                    tasks_content=f"# Flight Plan: {flight_plan.name}\n",
-                    extracted_deps=extracted_deps,
-                    dry_run=False,
-                )
             except Exception as exc:
-                await self.emit_step_failed(WIRE_DEPS, str(exc))
-                raise
+                logger.warning(
+                    "cross_epic_dep_failed",
+                    epic_id=new_epic_id,
+                    error=str(exc),
+                )
 
-            await self.emit_output(
-                WIRE_DEPS,
-                f"Wired {len(wire_result.dependencies)} dependencies",
+        if bead_result.errors:
+            for error in bead_result.errors:
+                await self.emit_output(
+                    CREATE_BEADS,
+                    error,
+                    level="error",
+                )
+            raise WorkflowError(f"Failed to create {len(bead_result.errors)} beads")
+
+        await self.emit_output(
+            CREATE_BEADS,
+            f"Created epic: {flight_plan.name}",
+        )
+        await self.emit_output(
+            CREATE_BEADS,
+            f"Created {len(bead_result.work_beads)} task beads",
+        )
+        await self.emit_step_completed(CREATE_BEADS, output=bead_result.to_dict())
+
+        # Step 7: Wire dependencies
+        await self.emit_step_started(WIRE_DEPS, display_label="Wiring dependencies")
+        dep_pairs: list[list[str]] = []
+        for wu in work_units:
+            for dep_id in wu.depends_on:
+                dep_pairs.append([wu.id, dep_id])
+        extracted_deps = json.dumps(dep_pairs) if dep_pairs else ""
+
+        try:
+            wire_result = await wire_dependencies(
+                work_definitions=work_definitions,
+                created_map=bead_result.created_map,
+                tasks_content=f"# Flight Plan: {flight_plan.name}\n",
+                extracted_deps=extracted_deps,
+                dry_run=False,
             )
-            await self.emit_step_completed(WIRE_DEPS, output=wire_result.to_dict())
+        except Exception as exc:
+            await self.emit_step_failed(WIRE_DEPS, str(exc))
+            raise
+
+        await self.emit_output(
+            WIRE_DEPS,
+            f"Wired {len(wire_result.dependencies)} dependencies",
+        )
+        await self.emit_step_completed(WIRE_DEPS, output=wire_result.to_dict())
 
         # ------------------------------------------------------------------
-        # Step 8: Wire cross-plan epic dependencies (skipped in dry_run)
+        # Step 8: Wire cross-plan epic dependencies
         # ------------------------------------------------------------------
         cross_plan_result = None
 
@@ -559,7 +555,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
         # Remove self-reference
         all_plan_deps.discard(flight_plan.name)
 
-        if all_plan_deps and not dry_run and bead_result and bead_result.epic:
+        if all_plan_deps and bead_result and bead_result.epic:
             await self.emit_step_started(
                 WIRE_CROSS_PLAN_DEPS,
                 display_label="Wiring cross-plan dependencies",
@@ -622,7 +618,6 @@ class RefuelMaverickWorkflow(PythonWorkflow):
             dependencies=wire_result.dependencies if wire_result else (),
             errors=bead_result.errors if bead_result else (),
             coverage_warnings=(),
-            dry_run=dry_run,
             briefing_path=briefing_path_str,
             cross_plan_deps=(
                 tuple(rp.to_dict() for rp in cross_plan_result.resolved_plans)
@@ -697,10 +692,9 @@ class RefuelMaverickWorkflow(PythonWorkflow):
                 return s.connect_ex(("127.0.0.1", port)) == 0
 
         if _port_in_use(THESPIAN_PORT):
-            logger.warning(
+            logger.debug(
                 "refuel.stale_admin_detected",
                 port=THESPIAN_PORT,
-                msg="Shutting down stale Thespian admin",
             )
             try:
                 stale = ActorSystem(
@@ -708,11 +702,15 @@ class RefuelMaverickWorkflow(PythonWorkflow):
                     capabilities={"Admin Port": THESPIAN_PORT},
                 )
                 stale.shutdown()
-                import time
-
-                time.sleep(1)
             except Exception:
                 pass
+            # Wait for port to actually free up (up to 10s)
+            import time
+
+            for _ in range(20):
+                time.sleep(0.5)
+                if not _port_in_use(THESPIAN_PORT):
+                    break
 
         asys = ActorSystem(
             "multiprocTCPBase",

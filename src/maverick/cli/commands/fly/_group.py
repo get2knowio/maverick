@@ -59,12 +59,6 @@ _FLY_BEADS_STEPS = [
     help="Maximum number of beads to process.",
 )
 @click.option(
-    "--dry-run",
-    is_flag=True,
-    default=False,
-    help="Preview mode — skip git and bd mutations.",
-)
-@click.option(
     "--list-steps",
     is_flag=True,
     default=False,
@@ -101,7 +95,6 @@ async def fly(
     ctx: click.Context,
     epic: str | None,
     max_beads: int,
-    dry_run: bool,
     list_steps: bool,
     auto_commit: bool,
     session_log: Path | None,
@@ -124,7 +117,6 @@ async def fly(
     Examples:
         maverick fly
         maverick fly --epic my-epic
-        maverick fly --epic my-epic --dry-run
         maverick fly --max-beads 5
         maverick fly --watch
     """
@@ -144,7 +136,6 @@ async def fly(
             inputs={
                 "epic_id": epic or "",
                 "max_beads": max_beads,
-                "dry_run": dry_run,
                 "auto_commit": auto_commit,
                 "watch": watch,
                 "watch_interval": watch_interval,

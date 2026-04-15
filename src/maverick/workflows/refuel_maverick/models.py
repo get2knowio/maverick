@@ -218,12 +218,11 @@ class RefuelMaverickResult:
     Attributes:
         work_units_written: Count of work unit files written.
         work_units_dir: Output directory path string.
-        epic: Created epic bead info dict (None on dry-run or failure).
+        epic: Created epic bead info dict (None on failure).
         work_beads: Tuple of created work bead dicts.
         dependencies: Tuple of wired dependency dicts.
         errors: Collected non-fatal errors.
         coverage_warnings: SC coverage warnings (non-blocking).
-        dry_run: Whether this was a dry-run.
     """
 
     work_units_written: int
@@ -233,7 +232,6 @@ class RefuelMaverickResult:
     dependencies: tuple[dict[str, Any], ...]
     errors: tuple[str, ...]
     coverage_warnings: tuple[str, ...]
-    dry_run: bool
     run_id: str = ""
     briefing_path: str | None = None
     cross_plan_deps: tuple[dict[str, Any], ...] = ()
@@ -251,7 +249,6 @@ class RefuelMaverickResult:
             "dependencies": list(self.dependencies),
             "errors": list(self.errors),
             "coverage_warnings": list(self.coverage_warnings),
-            "dry_run": self.dry_run,
             "run_id": self.run_id,
             "briefing_path": self.briefing_path,
             "cross_plan_deps": list(self.cross_plan_deps),

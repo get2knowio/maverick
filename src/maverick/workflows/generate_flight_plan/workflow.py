@@ -373,11 +373,14 @@ class GenerateFlightPlanWorkflow(PythonWorkflow):
                     capabilities={"Admin Port": THESPIAN_PORT},
                 )
                 stale.shutdown()
-                import time
-
-                time.sleep(1)
             except Exception:
                 pass
+            import time
+
+            for _ in range(20):
+                time.sleep(0.5)
+                if not _port_in_use(THESPIAN_PORT):
+                    break
 
         asys = ActorSystem(
             "multiprocTCPBase",

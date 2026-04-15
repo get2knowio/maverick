@@ -130,7 +130,6 @@ class FlyBeadsWorkflow(PythonWorkflow):
             inputs: Workflow inputs with keys:
                 - epic_id: Optional epic to filter beads (default "")
                 - max_beads: Maximum beads to process (default MAX_BEADS)
-                - dry_run: If True, skip workspace creation (default False)
 
         Returns:
             Summary dict with counts and workspace info.
@@ -138,7 +137,6 @@ class FlyBeadsWorkflow(PythonWorkflow):
         # Parse inputs with defaults
         epic_id: str = str(inputs.get("epic_id", "") or "")
         max_beads: int = int(inputs.get("max_beads", MAX_BEADS))
-        dry_run: bool = bool(inputs.get("dry_run", False))
         auto_commit: bool = bool(inputs.get("auto_commit", False))
         watch: bool = bool(inputs.get("watch", False))
         watch_interval: int = int(inputs.get("watch_interval", 30))
@@ -240,136 +238,133 @@ class FlyBeadsWorkflow(PythonWorkflow):
         # jj git clone only picks up committed state. If maverick init (or
         # the user) left uncommitted files, we need to commit them first so
         # the workspace clone includes everything.
-        if not dry_run:
-            await self.emit_step_started(
-                SNAPSHOT_UNCOMMITTED, display_label="Snapshotting changes"
-            )
-            try:
-                change_status = await git_has_changes()
-                if change_status.has_any:
-                    if auto_commit:
-                        snap = await snapshot_uncommitted_changes()
-                        if not snap.success:
-                            err = snap.error or "commit failed"
-                            await self.emit_step_failed(SNAPSHOT_UNCOMMITTED, err)
-                            raise WorkflowError(
-                                f"Snapshot failed: {err}",
-                                workflow_name=WORKFLOW_NAME,
-                            )
-                        sha_preview = (snap.commit_sha or "")[:8]
-                        await self.emit_output(
-                            SNAPSHOT_UNCOMMITTED,
-                            f"Committed uncommitted changes ({sha_preview})",
-                            level="info",
-                        )
-                        if snap.warning:
-                            await self.emit_output(
-                                SNAPSHOT_UNCOMMITTED,
-                                snap.warning,
-                                level="warning",
-                            )
-                    else:
-                        await self.emit_step_failed(
-                            SNAPSHOT_UNCOMMITTED,
-                            "Uncommitted changes detected. Commit them first "
-                            "or re-run with --auto-commit.",
-                        )
+        await self.emit_step_started(
+            SNAPSHOT_UNCOMMITTED, display_label="Snapshotting changes"
+        )
+        try:
+            change_status = await git_has_changes()
+            if change_status.has_any:
+                if auto_commit:
+                    snap = await snapshot_uncommitted_changes()
+                    if not snap.success:
+                        err = snap.error or "commit failed"
+                        await self.emit_step_failed(SNAPSHOT_UNCOMMITTED, err)
                         raise WorkflowError(
-                            "Uncommitted changes detected in the working directory. "
-                            "The workspace clone will not include these changes. "
-                            "Please commit them first or re-run with --auto-commit.",
+                            f"Snapshot failed: {err}",
                             workflow_name=WORKFLOW_NAME,
                         )
-                else:
+                    sha_preview = (snap.commit_sha or "")[:8]
                     await self.emit_output(
                         SNAPSHOT_UNCOMMITTED,
-                        "Working directory clean — no snapshot needed",
+                        f"Committed uncommitted changes ({sha_preview})",
                         level="info",
                     )
-            except WorkflowError:
-                raise
-            except Exception as exc:
-                await self.emit_step_failed(SNAPSHOT_UNCOMMITTED, str(exc))
-                raise
-            await self.emit_step_completed(SNAPSHOT_UNCOMMITTED, change_status)
-
-        # ----------------------------------------------------------------
-        # Step 3: Create workspace (skipped in dry_run)
-        # ----------------------------------------------------------------
-        if not dry_run:
-            await self.emit_step_started(CREATE_WORKSPACE, display_label="Creating workspace")
-            try:
-                ws_result = await create_fly_workspace()
-            except Exception as exc:
-                await self.emit_step_failed(CREATE_WORKSPACE, str(exc))
-                raise
-
-            if not ws_result.get("success"):
-                error_msg = ws_result.get("error") or "workspace creation failed"
-                await self.emit_step_failed(CREATE_WORKSPACE, error_msg)
-                raise WorkflowError(
-                    f"create_fly_workspace failed: {error_msg}",
-                    workflow_name=WORKFLOW_NAME,
+                    if snap.warning:
+                        await self.emit_output(
+                            SNAPSHOT_UNCOMMITTED,
+                            snap.warning,
+                            level="warning",
+                        )
+                else:
+                    await self.emit_step_failed(
+                        SNAPSHOT_UNCOMMITTED,
+                        "Uncommitted changes detected. Commit them first "
+                        "or re-run with --auto-commit.",
+                    )
+                    raise WorkflowError(
+                        "Uncommitted changes detected in the working directory. "
+                        "The workspace clone will not include these changes. "
+                        "Please commit them first or re-run with --auto-commit.",
+                        workflow_name=WORKFLOW_NAME,
+                    )
+            else:
+                await self.emit_output(
+                    SNAPSHOT_UNCOMMITTED,
+                    "Working directory clean — no snapshot needed",
+                    level="info",
                 )
+        except WorkflowError:
+            raise
+        except Exception as exc:
+            await self.emit_step_failed(SNAPSHOT_UNCOMMITTED, str(exc))
+            raise
+        await self.emit_step_completed(SNAPSHOT_UNCOMMITTED, change_status)
 
-            workspace_path = Path(ws_result["workspace_path"])
-            await self.emit_step_completed(CREATE_WORKSPACE, ws_result)
+        # ----------------------------------------------------------------
+        # Step 3: Create workspace
+        # ----------------------------------------------------------------
+        await self.emit_step_started(CREATE_WORKSPACE, display_label="Creating workspace")
+        try:
+            ws_result = await create_fly_workspace()
+        except Exception as exc:
+            await self.emit_step_failed(CREATE_WORKSPACE, str(exc))
+            raise
 
-            # Initialize runway in workspace so recording works
-            await _init_workspace_runway(workspace_path)
+        if not ws_result.get("success"):
+            error_msg = ws_result.get("error") or "workspace creation failed"
+            await self.emit_step_failed(CREATE_WORKSPACE, error_msg)
+            raise WorkflowError(
+                f"create_fly_workspace failed: {error_msg}",
+                workflow_name=WORKFLOW_NAME,
+            )
 
-            # Register workspace teardown as rollback
-            ws_manager = WorkspaceManager(user_repo_path=Path.cwd())
+        workspace_path = Path(ws_result["workspace_path"])
+        await self.emit_step_completed(CREATE_WORKSPACE, ws_result)
 
-            async def _teardown() -> None:
-                await ws_manager.teardown()
+        # Initialize runway in workspace so recording works
+        await _init_workspace_runway(workspace_path)
 
-            self.register_rollback("workspace_teardown", _teardown)
+        # Register workspace teardown as rollback
+        ws_manager = WorkspaceManager(user_repo_path=Path.cwd())
+
+        async def _teardown() -> None:
+            await ws_manager.teardown()
+
+        self.register_rollback("workspace_teardown", _teardown)
 
         # ----------------------------------------------------------------
         # Step 3.5: Baseline validation gate
         # ----------------------------------------------------------------
         # Fail fast if the codebase isn't green before any bead work starts.
         # Pre-existing test/lint failures waste agent budget on unrelated fixes.
-        if not dry_run:
-            await self.emit_step_started(BASELINE_GATE, display_label="Baseline gate check")
-            try:
-                from maverick.workflows.fly_beads.steps import (
-                    _build_validation_commands,
-                )
+        await self.emit_step_started(BASELINE_GATE, display_label="Baseline gate check")
+        try:
+            from maverick.workflows.fly_beads.steps import (
+                _build_validation_commands,
+            )
 
-                baseline_cmds = _build_validation_commands(self._config.validation)
-                baseline_result = await run_independent_gate(
-                    stages=["format", "lint", "typecheck", "test"],
-                    cwd=str(workspace_path),
-                    validation_commands=baseline_cmds or None,
-                    timeout_seconds=float(self._config.validation.timeout_seconds),
-                )
-                if not baseline_result.get("passed"):
-                    summary = baseline_result.get("summary", "unknown failures")
-                    await self.emit_output(
-                        BASELINE_GATE,
-                        f"WARNING: Baseline validation failed: {summary}. "
-                        f"Pre-existing failures may consume agent budget. "
-                        f"Consider fixing these before running fly.",
-                        level="warning",
-                    )
-            except WorkflowError:
-                raise
-            except Exception as exc:
-                # Non-fatal: if baseline check itself errors, warn and
-                # continue — don't block the entire fly on infra issues.
-                logger.warning(
-                    "baseline_gate_error",
-                    error=str(exc),
-                )
+            baseline_cmds = _build_validation_commands(self._config.validation)
+            baseline_result = await run_independent_gate(
+                stages=["format", "lint", "typecheck", "test"],
+                cwd=str(workspace_path),
+                validation_commands=baseline_cmds or None,
+                timeout_seconds=float(self._config.validation.timeout_seconds),
+            )
+            if not baseline_result.get("passed"):
+                summary = baseline_result.get("summary", "unknown failures")
                 await self.emit_output(
                     BASELINE_GATE,
-                    f"Baseline gate check error (continuing): {exc}",
+                    f"WARNING: Baseline validation failed: {summary}. "
+                    f"Pre-existing failures may consume agent budget. "
+                    f"Consider fixing these before running fly.",
                     level="warning",
                 )
-            else:
-                await self.emit_step_completed(BASELINE_GATE, baseline_result)
+        except WorkflowError:
+            raise
+        except Exception as exc:
+            # Non-fatal: if baseline check itself errors, warn and
+            # continue — don't block the entire fly on infra issues.
+            logger.warning(
+                "baseline_gate_error",
+                error=str(exc),
+            )
+            await self.emit_output(
+                BASELINE_GATE,
+                f"Baseline gate check error (continuing): {exc}",
+                level="warning",
+            )
+        else:
+            await self.emit_step_completed(BASELINE_GATE, baseline_result)
 
         # ----------------------------------------------------------------
         # Load work unit files once for bead description enrichment
@@ -380,30 +375,23 @@ class FlyBeadsWorkflow(PythonWorkflow):
         # work unit files on disk. Load them once and match to beads.
         _work_unit_bodies: dict[str, str] = {}
         _verification_properties: str = ""
-        if not dry_run:
-            # Try all known flight plan names from the first bead
-            # (we'll populate on first bead selection)
-            pass
 
         # ----------------------------------------------------------------
         # Bead loop — Thespian actor system
         # ----------------------------------------------------------------
-        if not dry_run:
-            thespian_result = await self._run_fly_with_thespian(
-                epic_id=epic_id,
-                workspace_path=workspace_path,
-                watch=watch,
-                watch_interval=watch_interval,
-            )
-            beads_succeeded = thespian_result.get("beads_completed", 0)
-            beads_failed = thespian_result.get("beads_failed", 0)
-            completed_bead_ids = set(thespian_result.get("completed_bead_ids", []))
+        thespian_result = await self._run_fly_with_thespian(
+            epic_id=epic_id,
+            workspace_path=workspace_path,
+            watch=watch,
+            watch_interval=watch_interval,
+        )
+        beads_succeeded = thespian_result.get("beads_completed", 0)
+        beads_failed = thespian_result.get("beads_failed", 0)
+        completed_bead_ids = set(thespian_result.get("completed_bead_ids", []))
 
-        # Dry-run legacy bead loop (no Thespian — just select and display)
+        # Legacy bead loop (fallback for select-and-display scenarios)
         max_iterations = max_beads * 3
-        _iteration = 0
-        if not dry_run:
-            _iteration = max_iterations  # skip loop
+        _iteration = max_iterations  # skip loop — Thespian handles everything
         while beads_succeeded < max_beads and _iteration < max_iterations:
             _iteration += 1
             # --- Select next bead ---
@@ -743,11 +731,14 @@ class FlyBeadsWorkflow(PythonWorkflow):
                     capabilities={"Admin Port": THESPIAN_PORT},
                 )
                 stale.shutdown()
-                import time
-
-                time.sleep(1)
             except Exception as exc:
                 logger.debug("stale_actor_system_shutdown_failed", error=str(exc))
+            import time
+
+            for _ in range(20):
+                time.sleep(0.5)
+                if not _port_in_use(THESPIAN_PORT):
+                    break
 
         asys = ActorSystem(
             "multiprocTCPBase",

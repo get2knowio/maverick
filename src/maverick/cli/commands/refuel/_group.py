@@ -18,12 +18,6 @@ from maverick.cli.context import ExitCode, async_command
 @click.command()
 @click.argument("name")
 @click.option(
-    "--dry-run",
-    is_flag=True,
-    default=False,
-    help="Write work unit files but skip bead creation.",
-)
-@click.option(
     "--list-steps",
     is_flag=True,
     default=False,
@@ -52,7 +46,6 @@ from maverick.cli.context import ExitCode, async_command
 async def refuel(
     ctx: click.Context,
     name: str,
-    dry_run: bool,
     list_steps: bool,
     session_log: Path | None,
     skip_briefing: bool,
@@ -66,8 +59,6 @@ async def refuel(
     Examples:
 
         maverick refuel my-feature
-
-        maverick refuel my-feature --dry-run
 
         maverick refuel my-feature --skip-briefing
     """
@@ -128,7 +119,6 @@ async def refuel(
             workflow_class=RefuelMaverickWorkflow,
             inputs={
                 "flight_plan_path": str(flight_plan_path),
-                "dry_run": dry_run,
                 "skip_briefing": skip_briefing,
             },
             session_log_path=session_log,

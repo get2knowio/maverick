@@ -49,7 +49,7 @@ class FlyBeadsResult:
 
     Attributes:
         epic_id: Epic filter used for this run (empty string means no filter).
-        workspace_path: Path to the hidden jj workspace, or None for dry-run.
+        workspace_path: Path to the hidden jj workspace, or None if unavailable.
         beads_processed: Total number of bead attempts (succeeded + failed + skipped).
         beads_succeeded: Number of beads successfully completed and committed.
         beads_failed: Number of beads that failed verification or threw an error.
