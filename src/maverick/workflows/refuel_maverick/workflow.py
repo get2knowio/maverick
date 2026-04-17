@@ -668,10 +668,41 @@ class RefuelMaverickWorkflow(PythonWorkflow):
             open_bead_context=open_bead_result,
         )
 
+        # Check for cached briefing from a previous run
+        import json as _json
+
+        plan_dir = Path.cwd() / ".maverick" / "plans" / flight_plan.name
+        briefing_cache_path = plan_dir / "refuel-briefing.json"
+        cached_briefing: dict[str, Any] | None = None
+
+        if not skip_briefing and briefing_cache_path.is_file():
+            try:
+                cached_briefing = _json.loads(
+                    briefing_cache_path.read_text(encoding="utf-8")
+                )
+                skip_briefing = True
+                logger.info(
+                    "refuel.briefing_cache_hit",
+                    path=str(briefing_cache_path),
+                    agents=list(cached_briefing.keys()),
+                )
+                await self.emit_output(
+                    "refuel",
+                    "Using cached briefing from previous run",
+                    level="info",
+                )
+            except (OSError, _json.JSONDecodeError, ValueError) as exc:
+                logger.warning(
+                    "refuel.briefing_cache_invalid",
+                    path=str(briefing_cache_path),
+                    error=str(exc),
+                )
+                cached_briefing = None
+
         initial_payload = {
             "flight_plan_content": raw_content,
             "codebase_context": codebase_context,
-            "briefing": None,  # populated by supervisor after briefing
+            "briefing": cached_briefing,  # pre-populated if cached, else filled by supervisor
             "briefing_prompt": briefing_prompt,
             "runway_context": runway_context_text or None,
             "verification_properties": getattr(flight_plan, "verification_properties", ""),
@@ -828,6 +859,27 @@ class RefuelMaverickWorkflow(PythonWorkflow):
                 f"Decomposition failed: {result.get('error', 'unknown') if result else 'no result'}",  # noqa: E501
                 workflow_name="refuel-maverick",
             )
+
+        # Cache briefing results for future runs (skip expensive re-briefing)
+        briefing_to_cache = result.get("briefing_results")
+        if briefing_to_cache and not briefing_cache_path.is_file():
+            try:
+                briefing_cache_path.parent.mkdir(parents=True, exist_ok=True)
+                briefing_cache_path.write_text(
+                    _json.dumps(briefing_to_cache, indent=2, default=str),
+                    encoding="utf-8",
+                )
+                logger.info(
+                    "refuel.briefing_cached",
+                    path=str(briefing_cache_path),
+                    agents=list(briefing_to_cache.keys()),
+                )
+            except OSError as exc:
+                logger.warning(
+                    "refuel.briefing_cache_write_failed",
+                    path=str(briefing_cache_path),
+                    error=str(exc),
+                )
 
         # Convert specs to DecompositionOutput
         work_units = []

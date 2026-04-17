@@ -519,6 +519,7 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
                 "bead_count": bead_count,
                 "specs": self._specs,
                 "fix_rounds": self._fix_rounds,
+                "briefing_results": self._briefing_results or None,
             }
         )
 
