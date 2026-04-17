@@ -823,6 +823,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
                     "skip_briefing": skip_briefing,
                     "initial_payload": initial_payload,
                     "config": {"flight_plan": flight_plan},
+                    "briefing_cache_path": str(briefing_cache_path),
                 },
                 timeout=10,
             )
@@ -857,27 +858,6 @@ class RefuelMaverickWorkflow(PythonWorkflow):
                 f"Decomposition failed: {result.get('error', 'unknown') if result else 'no result'}",  # noqa: E501
                 workflow_name="refuel-maverick",
             )
-
-        # Cache briefing results for future runs (skip expensive re-briefing)
-        briefing_to_cache = result.get("briefing_results")
-        if briefing_to_cache and not briefing_cache_path.is_file():
-            try:
-                briefing_cache_path.parent.mkdir(parents=True, exist_ok=True)
-                briefing_cache_path.write_text(
-                    _json.dumps(briefing_to_cache, indent=2, default=str),
-                    encoding="utf-8",
-                )
-                logger.info(
-                    "refuel.briefing_cached",
-                    path=str(briefing_cache_path),
-                    agents=list(briefing_to_cache.keys()),
-                )
-            except OSError as exc:
-                logger.warning(
-                    "refuel.briefing_cache_write_failed",
-                    path=str(briefing_cache_path),
-                    error=str(exc),
-                )
 
         # Convert specs to DecompositionOutput
         work_units = []

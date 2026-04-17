@@ -139,6 +139,7 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
         self._fix_rounds = 0
         self._nudge_count = 0
         self._initial_payload = message.get("initial_payload", {})
+        self._briefing_cache_path = message.get("briefing_cache_path")
 
         # Briefing state
         self._briefing_results: dict[str, Any] = {}
@@ -202,7 +203,7 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
         self.send(addr, {"type": "briefing", "prompt": contrarian_prompt})
 
     def _briefing_complete(self):
-        """All briefing done — pass raw results to decomposer."""
+        """All briefing done — cache results and pass to decomposer."""
         import time as _time
 
         elapsed_ms = int((_time.monotonic() - self._briefing_start) * 1000)
@@ -210,8 +211,43 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
 
         self._initial_payload["briefing"] = self._briefing_results
 
+        # Write cache immediately so a Ctrl-C during decomposition
+        # doesn't lose the expensive briefing work.
+        self._cache_briefing_results()
+
         # Proceed to decomposition
         self._start_outline()
+
+    def _cache_briefing_results(self):
+        """Persist briefing results to disk for future runs."""
+        import json as _json
+        from pathlib import Path
+
+        cache_path = getattr(self, "_briefing_cache_path", None)
+        if not cache_path or not self._briefing_results:
+            return
+
+        path = Path(cache_path)
+        if path.is_file():
+            return  # already cached from a prior run
+
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(
+                _json.dumps(self._briefing_results, indent=2, default=str),
+                encoding="utf-8",
+            )
+            logger.info(
+                "refuel_supervisor.briefing_cached",
+                path=cache_path,
+                agents=list(self._briefing_results.keys()),
+            )
+        except OSError as exc:
+            logger.warning(
+                "refuel_supervisor.briefing_cache_write_failed",
+                path=cache_path,
+                error=str(exc),
+            )
 
     # ------------------------------------------------------------------
     # Decomposition
@@ -551,7 +587,6 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
                 "bead_count": bead_count,
                 "specs": self._specs,
                 "fix_rounds": self._fix_rounds,
-                "briefing_results": self._briefing_results or None,
             }
         )
 
