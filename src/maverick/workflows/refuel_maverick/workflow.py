@@ -677,9 +677,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
 
         if not skip_briefing and briefing_cache_path.is_file():
             try:
-                cached_briefing = _json.loads(
-                    briefing_cache_path.read_text(encoding="utf-8")
-                )
+                cached_briefing = _json.loads(briefing_cache_path.read_text(encoding="utf-8"))
                 skip_briefing = True
                 logger.info(
                     "refuel.briefing_cache_hit",
