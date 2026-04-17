@@ -55,6 +55,15 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
 
         # --- Init: receive config and child actor addresses ---
         if isinstance(message, dict) and message.get("type") == "init":
+            # DEBUG: detect re-initialization
+            _prev_init = getattr(self, "_init_count", 0)
+            if _prev_init > 0:
+                self._emit_output(
+                    "refuel",
+                    f"[diag] RE-INIT detected (count={_prev_init + 1})",
+                    level="warning",
+                    source=_SOURCE,
+                )
             self._init(message, sender)
             return
 
@@ -371,12 +380,17 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
         """Route MCP tool call to appropriate handler."""
         tool = message.get("tool", "")
         args = message.get("arguments", {})
-        logger.info(
-            "refuel_supervisor.tool_call_received",
-            tool=tool,
-            outline_set=self._outline is not None,
-            pending_details=len(getattr(self, "_pending_detail_ids", set())),
+
+        # DEBUG: emit via event bus (structlog is invisible in child processes)
+        _outline_state = "SET" if self._outline is not None else "NONE"
+        _init_n = getattr(self, "_init_count", "?")
+        self._emit_output(
+            "refuel",
+            f"[diag] tool={tool} outline={_outline_state} init={_init_n} id={id(self):#x}",
+            level="info",
+            source=_SOURCE,
         )
+
         self._nudge_count = 0  # Reset on successful tool call
 
         # Briefing tools
