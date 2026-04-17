@@ -700,11 +700,7 @@ class FlyBeadsWorkflow(PythonWorkflow):
         watch_interval: int = 30,
     ) -> dict[str, Any]:
         """Run the fly bead loop using Thespian actor system."""
-        import atexit
-        import socket
-
-        from thespian.actors import ActorSystem
-
+        from maverick.actors import THESPIAN_PORT, create_actor_system
         from maverick.actors.ac_check import ACCheckActor
         from maverick.actors.committer import CommitActor
         from maverick.actors.fly_supervisor import FlySupervisorActor
@@ -713,48 +709,8 @@ class FlyBeadsWorkflow(PythonWorkflow):
         from maverick.actors.reviewer import ReviewerActor
         from maverick.actors.spec_check import SpecCheckActor
 
-        THESPIAN_PORT = 19500
         cwd = str(workspace_path) if workspace_path else str(Path.cwd())
-
-        def _port_in_use(port):
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                return s.connect_ex(("127.0.0.1", port)) == 0
-
-        if _port_in_use(THESPIAN_PORT):
-            try:
-                stale = ActorSystem(
-                    "multiprocTCPBase",
-                    capabilities={"Admin Port": THESPIAN_PORT},
-                )
-                stale.shutdown()
-            except Exception as exc:
-                logger.debug("stale_actor_system_shutdown_failed", error=str(exc))
-            import time
-
-            for _ in range(20):
-                time.sleep(0.5)
-                if not _port_in_use(THESPIAN_PORT):
-                    break
-
-        asys = ActorSystem(
-            "multiprocTCPBase",
-            capabilities={"Admin Port": THESPIAN_PORT},
-        )
-
-        def _cleanup():
-            import logging as _logging
-
-            _root = _logging.getLogger()
-            _prev = _root.level
-            _root.setLevel(_logging.CRITICAL)
-            try:
-                asys.shutdown()
-            except Exception:
-                pass
-            finally:
-                _root.setLevel(_prev)
-
-        atexit.register(_cleanup)
+        asys = create_actor_system()
 
         try:
             # Create all actors
@@ -856,7 +812,6 @@ class FlyBeadsWorkflow(PythonWorkflow):
 
         finally:
             asys.shutdown()
-            atexit.unregister(_cleanup)
 
         if not result:
             return {"beads_completed": 0, "completed_bead_ids": []}

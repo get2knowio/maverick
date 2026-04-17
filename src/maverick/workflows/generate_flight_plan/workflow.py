@@ -348,59 +348,14 @@ class GenerateFlightPlanWorkflow(PythonWorkflow):
         Creates actors for parallel briefing, contrarian, generator,
         validator, and writer. The supervisor routes messages.
         """
-        import atexit
-        import socket
-
-        from thespian.actors import ActorSystem
-
+        from maverick.actors import THESPIAN_PORT, create_actor_system
         from maverick.actors.briefing import BriefingActor
         from maverick.actors.generator import GeneratorActor
         from maverick.actors.plan_supervisor import PlanSupervisorActor
         from maverick.actors.plan_validator import PlanValidatorActor
         from maverick.actors.plan_writer import PlanWriterActor
 
-        THESPIAN_PORT = 19500
-
-        # Clean up stale admin
-        def _port_in_use(port):
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                return s.connect_ex(("127.0.0.1", port)) == 0
-
-        if _port_in_use(THESPIAN_PORT):
-            try:
-                stale = ActorSystem(
-                    "multiprocTCPBase",
-                    capabilities={"Admin Port": THESPIAN_PORT},
-                )
-                stale.shutdown()
-            except Exception:
-                pass
-            import time
-
-            for _ in range(20):
-                time.sleep(0.5)
-                if not _port_in_use(THESPIAN_PORT):
-                    break
-
-        asys = ActorSystem(
-            "multiprocTCPBase",
-            capabilities={"Admin Port": THESPIAN_PORT},
-        )
-
-        def _cleanup():
-            import logging as _logging
-
-            _root = _logging.getLogger()
-            _prev = _root.level
-            _root.setLevel(_logging.CRITICAL)
-            try:
-                asys.shutdown()
-            except Exception:
-                pass
-            finally:
-                _root.setLevel(_prev)
-
-        atexit.register(_cleanup)
+        asys = create_actor_system()
 
         try:
             cwd = str(Path.cwd())
@@ -502,7 +457,6 @@ class GenerateFlightPlanWorkflow(PythonWorkflow):
 
         finally:
             asys.shutdown()
-            atexit.unregister(_cleanup)
 
         if not result or not result.get("success"):
             from maverick.exceptions import WorkflowError

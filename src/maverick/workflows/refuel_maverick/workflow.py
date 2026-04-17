@@ -650,8 +650,6 @@ class RefuelMaverickWorkflow(PythonWorkflow):
         Returns a DecompositionOutput.
         """
 
-        from thespian.actors import ActorSystem
-
         from maverick.actors.bead_creator import BeadCreatorActor
         from maverick.actors.briefing import BriefingActor
         from maverick.actors.decomposer import DecomposerActor
@@ -679,61 +677,9 @@ class RefuelMaverickWorkflow(PythonWorkflow):
             "verification_properties": getattr(flight_plan, "verification_properties", ""),
         }
 
-        # Start Thespian actor system on a known port.
-        # Use a fixed port so the MCP server subprocess can connect.
-        # Clean up any stale admin from a previous crashed run.
-        import atexit
-        import socket
+        from maverick.actors import THESPIAN_PORT, create_actor_system
 
-        THESPIAN_PORT = 19500
-
-        def _port_in_use(port: int) -> bool:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                return s.connect_ex(("127.0.0.1", port)) == 0
-
-        if _port_in_use(THESPIAN_PORT):
-            logger.debug(
-                "refuel.stale_admin_detected",
-                port=THESPIAN_PORT,
-            )
-            try:
-                stale = ActorSystem(
-                    "multiprocTCPBase",
-                    capabilities={"Admin Port": THESPIAN_PORT},
-                )
-                stale.shutdown()
-            except Exception:
-                pass
-            # Wait for port to actually free up (up to 10s)
-            import time
-
-            for _ in range(20):
-                time.sleep(0.5)
-                if not _port_in_use(THESPIAN_PORT):
-                    break
-
-        asys = ActorSystem(
-            "multiprocTCPBase",
-            capabilities={"Admin Port": THESPIAN_PORT},
-        )
-
-        # Register atexit handler for crash safety.
-        # Suppress root logger during shutdown to avoid noisy ACP
-        # errors from child processes being killed mid-prompt.
-        def _cleanup_actor_system():
-            import logging as _logging
-
-            _root = _logging.getLogger()
-            _prev = _root.level
-            _root.setLevel(_logging.CRITICAL)
-            try:
-                asys.shutdown()
-            except Exception:
-                pass
-            finally:
-                _root.setLevel(_prev)
-
-        atexit.register(_cleanup_actor_system)
+        asys = create_actor_system()
 
         try:
             # Create child actors — primary decomposer handles outline + fixes,
@@ -874,7 +820,6 @@ class RefuelMaverickWorkflow(PythonWorkflow):
 
         finally:
             asys.shutdown()
-            atexit.unregister(_cleanup_actor_system)
 
         if not result or not result.get("success"):
             from maverick.exceptions import WorkflowError
