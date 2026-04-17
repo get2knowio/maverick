@@ -111,6 +111,13 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
 
     def _init(self, message, sender):
         """Store config and create child actors."""
+        _init_count = getattr(self, "_init_count", 0) + 1
+        logger.info(
+            "refuel_supervisor.init",
+            init_count=_init_count,
+            had_outline=getattr(self, "_outline", "UNSET") is not None,
+        )
+        self._init_count = _init_count
         self._init_event_bus()
         self._config = message.get("config", {})
         self._decomposer = message.get("decomposer_addr")
@@ -328,6 +335,12 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
         """Route MCP tool call to appropriate handler."""
         tool = message.get("tool", "")
         args = message.get("arguments", {})
+        logger.info(
+            "refuel_supervisor.tool_call_received",
+            tool=tool,
+            outline_set=self._outline is not None,
+            pending_details=len(getattr(self, "_pending_detail_ids", set())),
+        )
         self._nudge_count = 0  # Reset on successful tool call
 
         # Briefing tools
@@ -360,9 +373,15 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
             # phase. Primary mitigation is excluding the primary from
             # detail fan-out and restricting pool tools to submit_details.
             if self._outline is not None:
-                logger.debug(
+                logger.warning(
                     "refuel_supervisor.duplicate_outline_ignored",
                     existing_units=len(self._outline.get("work_units", [])),
+                )
+                self._emit_output(
+                    "refuel",
+                    "Duplicate outline ignored (guard active)",
+                    level="warning",
+                    source=_SOURCE,
                 )
                 return
             self._outline = args
@@ -432,6 +451,19 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
                     "type": "validate",
                     "specs": self._specs,
                 },
+            )
+
+        else:
+            logger.warning(
+                "refuel_supervisor.unexpected_tool",
+                tool=tool,
+                arg_keys=list(args.keys()) if isinstance(args, dict) else None,
+            )
+            self._emit_output(
+                "refuel",
+                f"Unexpected tool call: {tool}",
+                level="warning",
+                source=_SOURCE,
             )
 
     def _handle_validation(self, message):
