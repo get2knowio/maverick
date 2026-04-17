@@ -234,11 +234,16 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
     def _fan_out_details(self, unit_ids):
         """Dispatch individual detail requests across the decomposer pool.
 
-        Uses round-robin assignment across all available decomposer actors
-        (primary + pool members). Each actor gets its own ACP connection
-        and processes units concurrently.
+        Uses round-robin assignment across pool decomposer actors only.
+        The primary decomposer is excluded because it has submit_outline
+        in its MCP tool set and a persistent session with the outline
+        conversation in context — detail prompts on that session cause
+        the agent to call submit_outline instead of submit_details,
+        triggering cascading re-fan-outs even with the duplicate guard.
         """
-        all_decomposers = [self._decomposer] + list(self._decomposer_pool)
+        all_decomposers = (
+            list(self._decomposer_pool) if self._decomposer_pool else [self._decomposer]
+        )
         pool_size = len(all_decomposers)
         outline_json = json.dumps(self._outline)
         fp_content = self._initial_payload.get("flight_plan_content", "")
@@ -350,12 +355,10 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
             return
 
         if tool == "submit_outline":
-            # Guard: only accept the first outline. Pool decomposers
-            # have access to submit_outline (same actor class) and
-            # sometimes call it instead of submit_details when they
-            # see the outline JSON in their detail prompt context.
-            # Each duplicate triggers a full re-fan-out (33 new detail
-            # requests), cascading into 10x quota usage.
+            # Guard: only accept the first outline. Defense-in-depth
+            # against any agent calling submit_outline during the detail
+            # phase. Primary mitigation is excluding the primary from
+            # detail fan-out and restricting pool tools to submit_details.
             if self._outline is not None:
                 logger.debug(
                     "refuel_supervisor.duplicate_outline_ignored",
