@@ -161,23 +161,5 @@ class SupervisorEventBusMixin:
             "done": self._done,
             "result": self._terminal_result if self._done else None,
         }
-
-        # Ground-truth diag: log each get_events reply to a file so we
-        # can see cursor behavior and whether _events is accumulating
-        # or being reset. Immune to in-memory state weirdness.
-        try:
-            import os as _os
-            import time as _time
-
-            with open("/tmp/maverick-getevents-log.txt", "a") as _f:
-                _f.write(
-                    f"{_time.time():.3f} pid={_os.getpid()} "
-                    f"id={id(self):#x} since={since} "
-                    f"returned={len(batch)} next_cursor={len(self._events)} "
-                    f"done={self._done}\n"
-                )
-        except OSError:
-            pass
-
         # self.send is provided by Thespian Actor at runtime.
         self.send(sender, reply)  # type: ignore[attr-defined]

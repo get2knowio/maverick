@@ -46,12 +46,6 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
     - {"type": "beads_created"} from bead creator
     """
 
-    # Class-level counters so we can tell whether state is being wiped
-    # on each message (instance attrs would reset; class attrs survive).
-    _class_start_count: int = 0
-    _class_init_count: int = 0
-    _class_fanout_count: int = 0
-
     def receiveMessage(self, message, sender):
         logger.debug(
             "refuel_supervisor.received",
@@ -61,15 +55,6 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
 
         # --- Init: receive config and child actor addresses ---
         if isinstance(message, dict) and message.get("type") == "init":
-            # DEBUG: detect re-initialization
-            _prev_init = getattr(self, "_init_count", 0)
-            if _prev_init > 0:
-                self._emit_output(
-                    "refuel",
-                    f"[diag] RE-INIT detected (count={_prev_init + 1})",
-                    level="warning",
-                    source=_SOURCE,
-                )
             self._init(message, sender)
             return
 
@@ -80,19 +65,6 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
 
         # --- Start signal from workflow ---
         if message == "start":
-            import os as _os
-
-            self._start_count = getattr(self, "_start_count", 0) + 1
-            RefuelSupervisorActor._class_start_count += 1
-            self._emit_output(
-                "refuel",
-                f"[diag] received 'start' inst_count={self._start_count} "
-                f"class_count={RefuelSupervisorActor._class_start_count} "
-                f"pid={_os.getpid()} "
-                f"uuid={getattr(self, '_instance_uuid', '?')} id={id(self):#x}",
-                level="info",
-                source=_SOURCE,
-            )
             if self._skip_briefing or not self._briefing_actors:
                 self._start_outline()
             else:
@@ -139,39 +111,7 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
 
     def _init(self, message, sender):
         """Store config and create child actors."""
-        import os as _os
-        import time as _time_mod
-
-        _init_count = getattr(self, "_init_count", 0) + 1
-        RefuelSupervisorActor._class_init_count += 1
-
-        # Ground-truth counter via filesystem — immune to module reloads,
-        # process forks, or any other in-memory state reset.
-        try:
-            with open("/tmp/maverick-init-log.txt", "a") as _f:
-                _f.write(
-                    f"{_time_mod.time():.3f} pid={_os.getpid()} "
-                    f"id={id(self):#x} inst={_init_count} "
-                    f"class={RefuelSupervisorActor._class_init_count}\n"
-                )
-        except OSError:
-            pass
-
-        _diag_init = (
-            f"[diag] _init fired t={_time_mod.time():.3f} "
-            f"inst_init={_init_count} "
-            f"class_init={RefuelSupervisorActor._class_init_count} "
-            f"pid={_os.getpid()} id={id(self):#x}"
-        )
-        logger.info(
-            "refuel_supervisor.init",
-            init_count=_init_count,
-            had_outline=getattr(self, "_outline", "UNSET") is not None,
-        )
-        self._init_count = _init_count
         self._init_event_bus()
-        # Emit after event bus exists.
-        self._emit_output("refuel", _diag_init, level="info", source=_SOURCE)
         self._config = message.get("config", {})
         self._decomposer = message.get("decomposer_addr")
         self._validator = message.get("validator_addr")
@@ -184,13 +124,6 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
         self._briefing_actors: dict[str, Any] = message.get("briefing_actors", {})
         self._provider_labels: dict[str, str] = message.get("provider_labels", {})
         self._skip_briefing: bool = message.get("skip_briefing", False)
-
-        # Instance UUID — stamped once per instance so the diag output
-        # reveals whether Thespian is silently re-instantiating the
-        # actor between messages (which would reset in-memory state).
-        import uuid as _uuid
-
-        self._instance_uuid = _uuid.uuid4().hex[:8]
 
         # State
         self._details = None
@@ -357,26 +290,6 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
         """
         import time as _time
 
-        # Once fan-out has already happened, don't re-fan-out. Something
-        # upstream is re-triggering _start_outline and we want to know.
-        if getattr(self, "_outline_started", False):
-            self._emit_output(
-                "refuel",
-                f"[diag] _start_outline re-entered (skipping) uuid="
-                f"{getattr(self, '_instance_uuid', '?')} id={id(self):#x}",
-                level="warning",
-                source=_SOURCE,
-            )
-            return
-        self._outline_started = True
-
-        self._emit_output(
-            "refuel",
-            f"[diag] _start_outline uuid={getattr(self, '_instance_uuid', '?')} id={id(self):#x}",
-            level="info",
-            source=_SOURCE,
-        )
-
         self._emit_phase_started("decompose", "Decomposing")
         self._decompose_start = _time.monotonic()
 
@@ -508,18 +421,6 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
         tool = message.get("tool", "")
         args = message.get("arguments", {})
 
-        # DEBUG: emit via event bus (structlog is invisible in child processes)
-        _outline_state = "SET" if self._outline is not None else "NONE"
-        _init_n = getattr(self, "_init_count", "?")
-        _uuid = getattr(self, "_instance_uuid", "?")
-        self._emit_output(
-            "refuel",
-            f"[diag] tool={tool} outline={_outline_state} init={_init_n} "
-            f"uuid={_uuid} id={id(self):#x}",
-            level="info",
-            source=_SOURCE,
-        )
-
         self._nudge_count = 0  # Reset on successful tool call
 
         # Briefing tools
@@ -547,28 +448,16 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
             return
 
         if tool == "submit_outline":
-            # Filesystem-based guard: the outline cache file is the
-            # single source of truth for "outline already received".
-            # We've observed the in-memory `_outline` attribute coming
-            # back as None between messages despite the actor id staying
-            # the same, so relying on instance state isn't safe. The
-            # cache file is written on the first successful submission
-            # and any later submission finds it and bails out.
-            from pathlib import Path as _Path
-
-            cache_path = getattr(self, "_outline_cache_path", None)
-            if cache_path and _Path(cache_path).is_file():
+            if self._outline is not None:
                 self._emit_output(
                     "refuel",
-                    "Duplicate outline ignored (cache file exists)",
+                    "Duplicate outline ignored",
                     level="warning",
                     source=_SOURCE,
                 )
                 return
 
             self._outline = args
-            # Persist immediately — this ALSO closes the guard above
-            # for any subsequent submit_outline calls in this process.
             self._cache_outline()
             unit_ids = [
                 wu.get("id", "") for wu in args.get("work_units", []) if isinstance(wu, dict)

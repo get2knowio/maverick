@@ -498,31 +498,6 @@ class PythonWorkflow(ABC):
 
             reply = await loop.run_in_executor(None, _ask)
 
-            # Ground-truth diag: log each drain ask/reply to a file so
-            # we can see if the drain is receiving replies at all,
-            # what cursor it's sending, and what it's getting back.
-            try:
-                import os as _os
-                import time as _time
-
-                _reply_kind = (
-                    "None"
-                    if reply is None
-                    else ("dict" if isinstance(reply, dict) else type(reply).__name__)
-                )
-                _events_len = len(reply.get("events", [])) if isinstance(reply, dict) else -1
-                _next_cursor = reply.get("next_cursor", "?") if isinstance(reply, dict) else "?"
-                with open("/tmp/maverick-drain-log.txt", "a") as _f:
-                    _f.write(
-                        f"{_time.time():.3f} pid={_os.getpid()} "
-                        f"asked_since={cursor} "
-                        f"reply_kind={_reply_kind} "
-                        f"events={_events_len} "
-                        f"next_cursor={_next_cursor}\n"
-                    )
-            except OSError:
-                pass
-
             if reply is None:
                 # Supervisor may be temporarily busy (Thespian message
                 # backlog during heavy fan-out). Retry a few times before
