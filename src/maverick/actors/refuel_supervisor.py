@@ -331,15 +331,36 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
         in its MCP tool set and a persistent session with the outline
         conversation in context — detail prompts on that session cause
         the agent to call submit_outline instead of submit_details,
-        triggering cascading re-fan-outs even with the duplicate guard.
+        triggering cascading re-fan-outs.
+
+        Two size/flow-control optimizations:
+
+        1. Large payloads (outline JSON, full flight plan, verification
+           properties) are broadcast ONCE via ``set_context`` to each
+           pool actor. Subsequent ``detail_request`` messages only carry
+           a unit_id — roughly 50 bytes instead of ~60 KB each. This
+           keeps the fan-out well below Thespian's TCP transport
+           watermarks even with large flight plans.
+
+        2. The fan-out is bounded by ``_detail_in_flight_max``. The
+           supervisor keeps that many messages active at once and
+           dispatches the next unit when a ``submit_details`` tool call
+           arrives. Remaining work lives in ``_detail_queue`` on the
+           supervisor instead of piling up in pool actor mailboxes.
         """
+        from collections import deque
+
         all_decomposers = (
             list(self._decomposer_pool) if self._decomposer_pool else [self._decomposer]
         )
         pool_size = len(all_decomposers)
-        outline_json = json.dumps(self._outline)
-        fp_content = self._initial_payload.get("flight_plan_content", "")
-        verif_props = self._initial_payload.get("verification_properties", "")
+        self._detail_pool = all_decomposers
+        self._detail_round_robin = 0
+        # At most 2 in-flight per pool actor keeps everyone busy
+        # without queueing deeply in any one mailbox.
+        self._detail_in_flight_max = max(1, pool_size * 2)
+        self._detail_in_flight = 0
+        self._detail_queue: deque[str] = deque(unit_ids)
 
         self._pending_detail_ids = set(unit_ids)
         self._accumulated_details = []
@@ -351,17 +372,34 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
             source=_SOURCE,
         )
 
-        for i, uid in enumerate(unit_ids):
-            target = all_decomposers[i % pool_size]
+        # Broadcast context once per pool actor so subsequent
+        # detail_request messages can stay tiny.
+        outline_json = json.dumps(self._outline)
+        fp_content = self._initial_payload.get("flight_plan_content", "")
+        verif_props = self._initial_payload.get("verification_properties", "")
+        for pool_addr in all_decomposers:
             self.send(
-                target,
+                pool_addr,
                 {
-                    "type": "detail_request",
-                    "unit_ids": [uid],
+                    "type": "set_context",
                     "outline_json": outline_json,
                     "flight_plan_content": fp_content,
                     "verification_properties": verif_props,
                 },
+            )
+
+        self._dispatch_pending_details()
+
+    def _dispatch_pending_details(self) -> None:
+        """Send as many queued unit_ids as the in-flight budget allows."""
+        while self._detail_in_flight < self._detail_in_flight_max and self._detail_queue:
+            uid = self._detail_queue.popleft()
+            target = self._detail_pool[self._detail_round_robin % len(self._detail_pool)]
+            self._detail_round_robin += 1
+            self._detail_in_flight += 1
+            self.send(
+                target,
+                {"type": "detail_request", "unit_id": uid},
             )
 
     def _handle_prompt_sent(self, phase):
@@ -478,6 +516,12 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
                 if isinstance(d, dict):
                     self._accumulated_details.append(d)
                     self._pending_detail_ids.discard(d.get("id", ""))
+
+            # One pool actor just finished a unit — free an in-flight
+            # slot and dispatch the next queued unit (if any).
+            if getattr(self, "_detail_in_flight", 0) > 0:
+                self._detail_in_flight -= 1
+            self._dispatch_pending_details()
 
             remaining = len(self._pending_detail_ids)
             done = len(self._accumulated_details)

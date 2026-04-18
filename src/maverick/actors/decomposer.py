@@ -51,8 +51,20 @@ class DecomposerActor(ActorAsyncBridge, Actor):
             self._supervisor_addr = sender
             self._executor = None
             self._session_id = None
+            # Per-actor context populated by "set_context" before any
+            # detail_request arrives. Keeps detail_request messages
+            # tiny (just a unit_id) instead of re-shipping ~60KB of
+            # outline + flight plan + verification per fan-out message.
+            self._detail_outline_json: str = "{}"
+            self._detail_flight_plan: str = ""
+            self._detail_verification: str = ""
             self._start_async_bridge()
             self.send(sender, {"type": "init_ok"})
+
+        elif msg_type == "set_context":
+            self._detail_outline_json = message.get("outline_json", "{}")
+            self._detail_flight_plan = message.get("flight_plan_content", "")
+            self._detail_verification = message.get("verification_properties", "")
 
         elif msg_type == "shutdown":
             self._cleanup_executor()
@@ -205,11 +217,19 @@ class DecomposerActor(ActorAsyncBridge, Actor):
     async def _send_detail_prompt(self, message):
         from maverick.library.actions.decompose import build_detail_prompt
 
+        # The bulky outline/flight-plan/verification payloads are
+        # stored on this actor via a one-time "set_context" message
+        # the supervisor sends before the first detail fan-out. The
+        # detail_request itself only carries unit_id(s).
+        unit_ids = message.get("unit_ids", [])
+        if not unit_ids and message.get("unit_id"):
+            unit_ids = [message["unit_id"]]
+
         prompt_text = build_detail_prompt(
-            flight_plan_content=message.get("flight_plan_content", ""),
-            outline_json=message.get("outline_json", "{}"),
-            unit_ids=message.get("unit_ids", []),
-            verification_properties=message.get("verification_properties", ""),
+            flight_plan_content=self._detail_flight_plan,
+            outline_json=self._detail_outline_json,
+            unit_ids=unit_ids,
+            verification_properties=self._detail_verification,
         )
 
         prompt_text += (
