@@ -673,7 +673,9 @@ class RefuelMaverickWorkflow(PythonWorkflow):
 
         plan_dir = Path.cwd() / ".maverick" / "plans" / flight_plan.name
         briefing_cache_path = plan_dir / "refuel-briefing.json"
+        outline_cache_path = plan_dir / "refuel-outline.json"
         cached_briefing: dict[str, Any] | None = None
+        cached_outline: dict[str, Any] | None = None
 
         if not skip_briefing and briefing_cache_path.is_file():
             try:
@@ -697,6 +699,28 @@ class RefuelMaverickWorkflow(PythonWorkflow):
                 )
                 cached_briefing = None
 
+        if outline_cache_path.is_file():
+            try:
+                cached_outline = _json.loads(outline_cache_path.read_text(encoding="utf-8"))
+                unit_count = len(cached_outline.get("work_units", []))
+                logger.info(
+                    "refuel.outline_cache_hit",
+                    path=str(outline_cache_path),
+                    unit_count=unit_count,
+                )
+                await self.emit_output(
+                    "refuel",
+                    f"Using cached outline from previous run ({unit_count} work units)",
+                    level="info",
+                )
+            except (OSError, _json.JSONDecodeError, ValueError) as exc:
+                logger.warning(
+                    "refuel.outline_cache_invalid",
+                    path=str(outline_cache_path),
+                    error=str(exc),
+                )
+                cached_outline = None
+
         initial_payload = {
             "flight_plan_content": raw_content,
             "codebase_context": codebase_context,
@@ -704,6 +728,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
             "briefing_prompt": briefing_prompt,
             "runway_context": runway_context_text or None,
             "verification_properties": getattr(flight_plan, "verification_properties", ""),
+            "outline": cached_outline,  # pre-populated if cached, else produced by decomposer
         }
 
         from maverick.actors import THESPIAN_PORT, create_actor_system
@@ -824,6 +849,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
                     "initial_payload": initial_payload,
                     "config": {"flight_plan": flight_plan},
                     "briefing_cache_path": str(briefing_cache_path),
+                    "outline_cache_path": str(outline_cache_path),
                 },
                 timeout=10,
             )

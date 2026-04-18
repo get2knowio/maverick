@@ -145,13 +145,17 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
         # State — Lock protects _outline against concurrent receiveMessage
         # calls in Thespian's multiprocTCPBase transport.
         self._outline_lock = threading.Lock()
-        self._outline = None
         self._details = None
         self._specs = []
         self._fix_rounds = 0
         self._nudge_count = 0
         self._initial_payload = message.get("initial_payload", {})
         self._briefing_cache_path = message.get("briefing_cache_path")
+        self._outline_cache_path = message.get("outline_cache_path")
+
+        # Seed outline from cache if pre-populated by workflow.
+        _cached_outline = self._initial_payload.get("outline")
+        self._outline = _cached_outline if isinstance(_cached_outline, dict) else None
 
         # Briefing state
         self._briefing_results: dict[str, Any] = {}
@@ -261,16 +265,68 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
                 error=str(exc),
             )
 
+    def _cache_outline(self):
+        """Persist the decomposer outline to disk for future runs."""
+        import json as _json
+        from pathlib import Path
+
+        cache_path = getattr(self, "_outline_cache_path", None)
+        if not cache_path or not self._outline:
+            return
+
+        path = Path(cache_path)
+        if path.is_file():
+            return  # already cached from a prior run
+
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(
+                _json.dumps(self._outline, indent=2, default=str),
+                encoding="utf-8",
+            )
+            logger.info(
+                "refuel_supervisor.outline_cached",
+                path=cache_path,
+                unit_count=len(self._outline.get("work_units", [])),
+            )
+        except OSError as exc:
+            logger.warning(
+                "refuel_supervisor.outline_cache_write_failed",
+                path=cache_path,
+                error=str(exc),
+            )
+
     # ------------------------------------------------------------------
     # Decomposition
     # ------------------------------------------------------------------
 
     def _start_outline(self):
-        """Kick off the outline phase."""
+        """Kick off the outline phase.
+
+        If the outline was seeded from a cache in init, skip straight to
+        the detail fan-out instead of dispatching the (expensive) outline
+        request to the decomposer.
+        """
         import time as _time
 
         self._emit_phase_started("decompose", "Decomposing")
         self._decompose_start = _time.monotonic()
+
+        if self._outline is not None:
+            unit_ids = [
+                wu.get("id", "")
+                for wu in self._outline.get("work_units", [])
+                if isinstance(wu, dict)
+            ]
+            self._emit_output(
+                "refuel",
+                f"Outline loaded from cache: {len(unit_ids)} work unit(s)",
+                level="success",
+                source=_SOURCE,
+                metadata={"unit_count": len(unit_ids)},
+            )
+            self._fan_out_details(unit_ids)
+            return
 
         self._emit_output(
             "refuel",
@@ -435,6 +491,9 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
                     )
                     return
                 self._outline = args
+            # Persist immediately so a Ctrl-C during the detail phase
+            # doesn't lose the outline work.
+            self._cache_outline()
             unit_ids = [
                 wu.get("id", "") for wu in args.get("work_units", []) if isinstance(wu, dict)
             ]
