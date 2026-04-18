@@ -18,6 +18,7 @@ been detailed.
 """
 
 import json
+import threading
 from typing import Any
 
 from thespian.actors import Actor
@@ -141,7 +142,9 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
         self._provider_labels: dict[str, str] = message.get("provider_labels", {})
         self._skip_briefing: bool = message.get("skip_briefing", False)
 
-        # State
+        # State — Lock protects _outline against concurrent receiveMessage
+        # calls in Thespian's multiprocTCPBase transport.
+        self._outline_lock = threading.Lock()
         self._outline = None
         self._details = None
         self._specs = []
@@ -418,23 +421,20 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
             return
 
         if tool == "submit_outline":
-            # Guard: only accept the first outline. Defense-in-depth
-            # against any agent calling submit_outline during the detail
-            # phase. Primary mitigation is excluding the primary from
-            # detail fan-out and restricting pool tools to submit_details.
-            if self._outline is not None:
-                logger.warning(
-                    "refuel_supervisor.duplicate_outline_ignored",
-                    existing_units=len(self._outline.get("work_units", [])),
-                )
-                self._emit_output(
-                    "refuel",
-                    "Duplicate outline ignored (guard active)",
-                    level="warning",
-                    source=_SOURCE,
-                )
-                return
-            self._outline = args
+            # Atomic check-and-set: Thespian's multiprocTCPBase can
+            # deliver messages concurrently from its TCP threads,
+            # causing multiple submit_outline calls to pass a plain
+            # "if self._outline is not None" guard simultaneously.
+            with self._outline_lock:
+                if self._outline is not None:
+                    self._emit_output(
+                        "refuel",
+                        "Duplicate outline ignored (guard active)",
+                        level="warning",
+                        source=_SOURCE,
+                    )
+                    return
+                self._outline = args
             unit_ids = [
                 wu.get("id", "") for wu in args.get("work_units", []) if isinstance(wu, dict)
             ]
