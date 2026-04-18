@@ -95,7 +95,25 @@ def create_actor_system(port: int = THESPIAN_PORT) -> Any:
 
     Returns the ActorSystem instance. Registers an atexit handler that
     shuts it down cleanly (with log suppression) on process exit.
+
+    Before creating the ActorSystem, raises Thespian's default TCP
+    transport watermarks. The defaults (MAX_PENDING_TRANSMITS=20,
+    MAX_QUEUED_TRANSMITS=950) are too low for our fan-out pattern: the
+    refuel supervisor sends 60 large detail_request messages in a tight
+    loop and blows the queue into transmit-only mode, which blocks
+    inbound replies (including the workflow's get_events drain polls).
+    The result is a visible "event cascade" in the CLI where the same
+    events render 10+ times because the drain can't advance its cursor.
+    See Thespian issues #26 and #82 for the upstream context.
     """
+    # Tune BEFORE importing thespian.actors so the constants are read
+    # from the environment at class-load time. Verified names against
+    # thespian/system/transport/asyncTransportBase.py in the installed
+    # package. Defaults shown in parens.
+    os.environ.setdefault("THESPIAN_MAX_PENDING_TRANSMITS", "100")  # default 20
+    os.environ.setdefault("THESPIAN_MAX_QUEUED_TRANSMITS", "5000")  # default 950
+    os.environ.setdefault("THESPIAN_QUEUED_TRANSMIT_UNBLOCK_THRESHOLD", "4000")  # default 780
+
     from thespian.actors import ActorSystem
 
     cleanup_stale_admin(port)
