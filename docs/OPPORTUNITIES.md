@@ -793,6 +793,197 @@ prior state.
 
 ---
 
+## Opportunity 14: Route Agent Tool Calls Through the Owning Actor
+
+**Signal strength:** Strong (observed during cascade debugging, April 2026)
+
+**Current state:** When an agent calls an MCP tool, the call goes:
+
+```
+Agent (ACP session)
+  └─ MCP tool call
+      └─ maverick serve-inbox (subprocess spawned by the owning actor)
+          └─ asys.tell(supervisor, {"tool": ..., "arguments": ...})
+```
+
+The MCP server subprocess is spawned by the actor that owns the ACP
+session (e.g., `DecomposerActor`), but when the agent calls a tool, the
+MCP server bypasses its spawner and `tell()`s straight to the supervisor
+via `globalName="supervisor-inbox"`. The supervisor's `_handle_tool_call`
+treats this identically to any other Thespian message.
+
+This is a tunnel: data from the agent jumps over the actor that owns the
+session and lands in a different actor's inbox. The MCP server has to
+know Thespian admin ports, the supervisor's globalName, and the wire
+format of the supervisor's inbox. The owning actor plays no part in
+observing or filtering its own agent's output.
+
+**The layering problem:** two transports (ACP/MCP above, Thespian below)
+are blended into one pipeline instead of being separated by a clean
+boundary. The MCP server is doing double duty as an MCP endpoint *and* a
+Thespian peer. Every subsystem that wants to react to tool calls — the
+supervisor's routing, one-shot enforcement, accountability tracking,
+future policy rules — must reach into that pipeline at the point where
+MCP and Thespian meet. There is no single place where "the agent just
+said X" is a first-class event.
+
+**Observed pain (April 2026 cascade debugging):** the primary decomposer
+looped through `submit_outline` ten-plus times per refuel, each call
+arriving at the supervisor despite guards. Fixing it required threading
+a `one_shot_tools` concept from the decomposer actor down through
+`AcpStepExecutor.create_session()` into `MaverickAcpClient.reset()`, a
+new `_state.one_shot_fired` flag distinct from the circuit-breaker
+`abort` flag, and event-callback logic inside the ACP client that fires
+`conn.cancel(session_id)` when a matching `ToolCallStart` streams
+through. Three files, four concepts, all because the rule ("primary's
+turn ends the moment it submits the outline") had to be enforced in the
+ACP stream layer — the only layer that naturally observes its own tool
+calls in the current topology. The owning actor, which *conceptually*
+owns that rule, has no visibility into its own agent's tool calls and
+can't participate in the decision.
+
+**Proposed architecture:** tool calls return to the owning actor, which
+applies per-role policy and then forwards to the supervisor as a plain
+actor message.
+
+```
+Agent (ACP session)
+  └─ MCP tool call
+      └─ maverick serve-inbox (subprocess)
+          └─ asys.tell(owning_actor, {"tool": ..., "arguments": ...})
+              └─ owning_actor.receiveMessage:
+                   - applies per-role policy (e.g., cancel turn for primary)
+                   - self.send(supervisor, {"tool": ..., "arguments": ...})
+```
+
+The owning actor becomes the layer boundary. Below it: Thespian
+messages, ordinary actor state, normal tracing. Above it: ACP sessions
+and MCP tool calls. The MCP server needs exactly one address — its own
+owning actor's — and nothing else about the broader topology.
+
+**How today's one-shot fix simplifies under this design:**
+
+Current implementation (what we shipped):
+
+- `_SessionState.one_shot_fired: bool` (new state flag)
+- `MaverickAcpClient._one_shot_tools: frozenset[str]` (new instance field)
+- `MaverickAcpClient.reset(..., one_shot_tools=...)` (new parameter)
+- `AcpStepExecutor.create_session(..., one_shot_tools=...)` (new parameter)
+- `ToolCallStart` handler branch to fire `conn.cancel(session_id)` when
+  a one-shot tool streams through
+- Distinct treatment of `aborted` vs `one_shot_fired` so the executor
+  doesn't raise `CircuitBreakerError` on the intentional cancellation
+
+Under the proposed architecture:
+
+```python
+# In DecomposerActor.receiveMessage
+elif msg_type == "agent_tool_call":
+    tool = message.get("tool")
+    args = message.get("arguments")
+
+    # Primary's turn ends once it submits the outline.
+    if self._role == "primary" and tool == "submit_outline":
+        self._run_coro(
+            self._executor.cancel_session(self._session_id),
+            timeout=5,
+        )
+
+    self.send(self._supervisor_addr, {"tool": tool, "arguments": args})
+```
+
+One branch. No new state fields on the ACP client, no parameters
+threaded through `create_session`, no distinct flags to avoid false
+circuit-breaker errors. The rule co-locates with the actor that owns
+the state it operates on.
+
+**Other wins:**
+
+- **Policy locality.** Accountability, deduplication, nudge-suppression,
+  one-shot enforcement — any rule conditioned on "which agent, in which
+  role, said what" is naturally a method on the owning actor. Under the
+  current design these rules either live in the supervisor (which has to
+  know about every agent's role) or in the ACP client (which knows the
+  stream but not the actor's role).
+- **Uniform observability.** Everything above the MCP boundary is a
+  Thespian message. Logging tool calls, tracing cascades, asserting
+  message orderings, measuring per-actor throughput — all become
+  ordinary Thespian instrumentation. Today the agent→supervisor hop is
+  a tunnel that doesn't show up in actor-level traces.
+- **Supervisor simplification.** The supervisor stops having two kinds
+  of incoming messages (actor-to-actor events vs. agent-originated tool
+  calls). Its inbox is strictly Thespian; tool calls arrive as forwarded
+  messages from owning actors with clear provenance.
+- **Testability.** Unit tests for the owning actor's policy no longer
+  need an ACP stream fixture — they're ordinary `receiveMessage`
+  assertions with a dict.
+- **MCP server simplification.** The `serve-inbox` subprocess collapses
+  to "validate and tell my owner." No globalName resolution, no special
+  knowledge of supervisor topology, no admin-port plumbing beyond what's
+  needed to join the local actor system.
+
+**Implementation path:**
+
+1. Change `maverick serve-inbox` to accept `--owner-global-name <name>`
+   (or `--owner-address <serialized>`) instead of relying on
+   `globalName="supervisor-inbox"`. It resolves its owning actor address
+   at startup and `tell()`s that.
+2. Each agent actor registers its own globalName at creation
+   (`decomposer-primary`, `decomposer-pool-0`, `briefing-navigator`, ...)
+   and passes that name to its spawned MCP server via the `args=` of
+   `McpServerStdio`.
+3. Add an `agent_tool_call` message handler to the base agent-actor
+   class (or a mixin). Default behavior: forward to `self._supervisor_addr`
+   unchanged.
+4. Per-role overrides: `DecomposerActor` handles `submit_outline` for
+   primary role with a cancel-and-forward step; briefing actors forward
+   unchanged (or could apply their own policies later).
+5. The supervisor's existing `_handle_tool_call` accepts messages that
+   now arrive from owning actors instead of from the MCP server. No
+   behavior change there once the forwarding is in place.
+6. Delete `one_shot_tools` plumbing from `MaverickAcpClient`,
+   `AcpStepExecutor.create_session`, and `DecomposerActor._ensure_agent`
+   — the rule now lives in the receiveMessage handler instead.
+7. Update tests: unit tests for the owning actor's policy (new,
+   lightweight), remove the `one_shot_fired` client-state tests.
+
+**Migration safety:** the supervisor's `_handle_tool_call` is the same
+code whether the message comes from the MCP server or a forwarding
+actor. The refactor can be done incrementally — one agent actor at a
+time, each switching its MCP server's tell-target from supervisor to
+self without breaking peers.
+
+**Tradeoffs:**
+
+- **Pro:** clean layer boundary between ACP/MCP and Thespian
+- **Pro:** per-role rules co-locate with actor state
+- **Pro:** uniform observability of tool calls as Thespian messages
+- **Pro:** significantly simpler implementation of the one-shot fix and
+  future rules of the same shape (accountability, deduplication, turn
+  budgets)
+- **Con:** one extra Thespian hop per tool call (owning actor → supervisor).
+  Latency is negligible at current scale but worth measuring.
+- **Con:** real refactor touching MCP server, every agent actor's init,
+  every `serve-inbox` invocation, and the supervisor's inbox tests.
+- **Con:** forwarding logic is almost always a pass-through. Most
+  handlers will read like `self.send(supervisor, message)` with no
+  policy applied. That's fine — proxy actors commonly look like this —
+  but it's boilerplate every agent actor has to carry.
+
+**Not doing this now:** the one-shot fix shipped in April 2026 is
+correct and contained. This refactor is an architectural cleanup, not a
+correctness fix, and should be scheduled deliberately after the current
+refuel debugging work stabilizes. When it does happen, the `one_shot_tools`
+plumbing from that fix becomes the first thing to delete.
+
+**Expected impact:** dramatically simpler implementation of any future
+"react to this specific tool from this specific agent" rule. Uniform
+tracing and testing above the MCP boundary. Lower cognitive load when
+debugging tool-call paths because the flow no longer skips over the
+actor that owns the session.
+
+---
+
 ## Patterns to Watch
 
 These are emerging but not yet mature enough for immediate adoption:
