@@ -46,6 +46,12 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
     - {"type": "beads_created"} from bead creator
     """
 
+    # Class-level counters so we can tell whether state is being wiped
+    # on each message (instance attrs would reset; class attrs survive).
+    _class_start_count: int = 0
+    _class_init_count: int = 0
+    _class_fanout_count: int = 0
+
     def receiveMessage(self, message, sender):
         logger.debug(
             "refuel_supervisor.received",
@@ -74,11 +80,15 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
 
         # --- Start signal from workflow ---
         if message == "start":
+            import os as _os
+
             self._start_count = getattr(self, "_start_count", 0) + 1
+            RefuelSupervisorActor._class_start_count += 1
             self._emit_output(
                 "refuel",
-                f"[diag] received 'start' (count={self._start_count}) "
-                f"sender={sender!r} "
+                f"[diag] received 'start' inst_count={self._start_count} "
+                f"class_count={RefuelSupervisorActor._class_start_count} "
+                f"pid={_os.getpid()} "
                 f"uuid={getattr(self, '_instance_uuid', '?')} id={id(self):#x}",
                 level="info",
                 source=_SOURCE,
@@ -129,7 +139,15 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
 
     def _init(self, message, sender):
         """Store config and create child actors."""
+        import os as _os
+
         _init_count = getattr(self, "_init_count", 0) + 1
+        RefuelSupervisorActor._class_init_count += 1
+        _diag_init = (
+            f"[diag] _init fired inst_init={_init_count} "
+            f"class_init={RefuelSupervisorActor._class_init_count} "
+            f"pid={_os.getpid()} id={id(self):#x}"
+        )
         logger.info(
             "refuel_supervisor.init",
             init_count=_init_count,
@@ -137,6 +155,8 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
         )
         self._init_count = _init_count
         self._init_event_bus()
+        # Emit after event bus exists.
+        self._emit_output("refuel", _diag_init, level="info", source=_SOURCE)
         self._config = message.get("config", {})
         self._decomposer = message.get("decomposer_addr")
         self._validator = message.get("validator_addr")
