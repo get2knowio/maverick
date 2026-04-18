@@ -42,6 +42,7 @@ class DecomposerActor(ActorAsyncBridge, Actor):
         if msg_type == "init":
             self._cwd = message.get("cwd")
             role = message.get("role", "primary")
+            self._role = role
             if role == "pool":
                 self._mcp_tools = "submit_details"
             else:
@@ -145,11 +146,19 @@ class DecomposerActor(ActorAsyncBridge, Actor):
 
         cwd = Path(self._cwd) if self._cwd else Path.cwd()
 
+        # Primary's job is done the moment it calls submit_outline.
+        # Marking it one-shot makes the ACP client cancel the turn on
+        # first invocation so the agent stops instead of looping back
+        # into submit_outline during the same session.
+        role = getattr(self, "_role", "primary")
+        one_shot: list[str] | None = ["submit_outline"] if role == "primary" else None
+
         self._session_id = await self._executor.create_session(
             step_name="decompose",
             agent_name="decomposer",
             cwd=cwd,
             mcp_servers=[mcp_config],
+            one_shot_tools=one_shot,
         )
 
     async def _prompt(self, prompt_text: str, step_name: str = "decompose"):

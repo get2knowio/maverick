@@ -48,6 +48,7 @@ class _SessionState:
     text_chunks: list[str] = field(default_factory=list)
     tool_call_counts: dict[str, int] = field(default_factory=dict)
     abort: bool = False
+    one_shot_fired: bool = False
 
 
 class MaverickAcpClient(Client):
@@ -81,6 +82,7 @@ class MaverickAcpClient(Client):
         self._agent_name: str = ""
         self._event_callback: EventCallback | None = None
         self._allowed_tools: frozenset[str] | None = None
+        self._one_shot_tools: frozenset[str] = frozenset()
         self._conn: Any = None  # Set by executor after connection creation
 
     def reset(
@@ -89,6 +91,7 @@ class MaverickAcpClient(Client):
         agent_name: str,
         event_callback: EventCallback | None,
         allowed_tools: frozenset[str] | None,
+        one_shot_tools: frozenset[str] | None = None,
     ) -> None:
         """Reset state for a new session.
 
@@ -97,12 +100,17 @@ class MaverickAcpClient(Client):
             agent_name: Current agent name for event tagging.
             event_callback: Where to forward AgentStreamChunk events.
             allowed_tools: Tools the agent is allowed to use.
+            one_shot_tools: Tools that end the turn as soon as they
+                fire. When the agent calls one of these, the client
+                sends an ACP CancelNotification so the session stops
+                after a single successful invocation.
         """
         self._state = _SessionState()
         self._step_name = step_name
         self._agent_name = agent_name
         self._event_callback = event_callback
         self._allowed_tools = allowed_tools
+        self._one_shot_tools = one_shot_tools or frozenset()
 
     def reset_for_turn(self) -> None:
         """Clear per-turn accumulators without destroying session state.
@@ -178,6 +186,25 @@ class MaverickAcpClient(Client):
                 tool=title,
                 count=self._state.tool_call_counts[title],
             )
+
+            # One-shot tool: a single successful invocation ends the turn.
+            # Cancel the session so the agent stops instead of looping.
+            # Use a distinct flag (not `abort`) so the executor does NOT
+            # raise CircuitBreakerError — this cancellation is intentional
+            # and successful, not a failure.
+            if title in self._one_shot_tools and not self._state.one_shot_fired:
+                logger.info(
+                    "acp_client.one_shot_tool_fired",
+                    tool=title,
+                    session_id=session_id,
+                )
+                self._state.one_shot_fired = True
+                if self._conn is not None:
+                    try:
+                        loop = asyncio.get_running_loop()
+                        loop.create_task(self._conn.cancel(session_id))
+                    except RuntimeError:
+                        pass  # No running event loop
 
             # Check circuit breaker
             if self._state.tool_call_counts[title] >= MAX_SAME_TOOL_CALLS:

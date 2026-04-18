@@ -281,6 +281,36 @@ class AcpStepExecutor:
         """Close all cached ACP connections and terminate subprocesses."""
         await self._pool.close_all()
 
+    async def cancel_session(
+        self,
+        session_id: str,
+        provider: str | None = None,
+    ) -> None:
+        """Cancel the in-flight turn on ``session_id``.
+
+        Sends an ACP ``CancelNotification`` to the agent. The ongoing
+        ``prompt_session`` call returns with ``StopReason.cancelled``;
+        the session itself remains alive for future prompts. Best-effort:
+        if the provider/session is not active, this is a no-op.
+        """
+        if provider is not None:
+            provider_name = provider
+        else:
+            provider_name, _ = self._provider_registry.default()
+
+        if provider_name not in self._pool:
+            return
+
+        cached = self._pool[provider_name]
+        try:
+            await cached.conn.cancel(session_id)
+        except Exception as exc:
+            self._logger.debug(
+                "acp_executor.cancel_failed",
+                session_id=session_id,
+                error=str(exc),
+            )
+
     # -----------------------------------------------------------------
     # Multi-turn session support (actor-mailbox architecture)
     # -----------------------------------------------------------------
@@ -295,6 +325,7 @@ class AcpStepExecutor:
         agent_name: str = "actor",
         event_callback: EventCallback | None = None,
         allowed_tools: list[str] | None = None,
+        one_shot_tools: list[str] | None = None,
         mcp_servers: list[Any] | None = None,
     ) -> str:
         """Create a persistent ACP session and return its session_id.
@@ -338,11 +369,13 @@ class AcpStepExecutor:
 
         # Reset client for the new session
         allowed_tools_frozen = frozenset(allowed_tools) if allowed_tools else None
+        one_shot_frozen = frozenset(one_shot_tools) if one_shot_tools else None
         cached.client.reset(
             step_name=step_name,
             agent_name=agent_name,
             event_callback=event_callback,
             allowed_tools=allowed_tools_frozen,
+            one_shot_tools=one_shot_frozen,
         )
 
         session = await cached.conn.new_session(cwd=cwd_str, mcp_servers=mcp_servers or [])
