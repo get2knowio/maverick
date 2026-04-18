@@ -74,6 +74,15 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
 
         # --- Start signal from workflow ---
         if message == "start":
+            self._start_count = getattr(self, "_start_count", 0) + 1
+            self._emit_output(
+                "refuel",
+                f"[diag] received 'start' (count={self._start_count}) "
+                f"sender={sender!r} "
+                f"uuid={getattr(self, '_instance_uuid', '?')} id={id(self):#x}",
+                level="info",
+                source=_SOURCE,
+            )
             if self._skip_briefing or not self._briefing_actors:
                 self._start_outline()
             else:
@@ -312,6 +321,26 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
         request to the decomposer.
         """
         import time as _time
+
+        # Once fan-out has already happened, don't re-fan-out. Something
+        # upstream is re-triggering _start_outline and we want to know.
+        if getattr(self, "_outline_started", False):
+            self._emit_output(
+                "refuel",
+                f"[diag] _start_outline re-entered (skipping) uuid="
+                f"{getattr(self, '_instance_uuid', '?')} id={id(self):#x}",
+                level="warning",
+                source=_SOURCE,
+            )
+            return
+        self._outline_started = True
+
+        self._emit_output(
+            "refuel",
+            f"[diag] _start_outline uuid={getattr(self, '_instance_uuid', '?')} id={id(self):#x}",
+            level="info",
+            source=_SOURCE,
+        )
 
         self._emit_phase_started("decompose", "Decomposing")
         self._decompose_start = _time.monotonic()
