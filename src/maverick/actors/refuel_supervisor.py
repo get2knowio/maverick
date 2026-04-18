@@ -18,7 +18,6 @@ been detailed.
 """
 
 import json
-import threading
 from typing import Any
 
 from thespian.actors import Actor
@@ -142,9 +141,14 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
         self._provider_labels: dict[str, str] = message.get("provider_labels", {})
         self._skip_briefing: bool = message.get("skip_briefing", False)
 
-        # State — Lock protects _outline against concurrent receiveMessage
-        # calls in Thespian's multiprocTCPBase transport.
-        self._outline_lock = threading.Lock()
+        # Instance UUID — stamped once per instance so the diag output
+        # reveals whether Thespian is silently re-instantiating the
+        # actor between messages (which would reset in-memory state).
+        import uuid as _uuid
+
+        self._instance_uuid = _uuid.uuid4().hex[:8]
+
+        # State
         self._details = None
         self._specs = []
         self._fix_rounds = 0
@@ -443,9 +447,11 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
         # DEBUG: emit via event bus (structlog is invisible in child processes)
         _outline_state = "SET" if self._outline is not None else "NONE"
         _init_n = getattr(self, "_init_count", "?")
+        _uuid = getattr(self, "_instance_uuid", "?")
         self._emit_output(
             "refuel",
-            f"[diag] tool={tool} outline={_outline_state} init={_init_n} id={id(self):#x}",
+            f"[diag] tool={tool} outline={_outline_state} init={_init_n} "
+            f"uuid={_uuid} id={id(self):#x}",
             level="info",
             source=_SOURCE,
         )
@@ -477,22 +483,28 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
             return
 
         if tool == "submit_outline":
-            # Atomic check-and-set: Thespian's multiprocTCPBase can
-            # deliver messages concurrently from its TCP threads,
-            # causing multiple submit_outline calls to pass a plain
-            # "if self._outline is not None" guard simultaneously.
-            with self._outline_lock:
-                if self._outline is not None:
-                    self._emit_output(
-                        "refuel",
-                        "Duplicate outline ignored (guard active)",
-                        level="warning",
-                        source=_SOURCE,
-                    )
-                    return
-                self._outline = args
-            # Persist immediately so a Ctrl-C during the detail phase
-            # doesn't lose the outline work.
+            # Filesystem-based guard: the outline cache file is the
+            # single source of truth for "outline already received".
+            # We've observed the in-memory `_outline` attribute coming
+            # back as None between messages despite the actor id staying
+            # the same, so relying on instance state isn't safe. The
+            # cache file is written on the first successful submission
+            # and any later submission finds it and bails out.
+            from pathlib import Path as _Path
+
+            cache_path = getattr(self, "_outline_cache_path", None)
+            if cache_path and _Path(cache_path).is_file():
+                self._emit_output(
+                    "refuel",
+                    "Duplicate outline ignored (cache file exists)",
+                    level="warning",
+                    source=_SOURCE,
+                )
+                return
+
+            self._outline = args
+            # Persist immediately — this ALSO closes the guard above
+            # for any subsequent submit_outline calls in this process.
             self._cache_outline()
             unit_ids = [
                 wu.get("id", "") for wu in args.get("work_units", []) if isinstance(wu, dict)
