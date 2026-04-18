@@ -140,11 +140,26 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
     def _init(self, message, sender):
         """Store config and create child actors."""
         import os as _os
+        import time as _time_mod
 
         _init_count = getattr(self, "_init_count", 0) + 1
         RefuelSupervisorActor._class_init_count += 1
+
+        # Ground-truth counter via filesystem — immune to module reloads,
+        # process forks, or any other in-memory state reset.
+        try:
+            with open("/tmp/maverick-init-log.txt", "a") as _f:
+                _f.write(
+                    f"{_time_mod.time():.3f} pid={_os.getpid()} "
+                    f"id={id(self):#x} inst={_init_count} "
+                    f"class={RefuelSupervisorActor._class_init_count}\n"
+                )
+        except OSError:
+            pass
+
         _diag_init = (
-            f"[diag] _init fired inst_init={_init_count} "
+            f"[diag] _init fired t={_time_mod.time():.3f} "
+            f"inst_init={_init_count} "
             f"class_init={RefuelSupervisorActor._class_init_count} "
             f"pid={_os.getpid()} id={id(self):#x}"
         )
