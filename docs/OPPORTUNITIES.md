@@ -984,6 +984,189 @@ actor that owns the session.
 
 ---
 
+## Opportunity 15: Structured Telemetry via OpenTelemetry GenAI Conventions
+
+**Signal strength:** Strong (standardization landed, vendors accept it,
+unblocks four other opportunities)
+
+**Current state:** Maverick's observability is ad-hoc. The only
+first-class runtime signal is the Rich CLI event stream produced by
+the supervisor's event bus. structlog works in the main process but
+is invisible from Thespian child actors (a lesson we've learned the
+hard way during every debugging session). There is no persistent
+trace of LLM calls, tool invocations, token usage, or cost per run.
+Adaptive orchestration (Opportunity 8), resource tuning (9), quota
+failover decisions (11 Tier 3), step-level evals (12), and even the
+supervisor-agent-MVP all *assume* telemetry exists — and then have to
+build their own ad-hoc trackers because it doesn't.
+
+**Research findings (Q1 2026):**
+
+The OpenTelemetry GenAI Observability SIG has standardized what a
+GenAI trace should look like. The work lives under
+[open-telemetry/semantic-conventions `docs/gen-ai/`](https://github.com/open-telemetry/semantic-conventions/tree/main/docs/gen-ai)
+and is targeted for Stable status in 2026. The important pieces that
+landed:
+
+- **`gen_ai.*` attribute namespace** — `gen_ai.system`,
+  `gen_ai.operation.name` (`chat`, `execute_tool`, `create_agent`,
+  `invoke_agent`), `gen_ai.request.model`, `gen_ai.usage.input_tokens`,
+  `gen_ai.usage.output_tokens`, `gen_ai.response.finish_reasons`, etc.
+- **Agent spans** as a first-class citizen — `invoke_agent {name}`,
+  `create_agent {name}`, child spans for individual LLM calls and
+  tool invocations ([PR #1925](https://github.com/open-telemetry/semantic-conventions/pull/1925)).
+- **Tool calls are spans, not events** — the SIG deliberately moved
+  from span events to full spans so multi-step agent loops trace as
+  hierarchical parent/child ([PR #1362](https://github.com/open-telemetry/semantic-conventions/pull/1362)).
+- **Message content as log records** — prompt and completion text
+  lives in OTel log records (`gen_ai.user.message`,
+  `gen_ai.assistant.message`), gated behind
+  `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT`. Keeps sensitive
+  payloads out of span attributes by default.
+- **Standard metrics** — `gen_ai.client.token.usage` (histogram),
+  `gen_ai.client.operation.duration`.
+
+Backend support is broad: Honeycomb, Datadog LLM Observability,
+Grafana (Tempo/Phoenix), Arize, Langfuse 3.x, SigNoz, New Relic, and
+Dash0 all accept `gen_ai.*` natively. Braintrust and LangSmith accept
+OTLP but normalize to their own schemas.
+
+Two Python instrumentation libraries matter:
+
+| Library | Status for this repo |
+|---|---|
+| **[OpenLLMetry (Traceloop)](https://github.com/traceloop/openllmetry)** | Auto-instruments the `anthropic` SDK. Actively migrating to the official `gen_ai.*` attribute set. The one we'd use. |
+| **[OpenInference (Arize)](https://github.com/Arize-ai/openinference)** | Predates the spec with its own `llm.*` attributes. Arize-centric. Skip. |
+| OTel contrib upstream | No Anthropic instrumentation yet ([issue #2615](https://github.com/open-telemetry/opentelemetry-python-contrib/issues/2615)). |
+
+**Proposed architecture:**
+
+Four layers emit spans, nested naturally through OTel's
+parent/child propagation:
+
+```
+WorkflowRun refuel-maverick          (our custom span, root of a run)
+├─ invoke_agent refuel_supervisor    (gen_ai.agent.name, gen_ai.agent.id)
+│   ├─ invoke_agent decomposer-primary
+│   │   ├─ chat claude-sonnet-4.6    (auto, via AnthropicInstrumentor)
+│   │   └─ execute_tool submit_outline   (gen_ai.tool.name, latency)
+│   ├─ invoke_agent decomposer-pool-0
+│   │   ├─ chat claude-sonnet-4.6
+│   │   └─ execute_tool submit_details
+│   ├─ invoke_agent decomposer-pool-1
+│   │   └─ ...
+│   └─ execute_tool submit_beads_created   (validator/bead creator)
+└─ workflow step write_work_units         (ordinary app span)
+```
+
+What each layer instruments:
+
+- **`WorkflowRun` span** — root; attributes include run_id, flight
+  plan name, whether resumed from cache, eventual success/failure.
+  Started in `PythonWorkflow.execute()`.
+- **`invoke_agent` spans** — one per agent actor (supervisor +
+  decomposers + briefing + reviewer + implementer). Attributes:
+  `gen_ai.agent.name`, `gen_ai.agent.id` (the instance UUID we had
+  during cascade debugging), `gen_ai.system`, plus our own tags for
+  role (`primary` / `pool`), pool index, retry count.
+- **`chat` spans** — emitted by OpenLLMetry's `AnthropicInstrumentor`
+  for every Anthropic SDK call. Zero work on our end; just add the
+  dependency and call `.instrument()` once at CLI startup.
+- **`execute_tool` spans** — wrap each MCP tool call at the
+  supervisor inbox boundary. Attributes include `gen_ai.tool.name`,
+  `gen_ai.tool.call.id`, and for submit_details / submit_fix our
+  own tags like unit_id so a slow unit is findable in the trace.
+
+**Unlocks for other opportunities:**
+
+| Opp | What it gains |
+|---|---|
+| **#8 supervisor agent** | Checkpoint trajectory / issue-count history / timeout-vs-duration ratios all become OTel histograms and span attributes. The supervisor agent reads its own prior runs from the trace backend instead of inventing a checkpoint schema. |
+| **#9 resource tuning** | `gen_ai.client.operation.duration` histogram per step makes "which steps are slow" answerable with one query. Provider/model quality comparisons fall out of aggregate traces. |
+| **#11 Tier 3 failover** | Quota errors already have structured error codes; attaching them to spans means the supervisor agent (or a simpler rule engine) sees "provider X has failed 3 times this session, route to Y" without custom state. |
+| **#12 step-level evals** | Fixture capture becomes "replay the inputs from span X" — the fixture is the span attributes. Matrix runs become child spans under an eval root, and the comparison table is a trace query. Dramatically simpler than file-based fixtures. |
+
+**Implementation path:**
+
+1. **Phase 1 — dependency + root span (half-day).** Add
+   `openllmetry` / `opentelemetry-api` / `opentelemetry-sdk` /
+   `opentelemetry-exporter-otlp` to pyproject. Initialize the tracer
+   provider in `maverick.cli.main` with OTLP HTTP export honoring
+   `OTEL_EXPORTER_OTLP_ENDPOINT`. Emit a `WorkflowRun` span per run.
+   Call `AnthropicInstrumentor().instrument()` at startup — every
+   Anthropic SDK call becomes a `chat` span automatically.
+2. **Phase 2 — actor-layer spans (day).** Add helper
+   `maverick.observability.invoke_agent(name, role)` returning a
+   context-managed span with the right `gen_ai.*` attributes. Wrap
+   each agent actor's prompt loop and each executor's session in
+   those spans. Propagate context across Thespian messages via
+   manual carrier injection (Thespian doesn't understand OTel
+   context; we serialize trace IDs in the message dict).
+3. **Phase 3 — tool-call spans (half-day).** Wrap the MCP supervisor
+   inbox handlers in `execute_tool` spans. Carry `gen_ai.tool.name`
+   and our own `unit_id` / `bead_id` / `retry_count` attributes.
+   This also becomes the natural place to emit the heartbeat data —
+   age-of-oldest-in-flight becomes a metric attached to the
+   invoke_agent span.
+4. **Phase 4 — metrics (half-day).** Emit `gen_ai.client.token.usage`
+   and `gen_ai.client.operation.duration` histograms (OpenLLMetry
+   handles the token ones for free). Add Maverick-specific
+   histograms: `maverick.step.duration`, `maverick.bead.fix_rounds`.
+5. **Phase 5 — delete replaced machinery.** The file-based detail
+   cache stays (different purpose — resumption). But much of the
+   Rich CLI Live-rendering code becomes a span-consumer layer that
+   reads the active trace rather than intercepting at emit time. The
+   event-bus / drain-loop is still needed for CLI rendering since
+   the trace backend is downstream, but many of our ad-hoc
+   timing/counting hacks collapse into span attributes.
+
+**Tradeoffs:**
+
+- **Pro:** Industry-standard. Any backend works (self-hosted SigNoz
+  is free; Honeycomb / Datadog are trivially plugged in).
+- **Pro:** Unlocks four other opportunities without their own
+  bespoke telemetry plumbing.
+- **Pro:** Replaces the "structlog is invisible in child processes"
+  pain — OTel exporters work from any process and context
+  propagates across subprocess boundaries when you carry the trace
+  ID forward.
+- **Pro:** Token and cost tracking come for free via OpenLLMetry.
+- **Con:** Real dependency weight — OTel SDK + exporter + OpenLLMetry
+  is ~15 MB of Python deps. Matters for a CLI.
+- **Con:** We now have to decide a default backend behavior.
+  Reasonable default: no-op unless `OTEL_EXPORTER_OTLP_ENDPOINT` is
+  set. Emit to a local file via the console exporter when
+  `MAVERICK_DEBUG_TRACES=1`.
+- **Con:** Context propagation across Thespian messages is manual —
+  we have to serialize trace IDs into the message dict. Small
+  boilerplate, not a blocker.
+- **Con:** Content capture (prompt/completion text) is off by
+  default but when on, can be expensive and sensitive. Document the
+  env var + gate it behind explicit opt-in for users.
+
+**Expected impact:**
+
+- Every LLM call, tool call, agent invocation, and workflow step
+  becomes a structured, queryable record.
+- "Why is detail X taking 20 minutes?" becomes a single trace query.
+- Cost, latency, and quality A/B across providers and models becomes
+  a Honeycomb/Grafana/Datadog dashboard instead of print-statement
+  archaeology.
+- Prerequisite infrastructure for Opportunities 8, 9, 11 Tier 3, and
+  12 — all of which are currently blocked on "we don't have good
+  telemetry yet."
+
+**References:**
+
+- [OpenTelemetry GenAI Semantic Conventions](https://github.com/open-telemetry/semantic-conventions/tree/main/docs/gen-ai)
+- [SIG announcement blog post](https://opentelemetry.io/blog/2024/otel-generative-ai/)
+- [Agent spans PR #1925](https://github.com/open-telemetry/semantic-conventions/pull/1925)
+- [Tools-as-spans PR #1362](https://github.com/open-telemetry/semantic-conventions/pull/1362)
+- [OpenLLMetry Anthropic instrumentation](https://github.com/traceloop/openllmetry/tree/main/packages/opentelemetry-instrumentation-anthropic)
+- [Datadog LLM Observability: auto-instrumentation](https://docs.datadoghq.com/llm_observability/setup/auto_instrumentation/)
+
+---
+
 ## Patterns to Watch
 
 These are emerging but not yet mature enough for immediate adoption:
