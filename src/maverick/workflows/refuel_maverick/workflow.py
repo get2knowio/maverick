@@ -72,10 +72,70 @@ class RefuelMaverickWorkflow(PythonWorkflow):
         super().__init__(**kwargs)
 
     async def _run(self, inputs: dict[str, Any]) -> dict[str, Any]:
+        """Execute the refuel-maverick pipeline with post-run audit report.
+
+        Delegates to :meth:`_run_impl` and writes a ``RefuelReport`` to the
+        run directory regardless of success or failure — mirroring the
+        fly workflow's per-bead ``fly-report.json`` audit artifact
+        (PATTERNS.md §13).
+        """
+        import time as _time
+        from datetime import UTC, datetime
+
+        from maverick.workflows.refuel_maverick.refuel_report import (
+            RefuelReport,
+            write_refuel_report,
+        )
+
+        ctx: dict[str, Any] = {}
+        started_at = datetime.now(tz=UTC).isoformat()
+        start_time = _time.monotonic()
+        error_msg: str | None = None
+        try:
+            return await self._run_impl(inputs, ctx=ctx)
+        except Exception as exc:
+            error_msg = str(exc)
+            raise
+        finally:
+            run_id = ctx.get("run_id", "unknown")
+            run_dir = ctx.get(
+                "run_dir", Path.cwd() / ".maverick" / "runs" / run_id
+            )
+            report = RefuelReport(
+                plan_name=ctx.get("plan_name", ""),
+                flight_plan_path=inputs.get("flight_plan_path", ""),
+                run_id=run_id,
+                outcome="refueled" if error_msg is None else "failed",
+                started_at=started_at,
+                completed_at=datetime.now(tz=UTC).isoformat(),
+                duration_seconds=_time.monotonic() - start_time,
+                skip_briefing=bool(inputs.get("skip_briefing", False)),
+                phases_completed=[
+                    r.name for r in self._step_results if r.success
+                ],
+                work_units_count=ctx.get("work_units_count", 0),
+                fix_rounds=ctx.get("fix_rounds", 0),
+                epic_id=ctx.get("epic_id"),
+                work_bead_ids=ctx.get("bead_ids", []),
+                error=error_msg,
+            )
+            try:
+                await write_refuel_report(report, run_dir)
+            except Exception as write_exc:
+                logger.warning("refuel_report.write_failed", error=str(write_exc))
+
+    async def _run_impl(
+        self, inputs: dict[str, Any], *, ctx: dict[str, Any]
+    ) -> dict[str, Any]:
         """Execute the refuel-maverick pipeline.
 
         Args:
             inputs: Workflow inputs. Required: ``flight_plan_path`` (str).
+            ctx: Accumulator dict written by the impl as phase state becomes
+                known (plan_name, run_id, run_dir, work_units_count,
+                fix_rounds, epic_id, bead_ids). Consumed by ``_run`` to
+                build the post-run ``RefuelReport`` on both success and
+                failure paths.
 
         Returns:
             Output dict matching RefuelMaverickResult.to_dict() contract.
@@ -98,6 +158,8 @@ class RefuelMaverickWorkflow(PythonWorkflow):
         run_id = _uuid.uuid4().hex[:8]
         run_dir = Path.cwd() / ".maverick" / "runs" / run_id
         run_dir.mkdir(parents=True, exist_ok=True)
+        ctx["run_id"] = run_id
+        ctx["run_dir"] = run_dir
 
         # ------------------------------------------------------------------
         # Step 1: Parse flight plan
@@ -115,6 +177,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
             f"{len(flight_plan.scope.in_scope)} in-scope files)",
         )
         await self.emit_step_completed(PARSE_FLIGHT_PLAN, output=flight_plan.to_dict())
+        ctx["plan_name"] = flight_plan.name
 
         # Write initial run metadata
         run_meta = RunMetadata(
@@ -338,9 +401,12 @@ class RefuelMaverickWorkflow(PythonWorkflow):
             runway_context_text=runway_context_text,
             run_dir=run_dir,
             skip_briefing=skip_briefing,
+            ctx=ctx,
         )
         briefing_path_str: str | None = None
         suggested_deps: tuple[str, ...] = ()
+        if decomposition is not None:
+            ctx["work_units_count"] = len(decomposition.work_units)
 
         # ------------------------------------------------------------------
         # Step 5: Write work units
@@ -443,6 +509,10 @@ class RefuelMaverickWorkflow(PythonWorkflow):
             run_meta.epic_id = bead_result.epic["bd_id"]
             run_meta.status = "refueled"
             write_metadata(run_dir, run_meta)
+            ctx["epic_id"] = bead_result.epic["bd_id"]
+            ctx["bead_ids"] = [
+                b["bd_id"] for b in bead_result.work_beads if b.get("bd_id")
+            ]
 
         # Attach flight_plan_name to the epic for downstream lookup,
         # and wire cross-epic dependencies so new epics wait for
@@ -642,6 +712,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
         runway_context_text: str | None,
         run_dir: Path | None,
         skip_briefing: bool = False,
+        ctx: dict[str, Any] | None = None,
     ) -> Any:
         """Run briefing + decomposition via Thespian actor system.
 
@@ -926,6 +997,8 @@ class RefuelMaverickWorkflow(PythonWorkflow):
                 work_units.append(WorkUnitSpec.model_validate(spec))
 
         fix_rounds = result.get("fix_rounds", 0)
+        if ctx is not None:
+            ctx["fix_rounds"] = fix_rounds
 
         decomposition = DecompositionOutput(
             work_units=work_units,
