@@ -39,7 +39,7 @@ def create(name: str, plans_dir: str) -> None:
 
         maverick plan create my-feature
 
-        maverick plan create api-gateway --output-dir .maverick/plans
+        maverick plan create api-gateway --plans-dir .maverick/plans
     """
     from maverick.flight.template import generate_skeleton
 
@@ -54,7 +54,7 @@ def create(name: str, plans_dir: str) -> None:
 
     plans_path = Path(plans_dir)
 
-    # Guard: --output-dir must not point to an existing regular file.
+    # Guard: --plans-dir must not point to an existing regular file.
     if plans_path.exists() and not plans_path.is_dir():
         console.print(
             f"[red]Error:[/red] '[bold]{plans_dir}[/bold]' exists but is not a directory.",

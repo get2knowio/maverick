@@ -59,7 +59,7 @@ class TestCreateThenValidateWorkflow:
             custom_dir = "my-plans"
             result_create = runner.invoke(
                 cli,
-                ["plan", "create", "api-feature", "--output-dir", custom_dir],
+                ["plan", "create", "api-feature", "--plans-dir", custom_dir],
             )
             assert result_create.exit_code == 0, f"Create failed. Output: {result_create.output!r}"
 

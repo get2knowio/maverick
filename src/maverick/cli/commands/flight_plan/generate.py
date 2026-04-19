@@ -103,7 +103,7 @@ async def generate(
 
     plans_path = Path(output_dir)
 
-    # Guard: --output-dir must not point to an existing regular file.
+    # Guard: --plans-dir must not point to an existing regular file.
     if plans_path.exists() and not plans_path.is_dir():
         console.print(
             f"[red]Error:[/red] '[bold]{output_dir}[/bold]' exists but is not a directory.",
