@@ -86,3 +86,23 @@ class ActorAsyncBridge:
             self._run_coro(executor.cleanup(), timeout=timeout)
         except Exception as exc:
             logger.debug("actor_bridge.cleanup_failed", error=str(exc))
+        # Drop the reference so repeated exit paths don't try again.
+        self._executor = None
+
+    def _handle_actor_exit(self, message: Any) -> bool:
+        """Return True and tear down the ACP executor if ``message`` is an
+        ActorExitRequest.
+
+        Thespian's ``asys.shutdown()`` sends ``ActorExitRequest`` to every
+        actor. Without a handler that runs :meth:`_cleanup_executor`, the
+        actor process is terminated while its ACP subprocess (a separate
+        OS process on stdio) is orphaned — reparented to PID 1 and left
+        consuming memory until the next reboot. Call this at the top of
+        every concrete actor's ``receiveMessage`` and bail out if True.
+        """
+        from thespian.actors import ActorExitRequest
+
+        if isinstance(message, ActorExitRequest):
+            self._cleanup_executor()
+            return True
+        return False

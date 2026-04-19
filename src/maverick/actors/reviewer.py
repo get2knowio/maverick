@@ -22,6 +22,8 @@ class ReviewerActor(ActorAsyncBridge, Actor):
     """Reviews code and delivers findings via MCP tool calls."""
 
     def receiveMessage(self, message, sender):
+        if self._handle_actor_exit(message):
+            return
         if not isinstance(message, dict):
             return
 

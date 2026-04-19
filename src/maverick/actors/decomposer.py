@@ -35,6 +35,10 @@ class DecomposerActor(ActorAsyncBridge, Actor):
     """
 
     def receiveMessage(self, message, sender):
+        # Thespian's asys.shutdown() delivers ActorExitRequest (not a
+        # dict). Tear down the ACP subprocess here or it outlives us.
+        if self._handle_actor_exit(message):
+            return
         if not isinstance(message, dict):
             return
 

@@ -18,12 +18,14 @@ import os
 from dataclasses import dataclass
 from typing import Any
 
-from acp import PROTOCOL_VERSION, spawn_agent_process
+from acp import PROTOCOL_VERSION
 from acp import RequestError as AcpRequestError
 from acp.schema import ClientCapabilities, Implementation
 
 from maverick.config import AgentProviderConfig
 from maverick.exceptions.agent import CLINotFoundError, NetworkError, ProcessError
+from maverick.executor._subprocess import kill_process_group
+from maverick.executor._subprocess import spawn_agent_process_pg as spawn_agent_process
 from maverick.executor.acp_client import MaverickAcpClient
 from maverick.logging import get_logger
 
@@ -248,12 +250,17 @@ class ConnectionPool:
         Safe to call multiple times. Logs at INFO level for each connection
         closed (FR-023). Errors during cleanup are logged but not raised.
         Each connection gets a 2-second grace period before the subprocess
-        is force-killed.
+        is force-killed. The agent is spawned as its own process group
+        leader (see ``_subprocess.spawn_stdio_transport_pg``) so we kill
+        the whole group, not just the direct child — otherwise the
+        ``claude-agent-acp`` node process leaves its spawned ``claude`` CLI
+        and MCP server children running as orphans.
         """
         for provider_name, cached in list(self.cache.items()):
             self._logger.info(
                 "acp_executor.cleanup",
                 provider=provider_name,
+                pid=getattr(cached.proc, "pid", None),
             )
             try:
                 await asyncio.wait_for(
@@ -278,6 +285,11 @@ class ConnectionPool:
             # Wait for subprocess to fully exit so its transport is cleaned
             # up before the event loop closes.
             await wait_for_process(cached.proc)
+            # Belt-and-suspenders: if any grandchildren survived the
+            # direct-process kill, the process group cleanup catches them.
+            pid = getattr(cached.proc, "pid", 0)
+            if pid:
+                kill_process_group(pid)
         self.cache.clear()
 
     def __contains__(self, provider_name: object) -> bool:
