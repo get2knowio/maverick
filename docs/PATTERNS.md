@@ -19,6 +19,10 @@ Why it repeats:
 - It makes fix loops, review loops, and commit/escalation behavior easier to test in isolation.
 - It preserves the separation between judgment work and deterministic orchestration.
 
+Concrete example:
+
+- In [fly_beads supervisor](../src/maverick/workflows/fly_beads/supervisor.py), the review-fix loop is explicitly capped by `MAX_REVIEW_ROUNDS = 3`; once that cap is reached, the supervisor stops issuing further fix requests and falls through to `COMMIT_REQUEST` with `tag="needs-human-review"`.
+
 Representative code:
 
 - [fly_beads supervisor](../src/maverick/workflows/fly_beads/supervisor.py)
