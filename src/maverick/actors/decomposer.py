@@ -48,6 +48,14 @@ class DecomposerActor(ActorAsyncBridge, Actor):
             self._cwd = message.get("cwd")
             role = message.get("role", "primary")
             self._role = role
+            self._detail_session_max_turns = max(
+                1,
+                int(message.get("detail_session_max_turns", 5)),
+            )
+            self._fix_session_max_turns = max(
+                1,
+                int(message.get("fix_session_max_turns", 1)),
+            )
             if role == "pool":
                 self._mcp_tools = "submit_details"
             else:
@@ -56,6 +64,8 @@ class DecomposerActor(ActorAsyncBridge, Actor):
             self._supervisor_addr = sender
             self._executor = None
             self._session_id = None
+            self._session_mode: str | None = None
+            self._session_turns_in_mode = 0
             # Per-actor context populated by "set_context" before any
             # detail_request arrives. Keeps detail_request messages
             # tiny (just a unit_id) instead of re-shipping ~60KB of
@@ -63,6 +73,11 @@ class DecomposerActor(ActorAsyncBridge, Actor):
             self._detail_outline_json: str = "{}"
             self._detail_flight_plan: str = ""
             self._detail_verification: str = ""
+            self._detail_seed_stale = True
+            self._fix_outline_json: str = '{"work_units": []}'
+            self._fix_details_json: str = '{"details": []}'
+            self._fix_verification: str = ""
+            self._fix_seed_stale = True
             self._start_async_bridge()
             self.send(sender, {"type": "init_ok"})
 
@@ -70,6 +85,7 @@ class DecomposerActor(ActorAsyncBridge, Actor):
             self._detail_outline_json = message.get("outline_json", "{}")
             self._detail_flight_plan = message.get("flight_plan_content", "")
             self._detail_verification = message.get("verification_properties", "")
+            self._detail_seed_stale = True
 
         elif msg_type == "shutdown":
             self._cleanup_executor()
@@ -92,6 +108,13 @@ class DecomposerActor(ActorAsyncBridge, Actor):
             )
 
         elif msg_type == "fix_request":
+            self._fix_outline_json = message.get("outline_json", self._fix_outline_json)
+            self._fix_details_json = message.get("details_json", self._fix_details_json)
+            self._fix_verification = message.get(
+                "verification_properties",
+                self._fix_verification,
+            )
+            self._fix_seed_stale = True
             self._run_async(
                 self._send_fix_prompt(message),
                 sender,
@@ -136,26 +159,44 @@ class DecomposerActor(ActorAsyncBridge, Actor):
                 err_reply["unit_id"] = unit_id
             self.send(sender, err_reply)
 
-    async def _ensure_agent(self):
-        """Spawn this actor's own ACP agent and create a session.
+    def _needs_new_mode_session(
+        self,
+        mode: str,
+        *,
+        max_turns: int,
+        seed_stale: bool,
+    ) -> bool:
+        """Return whether the next prompt requires a fresh ACP session."""
+        return (
+            not getattr(self, "_session_id", None)
+            or getattr(self, "_session_mode", None) != mode
+            or self._session_turns_in_mode >= max(1, max_turns)
+            or seed_stale
+        )
 
-        Each actor owns its own agent subprocess — no shared
-        connections, no shared sessions, no registry. The actor
-        creates everything it needs from maverick.yaml config.
-        """
-        if getattr(self, "_session_id", None):
-            return  # already running
+    def _mark_turn_completed(self, mode: str) -> None:
+        """Advance the turn counter for the current seeded session mode."""
+        if self._session_mode == mode:
+            self._session_turns_in_mode += 1
 
-        import shutil
-        from pathlib import Path
-
-        from acp.schema import McpServerStdio
+    async def _ensure_executor(self):
+        """Create this actor's ACP executor on first use."""
+        if self._executor is not None:
+            return
 
         from maverick.executor import create_default_executor
 
         self._executor = create_default_executor()
 
-        # Build MCP server config with admin port for Thespian discovery
+    async def _create_session(self) -> None:
+        """Create a fresh ACP session on this actor's executor."""
+        import shutil
+        from pathlib import Path
+
+        from acp.schema import McpServerStdio
+
+        await self._ensure_executor()
+
         maverick_bin = shutil.which("maverick") or str(Path(sys.executable).parent / "maverick")
         admin_port = str(getattr(self, "_admin_port", 19500))
         mcp_config = McpServerStdio(
@@ -172,11 +213,6 @@ class DecomposerActor(ActorAsyncBridge, Actor):
         )
 
         cwd = Path(self._cwd) if self._cwd else Path.cwd()
-
-        # Primary's job is done the moment it calls submit_outline.
-        # Marking it one-shot makes the ACP client cancel the turn on
-        # first invocation so the agent stops instead of looping back
-        # into submit_outline during the same session.
         role = getattr(self, "_role", "primary")
         one_shot: list[str] | None = ["submit_outline"] if role == "primary" else None
 
@@ -187,6 +223,45 @@ class DecomposerActor(ActorAsyncBridge, Actor):
             mcp_servers=[mcp_config],
             one_shot_tools=one_shot,
         )
+
+    async def _ensure_mode_session(
+        self,
+        mode: str,
+        *,
+        max_turns: int,
+        seed_stale: bool,
+    ) -> bool:
+        """Ensure a seeded-session mode has a usable ACP session.
+
+        Returns True when a new session was created and the next prompt should
+        include the large seed context.
+        """
+        if not self._needs_new_mode_session(mode, max_turns=max_turns, seed_stale=seed_stale):
+            return False
+
+        previous_session = getattr(self, "_session_id", None)
+        await self._create_session()
+        self._session_mode = mode
+        self._session_turns_in_mode = 0
+        logger.info(
+            "decomposer.session_ready",
+            mode=mode,
+            previous_session=previous_session,
+            session_id=self._session_id,
+        )
+        return True
+
+    async def _ensure_agent(self):
+        """Spawn this actor's own ACP agent and create a session.
+
+        Each actor owns its own agent subprocess — no shared
+        connections, no shared sessions, no registry. The actor
+        creates everything it needs from maverick.yaml config.
+        """
+        if getattr(self, "_session_id", None):
+            return  # already running
+
+        await self._create_session()
 
     async def _prompt(
         self,
@@ -244,7 +319,10 @@ class DecomposerActor(ActorAsyncBridge, Actor):
         await self._prompt(prompt_text, "decompose_outline")
 
     async def _send_detail_prompt(self, message):
-        from maverick.library.actions.decompose import build_detail_prompt
+        from maverick.library.actions.decompose import (
+            build_detail_seed_prompt,
+            build_detail_turn_prompt,
+        )
 
         # The bulky outline/flight-plan/verification payloads are
         # stored on this actor via a one-time "set_context" message
@@ -254,12 +332,24 @@ class DecomposerActor(ActorAsyncBridge, Actor):
         if not unit_ids and message.get("unit_id"):
             unit_ids = [message["unit_id"]]
 
-        prompt_text = build_detail_prompt(
-            flight_plan_content=self._detail_flight_plan,
-            outline_json=self._detail_outline_json,
-            unit_ids=unit_ids,
-            verification_properties=self._detail_verification,
+        needs_seed = await self._ensure_mode_session(
+            "detail",
+            max_turns=self._detail_session_max_turns,
+            seed_stale=self._detail_seed_stale,
         )
+        if needs_seed:
+            self._detail_seed_stale = True
+        prompt_parts = []
+        if needs_seed:
+            prompt_parts.append(
+                build_detail_seed_prompt(
+                    flight_plan_content=self._detail_flight_plan,
+                    outline_json=self._detail_outline_json,
+                    verification_properties=self._detail_verification,
+                )
+            )
+        prompt_parts.append(build_detail_turn_prompt(unit_ids=unit_ids))
+        prompt_text = "\n\n".join(prompt_parts)
 
         prompt_text += (
             "\n\n## REQUIRED: Submit via tool call\n"
@@ -270,30 +360,43 @@ class DecomposerActor(ActorAsyncBridge, Actor):
         # unit, so 20 minutes is generous. Hanging sessions surface as
         # MaverickTimeoutError and the supervisor requeues them.
         await self._prompt(prompt_text, "decompose_detail", timeout_seconds=1200)
+        self._detail_seed_stale = False
+        self._mark_turn_completed("detail")
 
     async def _send_fix_prompt(self, message):
-        parts = [
-            "Your previous decomposition had validation issues. "
-            "Fix ONLY the specific problems listed below.\n"
-        ]
+        from maverick.library.actions.decompose import build_fix_seed_prompt, build_fix_turn_prompt
 
-        if message.get("coverage_gaps"):
-            parts.append("## Missing SC Coverage\n")
-            for gap in message["coverage_gaps"]:
-                parts.append(f"- {gap}")
-
-        if message.get("overloaded"):
-            parts.append("\n## Overloaded Work Units\n")
-            for item in message["overloaded"]:
-                parts.append(f"- {item}")
-
-        parts.append(
+        needs_seed = await self._ensure_mode_session(
+            "fix",
+            max_turns=self._fix_session_max_turns,
+            seed_stale=self._fix_seed_stale,
+        )
+        if needs_seed:
+            self._fix_seed_stale = True
+        prompt_parts = []
+        if needs_seed:
+            prompt_parts.append(
+                build_fix_seed_prompt(
+                    outline_json=self._fix_outline_json,
+                    details_json=self._fix_details_json,
+                    verification_properties=self._fix_verification,
+                )
+            )
+        prompt_parts.append(
+            build_fix_turn_prompt(
+                coverage_gaps=message.get("coverage_gaps", []),
+                overloaded=message.get("overloaded", []),
+            )
+        )
+        prompt_parts.append(
             "\n\n## REQUIRED: Submit via tool call\n"
             "You MUST call the `submit_fix` tool with the COMPLETE "
             "updated work_units and details."
         )
 
-        await self._prompt("\n".join(parts), "decompose_fix")
+        await self._prompt("\n\n".join(prompt_parts), "decompose_fix")
+        self._fix_seed_stale = False
+        self._mark_turn_completed("fix")
 
     async def _send_nudge(self, message):
         tool_name = message.get("expected_tool", "submit_outline")

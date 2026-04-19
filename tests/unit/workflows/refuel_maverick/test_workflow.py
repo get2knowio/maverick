@@ -15,6 +15,8 @@ from maverick.events import (
 from maverick.library.actions.decompose import CodebaseContext
 from maverick.workflows.refuel_maverick.constants import (
     CREATE_BEADS,
+    DETAIL_SESSION_MAX_TURNS,
+    FIX_SESSION_MAX_TURNS,
     GATHER_CONTEXT,
     PARSE_FLIGHT_PLAN,
     WIRE_DEPS,
@@ -24,6 +26,7 @@ from maverick.workflows.refuel_maverick.constants import (
 from tests.unit.workflows.refuel_maverick.conftest import (
     collect_events,
     make_bead_result,
+    make_simple_decomposition_output,
     make_simple_flight_plan,
     make_wire_result,
     make_workflow,
@@ -161,6 +164,87 @@ class TestRefuelMaverickWorkflowHappyPath:
             )
 
         mock_decompose.assert_called_once()
+
+    async def test_run_with_thespian_passes_internal_session_thresholds(
+        self,
+        mock_config: MagicMock,
+        mock_registry: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """Decomposer actor init receives the internal detail/fix thresholds."""
+
+        class _FakeActorSystem:
+            def __init__(self) -> None:
+                self.asks: list[tuple[object, dict, int]] = []
+                self.tell_calls: list[tuple[object, object]] = []
+                self._counter = 0
+
+            def createActor(self, _cls, globalName=None):  # noqa: N802
+                self._counter += 1
+                return globalName or f"actor-{self._counter}"
+
+            def ask(self, addr, message, timeout):
+                self.asks.append((addr, message, timeout))
+                return {"type": "init_ok"}
+
+            def tell(self, addr, message):
+                self.tell_calls.append((addr, message))
+
+            def shutdown(self):
+                return None
+
+        fp = make_simple_flight_plan(tmp_path)
+        workflow = make_workflow(mock_config, mock_registry)
+        fake_asys = _FakeActorSystem()
+        flight_plan = await __import__(
+            "maverick.flight.loader",
+            fromlist=["FlightPlanFile"],
+        ).FlightPlanFile.aload(fp)
+
+        with (
+            patch_cwd(tmp_path),
+            patch(
+                "maverick.agents.briefing.prompts.build_briefing_prompt",
+                return_value="briefing prompt",
+            ),
+            patch("maverick.actors.create_actor_system", return_value=fake_asys),
+            patch.object(workflow, "emit_output", new=AsyncMock()),
+            patch.object(workflow, "emit_step_completed", new=AsyncMock()),
+            patch.object(
+                workflow,
+                "_drain_supervisor_events",
+                new=AsyncMock(
+                    return_value={
+                        "success": True,
+                        "specs": make_simple_decomposition_output().work_units,
+                    }
+                ),
+            ),
+        ):
+            await workflow._run_with_thespian(
+                flight_plan=flight_plan,
+                raw_content=fp.read_text(encoding="utf-8"),
+                codebase_context=_EMPTY_CONTEXT,
+                open_bead_result=None,
+                runway_context_text=None,
+                run_dir=None,
+                skip_briefing=True,
+            )
+
+        decomposer_inits = [
+            message
+            for _addr, message, _timeout in fake_asys.asks
+            if message.get("type") == "init" and message.get("role") in {"primary", "pool"}
+        ]
+        assert decomposer_inits
+        assert all(
+            msg["detail_session_max_turns"] == DETAIL_SESSION_MAX_TURNS
+            for msg in decomposer_inits
+        )
+        assert all(
+            msg["fix_session_max_turns"] == FIX_SESSION_MAX_TURNS
+            for msg in decomposer_inits
+        )
 
     async def test_work_unit_files_written_with_correct_naming(
         self,

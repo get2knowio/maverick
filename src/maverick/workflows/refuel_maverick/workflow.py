@@ -31,7 +31,9 @@ from maverick.workflows.refuel_maverick.constants import (
     BRIEFING,
     CREATE_BEADS,
     DECOMPOSE,
+    DETAIL_SESSION_MAX_TURNS,
     DERIVE_VERIFICATION,
+    FIX_SESSION_MAX_TURNS,
     GATHER_CONTEXT,
     MAX_DECOMPOSE_ATTEMPTS,
     PARSE_FLIGHT_PLAN,
@@ -823,6 +825,8 @@ class RefuelMaverickWorkflow(PythonWorkflow):
                     "cwd": str(Path.cwd()),
                     "role": "primary",
                     "admin_port": THESPIAN_PORT,
+                    "detail_session_max_turns": DETAIL_SESSION_MAX_TURNS,
+                    "fix_session_max_turns": FIX_SESSION_MAX_TURNS,
                 },
                 timeout=10,
             )
@@ -834,6 +838,8 @@ class RefuelMaverickWorkflow(PythonWorkflow):
                         "cwd": str(Path.cwd()),
                         "role": "pool",
                         "admin_port": THESPIAN_PORT,
+                        "detail_session_max_turns": DETAIL_SESSION_MAX_TURNS,
+                        "fix_session_max_turns": FIX_SESSION_MAX_TURNS,
                     },
                     timeout=10,
                 )

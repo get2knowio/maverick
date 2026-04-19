@@ -10,7 +10,12 @@ from maverick.library.actions.decompose import (
     CodebaseContext,
     FileContent,
     _extract_path_from_scope_item,
+    build_detail_prompt,
+    build_detail_seed_prompt,
+    build_detail_turn_prompt,
     build_decomposition_prompt,
+    build_fix_seed_prompt,
+    build_fix_turn_prompt,
     convert_specs_to_work_units,
     gather_codebase_context,
     validate_decomposition,
@@ -340,6 +345,75 @@ class TestBuildDecompositionPrompt:
 
         assert "gone.py" in prompt
         assert "No files could be read" in prompt
+
+
+class TestSeededRefuelPrompts:
+    """Tests for seeded detail and fix prompt builders."""
+
+    def test_detail_seed_prompt_carries_full_context(self) -> None:
+        prompt = build_detail_seed_prompt(
+            flight_plan_content="## Objective\nShip the thing.",
+            outline_json='{"work_units": [{"id": "unit-1"}]}',
+            verification_properties="def verify_sc001():\n    assert True",
+        )
+
+        assert "## Flight Plan" in prompt
+        assert "Ship the thing." in prompt
+        assert "## Full Outline" in prompt
+        assert '"id": "unit-1"' in prompt
+        assert "verify_sc001" in prompt
+        assert "Detail Rules" in prompt
+
+    def test_detail_turn_prompt_is_small_and_targeted(self) -> None:
+        prompt = build_detail_turn_prompt(
+            unit_ids=["unit-1", "unit-2"],
+            output_file_path="/tmp/detail.json",
+        )
+
+        assert "## Detail Request" in prompt
+        assert '"unit-1"' in prompt
+        assert '"unit-2"' in prompt
+        assert "DETAIL_OUTPUT_PATH" in prompt
+        assert "## Flight Plan" not in prompt
+        assert "## Full Outline" not in prompt
+
+    def test_legacy_detail_prompt_still_combines_seed_and_turn(self) -> None:
+        prompt = build_detail_prompt(
+            flight_plan_content="## Objective\nShip the thing.",
+            outline_json='{"work_units": [{"id": "unit-1"}]}',
+            unit_ids=["unit-1"],
+            verification_properties="def verify_sc001():\n    assert True",
+        )
+
+        assert "## Flight Plan" in prompt
+        assert "## Full Outline" in prompt
+        assert "## Detail Request" in prompt
+        assert '"unit-1"' in prompt
+
+    def test_fix_seed_prompt_carries_current_decomposition_state(self) -> None:
+        prompt = build_fix_seed_prompt(
+            outline_json='{"work_units": [{"id": "unit-1"}]}',
+            details_json='{"details": [{"id": "unit-1", "instructions": "..."}]}',
+            verification_properties="def verify_sc001():\n    assert True",
+        )
+
+        assert "## Current Outline" in prompt
+        assert "## Current Details" in prompt
+        assert '"id": "unit-1"' in prompt
+        assert "verify_sc001" in prompt
+        assert "Fix Rules" in prompt
+
+    def test_fix_turn_prompt_only_contains_requested_issues(self) -> None:
+        prompt = build_fix_turn_prompt(
+            coverage_gaps=["SC-001 missing from unit-1"],
+            overloaded=["unit-2 covers too many criteria"],
+        )
+
+        assert "## Fix Request" in prompt
+        assert "SC-001 missing from unit-1" in prompt
+        assert "unit-2 covers too many criteria" in prompt
+        assert "## Current Outline" not in prompt
+        assert "## Current Details" not in prompt
 
 
 # ---------------------------------------------------------------------------

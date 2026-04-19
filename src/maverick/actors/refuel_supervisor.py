@@ -799,6 +799,12 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
                     "type": "fix_request",
                     "coverage_gaps": enriched,
                     "overloaded": message.get("overloaded", []),
+                    "outline_json": json.dumps(self._outline or {"work_units": []}),
+                    "details_json": json.dumps(self._details or {"details": []}),
+                    "verification_properties": self._initial_payload.get(
+                        "verification_properties",
+                        "",
+                    ),
                 },
             )
         else:

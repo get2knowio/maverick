@@ -524,6 +524,232 @@ def build_outline_prompt(
     return prompt
 
 
+def _detail_rule_lines() -> list[str]:
+    """Return the durable detail-pass rules shared across turns."""
+    return [
+        "- Each detail entry must include: instructions, acceptance_criteria, verification",
+        "- Instructions: write a PROCEDURE with numbered steps"
+        " using RFC 2119 keywords (MUST, SHOULD, MAY). Each step"
+        " MUST specify: (a) the exact file and line range to read"
+        " or modify, (b) what action to take (Read, Create, Edit,"
+        " Verify), (c) for conditional logic, use IF/ELSE decision"
+        " points, (d) end each multi-step group with an inline"
+        " verification command. Example:\n"
+        "  ### Step 1: Read integration point\n"
+        "  - MUST Read src/foo.rs lines 130-145\n"
+        "  ### Step 2: Replace the stub\n"
+        "  - MUST replace lines 136-140 with a call to bar()\n"
+        "  - MUST verify: cargo build --quiet\n"
+        " Do NOT embed large code blocks — reference by file:line."
+        " The implementer has Read/Grep tools.",
+        "- test_specification: For each work unit, write a concrete"
+        " test function (with assertions) that would FAIL before"
+        " implementation and PASS after. This gives the implementer"
+        " a machine-checkable target. Include the full test body with"
+        " assertions. If the work unit is pure config/doc, use empty"
+        " string.",
+        "- Acceptance criteria must trace to flight plan success"
+        " criteria (SC-### where ### is the 1-based index)",
+        "- Verification commands MUST test OBSERVABLE BEHAVIOR, not"
+        " implementation details. Good: `cargo test -p crate --"
+        " test_name 2>&1 | tail -1 | grep -q ok` (does the test"
+        " pass?), `cargo build --quiet` (does it compile?). Bad:"
+        " `grep 'pattern' src/file.rs` (is code shaped a certain"
+        " way?). The implementer may use different names, file"
+        " layouts, or patterns than anticipated. Only verify:"
+        " (1) tests pass, (2) build succeeds, (3) CLI output/exit"
+        " codes. NEVER grep source for expected code patterns.",
+        "- COMPLETENESS: Each work unit's acceptance criteria MUST"
+        " include cleanup of dead code, unused imports, and orphaned"
+        " files caused by the change. If a work unit refactors or"
+        " replaces existing code, include removing the old code,"
+        " updating callers, and removing stale tests in the"
+        " instructions. No deferred cleanup.",
+        "",
+        "## CRITICAL: Output Format",
+        "Return only the detail entries for the requested work unit IDs.",
+        "The JSON must match this schema exactly:",
+        '{"details": [{"id": "kebab-id",'
+        ' "instructions": "step-by-step guidance",'
+        ' "test_specification": "#[test] fn test_foo() { ... }",'
+        ' "acceptance_criteria": [{"text": "...", "trace_ref": "SC-001"}],'
+        ' "verification": ["cmd1"]}]}',
+    ]
+
+
+def _detail_output_path_section(output_file_path: str | None) -> str:
+    """Return the optional detail output path section."""
+    if not output_file_path:
+        return ""
+    return f"\n\n## DETAIL_OUTPUT_PATH\n\n{output_file_path}"
+
+
+def _verification_properties_section(verification_properties: str) -> str:
+    """Return the optional verification properties section."""
+    if not verification_properties:
+        return ""
+    return (
+        "\n\n## Flight Plan Verification Properties\n\n"
+        "These are deterministic verification tests derived from "
+        "the flight plan's success criteria. Copy the relevant "
+        "tests into each work unit's test_specification field. "
+        "Do NOT modify them — they are the immutable acceptance "
+        f"gate.\n\n{verification_properties}"
+    )
+
+
+def build_detail_seed_prompt(
+    flight_plan_content: str,
+    outline_json: str,
+    verification_properties: str = "",
+) -> str:
+    """Build the durable seed context for a detail session.
+
+    This prompt carries the large shared context once per seeded session.
+    The actor may prepend this to the first detail turn of a session, then
+    use ``build_detail_turn_prompt`` for subsequent requests.
+    """
+    instructions = "\n".join(
+        [
+            "The full decomposition context is provided below. Use it for this"
+            " and subsequent detail requests in the same session.",
+            "A later section in this message, or a future message in this"
+            " session, will identify the exact work unit IDs to detail.",
+            *_detail_rule_lines(),
+        ]
+    )
+
+    prompt = (
+        "You are a software decomposition expert. This is the DETAIL pass"
+        " of a two-pass decomposition."
+        f"\n\n## Flight Plan\n\n{flight_plan_content}"
+        f"\n\n## Full Outline\n\n```json\n{outline_json}\n```"
+        f"{_verification_properties_section(verification_properties)}"
+        f"\n\n## Detail Rules\n{instructions}"
+    )
+
+    return prompt
+
+
+def build_detail_turn_prompt(
+    unit_ids: list[str],
+    output_file_path: str | None = None,
+) -> str:
+    """Build the small per-turn request for a seeded detail session."""
+    id_list = ", ".join(f'"{uid}"' for uid in unit_ids)
+
+    instructions = "\n".join(
+        [
+            f"- Produce details for EXACTLY these work unit IDs: [{id_list}]",
+            "- Return only the detail entries for those IDs.",
+            "- Each detail entry must include: instructions,"
+            " test_specification, acceptance_criteria, and verification.",
+            "- Follow the previously-seeded detail rules and output schema.",
+        ]
+    )
+
+    return (
+        "## Detail Request\n\n"
+        "Continue the seeded detail session."
+        f"\n\n## Instructions\n{instructions}"
+        f"{_detail_output_path_section(output_file_path)}"
+    )
+
+
+def _fix_rule_lines() -> list[str]:
+    """Return the durable fix-pass rules shared across turns."""
+    return [
+        "- Use the current outline and current detail entries below as the"
+        " authoritative base state for this fix session.",
+        "- Apply only the changes needed to resolve the requested issues,"
+        " but return the COMPLETE updated work_units and details.",
+        "- Preserve work unit IDs, sequencing, and dependency structure unless"
+        " a requested fix requires changing them.",
+        "- Every acceptance criterion must trace to a flight plan success"
+        " criterion (SC-### where ### is the 1-based index).",
+        "- Verification commands MUST test OBSERVABLE BEHAVIOR, not"
+        " implementation details.",
+        "- COMPLETENESS: include cleanup of dead code, unused imports, and"
+        " orphaned files if the fix changes existing structure.",
+        "",
+        "## CRITICAL: Output Format",
+        "Return the COMPLETE updated work_units and details.",
+        "The JSON must match this schema exactly:",
+        '{"work_units": [{"id": "kebab-id", "sequence": 1,'
+        ' "parallel_group": null, "depends_on": [],'
+        ' "task": "short description",'
+        ' "file_scope": {"create": [], "modify": [], "protect": []}}],'
+        ' "details": [{"id": "kebab-id",'
+        ' "instructions": "step-by-step guidance",'
+        ' "test_specification": "#[test] fn test_foo() { ... }",'
+        ' "acceptance_criteria": [{"text": "...", "trace_ref": "SC-001"}],'
+        ' "verification": ["cmd1"]}]}',
+    ]
+
+
+def build_fix_seed_prompt(
+    outline_json: str,
+    details_json: str,
+    verification_properties: str = "",
+) -> str:
+    """Build the durable seed context for a fix session."""
+    instructions = "\n".join(
+        [
+            "The current decomposition state is provided below. Use it for this"
+            " and subsequent fix requests in the same session.",
+            "A later section in this message, or a future message in this"
+            " session, will identify the specific validation issues to fix.",
+            *_fix_rule_lines(),
+        ]
+    )
+
+    prompt = (
+        "You are a software decomposition expert repairing an existing"
+        " decomposition after validation failures."
+        f"\n\n## Current Outline\n\n```json\n{outline_json}\n```"
+        f"\n\n## Current Details\n\n```json\n{details_json}\n```"
+        f"{_verification_properties_section(verification_properties)}"
+        f"\n\n## Fix Rules\n{instructions}"
+    )
+
+    return prompt
+
+
+def build_fix_turn_prompt(
+    coverage_gaps: list[str] | None = None,
+    overloaded: list[str] | None = None,
+) -> str:
+    """Build the small per-turn request for a seeded fix session."""
+    parts = [
+        "## Fix Request",
+        "",
+        "Continue the seeded fix session and resolve ONLY the issues below.",
+    ]
+
+    if coverage_gaps:
+        parts.append("")
+        parts.append("## Missing SC Coverage")
+        parts.append("")
+        for gap in coverage_gaps:
+            parts.append(f"- {gap}")
+
+    if overloaded:
+        parts.append("")
+        parts.append("## Overloaded Work Units")
+        parts.append("")
+        for item in overloaded:
+            parts.append(f"- {item}")
+
+    parts.extend(
+        [
+            "",
+            "Return the COMPLETE updated work_units and details using the",
+            "previously-seeded fix rules and schema.",
+        ]
+    )
+    return "\n".join(parts)
+
+
 def build_detail_prompt(
     flight_plan_content: str,
     outline_json: str,
@@ -545,93 +771,15 @@ def build_detail_prompt(
     Returns:
         Formatted prompt string for the detail pass.
     """
-    id_list = ", ".join(f'"{uid}"' for uid in unit_ids)
-
-    instructions = "\n".join(
-        [
-            f"- Produce details for EXACTLY these work unit IDs: [{id_list}]",
-            "- Each detail entry must include: instructions, acceptance_criteria, verification",
-            "- Instructions: write a PROCEDURE with numbered steps"
-            " using RFC 2119 keywords (MUST, SHOULD, MAY). Each step"
-            " MUST specify: (a) the exact file and line range to read"
-            " or modify, (b) what action to take (Read, Create, Edit,"
-            " Verify), (c) for conditional logic, use IF/ELSE decision"
-            " points, (d) end each multi-step group with an inline"
-            " verification command. Example:\n"
-            "  ### Step 1: Read integration point\n"
-            "  - MUST Read src/foo.rs lines 130-145\n"
-            "  ### Step 2: Replace the stub\n"
-            "  - MUST replace lines 136-140 with a call to bar()\n"
-            "  - MUST verify: cargo build --quiet\n"
-            " Do NOT embed large code blocks — reference by file:line."
-            " The implementer has Read/Grep tools.",
-            "- test_specification: For each work unit, write a concrete"
-            " test function (with assertions) that would FAIL before"
-            " implementation and PASS after. This gives the implementer"
-            " a machine-checkable target. Include the full test body with"
-            " assertions. If the work unit is pure config/doc, use empty"
-            " string.",
-            "- Acceptance criteria must trace to flight plan success"
-            " criteria (SC-### where ### is the 1-based index)",
-            "- Verification commands MUST test OBSERVABLE BEHAVIOR, not"
-            " implementation details. Good: `cargo test -p crate --"
-            " test_name 2>&1 | tail -1 | grep -q ok` (does the test"
-            " pass?), `cargo build --quiet` (does it compile?). Bad:"
-            " `grep 'pattern' src/file.rs` (is code shaped a certain"
-            " way?). The implementer may use different names, file"
-            " layouts, or patterns than anticipated. Only verify:"
-            " (1) tests pass, (2) build succeeds, (3) CLI output/exit"
-            " codes. NEVER grep source for expected code patterns.",
-            "- COMPLETENESS: Each work unit's acceptance criteria MUST"
-            " include cleanup of dead code, unused imports, and orphaned"
-            " files caused by the change. If a work unit refactors or"
-            " replaces existing code, include removing the old code,"
-            " updating callers, and removing stale tests in the"
-            " instructions. No deferred cleanup.",
-            "",
-            "## CRITICAL: Output Format",
-            "Write the JSON to the file path specified in the"
-            " DETAIL_OUTPUT_PATH below using the Write tool. Do NOT"
-            " embed JSON in your text response — write it to the file."
-            " If no DETAIL_OUTPUT_PATH is provided, output JSON in a"
-            " ```json code block instead."
-            " The JSON must match this schema exactly:",
-            '{"details": [{"id": "kebab-id",'
-            ' "instructions": "step-by-step guidance",'
-            ' "test_specification": "#[test] fn test_foo() { ... }",'
-            ' "acceptance_criteria": [{"text": "...", "trace_ref": "SC-001"}],'
-            ' "verification": ["cmd1"]}]}',
-        ]
-    )
-
-    detail_output_section = ""
-    if output_file_path:
-        detail_output_section = f"\n\n## DETAIL_OUTPUT_PATH\n\n{output_file_path}"
-
-    vp_section = ""
-    if verification_properties:
-        vp_section = (
-            "\n\n## Flight Plan Verification Properties\n\n"
-            "These are deterministic verification tests derived from "
-            "the flight plan's success criteria. Copy the relevant "
-            "tests into each work unit's test_specification field. "
-            "Do NOT modify them — they are the immutable acceptance "
-            f"gate.\n\n{verification_properties}"
+    return (
+        build_detail_seed_prompt(
+            flight_plan_content=flight_plan_content,
+            outline_json=outline_json,
+            verification_properties=verification_properties,
         )
-
-    prompt = (
-        "You are a software decomposition expert. This is the DETAIL pass"
-        " of a two-pass decomposition. You have already produced the structural"
-        " outline below. Now produce detailed instructions, acceptance criteria,"
-        " and verification commands for the specified work units."
-        f"\n\n## Flight Plan\n\n{flight_plan_content}"
-        f"\n\n## Full Outline\n\n```json\n{outline_json}\n```"
-        f"\n\n## Instructions\n{instructions}"
-        f"{vp_section}"
-        f"{detail_output_section}"
+        + "\n\n"
+        + build_detail_turn_prompt(unit_ids=unit_ids, output_file_path=output_file_path)
     )
-
-    return prompt
 
 
 def merge_outline_and_details(
