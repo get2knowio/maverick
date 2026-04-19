@@ -20,7 +20,7 @@ been detailed.
 import json
 from typing import Any
 
-from thespian.actors import Actor
+from thespian.actors import Actor, WakeupMessage
 
 from maverick.actors.event_bus import SupervisorEventBusMixin
 from maverick.logging import get_logger
@@ -61,6 +61,11 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
         # --- Event-bus drain poll (must precede other dict routing) ---
         if isinstance(message, dict) and message.get("type") == "get_events":
             self._handle_get_events(message, sender)
+            return
+
+        # --- Wakeup (self-scheduled heartbeat) ---
+        if isinstance(message, WakeupMessage):
+            self._handle_wakeup(message)
             return
 
         # --- Start signal from workflow ---
@@ -133,6 +138,7 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
         self._initial_payload = message.get("initial_payload", {})
         self._briefing_cache_path = message.get("briefing_cache_path")
         self._outline_cache_path = message.get("outline_cache_path")
+        self._detail_cache_dir = message.get("detail_cache_dir")
 
         # Seed outline from cache if pre-populated by workflow.
         _cached_outline = self._initial_payload.get("outline")
@@ -148,7 +154,20 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
 
         # Detail fan-out state
         self._pending_detail_ids: set[str] = set()
-        self._accumulated_details: list[dict] = []
+        # Seed accumulated details from per-unit cache so a killed run
+        # resumes at N-of-M instead of 0-of-M.
+        _cached_details = self._initial_payload.get("cached_details", {})
+        if isinstance(_cached_details, dict):
+            self._accumulated_details: list[dict] = [
+                d for d in _cached_details.values() if isinstance(d, dict)
+            ]
+        else:
+            self._accumulated_details = []
+
+        # Heartbeat / liveness state (populated in _fan_out_details).
+        self._detail_dispatch_info: dict[str, dict[str, Any]] = {}
+        self._last_detail_time: float = 0.0
+        self._heartbeat_active: bool = False
 
         self.send(sender, {"type": "init_ok"})
 
@@ -277,6 +296,105 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
                 error=str(exc),
             )
 
+    def _cache_detail(self, unit_id: str, detail: dict[str, Any]) -> None:
+        """Persist a single unit's detail to disk.
+
+        Writes one JSON file per unit under
+        ``.maverick/plans/<name>/refuel-details/<unit_id>.json``.
+        A resumed run seeds ``_accumulated_details`` from this directory
+        so we don't re-pay for LLM details already produced.
+        """
+        import json as _json
+        from pathlib import Path
+
+        cache_dir = getattr(self, "_detail_cache_dir", None)
+        if not cache_dir or not unit_id:
+            return
+
+        path = Path(cache_dir) / f"{unit_id}.json"
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(
+                _json.dumps(detail, indent=2, default=str),
+                encoding="utf-8",
+            )
+        except OSError as exc:
+            logger.warning(
+                "refuel_supervisor.detail_cache_write_failed",
+                unit_id=unit_id,
+                error=str(exc),
+            )
+
+    # ------------------------------------------------------------------
+    # Heartbeat
+    # ------------------------------------------------------------------
+
+    _HEARTBEAT_INTERVAL_SECONDS = 30
+
+    def _start_heartbeat(self) -> None:
+        """Schedule the first detail-phase heartbeat wakeup."""
+        from datetime import timedelta
+
+        self._heartbeat_active = True
+        self.wakeupAfter(
+            timedelta(seconds=self._HEARTBEAT_INTERVAL_SECONDS),
+            payload="detail_heartbeat",
+        )
+
+    def _handle_wakeup(self, message: WakeupMessage) -> None:
+        """Emit a heartbeat status line if detail work is still in flight."""
+        payload = getattr(message, "payload", None)
+        if payload != "detail_heartbeat":
+            return
+        if not getattr(self, "_heartbeat_active", False):
+            return
+        if not self._pending_detail_ids:
+            # Done — stop the loop.
+            self._heartbeat_active = False
+            return
+
+        import time as _time
+
+        now = _time.monotonic()
+        done = len(self._accumulated_details)
+        pending = len(self._pending_detail_ids)
+        since_last = now - self._last_detail_time
+
+        # Age of the oldest in-flight request.
+        oldest_uid: str | None = None
+        oldest_age = 0.0
+        oldest_pool = -1
+        for uid, info in self._detail_dispatch_info.items():
+            age = now - info.get("at", now)
+            if age > oldest_age:
+                oldest_age = age
+                oldest_uid = uid
+                oldest_pool = info.get("pool_idx", -1)
+
+        msg = (
+            f"Still working — {done}/{done + pending} done, "
+            f"{self._detail_in_flight} in flight, "
+            f"{len(self._detail_queue)} queued, "
+            f"{since_last:.0f}s since last detail"
+        )
+        if oldest_uid:
+            msg += f"; oldest in flight: {oldest_uid} on pool[{oldest_pool}] for {oldest_age:.0f}s"
+
+        self._emit_output(
+            "refuel",
+            msg,
+            level="info",
+            source=_SOURCE,
+        )
+
+        # Reschedule.
+        from datetime import timedelta
+
+        self.wakeupAfter(
+            timedelta(seconds=self._HEARTBEAT_INTERVAL_SECONDS),
+            payload="detail_heartbeat",
+        )
+
     # ------------------------------------------------------------------
     # Decomposition
     # ------------------------------------------------------------------
@@ -360,17 +478,45 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
         # without queueing deeply in any one mailbox.
         self._detail_in_flight_max = max(1, pool_size * 2)
         self._detail_in_flight = 0
-        self._detail_queue: deque[str] = deque(unit_ids)
 
-        self._pending_detail_ids = set(unit_ids)
-        self._accumulated_details = []
+        # Skip units already in the per-unit detail cache. These survive
+        # across Ctrl-C so a resumed run picks up where it stopped.
+        cached_ids = {
+            d.get("id", "")
+            for d in self._accumulated_details
+            if isinstance(d, dict) and d.get("id")
+        }
+        remaining = [uid for uid in unit_ids if uid and uid not in cached_ids]
+        skipped = len(unit_ids) - len(remaining)
 
-        self._emit_output(
-            "refuel",
-            f"Detailing {len(unit_ids)} unit(s) across {pool_size} actor(s)",
-            level="info",
-            source=_SOURCE,
-        )
+        self._detail_queue: deque[str] = deque(remaining)
+        self._pending_detail_ids = set(remaining)
+
+        if skipped:
+            self._emit_output(
+                "refuel",
+                f"Loaded {skipped} detail(s) from cache; "
+                f"detailing {len(remaining)} remaining unit(s) across {pool_size} actor(s)",
+                level="info",
+                source=_SOURCE,
+            )
+        else:
+            self._emit_output(
+                "refuel",
+                f"Detailing {len(unit_ids)} unit(s) across {pool_size} actor(s)",
+                level="info",
+                source=_SOURCE,
+            )
+
+        # Nothing to do — skip straight to validation.
+        if not remaining:
+            self._details = {"details": self._accumulated_details}
+            self._specs = self._merge_to_specs()
+            self.send(
+                self._validator,
+                {"type": "validate", "specs": self._specs},
+            )
+            return
 
         # Broadcast context once per pool actor so subsequent
         # detail_request messages can stay tiny.
@@ -388,15 +534,30 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
                 },
             )
 
+        # Start heartbeat.
+        import time as _time
+
+        self._last_detail_time = _time.monotonic()
+        self._detail_dispatch_info = {}
+        self._start_heartbeat()
+
         self._dispatch_pending_details()
 
     def _dispatch_pending_details(self) -> None:
         """Send as many queued unit_ids as the in-flight budget allows."""
+        import time as _time
+
         while self._detail_in_flight < self._detail_in_flight_max and self._detail_queue:
             uid = self._detail_queue.popleft()
-            target = self._detail_pool[self._detail_round_robin % len(self._detail_pool)]
+            pool_idx = self._detail_round_robin % len(self._detail_pool)
+            target = self._detail_pool[pool_idx]
             self._detail_round_robin += 1
             self._detail_in_flight += 1
+            # Record so the heartbeat can report oldest-in-flight age.
+            self._detail_dispatch_info[uid] = {
+                "at": _time.monotonic(),
+                "pool_idx": pool_idx,
+            }
             self.send(
                 target,
                 {"type": "detail_request", "unit_id": uid},
@@ -510,12 +671,21 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
             self._fan_out_details(unit_ids)
 
         elif tool == "submit_details":
+            import time as _time
+
             # Collect details and mark units as done
             batch_details = args.get("details", [])
             for d in batch_details:
                 if isinstance(d, dict):
+                    uid = d.get("id", "")
                     self._accumulated_details.append(d)
-                    self._pending_detail_ids.discard(d.get("id", ""))
+                    self._pending_detail_ids.discard(uid)
+                    # Persist to per-unit cache so a Ctrl-C preserves work.
+                    self._cache_detail(uid, d)
+                    # Drop from in-flight tracker.
+                    self._detail_dispatch_info.pop(uid, None)
+
+            self._last_detail_time = _time.monotonic()
 
             # One pool actor just finished a unit — free an in-flight
             # slot and dispatch the next queued unit (if any).
