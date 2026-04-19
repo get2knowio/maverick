@@ -16,6 +16,7 @@ Two roles:
 """
 
 import sys
+from typing import Any
 
 from thespian.actors import Actor
 
@@ -78,10 +79,12 @@ class DecomposerActor(ActorAsyncBridge, Actor):
             )
 
         elif msg_type == "detail_request":
+            unit_id = message.get("unit_id") or (message.get("unit_ids") or [""])[0]
             self._run_async(
                 self._send_detail_prompt(message),
                 sender,
                 "detail",
+                unit_id=unit_id,
             )
 
         elif msg_type == "fix_request":
@@ -98,28 +101,36 @@ class DecomposerActor(ActorAsyncBridge, Actor):
                 "nudge",
             )
 
-    def _run_async(self, coro, sender, phase):
+    def _run_async(self, coro, sender, phase, *, unit_id: str | None = None):
         """Run an async coroutine on the persistent event loop."""
-        logger.debug("decomposer.phase_starting", phase=phase)
+        logger.debug("decomposer.phase_starting", phase=phase, unit_id=unit_id)
         try:
             self._run_coro(coro, timeout=1800)
-            logger.debug("decomposer.phase_completed", phase=phase)
-            self.send(sender, {"type": "prompt_sent", "phase": phase})
+            logger.debug("decomposer.phase_completed", phase=phase, unit_id=unit_id)
+            reply: dict[str, Any] = {"type": "prompt_sent", "phase": phase}
+            if unit_id:
+                reply["unit_id"] = unit_id
+            self.send(sender, reply)
         except Exception as exc:
             from maverick.exceptions.quota import is_quota_error
 
             error_str = str(exc)
             _is_quota = is_quota_error(error_str)
-            logger.debug("decomposer.phase_failed", phase=phase, error=error_str)
-            self.send(
-                sender,
-                {
-                    "type": "prompt_error",
-                    "phase": phase,
-                    "error": error_str,
-                    "quota_exhausted": _is_quota,
-                },
+            logger.debug(
+                "decomposer.phase_failed",
+                phase=phase,
+                unit_id=unit_id,
+                error=error_str,
             )
+            err_reply: dict[str, Any] = {
+                "type": "prompt_error",
+                "phase": phase,
+                "error": error_str,
+                "quota_exhausted": _is_quota,
+            }
+            if unit_id:
+                err_reply["unit_id"] = unit_id
+            self.send(sender, err_reply)
 
     async def _ensure_agent(self):
         """Spawn this actor's own ACP agent and create a session.
@@ -173,13 +184,27 @@ class DecomposerActor(ActorAsyncBridge, Actor):
             one_shot_tools=one_shot,
         )
 
-    async def _prompt(self, prompt_text: str, step_name: str = "decompose"):
-        """Send a prompt to this actor's own ACP session."""
+    async def _prompt(
+        self,
+        prompt_text: str,
+        step_name: str = "decompose",
+        *,
+        timeout_seconds: int = 1800,
+    ):
+        """Send a prompt to this actor's own ACP session.
+
+        ``timeout_seconds`` is the per-turn cap the executor enforces via
+        ``asyncio.wait_for``. When it elapses, the executor sends an ACP
+        CancelNotification so the agent stops, then raises
+        ``MaverickTimeoutError`` — which this actor surfaces back to the
+        supervisor as a ``prompt_error`` so the supervisor can requeue
+        the unit instead of waiting indefinitely.
+        """
         from maverick.executor.config import StepConfig
 
         await self._ensure_agent()
 
-        config = StepConfig(timeout=1800)
+        config = StepConfig(timeout=timeout_seconds)
 
         await self._executor.prompt_session(
             session_id=self._session_id,
@@ -237,7 +262,10 @@ class DecomposerActor(ActorAsyncBridge, Actor):
             "You MUST call the `submit_details` tool with your results."
         )
 
-        await self._prompt(prompt_text, "decompose_detail")
+        # Shorter timeout than outline/fix: a detail is a single work
+        # unit, so 20 minutes is generous. Hanging sessions surface as
+        # MaverickTimeoutError and the supervisor requeues them.
+        await self._prompt(prompt_text, "decompose_detail", timeout_seconds=1200)
 
     async def _send_fix_prompt(self, message):
         parts = [

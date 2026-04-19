@@ -27,6 +27,12 @@ from maverick.logging import get_logger
 
 MAX_FIX_ROUNDS = 3
 
+# A unit can time out and be requeued this many times before we give up
+# and surface it as a failure. 1 full retry is usually enough — a second
+# timeout on the same unit almost always means a systemic issue, not a
+# transient one.
+MAX_DETAIL_RETRIES = 1
+
 _SOURCE = "refuel-supervisor"
 
 logger = get_logger(__name__)
@@ -92,6 +98,8 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
             phase = message.get("phase", "")
             if phase == "briefing":
                 self._handle_briefing_error(message)
+            elif phase == "detail":
+                self._handle_detail_error(message)
             else:
                 self._handle_error(message)
             return
@@ -166,6 +174,7 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
 
         # Heartbeat / liveness state (populated in _fan_out_details).
         self._detail_dispatch_info: dict[str, dict[str, Any]] = {}
+        self._detail_retries: dict[str, int] = {}
         self._last_detail_time: float = 0.0
         self._heartbeat_active: bool = False
 
@@ -898,6 +907,77 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
                 self._start_contrarian()
             else:
                 self._briefing_complete()
+
+    def _handle_detail_error(self, message):
+        """Requeue the unit on timeout / transient error, or fail it.
+
+        The decomposer echoes ``unit_id`` in its prompt_error reply for
+        the detail phase. We decrement in-flight, clear the unit's
+        dispatch info, and either push it back onto the queue for
+        another pool actor to try or give up after ``MAX_DETAIL_RETRIES``
+        attempts. Quota errors are fatal regardless of retry count.
+        """
+        if not isinstance(message, dict):
+            return
+
+        unit_id = message.get("unit_id", "")
+        error_str = message.get("error", "unknown error")
+        is_quota = message.get("quota_exhausted", False)
+
+        # Quota exhaustion is fatal — no point retrying the same unit
+        # against a dead provider; the other pool actors will hit it too.
+        if is_quota:
+            self._handle_error(message)
+            return
+
+        # Drop in-flight bookkeeping for this unit.
+        self._detail_dispatch_info.pop(unit_id, None)
+        if getattr(self, "_detail_in_flight", 0) > 0:
+            self._detail_in_flight -= 1
+
+        attempts = self._detail_retries.get(unit_id, 0) + 1
+        self._detail_retries[unit_id] = attempts
+
+        if attempts > MAX_DETAIL_RETRIES:
+            # Give up on this unit — keep processing the rest so the
+            # operator has a failure to inspect rather than a silent
+            # hang.
+            self._pending_detail_ids.discard(unit_id)
+            self._emit_output(
+                "refuel",
+                f"Detail unit {unit_id!r} failed after {attempts} attempts: {error_str}",
+                level="error",
+                source=_SOURCE,
+                metadata={"unit_id": unit_id, "attempts": attempts},
+            )
+            # If the queue is now empty and nothing else is in flight,
+            # the remaining pending set will keep _pending_detail_ids
+            # non-empty, so continue. If we just gave up on the last
+            # unit and no more are in flight or queued, proceed to
+            # validation with what we've got.
+            if not self._pending_detail_ids:
+                self._details = {"details": self._accumulated_details}
+                self._specs = self._merge_to_specs()
+                self.send(
+                    self._validator,
+                    {"type": "validate", "specs": self._specs},
+                )
+            else:
+                self._dispatch_pending_details()
+            return
+
+        # Still within retry budget — push back onto the queue.
+        self._emit_output(
+            "refuel",
+            f"Detail unit {unit_id!r} failed (attempt {attempts}/"
+            f"{MAX_DETAIL_RETRIES + 1}), requeuing: {error_str}",
+            level="warning",
+            source=_SOURCE,
+            metadata={"unit_id": unit_id, "attempts": attempts},
+        )
+        if unit_id:
+            self._detail_queue.append(unit_id)
+        self._dispatch_pending_details()
 
     def _handle_error(self, message):
         """Report error to workflow — shutdown agents first."""

@@ -478,6 +478,17 @@ class AcpStepExecutor:
             else:
                 await coro
         except TimeoutError as exc:
+            # Send an ACP CancelNotification so the agent stops the
+            # stalled turn instead of leaving the session half-alive.
+            # The session itself remains usable for future prompts.
+            try:
+                await cached.conn.cancel(session_id)
+            except Exception as cancel_exc:
+                self._logger.debug(
+                    "acp_executor.cancel_after_timeout_failed",
+                    session_id=session_id,
+                    error=str(cancel_exc),
+                )
             raise MaverickTimeoutError(
                 f"ACP prompt on session '{session_id}' timed out after "
                 f"{effective_config.timeout}s",
