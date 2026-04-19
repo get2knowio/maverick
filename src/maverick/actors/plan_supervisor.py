@@ -16,6 +16,19 @@ from thespian.actors import Actor
 
 from maverick.actors.event_bus import SupervisorEventBusMixin
 from maverick.logging import get_logger
+from maverick.tools.supervisor_inbox.models import (
+    SubmitAnalysisPayload,
+    SubmitChallengePayload,
+    SubmitCriteriaPayload,
+    SubmitFlightPlanPayload,
+    SubmitScopePayload,
+    SupervisorToolPayloadError,
+    dump_supervisor_payload,
+    parse_supervisor_tool_payload,
+)
+from maverick.workflows.generate_flight_plan.markdown import (
+    render_flight_plan_markdown,
+)
 
 _SOURCE = "plan-supervisor"
 
@@ -125,7 +138,7 @@ class PlanSupervisorActor(SupervisorEventBusMixin, Actor):
         # State
         self._briefs = {}
         self._briefing_markdown = ""
-        self._flight_plan_data = {}
+        self._flight_plan_data = None
         self._briefing_start_times: dict[str, float] = {}
 
         self.send(sender, {"type": "init_ok"})
@@ -167,34 +180,55 @@ class PlanSupervisorActor(SupervisorEventBusMixin, Actor):
     def _handle_tool_call(self, tool, args):
         import time as _time
 
+        try:
+            payload = parse_supervisor_tool_payload(tool, args)
+        except (SupervisorToolPayloadError, ValueError) as exc:
+            self._handle_error(str(exc))
+            return
+
         # Briefing results
         if tool == "submit_scope":
-            self._briefs["scope"] = args
+            if not isinstance(payload, SubmitScopePayload):
+                self._handle_error(f"Unexpected payload for {tool}")
+                return
+            self._briefs["scope"] = payload
             elapsed = _time.monotonic() - self._briefing_start_times.get("Scopist", 0)
             self._emit_agent_completed("briefing", "Scopist", elapsed)
             self._check_briefing_complete()
 
         elif tool == "submit_analysis":
-            self._briefs["analysis"] = args
+            if not isinstance(payload, SubmitAnalysisPayload):
+                self._handle_error(f"Unexpected payload for {tool}")
+                return
+            self._briefs["analysis"] = payload
             elapsed = _time.monotonic() - self._briefing_start_times.get("Codebase Analyst", 0)
             self._emit_agent_completed("briefing", "Codebase Analyst", elapsed)
             self._check_briefing_complete()
 
         elif tool == "submit_criteria":
-            self._briefs["criteria"] = args
+            if not isinstance(payload, SubmitCriteriaPayload):
+                self._handle_error(f"Unexpected payload for {tool}")
+                return
+            self._briefs["criteria"] = payload
             elapsed = _time.monotonic() - self._briefing_start_times.get("Criteria Writer", 0)
             self._emit_agent_completed("briefing", "Criteria Writer", elapsed)
             self._check_briefing_complete()
 
         elif tool == "submit_challenge":
-            self._briefs["challenge"] = args
+            if not isinstance(payload, SubmitChallengePayload):
+                self._handle_error(f"Unexpected payload for {tool}")
+                return
+            self._briefs["challenge"] = payload
             elapsed = _time.monotonic() - self._briefing_start_times.get("Contrarian", 0)
             self._emit_agent_completed("briefing", "Contrarian", elapsed)
             self._synthesize_and_generate()
 
         elif tool == "submit_flight_plan":
-            self._flight_plan_data = args
-            sc_count = len(args.get("success_criteria", []))
+            if not isinstance(payload, SubmitFlightPlanPayload):
+                self._handle_error(f"Unexpected payload for {tool}")
+                return
+            self._flight_plan_data = payload
+            sc_count = len(payload.success_criteria)
             self._emit_output(
                 "plan",
                 f"Flight plan generated ({sc_count} success criteria); validating",
@@ -228,11 +262,24 @@ class PlanSupervisorActor(SupervisorEventBusMixin, Actor):
         )
         self._briefing_start_times["Contrarian"] = _time.monotonic()
 
-        # Build contrarian prompt manually since the briefs are raw
-        # dicts (from MCP tool calls), not Pydantic models.
-        scope_json = json.dumps(self._briefs.get("scope", {}), indent=2)
-        analysis_json = json.dumps(self._briefs.get("analysis", {}), indent=2)
-        criteria_json = json.dumps(self._briefs.get("criteria", {}), indent=2)
+        scope_json = json.dumps(
+            dump_supervisor_payload(self._briefs.get("scope"))
+            if self._briefs.get("scope")
+            else {},
+            indent=2,
+        )
+        analysis_json = json.dumps(
+            dump_supervisor_payload(self._briefs.get("analysis"))
+            if self._briefs.get("analysis")
+            else {},
+            indent=2,
+        )
+        criteria_json = json.dumps(
+            dump_supervisor_payload(self._briefs.get("criteria"))
+            if self._briefs.get("criteria")
+            else {},
+            indent=2,
+        )
 
         prompt = (
             f"## PRD Content\n\n{self._prd_content}\n\n"
@@ -257,10 +304,24 @@ class PlanSupervisorActor(SupervisorEventBusMixin, Actor):
 
         self._briefing_markdown = serialize_briefs_to_markdown(
             self._plan_name,
-            scope=self._briefs.get("scope"),
-            analysis=self._briefs.get("analysis"),
-            criteria=self._briefs.get("criteria"),
-            challenge=self._briefs.get("challenge"),
+            scope=(
+                dump_supervisor_payload(self._briefs["scope"]) if "scope" in self._briefs else None
+            ),
+            analysis=(
+                dump_supervisor_payload(self._briefs["analysis"])
+                if "analysis" in self._briefs
+                else None
+            ),
+            criteria=(
+                dump_supervisor_payload(self._briefs["criteria"])
+                if "criteria" in self._briefs
+                else None
+            ),
+            challenge=(
+                dump_supervisor_payload(self._briefs["challenge"])
+                if "challenge" in self._briefs
+                else None
+            ),
         )
 
         self._send_to_generator()
@@ -282,11 +343,16 @@ class PlanSupervisorActor(SupervisorEventBusMixin, Actor):
 
     def _send_to_validator(self):
         """Send flight plan to validator."""
+        if self._flight_plan_data is None:
+            self._handle_error("Generator did not submit a flight plan payload")
+            return
         self.send(
             self._validator,
             {
                 "type": "validate",
-                "flight_plan": self._flight_plan_data,
+                "flight_plan": dump_supervisor_payload(self._flight_plan_data),
+                "plan_name": self._plan_name,
+                "prd_content": self._prd_content,
             },
         )
 
@@ -295,6 +361,10 @@ class PlanSupervisorActor(SupervisorEventBusMixin, Actor):
     # ------------------------------------------------------------------
 
     def _handle_validation(self, message):
+        if self._flight_plan_data is None:
+            self._handle_error("Validation ran without a flight plan payload")
+            return
+
         passed = message.get("passed", False)
         if not passed:
             warnings = message.get("warnings", [])
@@ -313,73 +383,11 @@ class PlanSupervisorActor(SupervisorEventBusMixin, Actor):
                 source=_SOURCE,
             )
         # Write regardless — validation is non-blocking for plan
-        # Format flight plan data as markdown with YAML frontmatter
-        from datetime import date
-
-        fp = self._flight_plan_data
-        sc_list = fp.get("success_criteria", [])
-
-        # Default objective from PRD first line if agent didn't provide one
-        default_objective = self._prd_content.split("\n")[0].lstrip("#").strip()[:200]
-        frontmatter = {
-            "name": self._plan_name,
-            "version": "1",
-            "created": str(date.today()),
-            "objective": fp.get("objective") or default_objective,
-            "tags": fp.get("tags", []),
-            "scope": fp.get(
-                "scope",
-                {
-                    "in_scope": fp.get("in_scope", []),
-                    "out_of_scope": fp.get("out_of_scope", []),
-                    "boundaries": fp.get("boundaries", []),
-                },
-            ),
-        }
-
-        import yaml as _yaml
-
-        fm_str = _yaml.dump(frontmatter, default_flow_style=False, sort_keys=False)
-
-        objective = fp.get("objective") or default_objective
-
-        body_parts = [f"# {self._plan_name}\n"]
-
-        # Objective — required by parser
-        body_parts.append(f"## Objective\n\n{objective}\n")
-
-        if fp.get("context"):
-            body_parts.append(f"## Context\n\n{fp['context']}\n")
-
-        # Success Criteria — parser expects checkbox format
-        body_parts.append("## Success Criteria\n")
-        for sc in sc_list:
-            if isinstance(sc, dict):
-                desc = sc.get("description", str(sc))
-            else:
-                desc = str(sc)
-            body_parts.append(f"- [ ] {desc}")
-
-        # Scope — parser expects ## Scope with ### In / ### Out
-        in_scope = fp.get("in_scope", [])
-        out_of_scope = fp.get("out_of_scope", [])
-        if in_scope or out_of_scope:
-            body_parts.append("\n## Scope\n")
-            if in_scope:
-                body_parts.append("### In\n")
-                for item in in_scope:
-                    body_parts.append(f"- {item}")
-            if out_of_scope:
-                body_parts.append("\n### Out\n")
-                for item in out_of_scope:
-                    body_parts.append(f"- {item}")
-
-        if fp.get("constraints"):
-            body_parts.append("\n## Constraints\n")
-            for item in fp["constraints"]:
-                body_parts.append(f"- {item}")
-
-        flight_plan_md = f"---\n{fm_str}---\n\n" + "\n".join(body_parts) + "\n"
+        flight_plan_md = render_flight_plan_markdown(
+            plan_name=self._plan_name,
+            prd_content=self._prd_content,
+            flight_plan=self._flight_plan_data,
+        )
 
         self.send(
             self._writer,
@@ -403,7 +411,7 @@ class PlanSupervisorActor(SupervisorEventBusMixin, Actor):
             if addr:
                 self.send(addr, {"type": "shutdown"})
 
-        sc_count = len(self._flight_plan_data.get("success_criteria", []))
+        sc_count = len(self._flight_plan_data.success_criteria) if self._flight_plan_data else 0
         self._emit_output(
             "plan",
             f"Flight plan written ({sc_count} success criteria)",

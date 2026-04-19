@@ -71,8 +71,10 @@ You have access to: **Read, Glob, Grep**
 
 ## Output Format
 
-You MUST produce valid JSON matching the output schema exactly. Every field
-is required. Do not include markdown formatting or code fences in your output.
+When the caller provides an MCP tool for structured output, call that tool and
+follow its schema. Otherwise, return a single JSON object matching the caller's
+requested contract. Every required field must be present, and you must not add
+explanatory prose before or after the structured output.
 
 ## Quality Guidelines
 
@@ -110,17 +112,17 @@ is required. Do not include markdown formatting or code fences in your output.
 class FlightPlanGeneratorAgent(MaverickAgent[str, dict[str, Any]]):
     """Agent that converts a PRD into a structured flight plan.
 
-    Uses Read, Glob, and Grep tools to explore the codebase and produce
-    a comprehensive flight plan from a PRD prompt.
+      Uses Read, Glob, and Grep tools to explore the codebase and produce
+      a comprehensive flight plan from a PRD prompt.
 
-    Uses a three-tier output extraction strategy:
-    1. SDK structured output (``output_format`` enforcement)
-    2. ``validate_output()`` fallback (JSON code-block extraction)
-    3. Raise AgentError (structured output is required)
+    Canonical runtime path: actor-mailbox sessions that deliver structured
+    results through ``submit_flight_plan``. This registry agent also remains
+    compatible with plain text-response execution when a caller intentionally
+    uses ``output_schema``.
 
-    Type Parameters:
-        Context: str — the full prompt text including PRD content
-        Result: dict[str, Any] — structured output matching FlightPlanOutput
+      Type Parameters:
+          Context: str — the full prompt text including PRD content
+          Result: dict[str, Any] — structured output matching FlightPlanOutput
     """
 
     def __init__(

@@ -16,10 +16,20 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from maverick.logging import get_logger
+from maverick.tools.supervisor_inbox.models import (
+    SubmitChallengePayload,
+    SubmitFlightPlanPayload,
+    SupervisorInboxPayload,
+    dump_supervisor_payload,
+    parse_supervisor_tool_payload,
+)
 from maverick.workflows.fly_beads.actors.protocol import (
     Actor,
     Message,
     MessageType,
+)
+from maverick.workflows.generate_flight_plan.markdown import (
+    render_flight_plan_markdown,
 )
 
 logger = get_logger(__name__)
@@ -65,9 +75,9 @@ class PlanSupervisor:
         self._sequence: int = 0
 
         # Collected briefing results
-        self._briefs: dict[str, dict[str, Any]] = {}
+        self._briefs: dict[str, SupervisorInboxPayload] = {}
         self._briefing_markdown: str = ""
-        self._flight_plan_data: dict[str, Any] = {}
+        self._flight_plan_data: SubmitFlightPlanPayload | None = None
 
     async def process(self) -> PlanOutcome:
         """Main supervisor loop."""
@@ -107,7 +117,9 @@ class PlanSupervisor:
             success=True,
             flight_plan_path=result.get("flight_plan_path", ""),
             briefing_path=result.get("briefing_path"),
-            success_criteria_count=len(self._flight_plan_data.get("success_criteria", [])),
+            success_criteria_count=(
+                len(self._flight_plan_data.success_criteria) if self._flight_plan_data else 0
+            ),
             validation_passed=True,
             message_log=list(self._message_log),
             duration_seconds=elapsed,
@@ -144,7 +156,15 @@ class PlanSupervisor:
                 for r in responses:
                     r = self._stamp(r)
                     self._message_log.append(r)
-                    self._briefs[agent_name] = r.payload
+                    tool_name = {
+                        "scopist": "submit_scope",
+                        "codebase_analyst": "submit_analysis",
+                        "criteria_writer": "submit_criteria",
+                    }[agent_name]
+                    self._briefs[agent_name] = parse_supervisor_tool_payload(
+                        tool_name,
+                        r.payload,
+                    )
             except Exception as exc:
                 logger.warning(
                     "plan_supervisor.briefing_agent_failed",
@@ -169,9 +189,21 @@ class PlanSupervisor:
 
         prompt = build_preflight_contrarian_prompt(
             self._prd_content,
-            self._briefs.get("scopist") or {},
-            self._briefs.get("codebase_analyst") or {},
-            self._briefs.get("criteria_writer") or {},
+            (
+                dump_supervisor_payload(self._briefs["scopist"])
+                if "scopist" in self._briefs
+                else {}
+            ),
+            (
+                dump_supervisor_payload(self._briefs["codebase_analyst"])
+                if "codebase_analyst" in self._briefs
+                else {}
+            ),
+            (
+                dump_supervisor_payload(self._briefs["criteria_writer"])
+                if "criteria_writer" in self._briefs
+                else {}
+            ),
         )
 
         msg = self._make_message(
@@ -186,7 +218,9 @@ class PlanSupervisor:
         for r in responses:
             r = self._stamp(r)
             self._message_log.append(r)
-            self._briefs["contrarian"] = r.payload
+            parsed = parse_supervisor_tool_payload("submit_challenge", r.payload)
+            if isinstance(parsed, SubmitChallengePayload):
+                self._briefs["contrarian"] = parsed
 
     async def _run_synthesis(self) -> None:
         """Deterministic: merge 4 briefs into briefing document."""
@@ -199,10 +233,26 @@ class PlanSupervisor:
             sender="supervisor",
             recipient="synthesis",
             payload={
-                "scopist": self._briefs.get("scopist"),
-                "analyst": self._briefs.get("codebase_analyst"),
-                "criteria": self._briefs.get("criteria_writer"),
-                "contrarian": self._briefs.get("contrarian"),
+                "scopist": (
+                    dump_supervisor_payload(self._briefs["scopist"])
+                    if "scopist" in self._briefs
+                    else None
+                ),
+                "analyst": (
+                    dump_supervisor_payload(self._briefs["codebase_analyst"])
+                    if "codebase_analyst" in self._briefs
+                    else None
+                ),
+                "criteria": (
+                    dump_supervisor_payload(self._briefs["criteria_writer"])
+                    if "criteria_writer" in self._briefs
+                    else None
+                ),
+                "contrarian": (
+                    dump_supervisor_payload(self._briefs["contrarian"])
+                    if "contrarian" in self._briefs
+                    else None
+                ),
             },
         )
         self._message_log.append(msg)
@@ -237,19 +287,25 @@ class PlanSupervisor:
         for r in responses:
             r = self._stamp(r)
             self._message_log.append(r)
-            self._flight_plan_data = r.payload
+            parsed = parse_supervisor_tool_payload("submit_flight_plan", r.payload)
+            if isinstance(parsed, SubmitFlightPlanPayload):
+                self._flight_plan_data = parsed
 
     async def _run_validation(self) -> None:
         """Validate the flight plan."""
         validator = self._actors.get("plan_validator")
-        if validator is None:
+        if validator is None or self._flight_plan_data is None:
             return
 
         msg = self._make_message(
             MessageType.VALIDATE_PLAN_REQUEST,
             sender="supervisor",
             recipient="plan_validator",
-            payload={"flight_plan": self._flight_plan_data},
+            payload={
+                "flight_plan": dump_supervisor_payload(self._flight_plan_data),
+                "plan_name": self._plan_name,
+                "prd_content": self._prd_content,
+            },
         )
         self._message_log.append(msg)
 
@@ -269,7 +325,15 @@ class PlanSupervisor:
             sender="supervisor",
             recipient="plan_writer",
             payload={
-                "flight_plan_markdown": str(self._flight_plan_data),
+                "flight_plan_markdown": (
+                    render_flight_plan_markdown(
+                        plan_name=self._plan_name,
+                        prd_content=self._prd_content,
+                        flight_plan=self._flight_plan_data,
+                    )
+                    if self._flight_plan_data is not None
+                    else ""
+                ),
                 "briefing_markdown": self._briefing_markdown,
                 "plan_name": self._plan_name,
             },

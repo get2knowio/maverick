@@ -261,11 +261,21 @@ class MaverickAcpClient(Client):
         Raises:
             NotImplementedError: If permission_mode is INTERACTIVE.
         """
+        tool_name = (tool_call.title if hasattr(tool_call, "title") else "") or ""
+
+        if not self._is_allowlisted_tool(tool_name):
+            logger.info(
+                "acp_client.permission_denied",
+                tool=tool_name,
+                mode=self._permission_mode.value,
+                reason="not_allowlisted",
+            )
+            return _make_deny_response()
+
         if self._permission_mode == PermissionMode.AUTO_APPROVE:
             return _make_allow_response(options)
 
         elif self._permission_mode == PermissionMode.DENY_DANGEROUS:
-            tool_name = (tool_call.title if hasattr(tool_call, "title") else "") or ""
             if self._is_dangerous_tool(tool_name):
                 logger.info(
                     "acp_client.permission_denied",
@@ -281,13 +291,16 @@ class MaverickAcpClient(Client):
                 "Use AUTO_APPROVE or DENY_DANGEROUS."
             )
 
+    def _is_allowlisted_tool(self, tool_name: str) -> bool:
+        """Check whether a tool is permitted by the explicit allowlist."""
+        return self._allowed_tools is None or tool_name in self._allowed_tools
+
     def _is_dangerous_tool(self, tool_name: str) -> bool:
         """Check if a tool should be denied in deny_dangerous mode.
 
         Evaluation order:
         1. If the tool is in _SAFE_TOOL_PATTERNS, it is always allowed.
         2. If the tool is in _DANGEROUS_TOOL_PATTERNS, it is always denied.
-        3. If allowed_tools is set and the tool is not in it, it is denied.
 
         Args:
             tool_name: Tool name to check.
@@ -297,9 +310,7 @@ class MaverickAcpClient(Client):
         """
         if tool_name in _SAFE_TOOL_PATTERNS:
             return False  # Always safe
-        return tool_name in _DANGEROUS_TOOL_PATTERNS or (
-            self._allowed_tools is not None and tool_name not in self._allowed_tools
-        )
+        return tool_name in _DANGEROUS_TOOL_PATTERNS
 
 
 def _extract_text_content(content: Any) -> str:

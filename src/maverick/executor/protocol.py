@@ -67,9 +67,10 @@ class StepExecutor(Protocol):
             allowed_tools: Optional tool list override. None = use agent defaults.
             cwd: Working directory for file-system operations. None = cwd of
                 caller (not recommended; always pass explicit cwd in workspaces).
-            output_schema: Optional Pydantic BaseModel subclass. When provided,
-                agent output is validated and ExecutorResult.output contains a
-                validated instance on success.
+            output_schema: Optional Pydantic BaseModel subclass for plain
+                text-response steps. When provided, agent output is validated
+                and ExecutorResult.output contains a validated instance on
+                success. Do not use this for MCP tool/mailbox responses.
             config: Execution configuration (timeout, retry, model overrides).
                 None = use DEFAULT_EXECUTOR_CONFIG.
             event_callback: Async callback for streaming events. When provided,
@@ -79,7 +80,8 @@ class StepExecutor(Protocol):
             ExecutorResult with output, success status, usage, and events.
 
         Raises:
-            OutputSchemaValidationError: Agent output failed output_schema validation.
+            OutputSchemaValidationError: Plain text agent output failed
+                output_schema validation.
             ReferenceResolutionError: Agent not found in provider registry.
             AgentError: Agent execution failed (wraps provider-specific errors).
         """

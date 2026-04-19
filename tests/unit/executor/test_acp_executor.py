@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -329,6 +330,71 @@ class TestInstructionsPrepended:
         combined = " ".join(captured_prompts)
         assert "[SYSTEM INSTRUCTIONS]" not in combined
         assert "raw prompt only" in combined
+
+
+@pytest.mark.asyncio
+class TestPromptSessionOutputContracts:
+    """prompt_session keeps MCP tool contracts separate from output_schema."""
+
+    async def test_prompt_session_rejects_output_schema_for_mcp_tool_sessions(self) -> None:
+        """MCP tool-backed sessions must not add a competing output_schema contract."""
+        executor = _make_executor()
+        mock_conn, mock_proc = _mock_spawn_context()
+
+        with patch("maverick.executor._connection_pool.spawn_agent_process") as mock_spawn:
+            mock_spawn.return_value = _FakeAsyncContextManager(mock_conn, mock_proc)
+
+            session_id = await executor.create_session(
+                step_name="mailbox",
+                agent_name="test_agent",
+                mcp_servers=[
+                    SimpleNamespace(
+                        name="supervisor-inbox",
+                        args=["serve-inbox", "--tools", "submit_outline"],
+                    )
+                ],
+            )
+
+            with pytest.raises(AgentError, match="output_schema is incompatible"):
+                await executor.prompt_session(
+                    session_id=session_id,
+                    prompt_text="ignored",
+                    step_name="mailbox",
+                    agent_name="test_agent",
+                    output_schema=_SampleOutput,
+                )
+
+        mock_conn.prompt.assert_not_awaited()
+
+    async def test_prompt_session_allows_output_schema_for_plain_text_sessions(self) -> None:
+        """Plain text sessions still support output_schema extraction."""
+        executor = _make_executor()
+        mock_conn, mock_proc = _mock_spawn_context()
+
+        with patch("maverick.executor._connection_pool.spawn_agent_process") as mock_spawn:
+            mock_spawn.return_value = _FakeAsyncContextManager(mock_conn, mock_proc)
+
+            session_id = await executor.create_session(
+                step_name="plain_session",
+                agent_name="test_agent",
+            )
+
+            with patch.object(
+                MaverickAcpClient,
+                "get_accumulated_text",
+                return_value='{"message": "hello", "count": 3}',
+            ):
+                result = await executor.prompt_session(
+                    session_id=session_id,
+                    prompt_text="respond with JSON",
+                    step_name="plain_session",
+                    agent_name="test_agent",
+                    output_schema=_SampleOutput,
+                )
+
+        assert isinstance(result.output, _SampleOutput)
+        assert result.output.message == "hello"
+        assert result.output.count == 3
 
 
 # ---------------------------------------------------------------------------

@@ -551,6 +551,7 @@ async def execute_python_workflow(
             config=config,
             registry=registry,
             checkpoint_store=checkpoint_store,
+            workflow_name=workflow_name,
         )
 
         if run_config.restart:

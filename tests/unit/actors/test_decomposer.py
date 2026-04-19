@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock
 
-from maverick.actors.decomposer import DecomposerActor
+import maverick.actors.decomposer as decomposer_module
 
 
-def _make_actor() -> DecomposerActor:
-    actor = object.__new__(DecomposerActor)
+def _make_actor() -> decomposer_module.DecomposerActor:
+    actor = object.__new__(decomposer_module.DecomposerActor)
     actor._handle_actor_exit = MagicMock(return_value=False)
     actor._run_async = MagicMock()
     actor.send = MagicMock()
@@ -178,3 +178,43 @@ class TestDecomposerPromptComposition:
         assert "## Current Details" in prompt_text
         assert "## Fix Request" in prompt_text
         assert actor._fix_seed_stale is False
+
+
+class TestDecomposerSessionPermissions:
+    """Tests for ACP session tool restrictions."""
+
+    async def test_primary_session_passes_read_only_and_mcp_tools(self) -> None:
+        actor = _make_actor()
+        actor._cwd = "/tmp"
+        actor._role = "primary"
+        actor._admin_port = 19500
+        actor._mcp_tool_names = decomposer_module.PRIMARY_DECOMPOSER_MCP_TOOLS
+        actor._mcp_tools = ",".join(decomposer_module.PRIMARY_DECOMPOSER_MCP_TOOLS)
+        actor._ensure_executor = AsyncMock()
+        actor._executor = MagicMock()
+        actor._executor.create_session = AsyncMock(return_value="sess-1")
+
+        await actor._create_session()
+
+        create_kwargs = actor._executor.create_session.await_args.kwargs
+        assert set(create_kwargs["allowed_tools"]) == set(
+            decomposer_module.READ_ONLY_DECOMPOSER_TOOLS
+        ) | set(decomposer_module.PRIMARY_DECOMPOSER_MCP_TOOLS)
+
+    async def test_pool_session_limits_mcp_tools_to_details(self) -> None:
+        actor = _make_actor()
+        actor._cwd = "/tmp"
+        actor._role = "pool"
+        actor._admin_port = 19500
+        actor._mcp_tool_names = decomposer_module.POOL_DECOMPOSER_MCP_TOOLS
+        actor._mcp_tools = ",".join(decomposer_module.POOL_DECOMPOSER_MCP_TOOLS)
+        actor._ensure_executor = AsyncMock()
+        actor._executor = MagicMock()
+        actor._executor.create_session = AsyncMock(return_value="sess-2")
+
+        await actor._create_session()
+
+        create_kwargs = actor._executor.create_session.await_args.kwargs
+        assert set(create_kwargs["allowed_tools"]) == set(
+            decomposer_module.READ_ONLY_DECOMPOSER_TOOLS
+        ) | set(decomposer_module.POOL_DECOMPOSER_MCP_TOOLS)

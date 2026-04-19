@@ -306,7 +306,7 @@ Requires the `mcp` Python SDK (v1.27.0+) for the server side. The ACP SDK alread
 
 This design evolves the actor-mailbox architecture already implemented in fly and refuel:
 
-- **What stays**: Actor protocol, Message/MessageType, BeadSupervisor routing policy, persistent ACP sessions, fly reports, deterministic actors
+- **What stays**: Actor protocol, Message/MessageType, supervisor routing policy, persistent ACP sessions, fly reports, deterministic actors
 - **What changes**: Agent actors stop producing JSON in text/files and instead call MCP tools. The supervisor's inbox becomes the MCP server. The coercion layer in the refuel supervisor becomes unnecessary.
 - **What's eliminated**: `output_schema` on prompts, `output_file_path` pattern, text JSON extraction, schema coercion layer, all the `MalformedResponseError` retry machinery for structured output
 

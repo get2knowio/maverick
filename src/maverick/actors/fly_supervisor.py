@@ -11,29 +11,42 @@ marks itself done. The terminal result rides on the final
 ``done=True`` reply — see ``SupervisorEventBusMixin``.
 """
 
-import asyncio
 from datetime import timedelta
 from pathlib import Path
 
 from thespian.actors import Actor, WakeupMessage
 
+from maverick.actors._bridge import ActorAsyncBridge
 from maverick.actors.event_bus import SupervisorEventBusMixin
 from maverick.logging import get_logger
+from maverick.tools.supervisor_inbox.models import (
+    SubmitFixResultPayload,
+    SubmitImplementationPayload,
+    SubmitReviewPayload,
+    SupervisorToolPayloadError,
+    dump_supervisor_payload,
+    parse_supervisor_tool_payload,
+)
 
 MAX_REVIEW_ROUNDS = 3
 MAX_GATE_FIX_ATTEMPTS = 2
 MAX_SPEC_FIX_ATTEMPTS = 2
 MAX_BEAD_EVENTS = 500
+BEAD_SELECTION_TIMEOUT_SECONDS = 60.0
+RUNWAY_RECORD_TIMEOUT_SECONDS = 30.0
+HUMAN_ESCALATION_TIMEOUT_SECONDS = 60.0
 
 _SOURCE = "fly-supervisor"
 
 logger = get_logger(__name__)
 
 
-class FlySupervisorActor(SupervisorEventBusMixin, Actor):
+class FlySupervisorActor(SupervisorEventBusMixin, ActorAsyncBridge, Actor):
     """Orchestrates the full fly bead loop."""
 
     def receiveMessage(self, message, sender):
+        if self._handle_actor_exit(message):
+            return
         logger.debug(
             "fly_supervisor.received",
             msg_type=type(message).__name__,
@@ -98,6 +111,7 @@ class FlySupervisorActor(SupervisorEventBusMixin, Actor):
                         "success": False,
                         "error": clean_msg,
                         "beads_completed": len(self._completed_beads),
+                        "beads_failed": 0,
                         "completed_bead_ids": self._completed_beads,
                     }
                 )
@@ -148,6 +162,7 @@ class FlySupervisorActor(SupervisorEventBusMixin, Actor):
         self._watch_mode = message.get("watch", False)
         self._watch_interval = message.get("watch_interval", 30)
         self._max_idle_polls = message.get("max_idle_polls", 60)  # 30min at 30s
+        self._max_beads = int(message.get("max_beads", 30))
 
         # Actor addresses
         self._implementer = message.get("implementer_addr")
@@ -158,8 +173,8 @@ class FlySupervisorActor(SupervisorEventBusMixin, Actor):
         self._committer = message.get("committer_addr")
 
         # State
-        self._completed_beads = []
-        self._completed_titles = []
+        self._completed_beads = list(message.get("completed_bead_ids", []))
+        self._completed_titles = list(message.get("completed_titles", []))
         self._bead_events = []
         self._current_bead = None
         self._current_work_unit_md = ""
@@ -172,6 +187,7 @@ class FlySupervisorActor(SupervisorEventBusMixin, Actor):
         self._in_aggregate_review = False
         self._idle_polls = 0
         self._work_units_cache: dict[str, dict[str, str]] = {}
+        self._start_async_bridge()
 
         self.send(sender, {"type": "init_ok"})
 
@@ -182,7 +198,10 @@ class FlySupervisorActor(SupervisorEventBusMixin, Actor):
     def _next_bead(self):
         """Select and process the next bead."""
         try:
-            select_result = asyncio.run(self._select_next_bead())
+            select_result = self._run_coro(
+                self._select_next_bead(),
+                timeout=BEAD_SELECTION_TIMEOUT_SECONDS,
+            )
         except Exception as exc:
             self._emit_output(
                 "fly",
@@ -393,7 +412,16 @@ class FlySupervisorActor(SupervisorEventBusMixin, Actor):
         tool = message.get("tool", "")
         args = message.get("arguments", {})
 
+        try:
+            payload = parse_supervisor_tool_payload(tool, args)
+        except (SupervisorToolPayloadError, ValueError) as exc:
+            self._handle_payload_error(str(exc))
+            return
+
         if tool == "submit_implementation":
+            if not isinstance(payload, SubmitImplementationPayload):
+                self._handle_payload_error(f"Unexpected payload for {tool}")
+                return
             self._emit_output(
                 "fly",
                 "Implementation submitted; running gate",
@@ -409,6 +437,9 @@ class FlySupervisorActor(SupervisorEventBusMixin, Actor):
             )
 
         elif tool == "submit_fix_result":
+            if not isinstance(payload, SubmitFixResultPayload):
+                self._handle_payload_error(f"Unexpected payload for {tool}")
+                return
             self._emit_output(
                 "fly",
                 "Fix submitted; re-running gate",
@@ -424,9 +455,12 @@ class FlySupervisorActor(SupervisorEventBusMixin, Actor):
             )
 
         elif tool == "submit_review":
+            if not isinstance(payload, SubmitReviewPayload):
+                self._handle_payload_error(f"Unexpected payload for {tool}")
+                return
             # Route differently if this is the aggregate review
             if self._in_aggregate_review:
-                findings = args.get("findings", [])
+                findings = list(payload.findings)
                 self._emit_output(
                     "fly",
                     f"Aggregate review submitted ({len(findings)} findings)",
@@ -436,13 +470,13 @@ class FlySupervisorActor(SupervisorEventBusMixin, Actor):
                 )
                 self._handle_aggregate_review_complete(
                     {
-                        "findings": findings,
+                        "findings": [dump_supervisor_payload(finding) for finding in findings],
                     }
                 )
                 return
 
-            approved = args.get("approved", True)
-            findings = args.get("findings", [])
+            approved = payload.approved
+            findings = list(payload.findings)
             self._last_review_findings = findings
             if approved:
                 self._emit_output(
@@ -454,12 +488,12 @@ class FlySupervisorActor(SupervisorEventBusMixin, Actor):
             else:
                 self._emit_output(
                     "fly",
-                    f"Review found {len(findings)} finding(s) "
+                    f"Review found {payload.effective_findings_count} finding(s) "
                     f"(round {self._review_rounds + 1}/{MAX_REVIEW_ROUNDS})",
                     level="warning",
                     source=_SOURCE,
                     metadata={
-                        "finding_count": len(findings),
+                        "finding_count": payload.effective_findings_count,
                         "review_round": self._review_rounds + 1,
                     },
                 )
@@ -472,9 +506,9 @@ class FlySupervisorActor(SupervisorEventBusMixin, Actor):
                 # Send findings to implementer for fix
                 prompt = "Please fix the following review findings:\n\n"
                 for f in findings:
-                    severity = f.get("severity", "major")
-                    issue = f.get("issue", "")
-                    file = f.get("file", "")
+                    severity = f.severity
+                    issue = f.issue
+                    file = f.file
                     prompt += f"- **{severity}** `{file}`: {issue}\n"
 
                 self.send(
@@ -487,7 +521,7 @@ class FlySupervisorActor(SupervisorEventBusMixin, Actor):
             else:
                 self._escalate_to_human(
                     "Review rounds exhausted",
-                    [f.get("issue", "") for f in findings],
+                    [f.issue for f in findings],
                 )
 
     def _handle_gate_result(self, message):
@@ -672,6 +706,16 @@ class FlySupervisorActor(SupervisorEventBusMixin, Actor):
                 "total_completed": len(self._completed_beads),
             },
         )
+        if len(self._completed_beads) >= self._max_beads:
+            self._emit_output(
+                "fly",
+                f"Reached max bead limit ({self._max_beads}); stopping bead loop",
+                level="info",
+                source=_SOURCE,
+            )
+            self._complete()
+            return
+
         # Next bead
         self._next_bead()
 
@@ -771,10 +815,33 @@ class FlySupervisorActor(SupervisorEventBusMixin, Actor):
             {
                 "success": True,
                 "beads_completed": len(self._completed_beads),
+                "beads_failed": 0,
                 "completed_bead_ids": self._completed_beads,
                 "bead_events": self._bead_events,
                 "aggregate_review": aggregate,
                 "needs_human_review": has_concerns,
+            }
+        )
+
+    def _handle_payload_error(self, error_str: str) -> None:
+        """Abort the fly loop on an unexpected mailbox payload shape."""
+        self._emit_output(
+            "fly",
+            f"Mailbox payload error: {error_str}",
+            level="error",
+            source=_SOURCE,
+        )
+        if self._implementer:
+            self.send(self._implementer, {"type": "shutdown"})
+        if self._reviewer:
+            self.send(self._reviewer, {"type": "shutdown"})
+        self._mark_done(
+            {
+                "success": False,
+                "error": error_str,
+                "beads_completed": len(self._completed_beads),
+                "beads_failed": 1,
+                "completed_bead_ids": self._completed_beads,
             }
         )
 
@@ -785,7 +852,10 @@ class FlySupervisorActor(SupervisorEventBusMixin, Actor):
     def _record_bead_outcome(self, commit_result):
         """Record bead outcome to runway store."""
         try:
-            asyncio.run(self._async_record_outcome(commit_result))
+            self._run_coro(
+                self._async_record_outcome(commit_result),
+                timeout=RUNWAY_RECORD_TIMEOUT_SECONDS,
+            )
         except Exception as exc:
             logger.warning("fly_supervisor.runway_record_failed", error=str(exc))
 
@@ -806,9 +876,7 @@ class FlySupervisorActor(SupervisorEventBusMixin, Actor):
             validation_result={"passed": True},
             review_result=review_result,
             mistakes_caught=[
-                f.get("issue", "")
-                for f in self._last_review_findings
-                if f.get("severity") in ("critical", "major")
+                f.issue for f in self._last_review_findings if f.severity in ("critical", "major")
             ]
             or None,
             cwd=self._cwd,
@@ -819,7 +887,10 @@ class FlySupervisorActor(SupervisorEventBusMixin, Actor):
         if not findings:
             return
         try:
-            asyncio.run(self._async_record_review(findings))
+            self._run_coro(
+                self._async_record_review(findings),
+                timeout=RUNWAY_RECORD_TIMEOUT_SECONDS,
+            )
         except Exception as exc:
             logger.warning("fly_supervisor.runway_review_record_failed", error=str(exc))
 
@@ -829,10 +900,10 @@ class FlySupervisorActor(SupervisorEventBusMixin, Actor):
         review_result = {
             "findings": [
                 {
-                    "severity": f.get("severity", "major"),
+                    "severity": f.severity,
                     "category": "code_review",
-                    "file_path": f.get("file", ""),
-                    "description": f.get("issue", ""),
+                    "file_path": f.file,
+                    "description": f.issue,
                 }
                 for f in findings
             ],
@@ -850,7 +921,10 @@ class FlySupervisorActor(SupervisorEventBusMixin, Actor):
     def _escalate_to_human(self, reason, findings=None):
         """Create a human-assigned review bead and commit optimistically."""
         try:
-            asyncio.run(self._async_create_human_bead(reason, findings))
+            self._run_coro(
+                self._async_create_human_bead(reason, findings),
+                timeout=HUMAN_ESCALATION_TIMEOUT_SECONDS,
+            )
         except Exception as exc:
             self._emit_output(
                 "fly",

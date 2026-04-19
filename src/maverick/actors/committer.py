@@ -1,14 +1,18 @@
 """CommitActor — Thespian actor for jj commit and bead completion."""
 
-import asyncio
-
 from thespian.actors import Actor
 
+from maverick.actors._bridge import ActorAsyncBridge
 
-class CommitActor(Actor):
+COMMIT_TIMEOUT_SECONDS = 300.0
+
+
+class CommitActor(ActorAsyncBridge, Actor):
     """Deterministic commit via jj + bead status update."""
 
     def receiveMessage(self, message, sender):
+        if self._handle_actor_exit(message):
+            return
         if not isinstance(message, dict):
             return
 
@@ -19,7 +23,10 @@ class CommitActor(Actor):
             tag = message.get("tag")
 
             try:
-                result = asyncio.run(self._do_commit(bead_id, title, cwd, tag))
+                result = self._run_coro(
+                    self._do_commit(bead_id, title, cwd, tag),
+                    timeout=COMMIT_TIMEOUT_SECONDS,
+                )
                 self.send(sender, {"type": "commit_result", **result})
             except Exception as exc:
                 self.send(

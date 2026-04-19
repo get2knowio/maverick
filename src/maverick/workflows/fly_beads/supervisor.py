@@ -16,6 +16,13 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from maverick.logging import get_logger
+from maverick.tools.supervisor_inbox.models import (
+    SubmitFixResultPayload,
+    SubmitImplementationPayload,
+    SubmitReviewPayload,
+    dump_supervisor_payload,
+    parse_supervisor_tool_payload,
+)
 from maverick.workflows.fly_beads.actors.protocol import (
     Actor,
     Message,
@@ -181,6 +188,11 @@ class BeadSupervisor:
         """
         match message.msg_type:
             case MessageType.IMPLEMENT_RESULT:
+                if not isinstance(
+                    parse_supervisor_tool_payload("submit_implementation", message.payload),
+                    SubmitImplementationPayload,
+                ):
+                    raise ValueError("Unexpected implementation payload type")
                 # Implementation done → run gate
                 return [
                     self._make_message(
@@ -294,9 +306,12 @@ class BeadSupervisor:
                     ]
 
             case MessageType.REVIEW_RESULT:
-                approved = message.payload.get("approved", False)
-                findings_count = message.payload.get("findings_count", 0)
-                self._findings_trajectory.append(findings_count)
+                parsed = parse_supervisor_tool_payload("submit_review", message.payload)
+                if not isinstance(parsed, SubmitReviewPayload):
+                    raise ValueError("Unexpected review payload type")
+
+                approved = parsed.approved
+                self._findings_trajectory.append(parsed.effective_findings_count)
 
                 if approved:
                     # Reviewer approved → commit
@@ -316,7 +331,10 @@ class BeadSupervisor:
                             sender="supervisor",
                             recipient="implementer",
                             payload={
-                                "review_findings": message.payload.get("findings", []),
+                                "review_findings": dump_supervisor_payload(parsed).get(
+                                    "findings",
+                                    [],
+                                ),
                             },
                             in_reply_to=message.sequence,
                         )
@@ -339,6 +357,11 @@ class BeadSupervisor:
                     ]
 
             case MessageType.FIX_RESULT:
+                if not isinstance(
+                    parse_supervisor_tool_payload("submit_fix_result", message.payload),
+                    SubmitFixResultPayload,
+                ):
+                    raise ValueError("Unexpected fix-result payload type")
                 # Implementer claims to have fixed → re-run gate
                 # (gate will cascade through AC → spec → review)
                 return [

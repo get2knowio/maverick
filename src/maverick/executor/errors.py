@@ -12,7 +12,7 @@ class ExecutorError(MaverickError):
 
 
 class OutputSchemaValidationError(ExecutorError):
-    """Raised when agent output fails output_schema validation (FR-007).
+    """Raised when plain text agent output fails output_schema validation.
 
     Attributes:
         step_name: Name of the DSL step that produced invalid output.

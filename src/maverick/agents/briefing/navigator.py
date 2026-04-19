@@ -47,7 +47,9 @@ You have access to: **Read, Glob, Grep**
 ## Constraints
 
 - Do NOT modify any files — you are read-only.
-- You MUST produce valid JSON matching the output schema exactly.
+- If the caller provides an MCP tool for structured output, call that tool and
+    follow its schema. Otherwise, return a single JSON object with no
+    explanatory prose before or after it.
 """
 
 

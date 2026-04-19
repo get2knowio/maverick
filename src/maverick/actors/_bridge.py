@@ -58,9 +58,38 @@ class ActorAsyncBridge:
 
     def _start_async_bridge(self) -> None:
         """Create the background event loop + daemon thread."""
+        if self._bridge_running():
+            return
         self._loop = asyncio.new_event_loop()
         self._thread = threading.Thread(target=self._loop.run_forever, daemon=True)
         self._thread.start()
+
+    def _bridge_running(self) -> bool:
+        """Return True when the bridge loop and thread are ready for use."""
+        loop = getattr(self, "_loop", None)
+        thread = getattr(self, "_thread", None)
+        if loop is None or thread is None:
+            return False
+        return thread.is_alive() and loop.is_running() and not loop.is_closed()
+
+    def _ensure_async_bridge(self) -> None:
+        """Start the bridge lazily if it has not been initialized yet."""
+        if not self._bridge_running():
+            self._start_async_bridge()
+
+    def _stop_async_bridge(self, *, timeout: float = 1.0) -> None:
+        """Stop and close the bridge loop if it was started."""
+        loop = getattr(self, "_loop", None)
+        thread = getattr(self, "_thread", None)
+        if loop is None or thread is None:
+            return
+
+        if loop.is_running():
+            loop.call_soon_threadsafe(loop.stop)
+        if thread.is_alive():
+            thread.join(timeout=timeout)
+        if not loop.is_closed():
+            loop.close()
 
     def _run_coro(self, coro: Coroutine[Any, Any, T], *, timeout: float) -> T:
         """Schedule ``coro`` on the bridge loop and block until it finishes.
@@ -69,6 +98,7 @@ class ActorAsyncBridge:
         :class:`concurrent.futures.TimeoutError` if it doesn't complete
         within ``timeout`` seconds.
         """
+        self._ensure_async_bridge()
         future = asyncio.run_coroutine_threadsafe(coro, self._loop)
         return future.result(timeout=timeout)
 
@@ -104,5 +134,6 @@ class ActorAsyncBridge:
 
         if isinstance(message, ActorExitRequest):
             self._cleanup_executor()
+            self._stop_async_bridge()
             return True
         return False

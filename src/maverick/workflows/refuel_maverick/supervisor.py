@@ -16,6 +16,14 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from maverick.logging import get_logger
+from maverick.tools.supervisor_inbox.models import (
+    SubmitDetailsPayload,
+    SubmitFixPayload,
+    SubmitOutlinePayload,
+    WorkUnitDetailPayload,
+    dump_supervisor_payload,
+    parse_supervisor_tool_payload,
+)
 from maverick.workflows.fly_beads.actors.protocol import (
     Actor,
     Message,
@@ -63,8 +71,8 @@ class RefuelSupervisor:
         self._fix_rounds: int = 0
 
         # Accumulated state from tool calls
-        self._outline_data: dict[str, Any] | None = None
-        self._detail_data: dict[str, Any] | None = None
+        self._outline_data: SubmitOutlinePayload | None = None
+        self._detail_data: SubmitDetailsPayload | None = None
         self._specs: list[Any] = []
 
         # Thespian actor system for inbox
@@ -189,12 +197,17 @@ class RefuelSupervisor:
 
         match message.msg_type:
             case MessageType.OUTLINE_RESULT:
-                # Data came directly from MCP tool call — already structured
-                self._outline_data = message.payload
-                work_units = message.payload.get("work_units", [])
-                unit_ids = [wu.get("id", "") for wu in work_units if isinstance(wu, dict)]
+                parsed_outline = parse_supervisor_tool_payload(
+                    "submit_outline",
+                    message.payload,
+                )
+                if not isinstance(parsed_outline, SubmitOutlinePayload):
+                    raise ValueError("Unexpected outline payload type")
 
-                outline_json = json.dumps(self._outline_data)
+                self._outline_data = parsed_outline
+                unit_ids = [wu.id for wu in parsed_outline.work_units if wu.id]
+
+                outline_json = json.dumps(dump_supervisor_payload(parsed_outline))
 
                 return [
                     self._make_message(
@@ -215,7 +228,14 @@ class RefuelSupervisor:
                 ]
 
             case MessageType.DETAIL_RESULT:
-                self._detail_data = message.payload
+                parsed_details = parse_supervisor_tool_payload(
+                    "submit_details",
+                    message.payload,
+                )
+                if not isinstance(parsed_details, SubmitDetailsPayload):
+                    raise ValueError("Unexpected detail payload type")
+
+                self._detail_data = parsed_details
                 self._specs = self._merge_to_specs()
 
                 return [
@@ -267,13 +287,15 @@ class RefuelSupervisor:
                     return []
 
             case MessageType.FIX_DECOMPOSE_RESULT:
-                # Fix provides updated work_units + details
-                fix_data = message.payload
-                if fix_data.get("work_units") or fix_data.get("details"):
-                    if fix_data.get("work_units"):
-                        self._outline_data = {"work_units": fix_data["work_units"]}
-                    if fix_data.get("details"):
-                        self._detail_data = {"details": fix_data["details"]}
+                parsed_fix = parse_supervisor_tool_payload("submit_fix", message.payload)
+                if not isinstance(parsed_fix, SubmitFixPayload):
+                    raise ValueError("Unexpected fix payload type")
+
+                if parsed_fix.work_units or parsed_fix.details:
+                    if parsed_fix.work_units:
+                        self._outline_data = SubmitOutlinePayload(work_units=parsed_fix.work_units)
+                    if parsed_fix.details:
+                        self._detail_data = SubmitDetailsPayload(details=parsed_fix.details)
                     self._specs = self._merge_to_specs()
                     return [
                         self._make_message(
@@ -317,43 +339,42 @@ class RefuelSupervisor:
     def _merge_to_specs(self) -> list[Any]:
         """Merge outline work_units with detail entries into specs.
 
-        Since the data came from MCP tool calls with enforced schemas,
-        we just need to combine outline skeletons with detail entries
-        by matching on ID. No coercion or type fixing needed.
+        Intake payloads are typed at the mailbox boundary. This step converts
+        them into the stricter workflow/domain model used by validation.
         """
         from maverick.workflows.refuel_maverick.models import (
             WorkUnitSpec,
         )
 
-        work_units = self._outline_data.get("work_units", []) if self._outline_data else []
-        details = self._detail_data.get("details", []) if self._detail_data else []
+        work_units = self._outline_data.work_units if self._outline_data else ()
+        details = self._detail_data.details if self._detail_data else ()
 
         # Index details by ID
-        detail_map: dict[str, dict[str, Any]] = {}
+        detail_map: dict[str, WorkUnitDetailPayload] = {}
         for d in details:
-            if isinstance(d, dict):
-                detail_map[d.get("id", "")] = d
+            detail_map[d.id] = d
 
         specs: list[Any] = []
         for wu in work_units:
-            if not isinstance(wu, dict):
-                continue
-
-            wu_id = wu.get("id", "")
-            detail = detail_map.get(wu_id, {})
+            wu_id = wu.id
+            detail = detail_map.get(wu_id)
 
             # Merge: outline fields + detail fields
             merged = {
                 "id": wu_id,
-                "task": wu.get("task", ""),
-                "sequence": wu.get("sequence", 0),
-                "parallel_group": wu.get("parallel_group"),
-                "depends_on": wu.get("depends_on", []),
-                "file_scope": wu.get("file_scope", {}),
-                "instructions": detail.get("instructions", ""),
-                "acceptance_criteria": detail.get("acceptance_criteria", []),
-                "verification": detail.get("verification", []),
-                "test_specification": detail.get("test_specification", ""),
+                "task": wu.task,
+                "sequence": wu.sequence,
+                "parallel_group": wu.parallel_group,
+                "depends_on": list(wu.depends_on),
+                "file_scope": dump_supervisor_payload(wu.file_scope),
+                "instructions": detail.instructions if detail else "",
+                "acceptance_criteria": (
+                    [dump_supervisor_payload(ac) for ac in detail.acceptance_criteria]
+                    if detail
+                    else []
+                ),
+                "verification": list(detail.verification) if detail else [],
+                "test_specification": detail.test_specification if detail else "",
             }
 
             try:

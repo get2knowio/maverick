@@ -25,8 +25,8 @@ async def snapshot_and_describe(wf: FlyBeadsWorkflow, ctx: BeadContext) -> None:
         return
 
     try:
-        snap = await jj_snapshot_operation(cwd=str(ctx.cwd))
-        if snap.success:
+        snap = await jj_snapshot_operation(cwd=ctx.cwd)
+        if snap.get("success"):
             logger.debug("snapshot_ok", bead_id=ctx.bead_id)
     except Exception as exc:
         logger.debug("snapshot_failed", bead_id=ctx.bead_id, error=str(exc))
@@ -34,7 +34,7 @@ async def snapshot_and_describe(wf: FlyBeadsWorkflow, ctx: BeadContext) -> None:
     try:
         await jj_describe(
             message=f"bead({ctx.bead_id}): {ctx.title}",
-            cwd=str(ctx.cwd),
+            cwd=ctx.cwd,
         )
     except Exception as exc:
         logger.debug("describe_failed", bead_id=ctx.bead_id, error=str(exc))

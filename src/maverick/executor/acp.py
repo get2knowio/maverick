@@ -5,7 +5,7 @@ the agent-client-protocol SDK and communicates over stdio. It supports:
 - Connection caching (one subprocess per provider, via :class:`ConnectionPool`)
 - Per-session retry with tenacity
 - Circuit breaker detection via MaverickAcpClient
-- JSON output extraction for typed output_schema
+- JSON output extraction for non-MCP text-response steps that opt into output_schema
 - Proper error mapping to the Maverick exception hierarchy
 - Transparent reconnect on connection drop (FR-021)
 
@@ -79,6 +79,7 @@ class AcpStepExecutor:
         self._global_max_tokens = global_max_tokens
         self._logger = get_logger(__name__)
         self._pool = ConnectionPool(logger=self._logger)
+        self._session_uses_tool_output_contract: dict[str, bool] = {}
 
     async def execute(
         self,
@@ -103,7 +104,8 @@ class AcpStepExecutor:
             instructions: Optional system instructions prepended to the prompt.
             allowed_tools: Tool allowlist forwarded to MaverickAcpClient.
             cwd: Working directory for the ACP session. None = current dir.
-            output_schema: Optional Pydantic model for structured output validation.
+            output_schema: Optional Pydantic model for structured text-output
+                validation. Do not use for MCP tool-backed/mailbox responses.
             config: Per-step execution config. None = DEFAULT_EXECUTOR_CONFIG.
             event_callback: Async callback for real-time AgentStreamChunk events.
 
@@ -184,17 +186,18 @@ class AcpStepExecutor:
         # then fall back to the agent's own instructions property.
         effective_instructions = instructions or getattr(agent_instance, "instructions", None)
 
-        # Append output schema to prompt so the agent knows the exact structure
+        # Append text-output schema guidance for non-MCP callers.
         if output_schema is not None:
             schema_json = json.dumps(output_schema.model_json_schema(), indent=2)
             raw_prompt = (
                 f"{raw_prompt}\n\n---\n\n"
-                f"[OUTPUT SCHEMA]\n"
-                f"You MUST respond with a single JSON object "
-                f"(inside a ```json code fence) that conforms "
-                f"exactly to this JSON Schema. Use only the "
-                f"field names and types shown — do not nest "
-                f"objects where strings are expected.\n\n"
+                f"[OUTPUT CONTRACT]\n"
+                f"Respond with a single JSON object that conforms "
+                f"exactly to this JSON Schema. Do not add explanatory "
+                f"prose before or after the JSON. A ```json fence is "
+                f"allowed but not required. Use only the field names "
+                f"and types shown — do not nest objects where strings "
+                f"are expected.\n\n"
                 f"```json\n{schema_json}\n```"
             )
 
@@ -280,6 +283,7 @@ class AcpStepExecutor:
     async def cleanup(self) -> None:
         """Close all cached ACP connections and terminate subprocesses."""
         await self._pool.close_all()
+        self._session_uses_tool_output_contract.clear()
 
     async def cancel_session(
         self,
@@ -344,7 +348,9 @@ class AcpStepExecutor:
             allowed_tools: Tool allowlist for the client.
             mcp_servers: MCP server configs (McpServerStdio) to attach
                 to the session.  The agent subprocess spawns and connects
-                to these servers, making their tools available.
+                to these servers, making their tools available. When these
+                servers define the structured output contract, use their tool
+                schemas instead of output_schema on prompt_session().
 
         Returns:
             The ACP session_id string.
@@ -380,6 +386,9 @@ class AcpStepExecutor:
 
         session = await cached.conn.new_session(cwd=cwd_str, mcp_servers=mcp_servers or [])
         session_id = session.session_id
+        self._session_uses_tool_output_contract[session_id] = _uses_tool_output_contract(
+            mcp_servers
+        )
 
         # Set model if configured
         resolved_model = effective_config.model_id or provider_config.default_model
@@ -432,7 +441,9 @@ class AcpStepExecutor:
             step_name: For logging/observability.
             agent_name: For logging/observability.
             event_callback: Async callback for streaming events.
-            output_schema: Optional Pydantic model for output extraction.
+            output_schema: Optional Pydantic model for output extraction on
+                plain text-response sessions. Incompatible with MCP tool-backed
+                sessions whose structured output is delivered via tool calls.
 
         Returns:
             ExecutorResult with the agent's response.
@@ -454,6 +465,16 @@ class AcpStepExecutor:
             )
 
         cached = self._pool[provider_name]
+
+        if output_schema is not None and self._session_uses_tool_output_contract.get(
+            session_id, False
+        ):
+            raise AgentError(
+                "output_schema is incompatible with MCP tool-backed sessions. "
+                "Use the MCP tool schema as the agent-facing contract and "
+                "validate typed payloads downstream of the tool call.",
+                agent_name=agent_name,
+            )
 
         # Reset per-turn accumulators, preserving session identity
         cached.client.reset_for_turn()
@@ -765,3 +786,18 @@ def _find_most_called_tool(client: MaverickAcpClient) -> str:
     except Exception:
         pass
     return "unknown_tool"
+
+
+def _uses_tool_output_contract(mcp_servers: list[Any] | None) -> bool:
+    """Return True when attached MCP servers define the output contract."""
+    for server in mcp_servers or []:
+        if getattr(server, "name", "") == "supervisor-inbox":
+            return True
+
+        args = getattr(server, "args", None) or []
+        arg_strings = [str(arg) for arg in args]
+        if "serve-inbox" in arg_strings:
+            return True
+        if any(arg.startswith("submit_") for arg in arg_strings):
+            return True
+    return False

@@ -472,6 +472,50 @@ class TestRequestPermissionAutoApprove:
         assert isinstance(response.outcome, AllowedOutcome)
         assert response.outcome.option_id == "opt-1"
 
+    def test_denies_tool_not_in_allowed_tools(self) -> None:
+        """AUTO_APPROVE still enforces an explicit tool allowlist."""
+        client = MaverickAcpClient(permission_mode=PermissionMode.AUTO_APPROVE)
+        client.reset(
+            step_name="s",
+            agent_name="a",
+            event_callback=None,
+            allowed_tools=frozenset({"Read", "submit_outline"}),
+        )
+        options = _make_permission_options("allow_once")
+        tool_call = _make_tool_call_update("Write")
+
+        response = asyncio.run(
+            client.request_permission(
+                options=options,
+                session_id="s1",
+                tool_call=tool_call,
+            )
+        )
+
+        assert isinstance(response.outcome, DeniedOutcome)
+
+    def test_allows_tool_in_allowed_tools(self) -> None:
+        """AUTO_APPROVE allows tools that are explicitly allowlisted."""
+        client = MaverickAcpClient(permission_mode=PermissionMode.AUTO_APPROVE)
+        client.reset(
+            step_name="s",
+            agent_name="a",
+            event_callback=None,
+            allowed_tools=frozenset({"Read", "submit_outline"}),
+        )
+        options = _make_permission_options("allow_once")
+        tool_call = _make_tool_call_update("submit_outline")
+
+        response = asyncio.run(
+            client.request_permission(
+                options=options,
+                session_id="s1",
+                tool_call=tool_call,
+            )
+        )
+
+        assert isinstance(response.outcome, AllowedOutcome)
+
     def test_falls_back_to_first_option_when_no_allow_once(self) -> None:
         """Falls back to first option when no allow_once option available."""
         client = _make_client(PermissionMode.AUTO_APPROVE)
@@ -613,16 +657,13 @@ class TestRequestPermissionDenyDangerous:
 
         assert isinstance(response.outcome, DeniedOutcome)
 
-    def test_safe_tool_allowed_even_when_not_in_allowed_tools(self) -> None:
-        """Safe tools (in _SAFE_TOOL_PATTERNS) are always allowed, even when
-        allowed_tools does not include them. This covers the short-circuit in
-        _is_dangerous_tool() that checks _SAFE_TOOL_PATTERNS first."""
+    def test_safe_tool_denied_when_not_in_allowed_tools(self) -> None:
+        """Explicit allowlists are enforced before safe-tool shortcuts."""
         client = MaverickAcpClient(permission_mode=PermissionMode.DENY_DANGEROUS)
         client.reset(
             step_name="s",
             agent_name="a",
             event_callback=None,
-            # allowed_tools explicitly does NOT include "WebSearch"
             allowed_tools=frozenset({"Read"}),
         )
         options = _make_permission_options("allow_once")
@@ -636,8 +677,7 @@ class TestRequestPermissionDenyDangerous:
             )
         )
 
-        # WebSearch is in _SAFE_TOOL_PATTERNS → must be allowed regardless
-        assert isinstance(response.outcome, AllowedOutcome)
+        assert isinstance(response.outcome, DeniedOutcome)
 
     def test_safe_tool_allowed_with_no_allowed_tools_set(self) -> None:
         """Safe tools are allowed in deny_dangerous mode even with no allowed_tools."""

@@ -21,9 +21,18 @@ from typing import Any
 from thespian.actors import Actor
 
 from maverick.actors._bridge import ActorAsyncBridge
+from maverick.agents.tools import PLANNER_TOOLS
 from maverick.logging import get_logger
 
 logger = get_logger(__name__)
+
+READ_ONLY_DECOMPOSER_TOOLS: tuple[str, ...] = tuple(sorted(PLANNER_TOOLS))
+PRIMARY_DECOMPOSER_MCP_TOOLS: tuple[str, ...] = (
+    "submit_outline",
+    "submit_details",
+    "submit_fix",
+)
+POOL_DECOMPOSER_MCP_TOOLS: tuple[str, ...] = ("submit_details",)
 
 
 class DecomposerActor(ActorAsyncBridge, Actor):
@@ -57,9 +66,10 @@ class DecomposerActor(ActorAsyncBridge, Actor):
                 int(message.get("fix_session_max_turns", 1)),
             )
             if role == "pool":
-                self._mcp_tools = "submit_details"
+                self._mcp_tool_names = POOL_DECOMPOSER_MCP_TOOLS
             else:
-                self._mcp_tools = "submit_outline,submit_details,submit_fix"
+                self._mcp_tool_names = PRIMARY_DECOMPOSER_MCP_TOOLS
+            self._mcp_tools = ",".join(self._mcp_tool_names)
             self._admin_port = message.get("admin_port", 19500)
             self._supervisor_addr = sender
             self._executor = None
@@ -215,11 +225,13 @@ class DecomposerActor(ActorAsyncBridge, Actor):
         cwd = Path(self._cwd) if self._cwd else Path.cwd()
         role = getattr(self, "_role", "primary")
         one_shot: list[str] | None = ["submit_outline"] if role == "primary" else None
+        allowed_tools = [*READ_ONLY_DECOMPOSER_TOOLS, *self._mcp_tool_names]
 
         self._session_id = await self._executor.create_session(
             step_name="decompose",
             agent_name="decomposer",
             cwd=cwd,
+            allowed_tools=allowed_tools,
             mcp_servers=[mcp_config],
             one_shot_tools=one_shot,
         )

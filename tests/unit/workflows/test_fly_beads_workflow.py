@@ -266,7 +266,7 @@ def _patch_all_actions(
             # No default value configured (e.g. restore, ws_manager) — just patch
             kw = {}
 
-        p = patch(target, **kw)
+        p = patch(target, create=True, **kw)
         patchers.append((short_name, p))
 
     # Enter all patchers and build the mock-objects dict
@@ -425,6 +425,39 @@ class TestFlyBeadsWorkflow:
             await _collect_events(fly_workflow, {"epic_id": "", "max_beads": 5})
 
         mocks["thespian"].assert_called_once()
+        mocks["select"].assert_not_called()
+
+    async def test_human_review_items_come_from_thespian_events(self, fly_workflow: Any) -> None:
+        """Needs-human-review beads are derived from Thespian bead events."""
+        mv = _make_mock_actions()
+        mv["thespian_return"] = {
+            "beads_completed": 1,
+            "completed_bead_ids": ["b1"],
+            "beads_failed": 0,
+            "bead_events": [
+                {
+                    "bead_id": "b1",
+                    "title": "Test bead",
+                    "tag": "needs-human-review",
+                    "review_rounds": 3,
+                }
+            ],
+        }
+
+        with _patch_all_actions(mv):
+            async for _ in fly_workflow.execute({"epic_id": "", "max_beads": 5}):
+                pass
+
+        assert fly_workflow.result is not None
+        assert fly_workflow.result.final_output["human_review_items"] == [
+            {
+                "bead_id": "b1",
+                "title": "Test bead",
+                "status": "needs-human-review",
+                "tag": "needs-human-review",
+                "review_rounds": 3,
+            }
+        ]
 
     async def test_max_beads_limit(self, fly_workflow: Any) -> None:
         """Thespian result beads_completed used for final count."""

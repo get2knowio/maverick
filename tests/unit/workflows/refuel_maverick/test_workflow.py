@@ -179,9 +179,13 @@ class TestRefuelMaverickWorkflowHappyPath:
                 self.tell_calls: list[tuple[object, object]] = []
                 self._counter = 0
 
-            def createActor(self, _cls, globalName=None):  # noqa: N802
+            def createActor(self, _cls, **kwargs):  # noqa: N802
                 self._counter += 1
-                return globalName or f"actor-{self._counter}"
+                return (
+                    kwargs.get("globalName")
+                    or kwargs.get("global_name")
+                    or f"actor-{self._counter}"
+                )
 
             def ask(self, addr, message, timeout):
                 self.asks.append((addr, message, timeout))
@@ -238,12 +242,10 @@ class TestRefuelMaverickWorkflowHappyPath:
         ]
         assert decomposer_inits
         assert all(
-            msg["detail_session_max_turns"] == DETAIL_SESSION_MAX_TURNS
-            for msg in decomposer_inits
+            msg["detail_session_max_turns"] == DETAIL_SESSION_MAX_TURNS for msg in decomposer_inits
         )
         assert all(
-            msg["fix_session_max_turns"] == FIX_SESSION_MAX_TURNS
-            for msg in decomposer_inits
+            msg["fix_session_max_turns"] == FIX_SESSION_MAX_TURNS for msg in decomposer_inits
         )
 
     async def test_work_unit_files_written_with_correct_naming(

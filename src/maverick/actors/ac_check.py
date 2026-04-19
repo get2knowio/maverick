@@ -1,14 +1,18 @@
 """ACCheckActor — Thespian actor for acceptance criteria verification."""
 
-import asyncio
-
 from thespian.actors import Actor
 
+from maverick.actors._bridge import ActorAsyncBridge
 
-class ACCheckActor(Actor):
+AC_CHECK_TIMEOUT_SECONDS = 300.0
+
+
+class ACCheckActor(ActorAsyncBridge, Actor):
     """Deterministic AC check. Runs verification commands."""
 
     def receiveMessage(self, message, sender):
+        if self._handle_actor_exit(message):
+            return
         if not isinstance(message, dict):
             return
 
@@ -17,7 +21,10 @@ class ACCheckActor(Actor):
             cwd = message.get("cwd")
 
             try:
-                result = asyncio.run(self._run_check(description, cwd))
+                result = self._run_coro(
+                    self._run_check(description, cwd),
+                    timeout=AC_CHECK_TIMEOUT_SECONDS,
+                )
                 self.send(sender, {"type": "ac_result", **result})
             except Exception as exc:
                 self.send(

@@ -71,7 +71,9 @@ You have access to: **Read, Glob, Grep**
 
 ## Output Format
 
-You MUST produce valid JSON matching the output schema exactly.
+When the caller provides an MCP tool for structured output, call that tool and
+follow its schema. Otherwise, return a single JSON object matching the caller's
+requested contract with no explanatory prose before or after it.
 
 ## Constraints
 
@@ -87,10 +89,10 @@ class DecomposerAgent(MaverickAgent[str, dict[str, Any]]):
     Uses Read, Glob, and Grep tools to explore the codebase and produce
     a structured decomposition from a flight plan prompt.
 
-    Uses a three-tier output extraction strategy:
-    1. SDK structured output (``output_format`` enforcement)
-    2. ``validate_output()`` fallback (JSON code-block extraction)
-    3. Raise AgentError (structured output is required)
+    Canonical runtime path: actor-mailbox sessions that deliver structured
+    results through ``submit_*`` MCP tools. This registry agent also remains
+    compatible with plain text-response execution when a caller intentionally
+    uses ``output_schema``.
 
     Type Parameters:
         Context: str — the full prompt text including flight plan content
@@ -115,7 +117,7 @@ class DecomposerAgent(MaverickAgent[str, dict[str, Any]]):
         super().__init__(
             name="decomposer",
             instructions=DECOMPOSER_SYSTEM_PROMPT,
-            allowed_tools=list(PLANNER_TOOLS) + ["Write"],
+            allowed_tools=list(PLANNER_TOOLS),
             model=model,
             mcp_servers=mcp_servers,
             max_tokens=max_tokens,

@@ -43,9 +43,10 @@ class ExecutorResult:
     """Typed result from StepExecutor.execute() (FR-002).
 
     Attributes:
-        output: The agent's result. When output_schema was provided and validation
-            succeeded, this is a validated Pydantic model instance. Otherwise
-            it is the raw result from agent.execute().
+        output: The agent's result. When output_schema was provided for a
+            plain text-response step and validation succeeded, this is a
+            validated Pydantic model instance. Otherwise it is the raw result
+            from agent.execute().
         success: True if execution completed without errors.
         usage: Token/cost metadata, or None if the provider does not supply it.
         events: AgentStreamChunk events collected during streaming execution.

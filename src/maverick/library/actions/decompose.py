@@ -667,8 +667,7 @@ def _fix_rule_lines() -> list[str]:
         " a requested fix requires changing them.",
         "- Every acceptance criterion must trace to a flight plan success"
         " criterion (SC-### where ### is the 1-based index).",
-        "- Verification commands MUST test OBSERVABLE BEHAVIOR, not"
-        " implementation details.",
+        "- Verification commands MUST test OBSERVABLE BEHAVIOR, not implementation details.",
         "- COMPLETENESS: include cleanup of dead code, unused imports, and"
         " orphaned files if the fix changes existing structure.",
         "",

@@ -1,17 +1,18 @@
-"""BeadCreatorActor — Thespian actor for creating beads via bd CLI.
-
-Calls async create_beads() and wire_dependencies() via asyncio.run().
-"""
-
-import asyncio
+"""BeadCreatorActor — Thespian actor for creating beads via bd CLI."""
 
 from thespian.actors import Actor
 
+from maverick.actors._bridge import ActorAsyncBridge
 
-class BeadCreatorActor(Actor):
+BEAD_CREATION_TIMEOUT_SECONDS = 300.0
+
+
+class BeadCreatorActor(ActorAsyncBridge, Actor):
     """Creates beads from work unit specs."""
 
     def receiveMessage(self, message, sender):
+        if self._handle_actor_exit(message):
+            return
         if not isinstance(message, dict):
             return
 
@@ -20,11 +21,15 @@ class BeadCreatorActor(Actor):
         if msg_type == "init":
             self._plan_name = message.get("plan_name", "")
             self._plan_objective = message.get("plan_objective", "")
+            self._start_async_bridge()
             self.send(sender, {"type": "init_ok"})
 
         elif msg_type == "create_beads":
             try:
-                result = asyncio.run(self._create_beads(message))
+                result = self._run_coro(
+                    self._create_beads(message),
+                    timeout=BEAD_CREATION_TIMEOUT_SECONDS,
+                )
                 self.send(sender, {"type": "beads_created", **result})
             except Exception as exc:
                 self.send(

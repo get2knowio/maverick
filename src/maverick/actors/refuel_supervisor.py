@@ -24,6 +24,16 @@ from thespian.actors import Actor, WakeupMessage
 
 from maverick.actors.event_bus import SupervisorEventBusMixin
 from maverick.logging import get_logger
+from maverick.tools.supervisor_inbox.models import (
+    SubmitDetailsPayload,
+    SubmitFixPayload,
+    SubmitOutlinePayload,
+    SupervisorInboxPayload,
+    SupervisorToolPayloadError,
+    WorkUnitDetailPayload,
+    dump_supervisor_payload,
+    parse_supervisor_tool_payload,
+)
 
 MAX_FIX_ROUNDS = 3
 
@@ -150,10 +160,17 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
 
         # Seed outline from cache if pre-populated by workflow.
         _cached_outline = self._initial_payload.get("outline")
-        self._outline = _cached_outline if isinstance(_cached_outline, dict) else None
+        self._outline = None
+        if isinstance(_cached_outline, dict):
+            try:
+                parsed_outline = parse_supervisor_tool_payload("submit_outline", _cached_outline)
+                if isinstance(parsed_outline, SubmitOutlinePayload):
+                    self._outline = parsed_outline
+            except (SupervisorToolPayloadError, ValueError) as exc:
+                logger.warning("refuel_supervisor.invalid_outline_cache", error=str(exc))
 
         # Briefing state
-        self._briefing_results: dict[str, Any] = {}
+        self._briefing_results: dict[str, SupervisorInboxPayload] = {}
         self._briefing_expected: set[str] = set()
         import time as _time
 
@@ -166,9 +183,19 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
         # resumes at N-of-M instead of 0-of-M.
         _cached_details = self._initial_payload.get("cached_details", {})
         if isinstance(_cached_details, dict):
-            self._accumulated_details: list[dict] = [
-                d for d in _cached_details.values() if isinstance(d, dict)
-            ]
+            self._accumulated_details = []
+            for detail in _cached_details.values():
+                if not isinstance(detail, dict):
+                    continue
+                try:
+                    parsed_details = parse_supervisor_tool_payload(
+                        "submit_details",
+                        {"details": [detail]},
+                    )
+                    if isinstance(parsed_details, SubmitDetailsPayload):
+                        self._accumulated_details.extend(parsed_details.details)
+                except (SupervisorToolPayloadError, ValueError) as exc:
+                    logger.warning("refuel_supervisor.invalid_detail_cache", error=str(exc))
         else:
             self._accumulated_details = []
 
@@ -214,9 +241,9 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
         raw_content = self._initial_payload.get("flight_plan_content", "")
         contrarian_prompt = build_contrarian_prompt(
             raw_content,
-            self._briefing_results.get("navigator"),
-            self._briefing_results.get("structuralist"),
-            self._briefing_results.get("recon"),
+            self._briefing_payload("navigator"),
+            self._briefing_payload("structuralist"),
+            self._briefing_payload("recon"),
         )
 
         label = "Contrarian"
@@ -234,7 +261,10 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
         elapsed_ms = int((_time.monotonic() - self._briefing_start) * 1000)
         self._emit_phase_completed("briefing", "Briefing", elapsed_ms)
 
-        self._initial_payload["briefing"] = self._briefing_results
+        self._initial_payload["briefing"] = {
+            agent_name: dump_supervisor_payload(payload)
+            for agent_name, payload in self._briefing_results.items()
+        }
 
         # Write cache immediately so a Ctrl-C during decomposition
         # doesn't lose the expensive briefing work.
@@ -259,7 +289,7 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(
-                _json.dumps(self._briefing_results, indent=2, default=str),
+                _json.dumps(self._initial_payload["briefing"], indent=2, default=str),
                 encoding="utf-8",
             )
             logger.info(
@@ -290,13 +320,13 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(
-                _json.dumps(self._outline, indent=2, default=str),
+                _json.dumps(self._outline_payload(), indent=2, default=str),
                 encoding="utf-8",
             )
             logger.info(
                 "refuel_supervisor.outline_cached",
                 path=cache_path,
-                unit_count=len(self._outline.get("work_units", [])),
+                unit_count=len(self._outline.work_units),
             )
         except OSError as exc:
             logger.warning(
@@ -305,7 +335,7 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
                 error=str(exc),
             )
 
-    def _cache_detail(self, unit_id: str, detail: dict[str, Any]) -> None:
+    def _cache_detail(self, unit_id: str, detail: WorkUnitDetailPayload) -> None:
         """Persist a single unit's detail to disk.
 
         Writes one JSON file per unit under
@@ -324,7 +354,7 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(
-                _json.dumps(detail, indent=2, default=str),
+                _json.dumps(dump_supervisor_payload(detail), indent=2, default=str),
                 encoding="utf-8",
             )
         except OSError as exc:
@@ -421,11 +451,7 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
         self._decompose_start = _time.monotonic()
 
         if self._outline is not None:
-            unit_ids = [
-                wu.get("id", "")
-                for wu in self._outline.get("work_units", [])
-                if isinstance(wu, dict)
-            ]
+            unit_ids = [wu.id for wu in self._outline.work_units if wu.id]
             self._emit_output(
                 "refuel",
                 f"Outline loaded from cache: {len(unit_ids)} work unit(s)",
@@ -519,7 +545,7 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
 
         # Nothing to do — skip straight to validation.
         if not remaining:
-            self._details = {"details": self._accumulated_details}
+            self._details = SubmitDetailsPayload(details=tuple(self._accumulated_details))
             self._specs = self._merge_to_specs()
             self.send(
                 self._validator,
@@ -529,7 +555,7 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
 
         # Broadcast context once per pool actor so subsequent
         # detail_request messages can stay tiny.
-        outline_json = json.dumps(self._outline)
+        outline_json = json.dumps(self._outline_payload())
         fp_content = self._initial_payload.get("flight_plan_content", "")
         verif_props = self._initial_payload.get("verification_properties", "")
         for pool_addr in all_decomposers:
@@ -629,12 +655,18 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
         tool = message.get("tool", "")
         args = message.get("arguments", {})
 
+        try:
+            payload = parse_supervisor_tool_payload(tool, args)
+        except (SupervisorToolPayloadError, ValueError) as exc:
+            self._handle_error({"phase": "tool", "error": str(exc)})
+            return
+
         self._nudge_count = 0  # Reset on successful tool call
 
         # Briefing tools
         if tool in self._BRIEFING_TOOLS:
             agent_name = self._BRIEFING_TOOLS[tool]
-            self._briefing_results[agent_name] = args
+            self._briefing_results[agent_name] = payload
             self._briefing_expected.discard(agent_name)
 
             import time as _time
@@ -656,6 +688,9 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
             return
 
         if tool == "submit_outline":
+            if not isinstance(payload, SubmitOutlinePayload):
+                self._handle_error({"phase": "outline", "error": f"Unexpected payload for {tool}"})
+                return
             if self._outline is not None:
                 self._emit_output(
                     "refuel",
@@ -665,11 +700,9 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
                 )
                 return
 
-            self._outline = args
+            self._outline = payload
             self._cache_outline()
-            unit_ids = [
-                wu.get("id", "") for wu in args.get("work_units", []) if isinstance(wu, dict)
-            ]
+            unit_ids = [wu.id for wu in payload.work_units if wu.id]
             self._emit_output(
                 "refuel",
                 f"Outline received: {len(unit_ids)} work unit(s)",
@@ -680,19 +713,23 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
             self._fan_out_details(unit_ids)
 
         elif tool == "submit_details":
+            if not isinstance(payload, SubmitDetailsPayload):
+                self._handle_error({"phase": "detail", "error": f"Unexpected payload for {tool}"})
+                return
             import time as _time
 
             # Collect details and mark units as done
-            batch_details = args.get("details", [])
-            for d in batch_details:
-                if isinstance(d, dict):
-                    uid = d.get("id", "")
-                    self._accumulated_details.append(d)
-                    self._pending_detail_ids.discard(uid)
-                    # Persist to per-unit cache so a Ctrl-C preserves work.
-                    self._cache_detail(uid, d)
-                    # Drop from in-flight tracker.
-                    self._detail_dispatch_info.pop(uid, None)
+            for detail in payload.details:
+                uid = detail.id
+                self._accumulated_details = [
+                    existing for existing in self._accumulated_details if existing.id != uid
+                ]
+                self._accumulated_details.append(detail)
+                self._pending_detail_ids.discard(uid)
+                # Persist to per-unit cache so a Ctrl-C preserves work.
+                self._cache_detail(uid, detail)
+                # Drop from in-flight tracker.
+                self._detail_dispatch_info.pop(uid, None)
 
             self._last_detail_time = _time.monotonic()
 
@@ -713,7 +750,7 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
                 )
             else:
                 # All units detailed — merge and validate
-                self._details = {"details": self._accumulated_details}
+                self._details = SubmitDetailsPayload(details=tuple(self._accumulated_details))
                 self._specs = self._merge_to_specs()
                 self._emit_output(
                     "refuel",
@@ -731,10 +768,14 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
                 )
 
         elif tool == "submit_fix":
-            if args.get("work_units"):
-                self._outline = {"work_units": args["work_units"]}
-            if args.get("details"):
-                self._details = {"details": args["details"]}
+            if not isinstance(payload, SubmitFixPayload):
+                self._handle_error({"phase": "fix", "error": f"Unexpected payload for {tool}"})
+                return
+            if payload.work_units:
+                self._outline = SubmitOutlinePayload(work_units=payload.work_units)
+            if payload.details:
+                self._details = SubmitDetailsPayload(details=payload.details)
+                self._accumulated_details = list(payload.details)
             self._specs = self._merge_to_specs()
             self._emit_output(
                 "refuel",
@@ -799,8 +840,8 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
                     "type": "fix_request",
                     "coverage_gaps": enriched,
                     "overloaded": message.get("overloaded", []),
-                    "outline_json": json.dumps(self._outline or {"work_units": []}),
-                    "details_json": json.dumps(self._details or {"details": []}),
+                    "outline_json": json.dumps(self._outline_payload()),
+                    "details_json": json.dumps(self._details_payload()),
                     "verification_properties": self._initial_payload.get(
                         "verification_properties",
                         "",
@@ -962,7 +1003,7 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
             # unit and no more are in flight or queued, proceed to
             # validation with what we've got.
             if not self._pending_detail_ids:
-                self._details = {"details": self._accumulated_details}
+                self._details = SubmitDetailsPayload(details=tuple(self._accumulated_details))
                 self._specs = self._merge_to_specs()
                 self.send(
                     self._validator,
@@ -1052,35 +1093,58 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
     # Helpers
     # ------------------------------------------------------------------
 
+    def _briefing_payload(self, agent_name: str) -> dict[str, Any] | None:
+        payload = self._briefing_results.get(agent_name)
+        if payload is None:
+            return None
+        return dump_supervisor_payload(payload)
+
+    def _outline_payload(self) -> dict[str, Any]:
+        if self._outline is None:
+            return {"work_units": []}
+        return dump_supervisor_payload(self._outline)
+
+    def _details_payload(self) -> dict[str, Any]:
+        if self._details is None:
+            return {"details": []}
+        return dump_supervisor_payload(self._details)
+
     def _merge_to_specs(self):
         """Merge outline + details into WorkUnitSpec list."""
         from maverick.workflows.refuel_maverick.models import WorkUnitSpec
 
-        work_units = self._outline.get("work_units", []) if self._outline else []
-        details = self._details.get("details", []) if self._details else []
+        work_units = self._outline.work_units if self._outline else ()
+        details = self._details.details if self._details else ()
 
         detail_map = {}
         for d in details:
-            if isinstance(d, dict):
-                detail_map[d.get("id", "")] = d
+            detail_map[d.id] = d
 
         specs = []
         for wu in work_units:
-            if not isinstance(wu, dict):
-                continue
-            wu_id = wu.get("id", "")
+            wu_id = wu.id
             detail = detail_map.get(wu_id, {})
             merged = {
                 "id": wu_id,
-                "task": wu.get("task", ""),
-                "sequence": wu.get("sequence", 0),
-                "parallel_group": wu.get("parallel_group"),
-                "depends_on": wu.get("depends_on", []),
-                "file_scope": wu.get("file_scope", {}),
-                "instructions": detail.get("instructions", ""),
-                "acceptance_criteria": detail.get("acceptance_criteria", []),
-                "verification": detail.get("verification", []),
-                "test_specification": detail.get("test_specification", ""),
+                "task": wu.task,
+                "sequence": wu.sequence,
+                "parallel_group": wu.parallel_group,
+                "depends_on": list(wu.depends_on),
+                "file_scope": dump_supervisor_payload(wu.file_scope),
+                "instructions": detail.instructions
+                if isinstance(detail, WorkUnitDetailPayload)
+                else "",
+                "acceptance_criteria": (
+                    [dump_supervisor_payload(ac) for ac in detail.acceptance_criteria]
+                    if isinstance(detail, WorkUnitDetailPayload)
+                    else []
+                ),
+                "verification": list(detail.verification)
+                if isinstance(detail, WorkUnitDetailPayload)
+                else [],
+                "test_specification": (
+                    detail.test_specification if isinstance(detail, WorkUnitDetailPayload) else ""
+                ),
             }
             try:
                 specs.append(WorkUnitSpec.model_validate(merged))
