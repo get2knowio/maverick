@@ -6,6 +6,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
+from maverick.agents.tools import PLANNER_TOOLS
 from maverick.exceptions import WorkflowError
 from maverick.flight.models import FlightPlan, Scope, SuccessCriterion
 from maverick.logging import get_logger
@@ -281,6 +282,7 @@ class GenerateFlightPlanWorkflow(PythonWorkflow):
                 session_registry=session_registry,
                 cwd=Path.cwd(),
                 config=config,
+                allowed_tools=list(PLANNER_TOOLS),
                 inbox_path=inbox_dir / f"{agent_name}-inbox.json",
                 mcp_server_config=_mcp_config(tool_name, agent_name),
             )
@@ -294,6 +296,7 @@ class GenerateFlightPlanWorkflow(PythonWorkflow):
             session_registry=session_registry,
             cwd=Path.cwd(),
             config=gen_config,
+            allowed_tools=list(PLANNER_TOOLS),
             inbox_path=inbox_dir / "generator-inbox.json",
             mcp_server_config=_mcp_config("submit_flight_plan", "generator"),
         )

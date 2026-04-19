@@ -31,6 +31,7 @@ class GeneratorActor:
         executor: Any = None,
         cwd: Path | None = None,
         config: StepConfig | None = None,
+        allowed_tools: list[str] | None = None,
         inbox_path: Path,
         mcp_server_config: Any = None,
     ) -> None:
@@ -38,6 +39,7 @@ class GeneratorActor:
         self._executor = executor
         self._cwd = cwd
         self._config = config
+        self._allowed_tools = allowed_tools
         self._inbox_path = inbox_path
         self._mcp_config = mcp_server_config
 
@@ -75,6 +77,7 @@ class GeneratorActor:
             self._executor,
             cwd=self._cwd,
             config=self._config,
+            allowed_tools=self._allowed_tools,
             mcp_servers=mcp_servers,
         )
 

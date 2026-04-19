@@ -41,7 +41,7 @@ MAX_GATE_FIX_ATTEMPTS = 2
 MAX_DETERMINISTIC_FIX_ATTEMPTS = 2
 
 
-@dataclass
+@dataclass(frozen=True)
 class BeadOutcome:
     """Result of processing a single bead through the supervisor."""
 

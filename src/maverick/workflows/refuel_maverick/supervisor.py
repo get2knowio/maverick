@@ -35,7 +35,7 @@ logger = get_logger(__name__)
 MAX_FIX_ROUNDS = 3
 
 
-@dataclass
+@dataclass(frozen=True)
 class RefuelOutcome:
     """Result of processing decomposition through the supervisor."""
 

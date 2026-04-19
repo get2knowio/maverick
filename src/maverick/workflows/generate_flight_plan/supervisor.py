@@ -36,7 +36,7 @@ from maverick.workflows.generate_flight_plan.markdown import (
 logger = get_logger(__name__)
 
 
-@dataclass
+@dataclass(frozen=True)
 class PlanOutcome:
     """Result of the plan generation supervisor."""
 
