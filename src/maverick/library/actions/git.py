@@ -35,6 +35,21 @@ def _resolve_cwd(cwd: str | Path | None) -> str | None:
     return str(Path(cwd))
 
 
+def _reap_if_running(proc: asyncio.subprocess.Process | None) -> None:
+    """Kill the process group of a subprocess that never finished.
+
+    Subprocesses spawned with ``start_new_session=True`` live in their own
+    process group. If the helper was cancelled mid-flight (Ctrl-C, task
+    cancellation), parent death will not propagate to the child; we must
+    actively reap. If the process already exited, this is a no-op.
+    """
+    if proc is None or proc.returncode is not None:
+        return
+    from maverick.executor._subprocess import kill_process_group
+
+    kill_process_group(proc.pid)
+
+
 def _parse_untracked_conflicts(git_output: str) -> list[str]:
     """Extract file paths from a git 'untracked working tree files' error.
 
@@ -72,6 +87,7 @@ async def git_has_changes(
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=resolved,
+            start_new_session=True,
         )
         await proc.wait()
         has_staged = proc.returncode != 0
@@ -84,6 +100,7 @@ async def git_has_changes(
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=resolved,
+            start_new_session=True,
         )
         await proc.wait()
         has_unstaged = proc.returncode != 0
@@ -97,6 +114,7 @@ async def git_has_changes(
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=resolved,
+            start_new_session=True,
         )
         stdout, _ = await proc.communicate()
         has_untracked = bool(stdout.decode().strip())
@@ -187,6 +205,7 @@ async def git_add(
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=resolved,
+            start_new_session=True,
         )
         stdout, stderr = await proc.communicate()
         if proc.returncode != 0:
@@ -223,6 +242,7 @@ async def git_stage_all(
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=resolved,
+            start_new_session=True,
         )
         await proc.wait()
         if proc.returncode != 0:
@@ -255,6 +275,7 @@ async def git_commit(
         :class:`GitCommitResult`.
     """
     resolved = _resolve_cwd(cwd)
+    proc: asyncio.subprocess.Process | None = None
     try:
         if add_all:
             proc = await asyncio.create_subprocess_exec(
@@ -264,6 +285,7 @@ async def git_commit(
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=resolved,
+                start_new_session=True,
             )
             await proc.wait()
             if proc.returncode != 0:
@@ -288,6 +310,7 @@ async def git_commit(
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=resolved,
+            start_new_session=True,
         )
         stdout_bytes, stderr_bytes = await proc.communicate()
         if proc.returncode != 0:
@@ -308,6 +331,7 @@ async def git_commit(
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=resolved,
+            start_new_session=True,
         )
         stdout, stderr = await proc.communicate()
         if proc.returncode != 0:
@@ -325,6 +349,7 @@ async def git_commit(
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=resolved,
+            start_new_session=True,
         )
         stdout, _ = await proc.communicate()
         files_committed = (
@@ -345,6 +370,8 @@ async def git_commit(
             message=message,
             error=str(e),
         )
+    finally:
+        _reap_if_running(proc)
 
 
 async def git_push(
@@ -361,6 +388,7 @@ async def git_push(
         :class:`GitPushResult`.
     """
     resolved = _resolve_cwd(cwd)
+    proc: asyncio.subprocess.Process | None = None
     try:
         # Get current branch
         proc = await asyncio.create_subprocess_exec(
@@ -371,6 +399,7 @@ async def git_push(
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=resolved,
+            start_new_session=True,
         )
         stdout, stderr = await proc.communicate()
         if proc.returncode != 0:
@@ -389,6 +418,7 @@ async def git_push(
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=resolved,
+            start_new_session=True,
         )
         await proc.wait()
         if proc.returncode != 0:
@@ -411,6 +441,8 @@ async def git_push(
             upstream_set=False,
             error=str(e),
         )
+    finally:
+        _reap_if_running(proc)
 
 
 async def git_merge(
@@ -429,6 +461,8 @@ async def git_merge(
         :class:`GitMergeResult`.
     """
     resolved = _resolve_cwd(cwd)
+    proc: asyncio.subprocess.Process | None = None
+    rm_proc: asyncio.subprocess.Process | None = None
     try:
         cmd = ["git", "merge"]
         if no_ff:
@@ -440,6 +474,7 @@ async def git_merge(
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=resolved,
+            start_new_session=True,
         )
         stdout, stderr = await proc.communicate()
         if proc.returncode != 0:
@@ -462,8 +497,10 @@ async def git_merge(
                         stdout=asyncio.subprocess.PIPE,
                         stderr=asyncio.subprocess.PIPE,
                         cwd=resolved,
+                        start_new_session=True,
                     )
                     await rm_proc.wait()
+                    rm_proc = None
 
                 # Retry the merge
                 proc = await asyncio.create_subprocess_exec(
@@ -471,6 +508,7 @@ async def git_merge(
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                     cwd=resolved,
+                    start_new_session=True,
                 )
                 stdout, stderr = await proc.communicate()
                 if proc.returncode != 0:
@@ -489,6 +527,7 @@ async def git_merge(
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=resolved,
+            start_new_session=True,
         )
         stdout, stderr = await proc.communicate()
         if proc.returncode != 0:
@@ -510,6 +549,9 @@ async def git_merge(
             branch=branch,
             error=str(e),
         )
+    finally:
+        _reap_if_running(proc)
+        _reap_if_running(rm_proc)
 
 
 # Snapshot commits exceeding this many changed files get a warning
@@ -536,6 +578,7 @@ async def _get_snapshot_diff_stats(
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=resolved,
+            start_new_session=True,
         )
         stdout, _ = await proc.communicate()
         if stdout:
@@ -561,6 +604,7 @@ async def _get_snapshot_diff_stats(
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=resolved,
+            start_new_session=True,
         )
         stdout2, _ = await proc2.communicate()
         if stdout2:
@@ -669,6 +713,7 @@ async def create_git_branch(
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=resolved,
+            start_new_session=True,
         )
         await proc.wait()
         branch_exists = proc.returncode == 0
@@ -682,6 +727,7 @@ async def create_git_branch(
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=resolved,
+                start_new_session=True,
             )
             await proc.wait()
             if proc.returncode != 0:
@@ -697,6 +743,7 @@ async def create_git_branch(
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=resolved,
+                start_new_session=True,
             )
             await proc.wait()
             if proc.returncode != 0:
@@ -711,6 +758,7 @@ async def create_git_branch(
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=resolved,
+                start_new_session=True,
             )
             await proc.wait()
             if proc.returncode != 0:

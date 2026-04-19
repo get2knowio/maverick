@@ -11,6 +11,7 @@ contrarian only when all 3 have reported.
 
 from __future__ import annotations
 
+import asyncio
 import time
 from dataclasses import dataclass, field
 from typing import Any
@@ -52,11 +53,8 @@ class PlanOutcome:
 class PlanSupervisor:
     """Routes messages for flight plan generation.
 
-    Handles the fan-out/fan-in pattern: 3 parallel briefing agents
-    → contrarian → synthesis → generator → validate → write.
-
-    Since Phase 1 is sequential, the 3 parallel agents are dispatched
-    via asyncio.gather on their actor.receive() calls.
+    Fan-out/fan-in pipeline: 3 parallel briefing agents (dispatched via
+    asyncio.gather) → contrarian → synthesis → generator → validate → write.
     """
 
     def __init__(
@@ -126,23 +124,29 @@ class PlanSupervisor:
         )
 
     async def _run_briefing_parallel(self) -> None:
-        """Run 3 briefing agents sequentially.
+        """Run briefing agents concurrently.
 
-        ACP supports one session at a time per connection, so we
-        run briefing agents sequentially rather than in parallel.
-        Each agent gets its own session with its own MCP server.
+        Each briefing agent has its own ACP connection and MCP server
+        (see workflow.py construction), so the three specialists can
+        run in parallel. Fan-in completes when all three report; the
+        contrarian runs afterward as a separate challenge phase.
         """
         from maverick.agents.preflight_briefing.prompts import (
             build_preflight_briefing_prompt,
         )
 
         briefing_prompt = build_preflight_briefing_prompt(self._prd_content)
+        tool_name_by_agent = {
+            "scopist": "submit_scope",
+            "codebase_analyst": "submit_analysis",
+            "criteria_writer": "submit_criteria",
+        }
 
+        requests: list[tuple[str, Message]] = []
         for agent_name in ["scopist", "codebase_analyst", "criteria_writer"]:
             actor = self._actors.get(agent_name)
             if actor is None:
                 continue
-
             msg = self._make_message(
                 MessageType.BRIEFING_REQUEST,
                 sender="supervisor",
@@ -150,26 +154,27 @@ class PlanSupervisor:
                 payload={"prompt": briefing_prompt},
             )
             self._message_log.append(msg)
+            requests.append((agent_name, msg))
 
-            try:
-                responses = await actor.receive(msg)
-                for r in responses:
-                    r = self._stamp(r)
-                    self._message_log.append(r)
-                    tool_name = {
-                        "scopist": "submit_scope",
-                        "codebase_analyst": "submit_analysis",
-                        "criteria_writer": "submit_criteria",
-                    }[agent_name]
-                    self._briefs[agent_name] = parse_supervisor_tool_payload(
-                        tool_name,
-                        r.payload,
-                    )
-            except Exception as exc:
+        results = await asyncio.gather(
+            *[self._actors[name].receive(msg) for name, msg in requests],
+            return_exceptions=True,
+        )
+
+        for (agent_name, _), result in zip(requests, results, strict=True):
+            if isinstance(result, BaseException):
                 logger.warning(
                     "plan_supervisor.briefing_agent_failed",
                     agent=agent_name,
-                    error=str(exc),
+                    error=str(result),
+                )
+                continue
+            for r in result:
+                r = self._stamp(r)
+                self._message_log.append(r)
+                self._briefs[agent_name] = parse_supervisor_tool_payload(
+                    tool_name_by_agent[agent_name],
+                    r.payload,
                 )
 
         logger.info(

@@ -298,12 +298,16 @@ class CommandRunner:
 
         try:
             # Create subprocess
+            # start_new_session=True puts the subprocess in its own process
+            # group so we can SIGKILL the whole group (including any
+            # grandchildren it spawned) if the parent is killed abnormally.
             process = await asyncio.create_subprocess_exec(
                 *command,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=cwd,
                 env=env,
+                start_new_session=True,
             )
 
             try:
@@ -328,6 +332,10 @@ class CommandRunner:
                     # Force kill if still running
                     process.kill()
                     await process.wait()
+                # Reap any grandchildren reparented to init.
+                from maverick.executor._subprocess import kill_process_group
+
+                kill_process_group(process.pid)
 
                 returncode = -1
                 # Try to get any output that was captured
@@ -398,12 +406,15 @@ class CommandRunner:
         self._stdout_lines = []
         self._stderr_lines = []
 
+        # start_new_session=True puts the subprocess in its own process
+        # group so we can reap the whole group on abnormal parent exit.
         self._process = await asyncio.create_subprocess_exec(
             *command,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=effective_cwd,
             env=effective_env,
+            start_new_session=True,
         )
 
         # Create queue for merging stdout and stderr streams
@@ -460,6 +471,10 @@ class CommandRunner:
                     await asyncio.wait_for(self._process.wait(), timeout=TERMINATION_GRACE_PERIOD)
                 except TimeoutError:
                     self._process.kill()
+                # Reap any grandchildren reparented to init.
+                from maverick.executor._subprocess import kill_process_group
+
+                kill_process_group(self._process.pid)
             except asyncio.CancelledError:
                 # Normal completion before timeout
                 pass

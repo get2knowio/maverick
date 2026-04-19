@@ -806,3 +806,49 @@ class TestGitAdd:
 
             assert result.success is False
             assert result.error is not None
+
+
+class TestStartNewSession:
+    """Verify every helper spawns subprocesses with start_new_session=True.
+
+    ``start_new_session=True`` puts git subprocesses in their own process
+    group so ``_reap_if_running`` can kill the whole tree on cancel/timeout
+    without also killing the parent. Regressing this flag would silently
+    re-introduce the orphaned-subprocess leak class that motivated the fix.
+    """
+
+    @pytest.mark.asyncio
+    async def test_git_push_passes_start_new_session(self) -> None:
+        with patch("maverick.library.actions.git.asyncio.create_subprocess_exec") as mock_exec:
+            mock_exec.side_effect = [
+                create_mock_process(0, stdout="main\n"),  # rev-parse
+                create_mock_process(0),  # push
+            ]
+            await git_push()
+            assert mock_exec.call_count == 2
+            for call in mock_exec.call_args_list:
+                assert call.kwargs.get("start_new_session") is True
+
+    @pytest.mark.asyncio
+    async def test_git_commit_passes_start_new_session(self) -> None:
+        with patch("maverick.library.actions.git.asyncio.create_subprocess_exec") as mock_exec:
+            mock_exec.side_effect = [
+                create_mock_process(0),  # git add .
+                create_mock_process(0),  # git commit
+                create_mock_process(0, stdout="abc123\n"),  # rev-parse
+                create_mock_process(0, stdout="file.py\n"),  # diff-tree
+            ]
+            await git_commit("msg")
+            for call in mock_exec.call_args_list:
+                assert call.kwargs.get("start_new_session") is True
+
+    @pytest.mark.asyncio
+    async def test_git_merge_passes_start_new_session(self) -> None:
+        with patch("maverick.library.actions.git.asyncio.create_subprocess_exec") as mock_exec:
+            mock_exec.side_effect = [
+                create_mock_process(0),  # merge
+                create_mock_process(0, stdout="sha\n"),  # rev-parse
+            ]
+            await git_merge("feature")
+            for call in mock_exec.call_args_list:
+                assert call.kwargs.get("start_new_session") is True
