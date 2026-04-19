@@ -32,6 +32,7 @@ def _force_kill_port(port: int) -> None:
             capture_output=True,
             text=True,
             timeout=5,
+            start_new_session=True,
         )
         pids = result.stdout.strip().split()
         for pid_str in pids:

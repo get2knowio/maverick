@@ -131,6 +131,7 @@ async def _init_beads(project_path: Path, verbose: bool) -> bool:
             stdin=asyncio.subprocess.DEVNULL,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            start_new_session=True,
         )
         _, stderr = await asyncio.wait_for(
             proc.communicate(),

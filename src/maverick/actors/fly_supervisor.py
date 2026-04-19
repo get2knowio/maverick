@@ -750,6 +750,7 @@ class FlySupervisorActor(SupervisorEventBusMixin, ActorAsyncBridge, Actor):
                 text=True,
                 cwd=self._cwd,
                 timeout=30,
+                start_new_session=True,
             )
             diff_stat = result.stdout[:4000] if result.stdout else "(no diff)"
         except Exception:

@@ -256,6 +256,7 @@ class TestCheckDependencies:
             capture_output=True,
             text=True,
             timeout=5,
+            start_new_session=True,
         )
 
     def test_multiple_dependencies_mixed_availability(self) -> None:
@@ -418,6 +419,7 @@ class TestCheckGitAuth:
             capture_output=True,
             text=True,
             timeout=10,
+            start_new_session=True,
         )
 
     def test_authenticated_with_multiline_output(self) -> None:

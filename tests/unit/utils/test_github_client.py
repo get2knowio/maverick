@@ -37,6 +37,7 @@ class TestGetGitHubToken:
                 text=True,
                 check=True,
                 timeout=10,
+                start_new_session=True,
             )
 
     def test_get_github_token_empty(self):

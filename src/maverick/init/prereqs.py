@@ -77,6 +77,7 @@ async def _run_command(
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=cwd,
+            start_new_session=True,
         )
 
         try:

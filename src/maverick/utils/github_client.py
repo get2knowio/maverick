@@ -66,6 +66,7 @@ def get_github_token() -> str:
             text=True,
             check=True,
             timeout=10,
+            start_new_session=True,
         )
         token = result.stdout.strip()
         if not token:

@@ -107,6 +107,7 @@ async def parse_git_remote(
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=project_path,
+            start_new_session=True,
         )
 
         try:

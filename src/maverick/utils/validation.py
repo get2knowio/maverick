@@ -90,6 +90,7 @@ async def run_validation_step(
             cwd=cwd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            start_new_session=True,
         )
 
         stdout_bytes, stderr_bytes = await asyncio.wait_for(

@@ -148,6 +148,7 @@ class SpecCheckActor(Actor):
                 text=True,
                 cwd=cwd,
                 timeout=10,
+                start_new_session=True,
             )
             if result.returncode == 0:
                 return [f.strip() for f in result.stdout.strip().split("\n") if f.strip()]
@@ -186,6 +187,7 @@ class SpecCheckActor(Actor):
                 text=True,
                 cwd=cwd,
                 timeout=10,
+                start_new_session=True,
             )
             if result.returncode == 0:
                 for line in result.stdout.strip().split("\n"):

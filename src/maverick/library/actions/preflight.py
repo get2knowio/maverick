@@ -286,6 +286,7 @@ async def run_preflight_checks(
                         "user.name",
                         stdout=asyncio.subprocess.PIPE,
                         stderr=asyncio.subprocess.PIPE,
+                        start_new_session=True,
                     ),
                     timeout=5,
                 )
@@ -313,6 +314,7 @@ async def run_preflight_checks(
                         "user.email",
                         stdout=asyncio.subprocess.PIPE,
                         stderr=asyncio.subprocess.PIPE,
+                        start_new_session=True,
                     ),
                     timeout=5,
                 )
@@ -383,6 +385,7 @@ async def run_preflight_checks(
                         "status",
                         stdout=asyncio.subprocess.PIPE,
                         stderr=asyncio.subprocess.PIPE,
+                        start_new_session=True,
                     ),
                     timeout=10,
                 )

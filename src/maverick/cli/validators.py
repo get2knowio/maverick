@@ -90,6 +90,7 @@ def check_dependencies(required: list[str] | None = None) -> list[DependencyStat
                 capture_output=True,
                 text=True,
                 timeout=5,
+                start_new_session=True,
             )
 
             if result.returncode == 0:
@@ -156,6 +157,7 @@ def check_git_auth() -> DependencyStatus:
             capture_output=True,
             text=True,
             timeout=10,
+            start_new_session=True,
         )
 
         if result.returncode == 0:
