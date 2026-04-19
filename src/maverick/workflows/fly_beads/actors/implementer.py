@@ -18,7 +18,7 @@ from maverick.workflows.fly_beads.actors.protocol import (
     Message,
     MessageType,
 )
-from maverick.workflows.fly_beads.session_registry import BeadSessionRegistry
+from maverick.workflows.fly_beads.session_registry import SessionRegistry
 
 logger = get_logger(__name__)
 
@@ -36,7 +36,7 @@ class ImplementerActor:
     def __init__(
         self,
         *,
-        session_registry: BeadSessionRegistry,
+        session_registry: SessionRegistry,
         executor: Any = None,
         cwd: Path | None = None,
         config: StepConfig | None = None,

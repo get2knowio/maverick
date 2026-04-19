@@ -13,12 +13,48 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol, runtime_checkable
 
 from maverick.executor.config import StepConfig
 from maverick.logging import get_logger
 
 logger = get_logger(__name__)
+
+
+@runtime_checkable
+class SessionRegistry(Protocol):
+    """Structural contract for per-logical-task ACP session lifecycle.
+
+    Actors interact with whatever concrete registry the workflow provides
+    via this surface. Keeps implementers, reviewers, generators, and
+    decomposers decoupled from a single concrete registry class
+    (PATTERNS.md §11 — prefer Protocol at boundary seams).
+
+    Note: ``@runtime_checkable`` verifies attribute presence but not full
+    signature correctness. Static typing still carries the weight —
+    ``isinstance`` only catches "totally wrong object," not subtly
+    mismatched methods.
+    """
+
+    async def get_or_create(
+        self,
+        actor_name: str,
+        executor: Any,
+        *,
+        cwd: Path | None = None,
+        config: StepConfig | None = None,
+        step_name: str | None = None,
+        agent_name: str | None = None,
+        event_callback: Any | None = None,
+        allowed_tools: list[str] | None = None,
+        mcp_servers: list[Any] | None = None,
+    ) -> str: ...
+
+    def get_session(self, actor_name: str) -> str | None: ...
+
+    def get_provider(self, actor_name: str) -> str | None: ...
+
+    def close_all(self) -> None: ...
 
 
 @dataclass
