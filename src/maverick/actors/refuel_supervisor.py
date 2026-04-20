@@ -43,6 +43,17 @@ MAX_FIX_ROUNDS = 3
 # transient one.
 MAX_DETAIL_RETRIES = 1
 
+#: Seconds a unit can be in flight before the supervisor force-requeues it.
+#:
+#: The decomposer's ``prompt_session`` enforces a 1200s per-prompt cap, and
+#: ``_run_coro`` wraps the whole phase at 1800s. If a pool actor wedges on a
+#: dead ACP socket those timeouts can fail to fire (the Python task gets
+#: cancelled but the underlying socket read can keep blocking), so the
+#: supervisor also watches dispatch age and forces a requeue. Must exceed
+#: the decomposer's own timeouts comfortably to avoid racing them on healthy
+#: long runs.
+STALE_IN_FLIGHT_SECONDS = 2100.0
+
 _SOURCE = "refuel-supervisor"
 
 logger = get_logger(__name__)
@@ -425,6 +436,38 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
             level="info",
             source=_SOURCE,
         )
+
+        # Watchdog: force-requeue units that have been in flight past the
+        # stale threshold. This catches the case where a pool actor wedges
+        # on a dead ACP socket and never sends prompt_error, so neither the
+        # decomposer's nor prompt_session's timeouts can unblock us. We
+        # fabricate a ``prompt_error`` so the existing retry/abandon logic
+        # in ``_handle_detail_error`` handles the unit uniformly.
+        if oldest_uid and oldest_age >= STALE_IN_FLIGHT_SECONDS:
+            self._emit_output(
+                "refuel",
+                f"Unit {oldest_uid!r} stale on pool[{oldest_pool}] after "
+                f"{oldest_age:.0f}s — forcing requeue (watchdog)",
+                level="warning",
+                source=_SOURCE,
+                metadata={
+                    "unit_id": oldest_uid,
+                    "pool_idx": oldest_pool,
+                    "age_seconds": oldest_age,
+                },
+            )
+            self._handle_detail_error(
+                {
+                    "type": "prompt_error",
+                    "phase": "detail",
+                    "unit_id": oldest_uid,
+                    "error": (
+                        f"watchdog: unit in flight for {oldest_age:.0f}s "
+                        f"(> {STALE_IN_FLIGHT_SECONDS:.0f}s stale threshold)"
+                    ),
+                    "quota_exhausted": False,
+                }
+            )
 
         # Reschedule.
         from datetime import timedelta

@@ -1131,6 +1131,76 @@ class TestErrorResilience:
                     config=StepConfig(timeout=5),
                 )
 
+    async def test_prompt_session_timeout_with_hung_cancel_evicts_connection(
+        self,
+    ) -> None:
+        """If both ``conn.prompt`` and ``conn.cancel`` hang, the cached
+        connection is evicted from the pool so the next call spawns a
+        fresh subprocess. This protects against dead-socket wedges
+        where a pool actor would otherwise stay stuck forever.
+        """
+        executor = _make_executor()
+        mock_conn, mock_proc = _mock_spawn_context()
+        mock_conn.prompt = AsyncMock(side_effect=TimeoutError())
+        mock_conn.cancel = AsyncMock(side_effect=TimeoutError())
+
+        with patch("maverick.executor._connection_pool.spawn_agent_process") as mock_spawn:
+            mock_spawn.return_value = _FakeAsyncContextManager(mock_conn, mock_proc)
+
+            session_id = await executor.create_session(
+                step_name="decompose",
+                agent_name="test_agent",
+            )
+            # Pool has a cached entry after create_session.
+            assert "claude" in executor._pool
+
+            with pytest.raises(MaverickTimeoutError):
+                await executor.prompt_session(
+                    session_id=session_id,
+                    prompt_text="stall me",
+                    step_name="decompose",
+                    agent_name="test_agent",
+                    config=StepConfig(timeout=1),
+                )
+
+        # Cached connection was evicted because cancel also hung — the
+        # next call for this provider will spawn a fresh subprocess.
+        assert "claude" not in executor._pool
+        assert session_id not in executor._session_provider_keys
+
+    async def test_prompt_session_timeout_with_clean_cancel_keeps_connection(
+        self,
+    ) -> None:
+        """When ``cancel`` succeeds quickly after a prompt timeout the
+        connection is healthy and stays cached — only the one turn
+        was slow, not the underlying socket. Evicting would force an
+        unnecessary subprocess respawn on the next call.
+        """
+        executor = _make_executor()
+        mock_conn, mock_proc = _mock_spawn_context()
+        mock_conn.prompt = AsyncMock(side_effect=TimeoutError())
+        mock_conn.cancel = AsyncMock(return_value=None)  # cancel succeeds
+
+        with patch("maverick.executor._connection_pool.spawn_agent_process") as mock_spawn:
+            mock_spawn.return_value = _FakeAsyncContextManager(mock_conn, mock_proc)
+
+            session_id = await executor.create_session(
+                step_name="decompose",
+                agent_name="test_agent",
+            )
+
+            with pytest.raises(MaverickTimeoutError):
+                await executor.prompt_session(
+                    session_id=session_id,
+                    prompt_text="stall me",
+                    step_name="decompose",
+                    agent_name="test_agent",
+                    config=StepConfig(timeout=1),
+                )
+
+        assert "claude" in executor._pool  # still cached
+        assert session_id in executor._session_provider_keys
+
     async def test_retry_creates_fresh_sessions(self) -> None:
         """When prompt() fails twice then succeeds, new_session() is called 3 times."""
         executor = _make_executor()

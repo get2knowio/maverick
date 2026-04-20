@@ -526,15 +526,40 @@ class AcpStepExecutor:
         except TimeoutError as exc:
             # Send an ACP CancelNotification so the agent stops the
             # stalled turn instead of leaving the session half-alive.
-            # The session itself remains usable for future prompts.
+            # Cap the cancel at 5s: if the subprocess/socket is already
+            # dead, the cancel itself will hang, and we'd have no way
+            # out. A hung cancel is the strongest signal we can get that
+            # the connection is unusable, so we drop it from the pool —
+            # the next prompt_session call for this provider will spawn
+            # a fresh subprocess via get_or_create.
+            cancel_failed = False
             try:
-                await cached.conn.cancel(session_id)
+                await asyncio.wait_for(
+                    cached.conn.cancel(session_id), timeout=5.0
+                )
+            except TimeoutError:
+                cancel_failed = True
+                self._logger.warning(
+                    "acp_executor.cancel_timeout_connection_dead",
+                    session_id=session_id,
+                    provider=provider_key,
+                )
             except Exception as cancel_exc:
+                cancel_failed = True
                 self._logger.debug(
                     "acp_executor.cancel_after_timeout_failed",
                     session_id=session_id,
                     error=str(cancel_exc),
                 )
+            if cancel_failed:
+                # Invalidate the cached connection so the next caller
+                # doesn't inherit the hung socket. We don't close it
+                # here — close would also hang — just evict from the
+                # cache. close_all() at shutdown will still try to
+                # reap the subprocess via kill_process_group.
+                self._pool.cache.pop(provider_key, None)
+                self._session_provider_keys.pop(session_id, None)
+                self._session_uses_tool_output_contract.pop(session_id, None)
             raise MaverickTimeoutError(
                 f"ACP prompt on session '{session_id}' timed out after "
                 f"{effective_config.timeout}s",
