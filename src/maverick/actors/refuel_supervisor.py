@@ -107,7 +107,8 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
         # Check BEFORE tool routing — prompt_sent may contain a "tool" key
         if isinstance(message, dict) and message.get("type") == "prompt_sent":
             phase = message.get("phase", "")
-            self._handle_prompt_sent(phase)
+            unit_id = message.get("unit_id")
+            self._handle_prompt_sent(phase, unit_id=unit_id, sender=sender)
             return
 
         # --- Tool call from MCP server (via Thespian tell) ---
@@ -163,11 +164,26 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
         self._details = None
         self._specs = []
         self._fix_rounds = 0
-        self._nudge_count = 0
+        # _nudge_count is keyed by unit_id (detail phase) or phase name
+        # (outline/fix). Tracking per-key lets a stalled pool actor get
+        # multiple nudges without starving every other unit of its budget.
+        self._nudge_count: dict[str, int] = {}
+        # Set True when the supervisor sends a fix_request and cleared
+        # when submit_fix arrives. Drives the fix-phase nudge predicate
+        # (see _handle_prompt_sent).
+        self._awaiting_fix = False
         self._initial_payload = message.get("initial_payload", {})
         self._briefing_cache_path = message.get("briefing_cache_path")
         self._outline_cache_path = message.get("outline_cache_path")
         self._detail_cache_dir = message.get("detail_cache_dir")
+        self._briefing_cache_key = message.get("briefing_cache_key")
+        self._briefing_cache_schema_version = message.get(
+            "briefing_cache_schema_version", 1
+        )
+        self._outline_cache_key_inputs = message.get("outline_cache_key_inputs", {})
+        self._outline_cache_schema_version = message.get(
+            "outline_cache_schema_version", 1
+        )
 
         # Seed outline from cache if pre-populated by workflow.
         _cached_outline = self._initial_payload.get("outline")
@@ -285,7 +301,14 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
         self._start_outline()
 
     def _cache_briefing_results(self):
-        """Persist briefing results to disk for future runs."""
+        """Persist briefing results to disk for future runs.
+
+        Always overwrites an existing file so a resumed run whose inputs
+        drifted updates the cache instead of silently keeping a stale
+        copy. The envelope records ``cache_key`` so the workflow's next
+        read can detect drift.
+        """
+        import hashlib as _hashlib
         import json as _json
         from pathlib import Path
 
@@ -294,19 +317,32 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
             return
 
         path = Path(cache_path)
-        if path.is_file():
-            return  # already cached from a prior run
+        payloads = self._initial_payload.get("briefing", {})
+
+        # Prefer the workflow-provided key; fall back to a self-computed
+        # hash if init was missed (e.g. in older tests).
+        cache_key = getattr(self, "_briefing_cache_key", None)
+        if not cache_key:
+            raw = _json.dumps(payloads, default=str, sort_keys=True).encode("utf-8")
+            cache_key = _hashlib.sha256(raw).hexdigest()[:16]
+
+        envelope = {
+            "schema_version": getattr(self, "_briefing_cache_schema_version", 1),
+            "cache_key": cache_key,
+            "payloads": payloads,
+        }
 
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(
-                _json.dumps(self._initial_payload["briefing"], indent=2, default=str),
+                _json.dumps(envelope, indent=2, default=str),
                 encoding="utf-8",
             )
             logger.info(
                 "refuel_supervisor.briefing_cached",
                 path=cache_path,
                 agents=list(self._briefing_results.keys()),
+                cache_key=cache_key,
             )
         except OSError as exc:
             logger.warning(
@@ -317,6 +353,7 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
 
     def _cache_outline(self):
         """Persist the decomposer outline to disk for future runs."""
+        import hashlib as _hashlib
         import json as _json
         from pathlib import Path
 
@@ -325,19 +362,37 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
             return
 
         path = Path(cache_path)
-        if path.is_file():
-            return  # already cached from a prior run
+        payload = self._outline_payload()
+
+        inputs = getattr(self, "_outline_cache_key_inputs", {}) or {}
+        briefing_payloads = self._initial_payload.get("briefing") or {}
+        h = _hashlib.sha256()
+        h.update(inputs.get("flight_plan_content", "").encode("utf-8"))
+        h.update(b"\x00")
+        h.update(inputs.get("verification_properties", "").encode("utf-8"))
+        h.update(b"\x00")
+        h.update(
+            _json.dumps(briefing_payloads, default=str, sort_keys=True).encode("utf-8")
+        )
+        cache_key = h.hexdigest()[:16]
+
+        envelope = {
+            "schema_version": getattr(self, "_outline_cache_schema_version", 1),
+            "cache_key": cache_key,
+            "payload": payload,
+        }
 
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(
-                _json.dumps(self._outline_payload(), indent=2, default=str),
+                _json.dumps(envelope, indent=2, default=str),
                 encoding="utf-8",
             )
             logger.info(
                 "refuel_supervisor.outline_cached",
                 path=cache_path,
                 unit_count=len(self._outline.work_units),
+                cache_key=cache_key,
             )
         except OSError as exc:
             logger.warning(
@@ -647,49 +702,87 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
                 {"type": "detail_request", "unit_id": uid},
             )
 
-    def _handle_prompt_sent(self, phase):
-        """Check if expected tool call arrived; nudge if not."""
+    def _handle_prompt_sent(self, phase, *, unit_id=None, sender=None):
+        """Check if expected tool call arrived; nudge if not.
+
+        Per-phase semantics:
+
+        - ``outline`` / ``fix``: nudge the primary decomposer (``self._decomposer``).
+          The check uses workflow state (did the outline arrive? is the
+          supervisor still awaiting a submit_fix?).
+        - ``detail``: nudge the specific pool actor (``sender``) that sent
+          ``prompt_sent``. Nudging the primary would make it re-submit the
+          outline because ``submit_outline`` is seeded on its session.
+        """
         MAX_NUDGES = 2
-        # Map phase to expected tool and state check
-        phase_tool_map = {
-            "outline": ("submit_outline", lambda: self._outline is not None),
-            # Don't nudge for detail — pool actors work independently.
-            # Nudging the primary decomposer about another actor's missing
-            # response causes it to re-submit the outline, cascading into
-            # a full re-fan-out.
-            "fix": ("submit_fix", lambda: self._fix_rounds > 0 and self._details is not None),
+        # (expected_tool, target_kind, check_fn)
+        #   target_kind == "pool" routes the nudge to the sender,
+        #   anything else routes it to the primary decomposer.
+        phase_tool_map: dict[
+            str, tuple[str, str, Any]
+        ] = {
+            "outline": (
+                "submit_outline",
+                "primary",
+                lambda _uid: self._outline is not None,
+            ),
+            "detail": (
+                "submit_details",
+                "pool",
+                lambda uid: bool(uid) and uid not in self._pending_detail_ids,
+            ),
+            "fix": (
+                "submit_fix",
+                "primary",
+                lambda _uid: not self._awaiting_fix,
+            ),
         }
 
-        if phase not in phase_tool_map:
+        entry = phase_tool_map.get(phase)
+        if entry is None:
             return
 
-        tool_name, check_fn = phase_tool_map[phase]
-        if check_fn():
-            # Tool call already arrived — nothing to do
+        tool_name, target_kind, check_fn = entry
+        if check_fn(unit_id):
+            # Tool call already arrived — nothing to do.
             return
 
-        if self._nudge_count >= MAX_NUDGES:
+        # Key nudge count by unit_id when available (detail phase) or
+        # phase (outline/fix) so a stall in one unit doesn't eat the
+        # nudge budget for the primary decomposer.
+        nudge_key = unit_id if unit_id else phase
+        count = self._nudge_count.get(nudge_key, 0)
+        if count >= MAX_NUDGES:
             self._emit_output(
                 "refuel",
-                f"Max nudges reached for {phase}; skipping",
+                f"Max nudges reached for {phase}"
+                + (f" unit {unit_id}" if unit_id else "")
+                + "; skipping",
                 level="warning",
                 source=_SOURCE,
             )
             return
 
-        self._nudge_count += 1
+        self._nudge_count[nudge_key] = count + 1
+
+        target = sender if target_kind == "pool" else self._decomposer
+        if target is None:
+            return
+
         logger.debug(
             "refuel_supervisor.nudging",
             tool=tool_name,
-            attempt=self._nudge_count,
+            phase=phase,
+            unit_id=unit_id,
+            attempt=self._nudge_count[nudge_key],
         )
-        self.send(
-            self._decomposer,
-            {
-                "type": "nudge",
-                "expected_tool": tool_name,
-            },
-        )
+        nudge_msg: dict[str, Any] = {
+            "type": "nudge",
+            "expected_tool": tool_name,
+        }
+        if unit_id:
+            nudge_msg["unit_id"] = unit_id
+        self.send(target, nudge_msg)
 
     # Briefing tool name → agent name mapping
     _BRIEFING_TOOLS: dict[str, str] = {
@@ -707,10 +800,17 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
         try:
             payload = parse_supervisor_tool_payload(tool, args)
         except (SupervisorToolPayloadError, ValueError) as exc:
-            self._handle_error({"phase": "tool", "error": str(exc)})
+            self._handle_payload_parse_error(tool, exc)
             return
 
-        self._nudge_count = 0  # Reset on successful tool call
+        # Reset any nudge bookkeeping keyed by the arriving tool's phase.
+        # Per-unit detail counters are cleared in the submit_details
+        # branch once we know which unit_ids landed.
+        if tool == "submit_outline":
+            self._nudge_count.pop("outline", None)
+        elif tool == "submit_fix":
+            self._nudge_count.pop("fix", None)
+            self._awaiting_fix = False
 
         # Briefing tools
         if tool in self._BRIEFING_TOOLS:
@@ -779,6 +879,8 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
                 self._cache_detail(uid, detail)
                 # Drop from in-flight tracker.
                 self._detail_dispatch_info.pop(uid, None)
+                # Clear any nudge bookkeeping for this unit.
+                self._nudge_count.pop(uid, None)
 
             self._last_detail_time = _time.monotonic()
 
@@ -883,6 +985,7 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
                 source=_SOURCE,
                 metadata={"gap_count": len(gaps), "fix_round": self._fix_rounds},
             )
+            self._awaiting_fix = True
             self.send(
                 self._decomposer,
                 {
@@ -923,10 +1026,11 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
             elapsed_ms = int((_time.monotonic() - self._decompose_start) * 1000)
             self._emit_phase_completed("decompose", "Decomposing", elapsed_ms)
 
-        # Shutdown all decomposer actors (primary + pool)
-        for addr in [self._decomposer] + list(self._decomposer_pool):
-            if addr:
-                self.send(addr, {"type": "shutdown"})
+        # Shut down every agent actor (decomposer pool + briefing) via
+        # the same explicit path the error flow uses. Explicit shutdown
+        # lets actors close their ACP subprocess cleanly; the subsequent
+        # ActorExitRequest from asys.shutdown() is then a no-op.
+        self._shutdown_all()
         bead_count = message.get("bead_count", 0)
         success = message.get("success", False)
         self._emit_output(
@@ -1074,6 +1178,57 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
         if unit_id:
             self._detail_queue.append(unit_id)
         self._dispatch_pending_details()
+
+    def _handle_payload_parse_error(self, tool: str, exc: Exception) -> None:
+        """Recover from a validated-but-malformed MCP tool payload.
+
+        The MCP server already validated the JSON Schema, so getting here
+        means the Pydantic model's validators rejected something stricter
+        (kebab-case ids, non-empty task, etc.). Historically this took
+        the whole run down via :meth:`_handle_error`. The safer response
+        is to nudge the primary decomposer to resubmit for outline/fix,
+        warn and keep running for detail (where dropping one unit beats
+        killing the whole batch), and escalate only for unknown tools.
+        """
+        phase_map = {
+            "submit_outline": "outline",
+            "submit_details": "detail",
+            "submit_fix": "fix",
+        }
+        phase = phase_map.get(tool)
+
+        self._emit_output(
+            "refuel",
+            f"Tool {tool!r} payload rejected by validator: {exc}; requesting correction",
+            level="warning",
+            source=_SOURCE,
+        )
+
+        if phase in ("outline", "fix"):
+            nudge_msg: dict[str, Any] = {
+                "type": "nudge",
+                "expected_tool": tool,
+                "reason": str(exc),
+            }
+            if self._decomposer is not None:
+                self.send(self._decomposer, nudge_msg)
+            return
+
+        if phase == "detail":
+            # Without a unit_id in the rejected payload we can't
+            # selectively requeue, so surface the failure and keep the
+            # other pool actors running. A stuck pending detail will
+            # be caught by the stale-in-flight watchdog.
+            self._emit_output(
+                "refuel",
+                "Detail payload validation failed; continuing with other units",
+                level="error",
+                source=_SOURCE,
+            )
+            return
+
+        # Unknown tool name — treat as a hard error like the legacy path.
+        self._handle_error({"phase": "tool", "error": str(exc)})
 
     def _handle_error(self, message):
         """Report error to workflow — shutdown agents first."""

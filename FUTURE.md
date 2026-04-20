@@ -439,7 +439,7 @@ The major supervisors are intentionally different, but they repeat a recognizabl
 Relevant code:
 
 - [src/maverick/workflows/generate_flight_plan/supervisor.py](src/maverick/workflows/generate_flight_plan/supervisor.py)
-- [src/maverick/workflows/refuel_maverick/supervisor.py](src/maverick/workflows/refuel_maverick/supervisor.py)
+- [src/maverick/actors/refuel_supervisor.py](src/maverick/actors/refuel_supervisor.py)
 - [src/maverick/workflows/fly_beads/supervisor.py](src/maverick/workflows/fly_beads/supervisor.py)
 
 This should stay small and compositional. The opportunity is not "add another framework." It is "extract the two or three orchestration fragments that already repeat."

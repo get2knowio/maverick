@@ -326,6 +326,23 @@ Do NOT use `asyncio.run()` — it tears down async generators (ACP's stdio trans
 completion, causing `RuntimeError: aclose(): asynchronous generator is already running`.
 The persistent loop keeps the event loop alive across multiple message handlers.
 
+**Known Limitations (async bridge)**: The bridge blocks `receiveMessage` for the entire
+duration of an ACP prompt — up to `timeout_seconds`. While a prompt is in flight:
+
+- `ActorExitRequest` from `asys.shutdown()` queues behind the running `receiveMessage`,
+  so shutdown can take up to one prompt timeout to drain cleanly.
+- Supervisor messages (nudges, shutdowns) queue behind the in-flight prompt and are
+  processed when it completes.
+- Ctrl-C may orphan ACP subprocesses if the atexit handler's shutdown does not finish
+  before the process exits. The bridge now cancels its own coroutine on timeout (see
+  `_run_coro` in `actors/_bridge.py`), but a SIGINT during the 1-2s gap between
+  "stopped waiting" and "executor cleanup" can still leave the ACP subprocess to be
+  reaped by PID 1.
+
+These are acknowledged trade-offs of keeping Thespian's sync message model. A full
+cancellation path (cancel_current message from supervisor → future.cancel on the
+actor's running coroutine) is a larger redesign — see `docs/REFUEL_ISSUES.md` Issue 12.
+
 **Timeout Guidance**: Decomposition prompts on large flight plans take 10-20 minutes.
 Set `StepConfig(timeout=1800)` for prompt_session calls. Set `asys.ask(timeout=3600)`
 for the overall supervisor workflow.

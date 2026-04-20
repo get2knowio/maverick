@@ -41,9 +41,12 @@ class BriefingActor(ActorAsyncBridge, Actor):
         msg_type = message.get("type")
 
         if msg_type == "init":
+            cwd_in = message.get("cwd")
+            if not cwd_in:
+                raise ValueError("BriefingActor init requires 'cwd'")
             self._mcp_tool = message.get("mcp_tool", "")
             self._admin_port = message.get("admin_port", 19500)
-            self._cwd = message.get("cwd")
+            self._cwd = cwd_in
             self._agent_name = message.get("agent_name", "")
             self._step_config = load_step_config(message.get("config"))
             self._executor = None
@@ -136,7 +139,7 @@ class BriefingActor(ActorAsyncBridge, Actor):
             env=[],
         )
 
-        cwd = Path(self._cwd) if self._cwd else Path.cwd()
+        cwd = Path(self._cwd)
 
         self._session_id = await self._executor.create_session(
             provider=self._step_config.provider if self._step_config else None,

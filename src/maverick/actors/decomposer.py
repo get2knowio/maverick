@@ -56,7 +56,10 @@ class DecomposerActor(ActorAsyncBridge, Actor):
         msg_type = message.get("type")
 
         if msg_type == "init":
-            self._cwd = message.get("cwd")
+            cwd_in = message.get("cwd")
+            if not cwd_in:
+                raise ValueError("DecomposerActor init requires 'cwd'")
+            self._cwd = cwd_in
             self._step_config = load_step_config(message.get("config"))
             role = message.get("role", "primary")
             self._role = role
@@ -239,7 +242,7 @@ class DecomposerActor(ActorAsyncBridge, Actor):
             env=[],
         )
 
-        cwd = Path(self._cwd) if self._cwd else Path.cwd()
+        cwd = Path(self._cwd)
         role = getattr(self, "_role", "primary")
         one_shot: list[str] | None = ["submit_outline"] if role == "primary" else None
         allowed_tools = [*READ_ONLY_DECOMPOSER_TOOLS, *self._mcp_tool_names]
@@ -515,9 +518,26 @@ class DecomposerActor(ActorAsyncBridge, Actor):
 
     async def _send_nudge(self, message):
         tool_name = message.get("expected_tool", "submit_outline")
-        await self._prompt(
-            f"Your response was not registered because you did not "
-            f"call the `{tool_name}` tool. Please call "
-            f"`{tool_name}` now with your results.",
-            f"decompose_nudge_{tool_name}",
-        )
+        unit_id = message.get("unit_id")
+        reason = message.get("reason", "")
+
+        # Tailor the nudge prompt: a per-unit detail nudge should name
+        # the unit so the agent re-submits for the right one instead of
+        # defaulting to whatever it last reasoned about.
+        if tool_name == "submit_details" and unit_id:
+            prompt_text = (
+                f"Your last response was not registered because you did not "
+                f"call the `submit_details` tool for unit `{unit_id}`. "
+                f"Please call `submit_details` now with a complete entry "
+                f"for `{unit_id}`."
+            )
+        else:
+            prompt_text = (
+                f"Your response was not registered because you did not "
+                f"call the `{tool_name}` tool. Please call "
+                f"`{tool_name}` now with your results."
+            )
+        if reason:
+            prompt_text += f" (reason: {reason})"
+
+        await self._prompt(prompt_text, f"decompose_nudge_{tool_name}")

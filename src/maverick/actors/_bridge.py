@@ -32,6 +32,7 @@ Usage:
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import threading
 from collections.abc import Coroutine
 from typing import Any, TypeVar
@@ -96,11 +97,28 @@ class ActorAsyncBridge:
 
         Raises whatever the coroutine raises, plus
         :class:`concurrent.futures.TimeoutError` if it doesn't complete
-        within ``timeout`` seconds.
+        within ``timeout`` seconds. On timeout the underlying task is
+        cancelled so the bridge loop does not accumulate leaked
+        coroutines across retries (see REFUEL_ISSUES Issue 2).
         """
         self._ensure_async_bridge()
         future = asyncio.run_coroutine_threadsafe(coro, self._loop)
-        return future.result(timeout=timeout)
+        try:
+            return future.result(timeout=timeout)
+        except (TimeoutError, concurrent.futures.TimeoutError):
+            future.cancel()
+            try:
+                future.result(timeout=5.0)
+            except (
+                TimeoutError,
+                concurrent.futures.TimeoutError,
+                concurrent.futures.CancelledError,
+                asyncio.CancelledError,
+            ):
+                logger.warning("actor_bridge.task_cancel_timeout")
+            except Exception as exc:
+                logger.debug("actor_bridge.task_cancel_error", error=str(exc))
+            raise
 
     def _cleanup_executor(self, *, timeout: float = 5.0) -> None:
         """Best-effort cleanup of ``self._executor`` on the bridge loop.

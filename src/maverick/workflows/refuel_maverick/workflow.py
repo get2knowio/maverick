@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 from pathlib import Path
 from typing import Any
@@ -35,7 +36,6 @@ from maverick.workflows.refuel_maverick.constants import (
     DETAIL_SESSION_MAX_TURNS,
     FIX_SESSION_MAX_TURNS,
     GATHER_CONTEXT,
-    MAX_DECOMPOSE_ATTEMPTS,
     PARSE_FLIGHT_PLAN,
     WIRE_CROSS_PLAN_DEPS,
     WIRE_DEPS,
@@ -45,6 +45,56 @@ from maverick.workflows.refuel_maverick.constants import (
 from maverick.workflows.refuel_maverick.models import RefuelMaverickResult
 
 logger = get_logger(__name__)
+
+#: Bumped when the on-disk cache layout changes so stale caches with
+#: the old schema get invalidated instead of silently misinterpreted.
+BRIEFING_CACHE_SCHEMA_VERSION = 1
+OUTLINE_CACHE_SCHEMA_VERSION = 1
+
+
+def _briefing_cache_key(
+    flight_plan_content: str,
+    codebase_context: Any,
+    briefing_prompt: str,
+) -> str:
+    """Stable fingerprint of every input the briefing reasoned about.
+
+    Changing any of ``flight_plan_content``, ``codebase_context`` (even
+    whitespace inside gathered files), or ``briefing_prompt`` drifts the
+    hash and invalidates the cache. Trimmed to 16 hex chars — collisions
+    on a local cache file are not a threat model we care about, and the
+    shorter key keeps log lines scannable.
+    """
+    h = hashlib.sha256()
+    h.update(flight_plan_content.encode("utf-8"))
+    h.update(b"\x00")
+    h.update(
+        json.dumps(codebase_context, default=str, sort_keys=True).encode("utf-8")
+    )
+    h.update(b"\x00")
+    h.update(briefing_prompt.encode("utf-8"))
+    return h.hexdigest()[:16]
+
+
+def _outline_cache_key(
+    flight_plan_content: str,
+    verification_properties: str,
+    briefing_payloads: dict[str, Any] | None,
+) -> str:
+    """Stable fingerprint of the outline's inputs.
+
+    The outline is seeded from the briefing + flight plan + verification
+    properties, so any of those changing must invalidate the outline.
+    """
+    h = hashlib.sha256()
+    h.update(flight_plan_content.encode("utf-8"))
+    h.update(b"\x00")
+    h.update(verification_properties.encode("utf-8"))
+    h.update(b"\x00")
+    h.update(
+        json.dumps(briefing_payloads or {}, default=str, sort_keys=True).encode("utf-8")
+    )
+    return h.hexdigest()[:16]
 
 
 class RefuelMaverickWorkflow(PythonWorkflow):
@@ -752,20 +802,50 @@ class RefuelMaverickWorkflow(PythonWorkflow):
         cached_outline: dict[str, Any] | None = None
         cached_details: dict[str, dict[str, Any]] = {}
 
+        verification_properties = getattr(flight_plan, "verification_properties", "")
+        briefing_key = _briefing_cache_key(
+            raw_content, codebase_context, briefing_prompt
+        )
+
         if not skip_briefing and briefing_cache_path.is_file():
             try:
-                cached_briefing = _json.loads(briefing_cache_path.read_text(encoding="utf-8"))
-                skip_briefing = True
-                logger.info(
-                    "refuel.briefing_cache_hit",
-                    path=str(briefing_cache_path),
-                    agents=list(cached_briefing.keys()),
-                )
-                await self.emit_output(
-                    "refuel",
-                    "Using cached briefing from previous run",
-                    level="info",
-                )
+                raw_cache = _json.loads(briefing_cache_path.read_text(encoding="utf-8"))
+                # Support legacy caches written before the keyed-envelope
+                # format: those are a flat {agent: payload} dict. Treat
+                # them as absent so the hash gets written next time.
+                if (
+                    isinstance(raw_cache, dict)
+                    and raw_cache.get("schema_version") == BRIEFING_CACHE_SCHEMA_VERSION
+                    and isinstance(raw_cache.get("payloads"), dict)
+                ):
+                    if raw_cache.get("cache_key") == briefing_key:
+                        cached_briefing = raw_cache["payloads"]
+                        skip_briefing = True
+                        logger.info(
+                            "refuel.briefing_cache_hit",
+                            path=str(briefing_cache_path),
+                            agents=list(cached_briefing.keys()),
+                            cache_key=briefing_key,
+                        )
+                        await self.emit_output(
+                            "refuel",
+                            "Using cached briefing from previous run",
+                            level="info",
+                        )
+                    else:
+                        logger.info(
+                            "refuel.briefing_cache_invalidated",
+                            path=str(briefing_cache_path),
+                            reason="key_mismatch",
+                            expected=briefing_key,
+                            actual=raw_cache.get("cache_key"),
+                        )
+                else:
+                    logger.info(
+                        "refuel.briefing_cache_invalidated",
+                        path=str(briefing_cache_path),
+                        reason="legacy_or_malformed_envelope",
+                    )
             except (OSError, _json.JSONDecodeError, ValueError) as exc:
                 logger.warning(
                     "refuel.briefing_cache_invalid",
@@ -774,20 +854,49 @@ class RefuelMaverickWorkflow(PythonWorkflow):
                 )
                 cached_briefing = None
 
+        # The outline key depends on the briefing that produced it, so
+        # compute it from whatever briefing we'll actually run with
+        # (cached or the about-to-be-produced None placeholder).
+        outline_key = _outline_cache_key(
+            raw_content, verification_properties, cached_briefing
+        )
+
         if outline_cache_path.is_file():
             try:
-                cached_outline = _json.loads(outline_cache_path.read_text(encoding="utf-8"))
-                unit_count = len(cached_outline.get("work_units", []))
-                logger.info(
-                    "refuel.outline_cache_hit",
-                    path=str(outline_cache_path),
-                    unit_count=unit_count,
-                )
-                await self.emit_output(
-                    "refuel",
-                    f"Using cached outline from previous run ({unit_count} work units)",
-                    level="info",
-                )
+                raw_outline = _json.loads(outline_cache_path.read_text(encoding="utf-8"))
+                if (
+                    isinstance(raw_outline, dict)
+                    and raw_outline.get("schema_version") == OUTLINE_CACHE_SCHEMA_VERSION
+                    and isinstance(raw_outline.get("payload"), dict)
+                ):
+                    if raw_outline.get("cache_key") == outline_key:
+                        cached_outline = raw_outline["payload"]
+                        unit_count = len(cached_outline.get("work_units", []))
+                        logger.info(
+                            "refuel.outline_cache_hit",
+                            path=str(outline_cache_path),
+                            unit_count=unit_count,
+                            cache_key=outline_key,
+                        )
+                        await self.emit_output(
+                            "refuel",
+                            f"Using cached outline from previous run ({unit_count} work units)",
+                            level="info",
+                        )
+                    else:
+                        logger.info(
+                            "refuel.outline_cache_invalidated",
+                            path=str(outline_cache_path),
+                            reason="key_mismatch",
+                            expected=outline_key,
+                            actual=raw_outline.get("cache_key"),
+                        )
+                else:
+                    logger.info(
+                        "refuel.outline_cache_invalidated",
+                        path=str(outline_cache_path),
+                        reason="legacy_or_malformed_envelope",
+                    )
             except (OSError, _json.JSONDecodeError, ValueError) as exc:
                 logger.warning(
                     "refuel.outline_cache_invalid",
@@ -962,6 +1071,13 @@ class RefuelMaverickWorkflow(PythonWorkflow):
                     "briefing_cache_path": str(briefing_cache_path),
                     "outline_cache_path": str(outline_cache_path),
                     "detail_cache_dir": str(detail_cache_dir),
+                    "briefing_cache_key": briefing_key,
+                    "briefing_cache_schema_version": BRIEFING_CACHE_SCHEMA_VERSION,
+                    "outline_cache_key_inputs": {
+                        "flight_plan_content": raw_content,
+                        "verification_properties": verification_properties,
+                    },
+                    "outline_cache_schema_version": OUTLINE_CACHE_SCHEMA_VERSION,
                 },
                 timeout=10,
             )
@@ -969,16 +1085,14 @@ class RefuelMaverickWorkflow(PythonWorkflow):
             # Start decomposition (fire-and-drain)
             asys.tell(supervisor_addr, "start")
 
-            # Scale timeout: briefing (~10min parallel + ~10min contrarian)
-            # + outline (~10min) + parallel detail waves (~10min each)
-            # + up to 3 validation/fix rounds (~10min each).
-            sc_count = len(flight_plan.success_criteria)
-            estimated_units = max(1, int(sc_count * 1.5))
-            detail_waves = max(
-                1, (estimated_units + DECOMPOSER_POOL_SIZE - 1) // DECOMPOSER_POOL_SIZE
-            )
-            briefing_phases = 2 if not skip_briefing else 0  # parallel + contrarian
-            drain_timeout = 600.0 * (briefing_phases + 1 + detail_waves + MAX_DECOMPOSE_ATTEMPTS)
+            # The drain-loop hard timeout is a runaway-cost guard, not
+            # the primary stall detector — the supervisor's
+            # STALE_IN_FLIGHT_SECONDS watchdog catches wedged units and
+            # _handle_detail_error requeues them. A flat 6h cap is
+            # comfortably above worst-case legitimate runs (large plans
+            # with 60+ units and multiple fix rounds) while still
+            # bounding damage if the supervisor itself dies.
+            drain_timeout = 6 * 60 * 60.0
             result = await self._drain_supervisor_events(
                 asys=asys,
                 supervisor=supervisor_addr,

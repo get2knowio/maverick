@@ -24,8 +24,6 @@ DETAIL_SESSION_MAX_TURNS = 5
 #: threshold low and relies on refreshed context for each round.
 FIX_SESSION_MAX_TURNS = 1
 
-#: Maximum decompose → validate attempts before giving up.
-MAX_DECOMPOSE_ATTEMPTS = 3
 VALIDATE = "validate"
 WRITE_WORK_UNITS = "write_work_units"
 CREATE_BEADS = "create_beads"
