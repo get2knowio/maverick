@@ -392,7 +392,17 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
         )
 
     def _handle_wakeup(self, message: WakeupMessage) -> None:
-        """Emit a heartbeat status line if detail work is still in flight."""
+        """Run the detail-phase watchdog on each wakeup tick.
+
+        Historically this also emitted a verbose "Still working — N/M
+        done…" status line to the CLI every 30s. Now that the
+        decomposer emits its own per-prompt ``prompt_seeded`` /
+        ``prompt_reused`` lifecycle events and the watchdog below
+        surfaces genuine stalls, the heartbeat line was pure noise on
+        long runs. The wakeup loop is kept running because the
+        watchdog still needs it; the status snapshot is logged at
+        DEBUG for post-run analysis only.
+        """
         payload = getattr(message, "payload", None)
         if payload != "detail_heartbeat":
             return
@@ -421,20 +431,16 @@ class RefuelSupervisorActor(SupervisorEventBusMixin, Actor):
                 oldest_uid = uid
                 oldest_pool = info.get("pool_idx", -1)
 
-        msg = (
-            f"Still working — {done}/{done + pending} done, "
-            f"{self._detail_in_flight} in flight, "
-            f"{len(self._detail_queue)} queued, "
-            f"{since_last:.0f}s since last detail"
-        )
-        if oldest_uid:
-            msg += f"; oldest in flight: {oldest_uid} on pool[{oldest_pool}] for {oldest_age:.0f}s"
-
-        self._emit_output(
-            "refuel",
-            msg,
-            level="info",
-            source=_SOURCE,
+        logger.debug(
+            "refuel.detail_heartbeat",
+            done=done,
+            pending=pending,
+            in_flight=self._detail_in_flight,
+            queued=len(self._detail_queue),
+            since_last_seconds=since_last,
+            oldest_unit=oldest_uid,
+            oldest_pool=oldest_pool,
+            oldest_age_seconds=oldest_age,
         )
 
         # Watchdog: force-requeue units that have been in flight past the

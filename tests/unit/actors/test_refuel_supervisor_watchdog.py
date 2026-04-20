@@ -82,6 +82,25 @@ class TestStaleInFlightWatchdog:
         # Dispatch got triggered so an idle pool actor can pick it up.
         sup._dispatch_pending_details.assert_called_once()
 
+    def test_normal_heartbeat_stays_quiet(self, monkeypatch) -> None:
+        """A healthy in-flight unit must not produce CLI output on every tick.
+
+        The verbose ``Still working — N/M done…`` line was pure noise on
+        long runs now that the decomposer emits ``prompt_seeded`` /
+        ``prompt_reused`` lifecycle events. Pins that regression so a
+        future refactor can't silently reintroduce the spam.
+        """
+        sup = _make_supervisor()
+        sup._detail_dispatch_info = {
+            "unit-stuck": {"at": 940.0, "pool_idx": 0},
+        }
+        monkeypatch.setattr("time.monotonic", lambda: 1000.0)
+        wakeup = MagicMock(payload="detail_heartbeat")
+
+        sup._handle_wakeup(wakeup)
+
+        sup._emit_output.assert_not_called()
+
     def test_watchdog_abandons_after_retry_budget_exceeded(self, monkeypatch) -> None:
         sup = _make_supervisor()
         threshold = refuel_supervisor_module.STALE_IN_FLIGHT_SECONDS
