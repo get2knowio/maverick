@@ -22,6 +22,7 @@ from typing import Any
 from thespian.actors import Actor
 
 from maverick.actors._bridge import ActorAsyncBridge
+from maverick.actors._step_config import load_step_config, step_config_with_timeout
 from maverick.agents.tools import PLANNER_TOOLS
 from maverick.logging import get_logger
 
@@ -56,6 +57,7 @@ class DecomposerActor(ActorAsyncBridge, Actor):
 
         if msg_type == "init":
             self._cwd = message.get("cwd")
+            self._step_config = load_step_config(message.get("config"))
             role = message.get("role", "primary")
             self._role = role
             self._detail_session_max_turns = max(
@@ -243,6 +245,8 @@ class DecomposerActor(ActorAsyncBridge, Actor):
         allowed_tools = [*READ_ONLY_DECOMPOSER_TOOLS, *self._mcp_tool_names]
 
         self._session_id = await self._executor.create_session(
+            provider=self._step_config.provider if self._step_config else None,
+            config=self._step_config,
             step_name="decompose",
             agent_name="decomposer",
             cwd=cwd,
@@ -335,16 +339,13 @@ class DecomposerActor(ActorAsyncBridge, Actor):
         supervisor as a ``prompt_error`` so the supervisor can requeue
         the unit instead of waiting indefinitely.
         """
-        from maverick.executor.config import StepConfig
-
         await self._ensure_agent()
-
-        config = StepConfig(timeout=timeout_seconds)
 
         await self._executor.prompt_session(
             session_id=self._session_id,
             prompt_text=prompt_text,
-            config=config,
+            provider=self._step_config.provider if self._step_config else None,
+            config=step_config_with_timeout(self._step_config, timeout_seconds),
             step_name=step_name,
             agent_name="decomposer",
         )

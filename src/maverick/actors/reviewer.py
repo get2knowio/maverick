@@ -13,6 +13,11 @@ import sys
 from thespian.actors import Actor
 
 from maverick.actors._bridge import ActorAsyncBridge
+from maverick.actors._step_config import (
+    load_step_config,
+    step_allowed_tools,
+    step_config_with_timeout,
+)
 from maverick.logging import get_logger
 
 logger = get_logger(__name__)
@@ -32,6 +37,7 @@ class ReviewerActor(ActorAsyncBridge, Actor):
         if msg_type == "init":
             self._admin_port = message.get("admin_port", 19500)
             self._cwd = message.get("cwd")
+            self._step_config = load_step_config(message.get("config"))
             self._executor = None
             self._session_id = None
             self._review_count = 0
@@ -147,15 +153,16 @@ class ReviewerActor(ActorAsyncBridge, Actor):
         cwd = Path(self._cwd) if self._cwd else Path.cwd()
 
         self._session_id = await self._executor.create_session(
+            provider=self._step_config.provider if self._step_config else None,
+            config=self._step_config,
             step_name="review",
             agent_name="reviewer",
             cwd=cwd,
+            allowed_tools=step_allowed_tools(self._step_config),
             mcp_servers=[mcp_config],
         )
 
     async def _send_review(self, message):
-        from maverick.executor.config import StepConfig
-
         await self._ensure_executor()
         if not self._session_id:
             await self._new_session()
@@ -216,15 +223,14 @@ class ReviewerActor(ActorAsyncBridge, Actor):
         await self._executor.prompt_session(
             session_id=self._session_id,
             prompt_text=prompt,
-            config=StepConfig(timeout=600),
+            provider=self._step_config.provider if self._step_config else None,
+            config=step_config_with_timeout(self._step_config, 600),
             step_name="review",
             agent_name="reviewer",
         )
 
     async def _send_aggregate_review(self, message):
         """Send aggregate review prompt for cross-bead analysis."""
-        from maverick.executor.config import StepConfig
-
         await self._ensure_executor()
         if not self._session_id:
             await self._new_session()
@@ -256,7 +262,8 @@ class ReviewerActor(ActorAsyncBridge, Actor):
         await self._executor.prompt_session(
             session_id=self._session_id,
             prompt_text=prompt,
-            config=StepConfig(timeout=600),
+            provider=self._step_config.provider if self._step_config else None,
+            config=step_config_with_timeout(self._step_config, 600),
             step_name="aggregate_review",
             agent_name="reviewer",
         )

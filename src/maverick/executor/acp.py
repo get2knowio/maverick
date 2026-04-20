@@ -52,6 +52,9 @@ __all__ = ["AcpStepExecutor"]
 
 logger = get_logger(__name__)
 
+_GEMINI_MODEL_FLAG = "--model"
+_GEMINI_PROVIDER = "gemini"
+
 
 class AcpStepExecutor:
     """ACP adapter implementing the StepExecutor protocol (FR-015).
@@ -80,6 +83,7 @@ class AcpStepExecutor:
         self._logger = get_logger(__name__)
         self._pool = ConnectionPool(logger=self._logger)
         self._session_uses_tool_output_contract: dict[str, bool] = {}
+        self._session_provider_keys: dict[str, str] = {}
 
     async def execute(
         self,
@@ -208,8 +212,15 @@ class AcpStepExecutor:
 
         # --- Get or create cached ACP connection ---
         effective_max_tokens = effective_config.max_tokens or self._global_max_tokens
+        provider_key, runtime_provider_config = _resolve_runtime_provider_config(
+            provider_name,
+            provider_config,
+            effective_config,
+        )
         cached = await self._pool.get_or_create(
-            provider_name, provider_config, max_output_tokens=effective_max_tokens
+            provider_key,
+            runtime_provider_config,
+            max_output_tokens=effective_max_tokens,
         )
 
         # --- Resolve effective retry ---
@@ -240,8 +251,9 @@ class AcpStepExecutor:
                 agent_name=agent_name,
                 prompt_text=prompt_text,
                 cached=cached,
+                provider_key=provider_key,
                 provider_name=provider_name,
-                provider_config=provider_config,
+                provider_config=runtime_provider_config,
                 cwd_str=cwd_str,
                 output_schema=output_schema,
                 effective_config=effective_config,
@@ -284,6 +296,7 @@ class AcpStepExecutor:
         """Close all cached ACP connections and terminate subprocesses."""
         await self._pool.close_all()
         self._session_uses_tool_output_contract.clear()
+        self._session_provider_keys.clear()
 
     async def cancel_session(
         self,
@@ -297,15 +310,17 @@ class AcpStepExecutor:
         the session itself remains alive for future prompts. Best-effort:
         if the provider/session is not active, this is a no-op.
         """
-        if provider is not None:
-            provider_name = provider
-        else:
-            provider_name, _ = self._provider_registry.default()
+        provider_key = self._session_provider_keys.get(session_id)
+        if provider_key is None:
+            if provider is not None:
+                provider_key = provider
+            else:
+                provider_key, _ = self._provider_registry.default()
 
-        if provider_name not in self._pool:
+        if provider_key not in self._pool:
             return
 
-        cached = self._pool[provider_name]
+        cached = self._pool[provider_key]
         try:
             await cached.conn.cancel(session_id)
         except Exception as exc:
@@ -367,8 +382,15 @@ class AcpStepExecutor:
             provider_name, provider_config = self._provider_registry.default()
 
         effective_max_tokens = effective_config.max_tokens or self._global_max_tokens
+        provider_key, runtime_provider_config = _resolve_runtime_provider_config(
+            provider_name,
+            provider_config,
+            effective_config,
+        )
         cached = await self._pool.get_or_create(
-            provider_name, provider_config, max_output_tokens=effective_max_tokens
+            provider_key,
+            runtime_provider_config,
+            max_output_tokens=effective_max_tokens,
         )
 
         cwd_str = str(cwd) if cwd else str(Path.cwd())
@@ -389,9 +411,10 @@ class AcpStepExecutor:
         self._session_uses_tool_output_contract[session_id] = _uses_tool_output_contract(
             mcp_servers
         )
+        self._session_provider_keys[session_id] = provider_key
 
         # Set model if configured
-        resolved_model = effective_config.model_id or provider_config.default_model
+        resolved_model = effective_config.model_id or runtime_provider_config.default_model
         if resolved_model:
             resolved_model = resolve_model_for_provider(resolved_model, session)
             try:
@@ -450,21 +473,23 @@ class AcpStepExecutor:
         """
         effective_config = config if config is not None else DEFAULT_EXECUTOR_CONFIG
 
-        if provider is not None:
-            provider_name = provider
-        elif effective_config.provider is not None:
-            provider_name = effective_config.provider
-        else:
-            provider_name, _ = self._provider_registry.default()
+        provider_key = self._session_provider_keys.get(session_id)
+        if provider_key is None:
+            if provider is not None:
+                provider_key = provider
+            elif effective_config.provider is not None:
+                provider_key = effective_config.provider
+            else:
+                provider_key, _ = self._provider_registry.default()
 
-        if provider_name not in self._pool:
+        if provider_key not in self._pool:
             raise AgentError(
-                f"No active connection for provider '{provider_name}'. "
+                f"No active connection for provider '{provider_key}'. "
                 f"Call create_session() first.",
                 agent_name=agent_name,
             )
 
-        cached = self._pool[provider_name]
+        cached = self._pool[provider_key]
 
         if output_schema is not None and self._session_uses_tool_output_contract.get(
             session_id, False
@@ -566,6 +591,7 @@ class AcpStepExecutor:
         agent_name: str,
         prompt_text: str,
         cached: CachedConnection,
+        provider_key: str,
         provider_name: str,
         provider_config: AgentProviderConfig,
         cwd_str: str,
@@ -615,7 +641,7 @@ class AcpStepExecutor:
             except AcpRequestError:
                 # Attempt one transparent reconnect, then retry session creation once.
                 try:
-                    current_cached[0] = await self._pool.reconnect(provider_name, provider_config)
+                    current_cached[0] = await self._pool.reconnect(provider_key, provider_config)
                     conn = current_cached[0].conn
                     client = current_cached[0].client
                     client.reset(
@@ -666,13 +692,12 @@ class AcpStepExecutor:
                     )
 
             # Resolve and store effective model for observability
-            prov_name = current_cached[0].provider_name
             label = resolve_model_label(
                 session,
                 resolved_model,
             )
             if label:
-                resolved_model_label[0] = f"{prov_name}/{label}"
+                resolved_model_label[0] = f"{provider_name}/{label}"
 
             self._logger.debug(
                 "acp_executor.prompt_send",
@@ -700,7 +725,7 @@ class AcpStepExecutor:
                 # Attempt one transparent reconnect and retry the full
                 # session + prompt once before surfacing as NetworkError.
                 try:
-                    current_cached[0] = await self._pool.reconnect(provider_name, provider_config)
+                    current_cached[0] = await self._pool.reconnect(provider_key, provider_config)
                     conn = current_cached[0].conn
                     client = current_cached[0].client
                     client.reset(
@@ -801,3 +826,45 @@ def _uses_tool_output_contract(mcp_servers: list[Any] | None) -> bool:
         if any(arg.startswith("submit_") for arg in arg_strings):
             return True
     return False
+
+
+def _resolve_runtime_provider_config(
+    provider_name: str,
+    provider_config: AgentProviderConfig,
+    effective_config: StepConfig,
+) -> tuple[str, AgentProviderConfig]:
+    """Resolve the concrete provider cache key and launch config for a step."""
+    requested_model = effective_config.model_id or provider_config.default_model
+    if provider_name != _GEMINI_PROVIDER or not requested_model:
+        return provider_name, provider_config
+
+    command = provider_config.command
+    if not command:
+        return provider_name, provider_config
+
+    updated_command = _set_cli_flag(command, _GEMINI_MODEL_FLAG, requested_model)
+    updated_config = provider_config.model_copy(
+        update={
+            "command": updated_command,
+            "default_model": requested_model,
+        }
+    )
+    if requested_model == provider_config.default_model:
+        return provider_name, updated_config
+    return f"{provider_name}:{requested_model}", updated_config
+
+
+def _set_cli_flag(command: list[str], flag: str, value: str) -> list[str]:
+    """Return a CLI command with a single flag set to the requested value."""
+    updated = list(command)
+    try:
+        flag_index = updated.index(flag)
+    except ValueError:
+        return [*updated, flag, value]
+
+    value_index = flag_index + 1
+    if value_index < len(updated):
+        updated[value_index] = value
+    else:
+        updated.append(value)
+    return updated

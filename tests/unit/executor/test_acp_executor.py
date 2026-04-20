@@ -21,6 +21,7 @@ from maverick.exceptions.agent import (
 )
 from maverick.exceptions.config import ConfigError
 from maverick.exceptions.workflow import ReferenceResolutionError
+from maverick.executor._connection_pool import CachedConnection
 from maverick.executor._model_resolver import (
     get_available_model_ids as _get_available_model_ids,
 )
@@ -56,12 +57,14 @@ def _make_provider_config(
     command: list[str] | None = None,
     permission_mode: PermissionMode = PermissionMode.AUTO_APPROVE,
     default: bool = True,
+    default_model: str | None = None,
 ) -> AgentProviderConfig:
     """Create an AgentProviderConfig for tests."""
     return AgentProviderConfig(
         command=command or ["fake-agent", "--acp"],
         permission_mode=permission_mode,
         default=default,
+        default_model=default_model,
     )
 
 
@@ -395,6 +398,77 @@ class TestPromptSessionOutputContracts:
         assert isinstance(result.output, _SampleOutput)
         assert result.output.message == "hello"
         assert result.output.count == 3
+
+    async def test_create_session_tracks_gemini_override_connection_for_followup_prompts(
+        self,
+    ) -> None:
+        """prompt_session reuses the exact Gemini connection created for the session."""
+        provider_registry = AgentProviderRegistry(
+            {
+                "gemini": AgentProviderConfig(
+                    command=["gemini-agent"],
+                    default=True,
+                    default_model="gemini-default",
+                )
+            }
+        )
+        executor = AcpStepExecutor(
+            provider_registry=provider_registry,
+            agent_registry=_make_agent_registry(),
+        )
+
+        override_conn, override_proc = _mock_spawn_context(accumulated_text="override-response")
+        captured_spawns: list[tuple[str, tuple[Any, ...]]] = []
+
+        def _spawn_side_effect(client: Any, command: str, *args: Any, **kwargs: Any) -> Any:
+            captured_spawns.append((command, args))
+            return _FakeAsyncContextManager(override_conn, override_proc)
+
+        with patch(
+            "maverick.executor._connection_pool.spawn_agent_process",
+            side_effect=_spawn_side_effect,
+        ):
+            session_id = await executor.create_session(
+                step_name="session",
+                agent_name="test_agent",
+                config=StepConfig(
+                    provider="gemini",
+                    model_id="gemini-3.1-pro-preview",
+                ),
+            )
+
+        assert captured_spawns == [
+            ("gemini-agent", ("--model", "gemini-3.1-pro-preview")),
+        ]
+
+        default_conn, default_proc = _mock_spawn_context(accumulated_text="default-response")
+        default_client = MagicMock()
+        default_client.reset_for_turn = MagicMock()
+        default_client.get_accumulated_text = MagicMock(return_value="default-response")
+        default_client.aborted = False
+        executor._pool.cache["gemini"] = CachedConnection(
+            conn=default_conn,
+            proc=default_proc,
+            client=default_client,
+            provider_name="gemini",
+            ctx=_FakeAsyncContextManager(default_conn, default_proc),
+        )
+
+        with patch.object(
+            MaverickAcpClient,
+            "get_accumulated_text",
+            return_value="override-response",
+        ):
+            result = await executor.prompt_session(
+                session_id=session_id,
+                prompt_text="follow up",
+                step_name="session",
+                agent_name="test_agent",
+            )
+
+        assert result.output == "override-response"
+        override_conn.prompt.assert_awaited_once()
+        default_conn.prompt.assert_not_awaited()
 
 
 # ---------------------------------------------------------------------------

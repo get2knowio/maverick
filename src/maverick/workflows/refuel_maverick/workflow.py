@@ -834,6 +834,10 @@ class RefuelMaverickWorkflow(PythonWorkflow):
         asys = create_actor_system()
 
         try:
+
+            def _serialize_config(cfg) -> dict[str, Any]:
+                return cfg.model_dump(mode="json", exclude_none=True)
+
             # Create child actors — primary decomposer handles outline + fixes,
             # pool members handle detail pass in parallel.
             DECOMPOSER_POOL_SIZE = 4
@@ -846,6 +850,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
 
             # Create briefing actors (one per agent role, each with its MCP tool)
             briefing_actors: dict[str, Any] = {}
+            provider_labels: dict[str, str] = {}
             if not skip_briefing:
                 _briefing_tools = {
                     "navigator": "submit_navigator_brief",
@@ -854,6 +859,13 @@ class RefuelMaverickWorkflow(PythonWorkflow):
                     "contrarian": "submit_contrarian_brief",
                 }
                 for agent_name, mcp_tool in _briefing_tools.items():
+                    config = self.resolve_step_config(
+                        BRIEFING,
+                        StepType.PYTHON,
+                        agent_name=agent_name,
+                    )
+                    label = agent_name.replace("_", " ").title()
+                    provider_labels[label] = self._resolve_display_label_for_config(config)
                     addr = asys.createActor(BriefingActor)
                     asys.ask(
                         addr,
@@ -863,22 +875,17 @@ class RefuelMaverickWorkflow(PythonWorkflow):
                             "mcp_tool": mcp_tool,
                             "admin_port": THESPIAN_PORT,
                             "cwd": str(Path.cwd()),
+                            "config": _serialize_config(config),
                         },
                         timeout=10,
                     )
                     briefing_actors[agent_name] = addr
 
-            # Resolve provider/model label for CLI display
-            _resolved = self.resolve_step_config(BRIEFING, StepType.PYTHON)
-            _prov = _resolved.provider or self._resolve_display_provider() or "default"
-            _mod = _resolved.model_id or self._resolve_display_model() or "default"
-            _label = f"{_prov}/{_mod}"
-            provider_labels = {
-                "Navigator": _label,
-                "Structuralist": _label,
-                "Recon": _label,
-                "Contrarian": _label,
-            }
+            decompose_config = self.resolve_step_config(
+                DECOMPOSE,
+                StepType.PYTHON,
+                agent_name="decomposer",
+            )
 
             # Create supervisor with globalName for MCP server discovery
             supervisor_addr = asys.createActor(
@@ -896,6 +903,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
                     "cwd": str(Path.cwd()),
                     "role": "primary",
                     "admin_port": THESPIAN_PORT,
+                    "config": _serialize_config(decompose_config),
                     "detail_session_max_turns": DETAIL_SESSION_MAX_TURNS,
                     "fix_session_max_turns": FIX_SESSION_MAX_TURNS,
                 },
@@ -909,6 +917,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
                         "cwd": str(Path.cwd()),
                         "role": "pool",
                         "admin_port": THESPIAN_PORT,
+                        "config": _serialize_config(decompose_config),
                         "detail_session_max_turns": DETAIL_SESSION_MAX_TURNS,
                         "fix_session_max_turns": FIX_SESSION_MAX_TURNS,
                     },

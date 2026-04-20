@@ -5,6 +5,7 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, MagicMock
 
 import maverick.actors.decomposer as decomposer_module
+from maverick.executor.config import StepConfig
 
 
 def _make_actor() -> decomposer_module.DecomposerActor:
@@ -14,6 +15,7 @@ def _make_actor() -> decomposer_module.DecomposerActor:
     actor.send = MagicMock()
     actor._role = "primary"
     actor._actor_tag = "decomposer[primary:pid=test]"
+    actor._step_config = None
     actor._detail_outline_json = "{}"
     actor._detail_flight_plan = ""
     actor._detail_verification = ""
@@ -221,6 +223,48 @@ class TestDecomposerSessionPermissions:
             decomposer_module.READ_ONLY_DECOMPOSER_TOOLS
         ) | set(decomposer_module.POOL_DECOMPOSER_MCP_TOOLS)
 
+    async def test_create_session_passes_provider_and_model_config(self) -> None:
+        actor = _make_actor()
+        actor._cwd = "/tmp"
+        actor._role = "primary"
+        actor._admin_port = 19500
+        actor._mcp_tool_names = decomposer_module.PRIMARY_DECOMPOSER_MCP_TOOLS
+        actor._mcp_tools = ",".join(decomposer_module.PRIMARY_DECOMPOSER_MCP_TOOLS)
+        actor._step_config = StepConfig(
+            provider="gemini",
+            model_id="gemini-3.1-pro-preview",
+        )
+        actor._ensure_executor = AsyncMock()
+        actor._executor = MagicMock()
+        actor._executor.create_session = AsyncMock(return_value="sess-1")
+
+        await actor._create_session()
+
+        create_kwargs = actor._executor.create_session.await_args.kwargs
+        assert create_kwargs["provider"] == "gemini"
+        assert create_kwargs["config"].model_id == "gemini-3.1-pro-preview"
+
+    async def test_prompt_preserves_provider_and_model_config(self) -> None:
+        actor = _make_actor()
+        actor._session_id = "sess-1"
+        actor._step_config = StepConfig(
+            provider="gemini",
+            model_id="gemini-3.1-pro-preview",
+        )
+        actor._ensure_agent = AsyncMock()
+        actor._executor = MagicMock()
+        actor._executor.prompt_session = AsyncMock()
+
+        await actor._prompt(
+            "outline prompt",
+            step_name="decompose_outline",
+            timeout_seconds=900,
+        )
+
+        prompt_kwargs = actor._executor.prompt_session.await_args.kwargs
+        assert prompt_kwargs["provider"] == "gemini"
+        assert prompt_kwargs["config"].model_id == "gemini-3.1-pro-preview"
+        assert prompt_kwargs["config"].timeout == 900
 
 class TestDecomposerLifecycleLogging:
     """Verify the five ACP-session lifecycle events emit as distinct log lines.

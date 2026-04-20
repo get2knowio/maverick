@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from maverick.events import (
@@ -247,6 +248,124 @@ class TestRefuelMaverickWorkflowHappyPath:
         assert all(
             msg["fix_session_max_turns"] == FIX_SESSION_MAX_TURNS for msg in decomposer_inits
         )
+
+    async def test_thespian_actor_inits_receive_resolved_step_config(
+        self,
+        mock_config: MagicMock,
+        mock_registry: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """Briefing and decomposer actors receive resolved provider/model config."""
+        from maverick.config import AgentConfig, AgentProviderConfig
+
+        class _FakeActorSystem:
+            def __init__(self) -> None:
+                self.asks: list[tuple[str, dict[str, Any], int]] = []
+                self.tell_calls: list[tuple[str, str]] = []
+                self._counter = 0
+
+            def createActor(self, _cls, **kwargs):  # noqa: N802
+                self._counter += 1
+                return (
+                    kwargs.get("globalName")
+                    or kwargs.get("global_name")
+                    or f"actor-{self._counter}"
+                )
+
+            def ask(self, addr, message, timeout):
+                self.asks.append((addr, message, timeout))
+                return {"type": "init_ok"}
+
+            def tell(self, addr, message):
+                self.tell_calls.append((addr, message))
+
+            def shutdown(self):
+                return None
+
+        mock_config.steps = {}
+        mock_config.agents = {
+            "navigator": AgentConfig(
+                provider="gemini",
+                model_id="gemini-3.1-pro-preview",
+            ),
+            "decomposer": AgentConfig(
+                provider="claude",
+                model_id="opus",
+            ),
+        }
+        mock_config.agent_providers = {
+            "claude": AgentProviderConfig(
+                command=["claude-agent"],
+                default=True,
+                default_model="sonnet",
+            ),
+            "gemini": AgentProviderConfig(
+                command=["gemini-agent"],
+                default_model="gemini-default",
+            ),
+        }
+
+        fp = make_simple_flight_plan(tmp_path)
+        workflow = make_workflow(mock_config, mock_registry)
+        fake_asys = _FakeActorSystem()
+        flight_plan = await __import__(
+            "maverick.flight.loader",
+            fromlist=["FlightPlanFile"],
+        ).FlightPlanFile.aload(fp)
+
+        with (
+            patch_cwd(tmp_path),
+            patch(
+                "maverick.agents.briefing.prompts.build_briefing_prompt",
+                return_value="briefing prompt",
+            ),
+            patch("maverick.actors.create_actor_system", return_value=fake_asys),
+            patch.object(workflow, "emit_output", new=AsyncMock()),
+            patch.object(workflow, "emit_step_completed", new=AsyncMock()),
+            patch.object(
+                workflow,
+                "_drain_supervisor_events",
+                new=AsyncMock(
+                    return_value={
+                        "success": True,
+                        "specs": make_simple_decomposition_output().work_units,
+                    }
+                ),
+            ),
+        ):
+            await workflow._run_with_thespian(
+                flight_plan=flight_plan,
+                raw_content=fp.read_text(encoding="utf-8"),
+                codebase_context=_EMPTY_CONTEXT,
+                open_bead_result=None,
+                runway_context_text=None,
+                run_dir=None,
+                skip_briefing=False,
+            )
+
+        briefing_init = next(
+            message
+            for _addr, message, _timeout in fake_asys.asks
+            if message.get("type") == "init" and message.get("agent_name") == "navigator"
+        )
+        assert briefing_init["config"]["provider"] == "gemini"
+        assert briefing_init["config"]["model_id"] == "gemini-3.1-pro-preview"
+
+        decomposer_inits = [
+            message
+            for _addr, message, _timeout in fake_asys.asks
+            if message.get("type") == "init" and message.get("role") in {"primary", "pool"}
+        ]
+        assert decomposer_inits
+        assert all(msg["config"]["provider"] == "claude" for msg in decomposer_inits)
+        assert all(msg["config"]["model_id"] == "opus" for msg in decomposer_inits)
+
+        supervisor_init = next(
+            message
+            for _addr, message, _timeout in fake_asys.asks
+            if message.get("type") == "init" and message.get("provider_labels")
+        )
+        assert supervisor_init["provider_labels"]["Navigator"] == "gemini/gemini-3.1-pro-preview"
 
     async def test_work_unit_files_written_with_correct_naming(
         self,

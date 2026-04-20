@@ -153,6 +153,32 @@ class PythonWorkflow(ABC):
             pass
         return None
 
+    def _resolve_provider_default_model(self, provider_name: str | None = None) -> str | None:
+        """Return the default model for a specific provider or the workflow default."""
+        try:
+            providers = self._config.agent_providers
+            if provider_name and provider_name in providers:
+                return providers[provider_name].default_model
+            for _name, pcfg in providers.items():
+                if pcfg.default:
+                    return pcfg.default_model
+            for _name, pcfg in providers.items():
+                return pcfg.default_model
+        except (AttributeError, TypeError):
+            pass
+        return None
+
+    def _resolve_display_label_for_config(self, config: StepConfig) -> str:
+        """Build a provider/model display label for a resolved StepConfig."""
+        provider = config.provider or self._resolve_display_provider() or "default"
+        model_id = (
+            config.model_id
+            or self._resolve_provider_default_model(config.provider)
+            or self._resolve_display_model()
+            or "default"
+        )
+        return f"{provider}/{model_id}"
+
     # ------------------------------------------------------------------
     # Public template method
     # ------------------------------------------------------------------
@@ -269,6 +295,11 @@ class PythonWorkflow(ABC):
         project_step_config = self._config.steps.get(step_name)
         if project_step_config is None and agent_name:
             project_step_config = self._config.steps.get(agent_name)
+        provider_name = None
+        if project_step_config is not None and project_step_config.provider is not None:
+            provider_name = project_step_config.provider
+        elif agent_config is not None and agent_config.provider is not None:
+            provider_name = agent_config.provider
         return _resolve_step_config(
             inline_config=None,
             project_step_config=project_step_config,
@@ -276,6 +307,7 @@ class PythonWorkflow(ABC):
             global_model=self._config.model,
             step_type=step_type,
             step_name=step_name,
+            provider_default_model=self._resolve_provider_default_model(provider_name),
         )
 
     # ------------------------------------------------------------------

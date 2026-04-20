@@ -391,11 +391,16 @@ class FlyBeadsWorkflow(PythonWorkflow):
         from maverick.actors.implementer import ImplementerActor
         from maverick.actors.reviewer import ReviewerActor
         from maverick.actors.spec_check import SpecCheckActor
+        from maverick.types import StepType
 
         cwd = str(workspace_path) if workspace_path else str(Path.cwd())
         asys = create_actor_system()
 
         try:
+
+            def _serialize_config(cfg) -> dict[str, Any]:
+                return cfg.model_dump(mode="json", exclude_none=True)
+
             # Create all actors
             impl = asys.createActor(ImplementerActor)
             reviewer = asys.createActor(ReviewerActor)
@@ -410,13 +415,24 @@ class FlyBeadsWorkflow(PythonWorkflow):
             )
 
             # Init actors
-            for addr in [impl, reviewer]:
+            impl_config = self.resolve_step_config(
+                "implement",
+                StepType.PYTHON,
+                agent_name="implementer",
+            )
+            reviewer_config = self.resolve_step_config(
+                "review",
+                StepType.PYTHON,
+                agent_name="reviewer",
+            )
+            for addr, config in [(impl, impl_config), (reviewer, reviewer_config)]:
                 asys.ask(
                     addr,
                     {
                         "type": "init",
                         "admin_port": THESPIAN_PORT,
                         "cwd": cwd,
+                        "config": _serialize_config(config),
                     },
                     timeout=10,
                 )

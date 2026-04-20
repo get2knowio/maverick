@@ -391,3 +391,108 @@ class TestGenerateFlightPlanWorkflowErrors:
                         "skip_briefing": True,
                     },
                 )
+
+
+class TestGenerateFlightPlanWorkflowThespianConfig:
+    """Tests for config propagation into active Thespian actors."""
+
+    async def test_thespian_actor_inits_receive_resolved_step_config(
+        self,
+        mock_config: MagicMock,
+        mock_registry: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """Briefing and generator actors receive the workflow's resolved config."""
+        from maverick.config import AgentConfig, AgentProviderConfig
+
+        class _FakeActorSystem:
+            def __init__(self) -> None:
+                self.asks: list[tuple[str, dict[str, Any], int]] = []
+                self._counter = 0
+
+            def createActor(self, _cls, **kwargs):  # noqa: N802
+                self._counter += 1
+                return kwargs.get("globalName") or f"actor-{self._counter}"
+
+            def ask(self, addr, message, timeout):
+                self.asks.append((addr, message, timeout))
+                return {"type": "init_ok"}
+
+            def tell(self, addr, message):
+                return None
+
+            def shutdown(self):
+                return None
+
+        mock_config.steps = {}
+        mock_config.agents = {
+            "scopist": AgentConfig(
+                provider="gemini",
+                model_id="gemini-3.1-pro-preview",
+            ),
+            "flight_plan_generator": AgentConfig(
+                provider="claude",
+                model_id="opus",
+            ),
+        }
+        mock_config.agent_providers = {
+            "claude": AgentProviderConfig(
+                command=["claude-agent"],
+                default=True,
+                default_model="sonnet",
+            ),
+            "gemini": AgentProviderConfig(
+                command=["gemini-agent"],
+                default_model="gemini-default",
+            ),
+        }
+
+        workflow = _make_workflow(mock_config, mock_registry)
+        fake_asys = _FakeActorSystem()
+
+        with (
+            patch("maverick.actors.create_actor_system", return_value=fake_asys),
+            patch.object(workflow, "emit_output", new=AsyncMock()),
+            patch.object(
+                workflow,
+                "_drain_supervisor_events",
+                new=AsyncMock(
+                    return_value={
+                        "success": True,
+                        "success_criteria_count": 1,
+                        "validation_passed": True,
+                        "briefing_path": None,
+                    }
+                ),
+            ),
+        ):
+            await workflow._generate_with_thespian(
+                prd_content="Build a CLI",
+                name="test-plan",
+                plan_dir=tmp_path / "test-plan",
+                skip_briefing=False,
+            )
+
+        briefing_inits = [
+            message
+            for _addr, message, _timeout in fake_asys.asks
+            if message.get("type") == "init" and message.get("mcp_tool")
+        ]
+        scopist_init = next(msg for msg in briefing_inits if msg.get("agent_name") == "scopist")
+        assert scopist_init["config"]["provider"] == "gemini"
+        assert scopist_init["config"]["model_id"] == "gemini-3.1-pro-preview"
+
+        generator_init = next(
+            message
+            for _addr, message, _timeout in fake_asys.asks
+            if message.get("type") == "init"
+            and message.get("config", {}).get("model_id") == "opus"
+        )
+        assert generator_init["config"]["provider"] == "claude"
+
+        supervisor_init = next(
+            message
+            for _addr, message, _timeout in fake_asys.asks
+            if message.get("type") == "init" and message.get("provider_labels")
+        )
+        assert supervisor_init["provider_labels"]["Scopist"] == "gemini/gemini-3.1-pro-preview"

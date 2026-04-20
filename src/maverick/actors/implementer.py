@@ -11,6 +11,11 @@ import sys
 from thespian.actors import Actor
 
 from maverick.actors._bridge import ActorAsyncBridge
+from maverick.actors._step_config import (
+    load_step_config,
+    step_allowed_tools,
+    step_config_with_timeout,
+)
 from maverick.logging import get_logger
 
 logger = get_logger(__name__)
@@ -31,6 +36,7 @@ class ImplementerActor(ActorAsyncBridge, Actor):
             self._admin_port = message.get("admin_port", 19500)
             self._cwd = message.get("cwd")
             self._mcp_tools = "submit_implementation,submit_fix_result"
+            self._step_config = load_step_config(message.get("config"))
             self._executor = None
             self._session_id = None
             self._start_async_bridge()
@@ -111,15 +117,16 @@ class ImplementerActor(ActorAsyncBridge, Actor):
         cwd = Path(self._cwd) if self._cwd else Path.cwd()
 
         self._session_id = await self._executor.create_session(
+            provider=self._step_config.provider if self._step_config else None,
+            config=self._step_config,
             step_name="implement",
             agent_name="implementer",
             cwd=cwd,
+            allowed_tools=step_allowed_tools(self._step_config),
             mcp_servers=[mcp_config],
         )
 
     async def _send_prompt(self, message, phase):
-        from maverick.executor.config import StepConfig
-
         await self._ensure_executor()
         if not self._session_id:
             await self._new_session()
@@ -135,7 +142,8 @@ class ImplementerActor(ActorAsyncBridge, Actor):
         await self._executor.prompt_session(
             session_id=self._session_id,
             prompt_text=prompt_text,
-            config=StepConfig(timeout=1800),
+            provider=self._step_config.provider if self._step_config else None,
+            config=step_config_with_timeout(self._step_config, 1800),
             step_name=phase,
             agent_name="implementer",
         )

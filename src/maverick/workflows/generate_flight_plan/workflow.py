@@ -357,11 +357,15 @@ class GenerateFlightPlanWorkflow(PythonWorkflow):
         from maverick.actors.plan_supervisor import PlanSupervisorActor
         from maverick.actors.plan_validator import PlanValidatorActor
         from maverick.actors.plan_writer import PlanWriterActor
+        from maverick.types import StepType as _StepType
 
         asys = create_actor_system()
 
         try:
             cwd = str(Path.cwd())
+
+            def _serialize_config(cfg) -> dict[str, Any]:
+                return cfg.model_dump(mode="json", exclude_none=True)
 
             # Create briefing actors (4 instances of BriefingActor)
             scopist = asys.createActor(BriefingActor)
@@ -370,31 +374,65 @@ class GenerateFlightPlanWorkflow(PythonWorkflow):
             contrarian = asys.createActor(BriefingActor)
 
             # Init each with its MCP tool
-            for addr, tool in [
-                (scopist, "submit_scope"),
-                (analyst, "submit_analysis"),
-                (criteria, "submit_criteria"),
-                (contrarian, "submit_challenge"),
-            ]:
+            _briefing_actor_specs = [
+                (scopist, "submit_scope", "scopist", "briefing_scopist", "Scopist"),
+                (
+                    analyst,
+                    "submit_analysis",
+                    "codebase_analyst",
+                    "briefing_codebase_analyst",
+                    "Codebase Analyst",
+                ),
+                (
+                    criteria,
+                    "submit_criteria",
+                    "criteria_writer",
+                    "briefing_criteria_writer",
+                    "Criteria Writer",
+                ),
+                (
+                    contrarian,
+                    "submit_challenge",
+                    "contrarian",
+                    "briefing_contrarian",
+                    "Contrarian",
+                ),
+            ]
+            _provider_labels: dict[str, str] = {}
+            for addr, tool, agent_name, step_name, label in _briefing_actor_specs:
+                config = self.resolve_step_config(
+                    step_name,
+                    _StepType.PYTHON,
+                    agent_name=agent_name,
+                )
+                _provider_labels[label] = self._resolve_display_label_for_config(config)
                 asys.ask(
                     addr,
                     {
                         "type": "init",
+                        "agent_name": agent_name,
                         "mcp_tool": tool,
                         "admin_port": THESPIAN_PORT,
                         "cwd": cwd,
+                        "config": _serialize_config(config),
                     },
                     timeout=10,
                 )
 
             # Create generator
             gen = asys.createActor(GeneratorActor)
+            gen_config = self.resolve_step_config(
+                "generate",
+                _StepType.PYTHON,
+                agent_name="flight_plan_generator",
+            )
             asys.ask(
                 gen,
                 {
                     "type": "init",
                     "admin_port": THESPIAN_PORT,
                     "cwd": cwd,
+                    "config": _serialize_config(gen_config),
                 },
                 timeout=10,
             )
@@ -416,19 +454,6 @@ class GenerateFlightPlanWorkflow(PythonWorkflow):
                 PlanSupervisorActor,
                 globalName="supervisor-inbox",
             )
-            # Resolve provider/model label for CLI display
-            from maverick.types import StepType as _StepType
-
-            _resolved = self.resolve_step_config("briefing", _StepType.PYTHON)
-            _prov = _resolved.provider or self._resolve_display_provider() or "default"
-            _mod = _resolved.model_id or self._resolve_display_model() or "default"
-            _label = f"{_prov}/{_mod}"
-            _provider_labels = {
-                "Scopist": _label,
-                "Codebase Analyst": _label,
-                "Criteria Writer": _label,
-                "Contrarian": _label,
-            }
 
             asys.ask(
                 supervisor,
