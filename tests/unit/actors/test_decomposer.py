@@ -12,6 +12,8 @@ def _make_actor() -> decomposer_module.DecomposerActor:
     actor._handle_actor_exit = MagicMock(return_value=False)
     actor._run_async = MagicMock()
     actor.send = MagicMock()
+    actor._role = "primary"
+    actor._actor_tag = "decomposer[primary:pid=test]"
     actor._detail_outline_json = "{}"
     actor._detail_flight_plan = ""
     actor._detail_verification = ""
@@ -218,3 +220,102 @@ class TestDecomposerSessionPermissions:
         assert set(create_kwargs["allowed_tools"]) == set(
             decomposer_module.READ_ONLY_DECOMPOSER_TOOLS
         ) | set(decomposer_module.POOL_DECOMPOSER_MCP_TOOLS)
+
+
+class TestDecomposerLifecycleLogging:
+    """Verify the five ACP-session lifecycle events emit as distinct log lines.
+
+    The decomposer's narrative should read cleanly as: new session
+    (reason=initial) → prompt_seeded → prompt_reused × N → session_rotated
+    (reason=turn_limit) → new session (reason=turn_limit) → prompt_seeded …
+    These tests pin that narrative so a future refactor can't silently
+    collapse it back into the old catch-all "session_ready" event.
+    """
+
+    async def test_first_detail_session_logs_as_initial_created(self, caplog) -> None:
+        import logging
+
+        caplog.set_level(logging.INFO)
+        actor = _make_actor()
+        actor._create_session = AsyncMock()
+
+        async def _assign_session() -> None:
+            actor._session_id = "sess-new"
+
+        actor._create_session.side_effect = _assign_session
+
+        result = await actor._ensure_mode_session(
+            "detail", max_turns=5, seed_stale=True
+        )
+
+        assert result is True
+        messages = [r.message for r in caplog.records]
+        assert any("'event': 'decomposer.session_created'" in m for m in messages)
+        assert any("'reason': 'initial'" in m for m in messages)
+        assert not any("'event': 'decomposer.session_rotated'" in m for m in messages)
+
+    async def test_turn_limit_logs_rotated_before_created(self, caplog) -> None:
+        import logging
+
+        caplog.set_level(logging.INFO)
+        actor = _make_actor()
+        actor._session_id = "sess-old"
+        actor._session_mode = "detail"
+        actor._session_turns_in_mode = 5  # hit max_turns
+        actor._create_session = AsyncMock()
+
+        async def _assign_session() -> None:
+            actor._session_id = "sess-new"
+
+        actor._create_session.side_effect = _assign_session
+
+        await actor._ensure_mode_session(
+            "detail", max_turns=5, seed_stale=False
+        )
+
+        messages = [r.message for r in caplog.records]
+        rotated_idx = next(
+            i
+            for i, m in enumerate(messages)
+            if "'event': 'decomposer.session_rotated'" in m
+        )
+        created_idx = next(
+            i
+            for i, m in enumerate(messages)
+            if "'event': 'decomposer.session_created'" in m
+        )
+        # Rotated must fire BEFORE created — the narrative is
+        # "discarding old then creating new," not both at once.
+        assert rotated_idx < created_idx
+
+        rotated_msg = messages[rotated_idx]
+        assert "'reason': 'turn_limit'" in rotated_msg
+        assert "'previous_session': 'sess-old'" in rotated_msg
+        assert "'previous_turns': 5" in rotated_msg
+
+    async def test_prompt_seeded_vs_reused_distinguished(self, caplog) -> None:
+        import logging
+
+        caplog.set_level(logging.INFO)
+        actor = _make_actor()
+        actor._prompt = AsyncMock()
+
+        # Seeded path: fresh session returned
+        actor._ensure_mode_session = AsyncMock(return_value=True)
+        actor._session_id = "sess-1"
+        actor._detail_seed_stale = True
+        await actor._send_detail_prompt({"unit_id": "unit-1"})
+
+        # Reused path: existing session, no seed
+        actor._ensure_mode_session = AsyncMock(return_value=False)
+        actor._detail_seed_stale = False
+        actor._session_turns_in_mode = 2
+        await actor._send_detail_prompt({"unit_id": "unit-2"})
+
+        messages = [r.message for r in caplog.records]
+        assert any("'event': 'decomposer.prompt_seeded'" in m for m in messages)
+        reused_msg = next(
+            m for m in messages if "'event': 'decomposer.prompt_reused'" in m
+        )
+        assert "'turn': 3" in reused_msg
+        assert "'max_turns': 5" in reused_msg

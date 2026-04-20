@@ -15,6 +15,7 @@ Two roles:
   Tools: submit_details
 """
 
+import os
 import sys
 from typing import Any
 
@@ -72,6 +73,9 @@ class DecomposerActor(ActorAsyncBridge, Actor):
             self._mcp_tools = ",".join(self._mcp_tool_names)
             self._admin_port = message.get("admin_port", 19500)
             self._supervisor_addr = sender
+            # Tag used in all lifecycle logs so one pool actor's session
+            # narrative can be grepped out from the rest.
+            self._actor_tag = f"decomposer[{role}:pid={os.getpid()}]"
             self._executor = None
             self._session_id = None
             self._session_mode: str | None = None
@@ -190,12 +194,23 @@ class DecomposerActor(ActorAsyncBridge, Actor):
             self._session_turns_in_mode += 1
 
     async def _ensure_executor(self):
-        """Create this actor's ACP executor on first use."""
+        """Create this actor's ACP executor on first use.
+
+        Only fires once per actor lifetime. The ACP subprocess is
+        actually spawned lazily on the first ``create_session`` call
+        into the connection pool — look for the ``acp_executor.
+        subprocess_spawn`` INFO log immediately after this one.
+        """
         if self._executor is not None:
             return
 
         from maverick.executor import create_default_executor
 
+        logger.info(
+            "decomposer.acp_connection_new",
+            actor=self._actor_tag,
+            role=getattr(self, "_role", "primary"),
+        )
         self._executor = create_default_executor()
 
     async def _create_session(self) -> None:
@@ -248,18 +263,47 @@ class DecomposerActor(ActorAsyncBridge, Actor):
         Returns True when a new session was created and the next prompt should
         include the large seed context.
         """
-        if not self._needs_new_mode_session(mode, max_turns=max_turns, seed_stale=seed_stale):
+        previous_session = getattr(self, "_session_id", None)
+        previous_mode = getattr(self, "_session_mode", None)
+        previous_turns = self._session_turns_in_mode
+
+        if not previous_session:
+            reason = "initial"
+        elif previous_mode != mode:
+            reason = "mode_change"
+        elif previous_turns >= max(1, max_turns):
+            reason = "turn_limit"
+        elif seed_stale:
+            reason = "seed_stale"
+        else:
             return False
 
-        previous_session = getattr(self, "_session_id", None)
+        # Log the *intent* to rotate before we spawn the new session so
+        # the narrative reads "rotating → created → seeded" in order.
+        if previous_session:
+            logger.info(
+                "decomposer.session_rotated",
+                actor=self._actor_tag,
+                role=self._role,
+                mode=mode,
+                reason=reason,
+                previous_session=previous_session,
+                previous_mode=previous_mode,
+                previous_turns=previous_turns,
+                max_turns=max_turns,
+            )
+
         await self._create_session()
         self._session_mode = mode
         self._session_turns_in_mode = 0
         logger.info(
-            "decomposer.session_ready",
+            "decomposer.session_created",
+            actor=self._actor_tag,
+            role=self._role,
             mode=mode,
-            previous_session=previous_session,
+            reason=reason,
             session_id=self._session_id,
+            max_turns=max_turns,
         )
         return True
 
@@ -328,6 +372,19 @@ class DecomposerActor(ActorAsyncBridge, Actor):
             "You MUST call the `submit_outline` tool with your results."
         )
 
+        # Outline is always the initial large prompt — no prior context
+        # to reuse. Log before dispatch so session_id (assigned inside
+        # _prompt via _ensure_agent) is resolved when the log reaches
+        # downstream consumers.
+        await self._ensure_agent()
+        logger.info(
+            "decomposer.prompt_seeded",
+            actor=self._actor_tag,
+            role=self._role,
+            mode="outline",
+            session_id=self._session_id,
+            prompt_chars=len(prompt_text),
+        )
         await self._prompt(prompt_text, "decompose_outline")
 
     async def _send_detail_prompt(self, message):
@@ -368,6 +425,29 @@ class DecomposerActor(ActorAsyncBridge, Actor):
             "You MUST call the `submit_details` tool with your results."
         )
 
+        if needs_seed:
+            logger.info(
+                "decomposer.prompt_seeded",
+                actor=self._actor_tag,
+                role=self._role,
+                mode="detail",
+                session_id=self._session_id,
+                prompt_chars=len(prompt_text),
+                unit_ids=list(unit_ids),
+            )
+        else:
+            logger.info(
+                "decomposer.prompt_reused",
+                actor=self._actor_tag,
+                role=self._role,
+                mode="detail",
+                session_id=self._session_id,
+                turn=self._session_turns_in_mode + 1,
+                max_turns=self._detail_session_max_turns,
+                prompt_chars=len(prompt_text),
+                unit_ids=list(unit_ids),
+            )
+
         # Shorter timeout than outline/fix: a detail is a single work
         # unit, so 20 minutes is generous. Hanging sessions surface as
         # MaverickTimeoutError and the supervisor requeues them.
@@ -406,7 +486,29 @@ class DecomposerActor(ActorAsyncBridge, Actor):
             "updated work_units and details."
         )
 
-        await self._prompt("\n\n".join(prompt_parts), "decompose_fix")
+        fix_prompt_text = "\n\n".join(prompt_parts)
+        if needs_seed:
+            logger.info(
+                "decomposer.prompt_seeded",
+                actor=self._actor_tag,
+                role=self._role,
+                mode="fix",
+                session_id=self._session_id,
+                prompt_chars=len(fix_prompt_text),
+            )
+        else:
+            logger.info(
+                "decomposer.prompt_reused",
+                actor=self._actor_tag,
+                role=self._role,
+                mode="fix",
+                session_id=self._session_id,
+                turn=self._session_turns_in_mode + 1,
+                max_turns=self._fix_session_max_turns,
+                prompt_chars=len(fix_prompt_text),
+            )
+
+        await self._prompt(fix_prompt_text, "decompose_fix")
         self._fix_seed_stale = False
         self._mark_turn_completed("fix")
 
