@@ -1,6 +1,6 @@
 # Maverick Future
 
-This document supersedes [OPPORTUNITIES.md](OPPORTUNITIES.md) and [docs/OPPORTUNITIES.md](docs/OPPORTUNITIES.md).
+This document supersedes the previous `OPPORTUNITIES.md` files (removed from the repo in favor of this consolidated roadmap).
 
 It reconciles those documents against the current codebase as of 2026-04-19 and folds in additional opportunities that surfaced while reviewing the actor, MCP, workflow, executor, and CLI layers.
 
