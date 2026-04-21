@@ -39,7 +39,7 @@ Replace Thespian with **xoscar** as the actor runtime for all three supervisor w
 - **Clean lifecycle hooks** — `__post_create__` / `__pre_destroy__` for setup and teardown
 - **No fixed admin port** — actor pools bind to ephemeral ports; no stale daemon, no port conflicts between parallel runs
 
-In parallel with the runtime change, **move the three top-level Thespian supervisors to the structured async calling convention already used in `fly_beads/actors/`**. The workflow-scoped actor packages (`src/maverick/workflows/fly_beads/actors/`, `src/maverick/workflows/generate_flight_plan/actors/`) already use async `receive(message: Message) → list[Message]`. The top-level `src/maverick/actors/` Thespian actors do not. Unifying them on the same `Actor` protocol simplifies code navigation and enables shared supervisor fragments (see [FUTURE.md §2.4](FUTURE.md)).
+In parallel with the runtime change, **move the three top-level Thespian supervisors to the structured async calling convention already used in `fly_beads/actors/`**. The workflow-scoped actor packages (`src/maverick/workflows/fly_beads/actors/`, `src/maverick/workflows/generate_flight_plan/actors/`) already use async `receive(message: Message) → list[Message]`. The top-level `src/maverick/actors/` Thespian actors do not. Unifying them on the same `Actor` protocol simplifies code navigation and enables shared supervisor fragments (see [FUTURE.md §2.4](../FUTURE.md)).
 
 Finally, **update `docs/PATTERNS.md`** to replace patterns 9b (Persistent Event Loop Bridges) and the Thespian-specific variant in 9a (Supervisor Event Bus) with xoscar equivalents.
 
