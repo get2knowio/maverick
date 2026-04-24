@@ -175,9 +175,7 @@ class BriefingActor(xo.Actor):
     async def _new_session(self) -> None:
         await self._ensure_executor()
 
-        maverick_bin = shutil.which("maverick") or str(
-            Path(sys.executable).parent / "maverick"
-        )
+        maverick_bin = shutil.which("maverick") or str(Path(sys.executable).parent / "maverick")
         mcp_config = McpServerStdio(
             name="agent-inbox",
             command=maverick_bin,
@@ -222,9 +220,7 @@ class BriefingActor(xo.Actor):
             session_id=self._session_id,
             prompt_text=prompt_text,
             provider=self._step_config.provider if self._step_config else None,
-            config=step_config_with_timeout(
-                self._step_config, BRIEFING_TIMEOUT_SECONDS
-            ),
+            config=step_config_with_timeout(self._step_config, BRIEFING_TIMEOUT_SECONDS),
             step_name=f"briefing_{self._agent_name}",
             agent_name=self._agent_name,
         )

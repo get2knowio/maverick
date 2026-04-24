@@ -277,7 +277,7 @@ def _format_briefing_section(briefing: Any) -> str:
 
     parts: list[str] = ["## Briefing Room Analysis", ""]
 
-    # Handle raw dict of per-agent results (current Thespian architecture)
+    # Handle raw dict of per-agent results (post-migration xoscar shape)
     if isinstance(briefing, dict):
         for agent_name, agent_data in briefing.items():
             label = agent_name.replace("_", " ").title()

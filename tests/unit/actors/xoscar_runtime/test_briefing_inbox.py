@@ -34,9 +34,7 @@ class _BriefingRecorder(xo.Actor):
 
 @pytest.mark.asyncio
 async def test_briefing_forwards_to_named_supervisor_method(pool_address: str) -> None:
-    supervisor = await xo.create_actor(
-        _BriefingRecorder, address=pool_address, uid="brief-sup"
-    )
+    supervisor = await xo.create_actor(_BriefingRecorder, address=pool_address, uid="brief-sup")
     briefing = await xo.create_actor(
         BriefingActor,
         supervisor,
@@ -70,9 +68,7 @@ async def test_briefing_forwards_to_named_supervisor_method(pool_address: str) -
 
 @pytest.mark.asyncio
 async def test_briefing_rejects_unowned_tool(pool_address: str) -> None:
-    supervisor = await xo.create_actor(
-        _BriefingRecorder, address=pool_address, uid="brief-sup-r"
-    )
+    supervisor = await xo.create_actor(_BriefingRecorder, address=pool_address, uid="brief-sup-r")
     briefing = await xo.create_actor(
         BriefingActor,
         supervisor,
@@ -100,9 +96,7 @@ async def test_briefing_rejects_unowned_tool(pool_address: str) -> None:
 
 @pytest.mark.asyncio
 async def test_briefing_requires_cwd_mcp_tool_and_forward_method(pool_address: str) -> None:
-    supervisor = await xo.create_actor(
-        _BriefingRecorder, address=pool_address, uid="brief-sup-v"
-    )
+    supervisor = await xo.create_actor(_BriefingRecorder, address=pool_address, uid="brief-sup-v")
     try:
         for bad_kwargs in (
             {"cwd": "", "mcp_tool": "x", "forward_method": "y"},

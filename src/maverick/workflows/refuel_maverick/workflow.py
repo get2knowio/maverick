@@ -68,9 +68,7 @@ def _briefing_cache_key(
     h = hashlib.sha256()
     h.update(flight_plan_content.encode("utf-8"))
     h.update(b"\x00")
-    h.update(
-        json.dumps(codebase_context, default=str, sort_keys=True).encode("utf-8")
-    )
+    h.update(json.dumps(codebase_context, default=str, sort_keys=True).encode("utf-8"))
     h.update(b"\x00")
     h.update(briefing_prompt.encode("utf-8"))
     return h.hexdigest()[:16]
@@ -91,9 +89,7 @@ def _outline_cache_key(
     h.update(b"\x00")
     h.update(verification_properties.encode("utf-8"))
     h.update(b"\x00")
-    h.update(
-        json.dumps(briefing_payloads or {}, default=str, sort_keys=True).encode("utf-8")
-    )
+    h.update(json.dumps(briefing_payloads or {}, default=str, sort_keys=True).encode("utf-8"))
     return h.hexdigest()[:16]
 
 
@@ -148,9 +144,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
             raise
         finally:
             run_id = ctx.get("run_id", "unknown")
-            run_dir = ctx.get(
-                "run_dir", Path.cwd() / ".maverick" / "runs" / run_id
-            )
+            run_dir = ctx.get("run_dir", Path.cwd() / ".maverick" / "runs" / run_id)
             report = RefuelReport(
                 plan_name=ctx.get("plan_name", ""),
                 flight_plan_path=inputs.get("flight_plan_path", ""),
@@ -160,9 +154,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
                 completed_at=datetime.now(tz=UTC).isoformat(),
                 duration_seconds=_time.monotonic() - start_time,
                 skip_briefing=bool(inputs.get("skip_briefing", False)),
-                phases_completed=[
-                    r.name for r in self._step_results if r.success
-                ],
+                phases_completed=[r.name for r in self._step_results if r.success],
                 work_units_count=ctx.get("work_units_count", 0),
                 fix_rounds=ctx.get("fix_rounds", 0),
                 epic_id=ctx.get("epic_id"),
@@ -174,9 +166,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
             except Exception as write_exc:
                 logger.warning("refuel_report.write_failed", error=str(write_exc))
 
-    async def _run_impl(
-        self, inputs: dict[str, Any], *, ctx: dict[str, Any]
-    ) -> dict[str, Any]:
+    async def _run_impl(self, inputs: dict[str, Any], *, ctx: dict[str, Any]) -> dict[str, Any]:
         """Execute the refuel-maverick pipeline.
 
         Args:
@@ -560,9 +550,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
             run_meta.status = "refueled"
             write_metadata(run_dir, run_meta)
             ctx["epic_id"] = bead_result.epic["bd_id"]
-            ctx["bead_ids"] = [
-                b["bd_id"] for b in bead_result.work_beads if b.get("bd_id")
-            ]
+            ctx["bead_ids"] = [b["bd_id"] for b in bead_result.work_beads if b.get("bd_id")]
 
         # Attach flight_plan_name to the epic for downstream lookup,
         # and wire cross-epic dependencies so new epics wait for
@@ -798,9 +786,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
         cached_details: dict[str, dict[str, Any]] = {}
 
         verification_properties = getattr(flight_plan, "verification_properties", "")
-        briefing_key = _briefing_cache_key(
-            raw_content, codebase_context, briefing_prompt
-        )
+        briefing_key = _briefing_cache_key(raw_content, codebase_context, briefing_prompt)
 
         if not skip_briefing and briefing_cache_path.is_file():
             try:
@@ -852,9 +838,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
         # The outline key depends on the briefing that produced it, so
         # compute it from whatever briefing we'll actually run with
         # (cached or the about-to-be-produced None placeholder).
-        outline_key = _outline_cache_key(
-            raw_content, verification_properties, cached_briefing
-        )
+        outline_key = _outline_cache_key(raw_content, verification_properties, cached_briefing)
 
         if outline_cache_path.is_file():
             try:

@@ -72,9 +72,7 @@ async def test_review_ready_marks_approved(pool_address: str) -> None:
         uid="fly-sup-review",
     )
     try:
-        await sup.review_ready(
-            SubmitReviewPayload(approved=True, findings=())
-        )
+        await sup.review_ready(SubmitReviewPayload(approved=True, findings=()))
     finally:
         await xo.destroy_actor(sup)
 
@@ -88,9 +86,7 @@ async def test_fix_result_ready_records_payload(pool_address: str) -> None:
         uid="fly-sup-fixres",
     )
     try:
-        await sup.fix_result_ready(
-            SubmitFixResultPayload(summary="did fixes", addressed=("F-1",))
-        )
+        await sup.fix_result_ready(SubmitFixResultPayload(summary="did fixes", addressed=("F-1",)))
     finally:
         await xo.destroy_actor(sup)
 
@@ -105,9 +101,7 @@ async def test_prompt_error_marks_supervisor_done(pool_address: str) -> None:
         uid="fly-sup-error",
     )
     try:
-        await sup.prompt_error(
-            PromptError(phase="implement", error="ACP died", unit_id="bead-1")
-        )
+        await sup.prompt_error(PromptError(phase="implement", error="ACP died", unit_id="bead-1"))
         result = await sup.get_terminal_result()
         assert result is not None
         assert result["success"] is False

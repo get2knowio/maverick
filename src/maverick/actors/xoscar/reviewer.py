@@ -138,9 +138,7 @@ class ReviewerActor(xo.Actor):
             logger.error("reviewer.aggregate_failed", error=str(exc))
             # Aggregate failures are non-fatal — emit a payload_parse_error
             # so the supervisor notes it but the epic still closes.
-            await self._supervisor_ref.payload_parse_error(
-                "aggregate_review", str(exc)
-            )
+            await self._supervisor_ref.payload_parse_error("aggregate_review", str(exc))
 
     # ------------------------------------------------------------------
     # MCP subprocess → agent inbox
@@ -178,9 +176,7 @@ class ReviewerActor(xo.Actor):
     async def _new_session(self) -> None:
         await self._ensure_executor()
 
-        maverick_bin = shutil.which("maverick") or str(
-            Path(sys.executable).parent / "maverick"
-        )
+        maverick_bin = shutil.which("maverick") or str(Path(sys.executable).parent / "maverick")
         mcp_config = McpServerStdio(
             name="agent-inbox",
             command=maverick_bin,
@@ -217,17 +213,14 @@ class ReviewerActor(xo.Actor):
                 "Review the code changes in the working directory.\n",
             ]
             if request.work_unit_md:
-                parts.append(
-                    f"## Work Unit Specification\n\n{request.work_unit_md}\n"
-                )
+                parts.append(f"## Work Unit Specification\n\n{request.work_unit_md}\n")
             else:
                 parts.append(f"## Task Description\n\n{request.bead_description}\n")
 
             if request.briefing_context:
                 briefing_excerpt = request.briefing_context[:4000]
                 parts.append(
-                    "## Pre-Flight Briefing (risks & contrarian findings)\n\n"
-                    f"{briefing_excerpt}\n"
+                    f"## Pre-Flight Briefing (risks & contrarian findings)\n\n{briefing_excerpt}\n"
                 )
 
             parts.append(
@@ -264,9 +257,7 @@ class ReviewerActor(xo.Actor):
             session_id=self._session_id,
             prompt_text=prompt,
             provider=self._step_config.provider if self._step_config else None,
-            config=step_config_with_timeout(
-                self._step_config, REVIEW_PROMPT_TIMEOUT_SECONDS
-            ),
+            config=step_config_with_timeout(self._step_config, REVIEW_PROMPT_TIMEOUT_SECONDS),
             step_name="review",
             agent_name="reviewer",
         )
@@ -296,9 +287,7 @@ class ReviewerActor(xo.Actor):
             session_id=self._session_id,
             prompt_text=prompt,
             provider=self._step_config.provider if self._step_config else None,
-            config=step_config_with_timeout(
-                self._step_config, AGGREGATE_REVIEW_TIMEOUT_SECONDS
-            ),
+            config=step_config_with_timeout(self._step_config, AGGREGATE_REVIEW_TIMEOUT_SECONDS),
             step_name="aggregate_review",
             agent_name="reviewer",
         )

@@ -77,9 +77,7 @@ async def call_tool(name: str, arguments: dict[str, Any] | None) -> list[TextCon
             jsonschema.validate(instance=args, schema=schema)
         except jsonschema.ValidationError as exc:
             error_path = (
-                " → ".join(str(p) for p in exc.absolute_path)
-                if exc.absolute_path
-                else "(root)"
+                " → ".join(str(p) for p in exc.absolute_path) if exc.absolute_path else "(root)"
             )
             raise ValueError(
                 f"Schema validation failed for '{name}' at '{error_path}': "

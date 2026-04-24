@@ -81,12 +81,16 @@ async def test_detail_failure_includes_unit_id(pool_address: str) -> None:
         uid="decomposer-err-detail",
     )
     try:
+
         async def _boom(self: DecomposerActor, request: Any) -> None:  # noqa: ARG001
             raise RuntimeError("quota exhausted for today")
 
-        with patch.object(DecomposerActor, "_send_detail_prompt", new=_boom), patch(
-            "maverick.exceptions.quota.is_quota_error",
-            return_value=True,
+        with (
+            patch.object(DecomposerActor, "_send_detail_prompt", new=_boom),
+            patch(
+                "maverick.exceptions.quota.is_quota_error",
+                return_value=True,
+            ),
         ):
             await decomposer.send_detail(DetailRequest(unit_ids=("wu-3",)))
 

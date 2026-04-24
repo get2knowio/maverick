@@ -5,7 +5,7 @@ Provides serialization for pre-flight briefing documents produced by
 PreFlightContrarian).
 
 Agent briefs are raw dicts from MCP tool calls — the MCP tool schemas
-in ``maverick.tools.supervisor_inbox.schemas`` are the single source
+in ``maverick.tools.agent_inbox.schemas`` are the single source
 of truth for field names.
 
 Public API:

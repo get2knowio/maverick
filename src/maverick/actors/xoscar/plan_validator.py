@@ -46,9 +46,7 @@ class PlanValidatorActor(xo.Actor):
                 tmp_path = Path(tmp.name)
             try:
                 issues = validate_flight_plan_file(tmp_path)
-                warnings = tuple(
-                    f"{issue.location}: {issue.message}" for issue in issues
-                )
+                warnings = tuple(f"{issue.location}: {issue.message}" for issue in issues)
             finally:
                 tmp_path.unlink(missing_ok=True)
             return PlanValidateResult(passed=True, warnings=warnings)

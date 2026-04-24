@@ -184,9 +184,7 @@ class ImplementerActor(xo.Actor):
     async def _new_session(self) -> None:
         await self._ensure_executor()
 
-        maverick_bin = shutil.which("maverick") or str(
-            Path(sys.executable).parent / "maverick"
-        )
+        maverick_bin = shutil.which("maverick") or str(Path(sys.executable).parent / "maverick")
         mcp_config = McpServerStdio(
             name="agent-inbox",
             command=maverick_bin,
@@ -213,9 +211,7 @@ class ImplementerActor(xo.Actor):
             mcp_servers=[mcp_config],
         )
 
-    async def _send_prompt(
-        self, prompt_text: str, *, phase: str, tool_name: str
-    ) -> None:
+    async def _send_prompt(self, prompt_text: str, *, phase: str, tool_name: str) -> None:
         await self._ensure_executor()
         if not self._session_id:
             await self._new_session()
@@ -229,9 +225,7 @@ class ImplementerActor(xo.Actor):
             session_id=self._session_id,
             prompt_text=prompt_text,
             provider=self._step_config.provider if self._step_config else None,
-            config=step_config_with_timeout(
-                self._step_config, IMPLEMENTER_PROMPT_TIMEOUT_SECONDS
-            ),
+            config=step_config_with_timeout(self._step_config, IMPLEMENTER_PROMPT_TIMEOUT_SECONDS),
             step_name=phase,
             agent_name="implementer",
         )

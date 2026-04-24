@@ -32,9 +32,7 @@ from maverick.tools.agent_inbox.models import (
 
 
 @pytest.mark.asyncio
-async def test_plan_writer_writes_both_files(
-    pool_address: str, tmp_path: Path
-) -> None:
+async def test_plan_writer_writes_both_files(pool_address: str, tmp_path: Path) -> None:
     output_dir = tmp_path / "plan-out"
     ref = await xo.create_actor(
         PlanWriterActor,
@@ -57,9 +55,7 @@ async def test_plan_writer_writes_both_files(
 
 
 @pytest.mark.asyncio
-async def test_plan_writer_skips_briefing_when_empty(
-    pool_address: str, tmp_path: Path
-) -> None:
+async def test_plan_writer_skips_briefing_when_empty(pool_address: str, tmp_path: Path) -> None:
     output_dir = tmp_path / "plan-out"
     ref = await xo.create_actor(
         PlanWriterActor,
@@ -68,9 +64,7 @@ async def test_plan_writer_skips_briefing_when_empty(
         uid="plan-writer-nobrief",
     )
     try:
-        result = await ref.write(
-            WritePlanRequest(flight_plan_markdown="# plan")
-        )
+        result = await ref.write(WritePlanRequest(flight_plan_markdown="# plan"))
         assert Path(result.flight_plan_path).exists()
         assert result.briefing_path is None
     finally:
@@ -83,9 +77,7 @@ def test_plan_writer_requires_output_dir() -> None:
 
 
 @pytest.mark.asyncio
-async def test_plan_validator_returns_warnings(
-    pool_address: str, tmp_path: Path
-) -> None:
+async def test_plan_validator_returns_warnings(pool_address: str, tmp_path: Path) -> None:
     ref = await xo.create_actor(
         PlanValidatorActor,
         address=pool_address,
@@ -94,9 +86,7 @@ async def test_plan_validator_returns_warnings(
     try:
         fp = {
             "objective": "test",
-            "success_criteria": [
-                {"description": "SC1", "verification": "echo ok"}
-            ],
+            "success_criteria": [{"description": "SC1", "verification": "echo ok"}],
             "in_scope": ["x"],
             "out_of_scope": [],
             "boundaries": [],
@@ -143,9 +133,7 @@ class _PlanRecorder(xo.Actor):
 
 @pytest.mark.asyncio
 async def test_generator_forwards_flight_plan(pool_address: str) -> None:
-    sup = await xo.create_actor(
-        _PlanRecorder, address=pool_address, uid="gen-sup"
-    )
+    sup = await xo.create_actor(_PlanRecorder, address=pool_address, uid="gen-sup")
     gen = await xo.create_actor(
         GeneratorActor,
         sup,
@@ -156,9 +144,7 @@ async def test_generator_forwards_flight_plan(pool_address: str) -> None:
     try:
         args = {
             "objective": "Ship feature X",
-            "success_criteria": [
-                {"description": "SC1", "verification": "echo ok"}
-            ],
+            "success_criteria": [{"description": "SC1", "verification": "echo ok"}],
             "in_scope": ["a"],
             "out_of_scope": [],
             "context": "",
@@ -179,9 +165,7 @@ async def test_generator_forwards_flight_plan(pool_address: str) -> None:
 
 @pytest.mark.asyncio
 async def test_generator_rejects_unowned_tool(pool_address: str) -> None:
-    sup = await xo.create_actor(
-        _PlanRecorder, address=pool_address, uid="gen-sup-rej"
-    )
+    sup = await xo.create_actor(_PlanRecorder, address=pool_address, uid="gen-sup-rej")
     gen = await xo.create_actor(
         GeneratorActor,
         sup,
@@ -240,9 +224,7 @@ async def test_plan_supervisor_construction_creates_children(
 
 
 @pytest.mark.asyncio
-async def test_plan_prompt_error_marks_done(
-    pool_address: str, tmp_path: Path
-) -> None:
+async def test_plan_prompt_error_marks_done(pool_address: str, tmp_path: Path) -> None:
     sup = await xo.create_actor(
         PlanSupervisor,
         PlanInputs(
@@ -255,9 +237,7 @@ async def test_plan_prompt_error_marks_done(
         uid="plan-sup-error",
     )
     try:
-        await sup.prompt_error(
-            PromptError(phase="generate", error="ACP died")
-        )
+        await sup.prompt_error(PromptError(phase="generate", error="ACP died"))
         result = await sup.get_terminal_result()
         assert result is not None
         assert result["success"] is False

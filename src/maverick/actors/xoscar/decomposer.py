@@ -264,9 +264,7 @@ class DecomposerActor(xo.Actor):
     async def _create_session(self) -> None:
         await self._ensure_executor()
 
-        maverick_bin = shutil.which("maverick") or str(
-            Path(sys.executable).parent / "maverick"
-        )
+        maverick_bin = shutil.which("maverick") or str(Path(sys.executable).parent / "maverick")
         mcp_config = McpServerStdio(
             name="agent-inbox",
             command=maverick_bin,
@@ -283,9 +281,7 @@ class DecomposerActor(xo.Actor):
         )
 
         cwd = Path(self._cwd)
-        one_shot: list[str] | None = (
-            ["submit_outline"] if self._role == "primary" else None
-        )
+        one_shot: list[str] | None = ["submit_outline"] if self._role == "primary" else None
         allowed_tools = [*READ_ONLY_DECOMPOSER_TOOLS, *self._mcp_tool_names]
 
         self._session_id = await self._executor.create_session(
@@ -471,9 +467,7 @@ class DecomposerActor(xo.Actor):
                 unit_ids=unit_ids,
             )
 
-        await self._prompt(
-            prompt_text, "decompose_detail", timeout_seconds=DETAIL_TIMEOUT_SECONDS
-        )
+        await self._prompt(prompt_text, "decompose_detail", timeout_seconds=DETAIL_TIMEOUT_SECONDS)
         self._detail_seed_stale = False
         await self._mark_turn_completed("detail")
 

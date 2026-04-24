@@ -33,9 +33,7 @@ async def test_gate_happy_path(pool_address: str) -> None:
     try:
         with patch(
             "maverick.library.actions.validation.run_independent_gate",
-            new=AsyncMock(
-                return_value={"passed": True, "summary": "ok", "stages": []}
-            ),
+            new=AsyncMock(return_value={"passed": True, "summary": "ok", "stages": []}),
         ):
             result = await ref.gate(GateRequest(cwd="/tmp"))
         assert isinstance(result, GateResult)
@@ -94,9 +92,7 @@ async def test_spec_check_skip_for_non_rust(pool_address: str) -> None:
         SpecCheckActor, project_type="python", address=pool_address, uid="spec-py"
     )
     try:
-        with patch.object(
-            SpecCheckActor, "_get_changed_files", return_value=["src/foo.py"]
-        ):
+        with patch.object(SpecCheckActor, "_get_changed_files", return_value=["src/foo.py"]):
             result = await ref.spec_check(SpecRequest(cwd="/tmp"))
         assert result.passed is True
         assert "python" in result.details
@@ -108,17 +104,18 @@ async def test_spec_check_skip_for_non_rust(pool_address: str) -> None:
 async def test_committer_happy_path(pool_address: str) -> None:
     ref = await xo.create_actor(CommitterActor, address=pool_address, uid="committer")
     try:
-        with patch(
-            "maverick.library.actions.jj.jj_commit_bead",
-            new=AsyncMock(return_value={"success": True, "change_id": "abc123"}),
-        ), patch(
-            "maverick.library.actions.beads.mark_bead_complete",
-            new=AsyncMock(return_value=None),
+        with (
+            patch(
+                "maverick.library.actions.jj.jj_commit_bead",
+                new=AsyncMock(return_value={"success": True, "change_id": "abc123"}),
+            ),
+            patch(
+                "maverick.library.actions.beads.mark_bead_complete",
+                new=AsyncMock(return_value=None),
+            ),
         ):
             result = await ref.commit(
-                CommitRequest(
-                    bead_id="bead-1", title="do stuff", cwd="/tmp", tag="round-1"
-                )
+                CommitRequest(bead_id="bead-1", title="do stuff", cwd="/tmp", tag="round-1")
             )
         assert isinstance(result, CommitResult)
         assert result.success is True
@@ -136,9 +133,7 @@ async def test_committer_reports_error(pool_address: str) -> None:
             "maverick.library.actions.jj.jj_commit_bead",
             new=AsyncMock(side_effect=RuntimeError("jj missing")),
         ):
-            result = await ref.commit(
-                CommitRequest(bead_id="bead-1", title="nope", cwd="/tmp")
-            )
+            result = await ref.commit(CommitRequest(bead_id="bead-1", title="nope", cwd="/tmp"))
         assert result.success is False
         assert "jj missing" in result.error
     finally:

@@ -69,13 +69,16 @@ async def test_bead_creator_wires_dependencies(pool_address: str) -> None:
         uid="bead-creator",
     )
     try:
-        with patch(
-            "maverick.library.actions.beads.create_beads",
-            new=AsyncMock(return_value=creation_result),
-        ), patch(
-            "maverick.library.actions.beads.wire_dependencies",
-            new=AsyncMock(return_value=dep_result),
-        ) as mock_wire:
+        with (
+            patch(
+                "maverick.library.actions.beads.create_beads",
+                new=AsyncMock(return_value=creation_result),
+            ),
+            patch(
+                "maverick.library.actions.beads.wire_dependencies",
+                new=AsyncMock(return_value=dep_result),
+            ) as mock_wire,
+        ):
             result = await ref.create_beads(
                 CreateBeadsRequest(
                     specs=(_spec("wu-1", "Task"),),
@@ -104,9 +107,7 @@ async def test_bead_creator_reports_failure(pool_address: str) -> None:
             "maverick.library.actions.beads.create_beads",
             new=AsyncMock(side_effect=RuntimeError("bd not available")),
         ):
-            result = await ref.create_beads(
-                CreateBeadsRequest(specs=(_spec("wu-1", "Task"),))
-            )
+            result = await ref.create_beads(CreateBeadsRequest(specs=(_spec("wu-1", "Task"),)))
 
         assert result.success is False
         assert "bd not available" in result.error

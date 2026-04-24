@@ -35,8 +35,7 @@ def _assert_no_thespian_after_import(module_path: str) -> None:
         check=False,
     )
     assert result.returncode == 0, (
-        f"subprocess import leaked thespian:\n"
-        f"stdout={result.stdout}\nstderr={result.stderr}"
+        f"subprocess import leaked thespian:\nstdout={result.stdout}\nstderr={result.stderr}"
     )
     assert "OK" in result.stdout
 

@@ -338,9 +338,7 @@ class RefuelSupervisor(xo.Actor):
 
         missing = self._briefing_expected - set(self._briefing_results.keys())
         if missing:
-            raise RuntimeError(
-                f"Briefing agents did not submit tool calls: {sorted(missing)}"
-            )
+            raise RuntimeError(f"Briefing agents did not submit tool calls: {sorted(missing)}")
 
         if "contrarian" in self._briefing_actors:
             await self._run_contrarian_phase()
@@ -425,9 +423,7 @@ class RefuelSupervisor(xo.Actor):
         self._details = SubmitDetailsPayload(details=tuple(self._accumulated_details))
         self._specs = self._merge_to_specs()
         while True:
-            result = await self._validator.validate(
-                ValidateRequest(specs=tuple(self._specs))
-            )
+            result = await self._validator.validate(ValidateRequest(specs=tuple(self._specs)))
             if result.passed or self._fix_rounds >= MAX_FIX_ROUNDS:
                 if not result.passed:
                     await self._emit_output(
@@ -621,9 +617,7 @@ class RefuelSupervisor(xo.Actor):
     async def detail_ready(self, payload: SubmitDetailsPayload) -> None:
         for detail in payload.details:
             uid = detail.id
-            self._accumulated_details = [
-                d for d in self._accumulated_details if d.id != uid
-            ]
+            self._accumulated_details = [d for d in self._accumulated_details if d.id != uid]
             self._accumulated_details.append(detail)
             self._pending_detail_ids.discard(uid)
             # Per-unit cache write so a killed run resumes at N-of-M.
@@ -653,9 +647,7 @@ class RefuelSupervisor(xo.Actor):
     async def navigator_brief_ready(self, payload: SubmitNavigatorBriefPayload) -> None:
         await self._record_brief("navigator", payload)
 
-    async def structuralist_brief_ready(
-        self, payload: SubmitStructuralistBriefPayload
-    ) -> None:
+    async def structuralist_brief_ready(self, payload: SubmitStructuralistBriefPayload) -> None:
         await self._record_brief("structuralist", payload)
 
     async def recon_brief_ready(self, payload: SubmitReconBriefPayload) -> None:
@@ -664,9 +656,7 @@ class RefuelSupervisor(xo.Actor):
     async def contrarian_brief_ready(self, payload: SubmitContrarianBriefPayload) -> None:
         await self._record_brief("contrarian", payload)
 
-    async def _record_brief(
-        self, agent_name: str, payload: SupervisorInboxPayload
-    ) -> None:
+    async def _record_brief(self, agent_name: str, payload: SupervisorInboxPayload) -> None:
         import time as _time
 
         self._briefing_results[agent_name] = payload
@@ -732,9 +722,7 @@ class RefuelSupervisor(xo.Actor):
 
         if phase in ("outline", "fix"):
             try:
-                await self._decomposer.send_nudge(
-                    NudgeRequest(expected_tool=tool, reason=message)
-                )
+                await self._decomposer.send_nudge(NudgeRequest(expected_tool=tool, reason=message))
             except Exception as exc:  # noqa: BLE001 — nudge is best-effort
                 logger.debug(
                     "refuel_supervisor.nudge_failed",
@@ -973,9 +961,7 @@ class RefuelSupervisor(xo.Actor):
         h.update(b"\x00")
         h.update(inputs.get("verification_properties", "").encode("utf-8"))
         h.update(b"\x00")
-        h.update(
-            json.dumps(briefing_payloads, default=str, sort_keys=True).encode("utf-8")
-        )
+        h.update(json.dumps(briefing_payloads, default=str, sort_keys=True).encode("utf-8"))
         cache_key = h.hexdigest()[:16]
 
         envelope = {

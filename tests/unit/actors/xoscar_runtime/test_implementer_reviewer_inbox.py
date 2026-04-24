@@ -44,9 +44,7 @@ class _FlyRecorder(xo.Actor):
 
 @pytest.mark.asyncio
 async def test_implementer_forwards_submit_implementation(pool_address: str) -> None:
-    supervisor = await xo.create_actor(
-        _FlyRecorder, address=pool_address, uid="impl-sup"
-    )
+    supervisor = await xo.create_actor(_FlyRecorder, address=pool_address, uid="impl-sup")
     impl = await xo.create_actor(
         ImplementerActor,
         supervisor,
@@ -71,9 +69,7 @@ async def test_implementer_forwards_submit_implementation(pool_address: str) -> 
 
 @pytest.mark.asyncio
 async def test_implementer_forwards_submit_fix_result(pool_address: str) -> None:
-    supervisor = await xo.create_actor(
-        _FlyRecorder, address=pool_address, uid="impl-sup-fr"
-    )
+    supervisor = await xo.create_actor(_FlyRecorder, address=pool_address, uid="impl-sup-fr")
     impl = await xo.create_actor(
         ImplementerActor,
         supervisor,
@@ -97,9 +93,7 @@ async def test_implementer_forwards_submit_fix_result(pool_address: str) -> None
 
 @pytest.mark.asyncio
 async def test_implementer_rejects_unowned_tool(pool_address: str) -> None:
-    supervisor = await xo.create_actor(
-        _FlyRecorder, address=pool_address, uid="impl-sup-rej"
-    )
+    supervisor = await xo.create_actor(_FlyRecorder, address=pool_address, uid="impl-sup-rej")
     impl = await xo.create_actor(
         ImplementerActor,
         supervisor,
@@ -123,9 +117,7 @@ async def test_implementer_rejects_unowned_tool(pool_address: str) -> None:
 
 @pytest.mark.asyncio
 async def test_reviewer_forwards_per_bead_review(pool_address: str) -> None:
-    supervisor = await xo.create_actor(
-        _FlyRecorder, address=pool_address, uid="rev-sup"
-    )
+    supervisor = await xo.create_actor(_FlyRecorder, address=pool_address, uid="rev-sup")
     rev = await xo.create_actor(
         ReviewerActor,
         supervisor,
@@ -135,9 +127,12 @@ async def test_reviewer_forwards_per_bead_review(pool_address: str) -> None:
     )
     try:
         # Default (_in_aggregate=False) → review_ready branch.
-        args = {"approved": False, "findings": [
-            {"severity": "critical", "issue": "broken", "file": "src/x.py", "line": 1}
-        ]}
+        args = {
+            "approved": False,
+            "findings": [
+                {"severity": "critical", "issue": "broken", "file": "src/x.py", "line": 1}
+            ],
+        }
         result = await rev.on_tool_call("submit_review", args)
         assert result == "ok"
         calls = await supervisor.calls()

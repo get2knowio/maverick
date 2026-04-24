@@ -474,6 +474,4 @@ class TestGenerateFlightPlanWorkflowXoscarConfig:
         assert inputs.config is not None
         assert inputs.config.provider == "claude"
         assert inputs.config.model_id == "opus"
-        assert (
-            inputs.provider_labels["Scopist"] == "gemini/gemini-3.1-pro-preview"
-        )
+        assert inputs.provider_labels["Scopist"] == "gemini/gemini-3.1-pro-preview"

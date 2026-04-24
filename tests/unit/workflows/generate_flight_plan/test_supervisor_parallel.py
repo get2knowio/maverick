@@ -56,12 +56,8 @@ class TestBriefingParallelism:
         delay = 0.3
         actors: dict[str, Any] = {
             "scopist": _SlowActor("scopist", "submit_scope", delay),
-            "codebase_analyst": _SlowActor(
-                "codebase_analyst", "submit_analysis", delay
-            ),
-            "criteria_writer": _SlowActor(
-                "criteria_writer", "submit_criteria", delay
-            ),
+            "codebase_analyst": _SlowActor("codebase_analyst", "submit_analysis", delay),
+            "criteria_writer": _SlowActor("criteria_writer", "submit_criteria", delay),
         }
 
         supervisor = PlanSupervisor(
@@ -112,12 +108,8 @@ class TestBriefingParallelism:
 
         actors: dict[str, Any] = {
             "scopist": _BrokenActor(),
-            "codebase_analyst": _SlowActor(
-                "codebase_analyst", "submit_analysis", 0.05
-            ),
-            "criteria_writer": _SlowActor(
-                "criteria_writer", "submit_criteria", 0.05
-            ),
+            "codebase_analyst": _SlowActor("codebase_analyst", "submit_analysis", 0.05),
+            "criteria_writer": _SlowActor("criteria_writer", "submit_criteria", 0.05),
         }
 
         supervisor = PlanSupervisor(

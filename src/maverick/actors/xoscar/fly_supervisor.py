@@ -302,9 +302,7 @@ class FlySupervisor(xo.Actor):
 
         # ---- Implement ----
         prompt = self._build_implement_prompt(bead)
-        await self._implementer.send_implement(
-            ImplementRequest(bead_id=bead_id, prompt=prompt)
-        )
+        await self._implementer.send_implement(ImplementRequest(bead_id=bead_id, prompt=prompt))
         if self._last_implementation is None:
             await self._escalate(bead, "Implementer did not submit results")
             return False
@@ -357,9 +355,7 @@ class FlySupervisor(xo.Actor):
             )
             return False
 
-        await self._record_bead_outcome(
-            bead, commit_success=True, review_rounds=review_rounds
-        )
+        await self._record_bead_outcome(bead, commit_success=True, review_rounds=review_rounds)
 
         await self._emit_output(
             "fly",
@@ -405,9 +401,7 @@ class FlySupervisor(xo.Actor):
         bead_id = bead["bead_id"]
         description = bead.get("description", bead.get("title", ""))
         # AC has a single fix-attempt retry in the legacy supervisor.
-        result = await self._ac.ac_check(
-            ACRequest(description=description, cwd=self._inputs.cwd)
-        )
+        result = await self._ac.ac_check(ACRequest(description=description, cwd=self._inputs.cwd))
         if result.passed:
             return True
         await self._emit_output(
@@ -422,9 +416,7 @@ class FlySupervisor(xo.Actor):
             round=1,
         ):
             return False
-        result = await self._ac.ac_check(
-            ACRequest(description=description, cwd=self._inputs.cwd)
-        )
+        result = await self._ac.ac_check(ACRequest(description=description, cwd=self._inputs.cwd))
         if not result.passed:
             await self._escalate(
                 bead,
@@ -508,18 +500,14 @@ class FlySupervisor(xo.Actor):
                 return (rounds_with_findings, False)
         return (rounds_with_findings, False)
 
-    async def _send_fix(
-        self, bead_id: str, *, phase: str, context: str, round: int
-    ) -> bool:
+    async def _send_fix(self, bead_id: str, *, phase: str, context: str, round: int) -> bool:
         prompt = (
             f"## {phase.title()} findings (round {round})\n\n"
             f"{context}\n\n"
             "Address each issue and re-verify your changes."
         )
         self._last_fix_result = None
-        await self._implementer.send_fix(
-            FlyFixRequest(bead_id=bead_id, prompt=prompt)
-        )
+        await self._implementer.send_fix(FlyFixRequest(bead_id=bead_id, prompt=prompt))
         if self._last_fix_result is None:
             await self._emit_output(
                 "fly",
@@ -539,9 +527,7 @@ class FlySupervisor(xo.Actor):
         self._last_aggregate_review = None
         bead_list = "\n".join(
             f"- {bid}: {title}"
-            for bid, title in zip(
-                self._completed_beads, self._completed_titles, strict=False
-            )
+            for bid, title in zip(self._completed_beads, self._completed_titles, strict=False)
         )
         diff_stat = await self._safe_diff_stat()
         await self._emit_output("fly", "Running epic aggregate review")
@@ -605,9 +591,7 @@ class FlySupervisor(xo.Actor):
                     if wu_id:
                         work_units[wu_id] = content
             except Exception as exc:  # noqa: BLE001
-                logger.debug(
-                    "fly_supervisor.work_units_load_failed", error=str(exc)
-                )
+                logger.debug("fly_supervisor.work_units_load_failed", error=str(exc))
             self._work_units_cache[flight_plan] = work_units
 
         bead_title = bead.get("title", "")
@@ -637,9 +621,7 @@ class FlySupervisor(xo.Actor):
                 briefing_path = plans_dir / briefing_name
                 if briefing_path.exists():
                     try:
-                        self._briefing_context = briefing_path.read_text(
-                            encoding="utf-8"
-                        )[:8000]
+                        self._briefing_context = briefing_path.read_text(encoding="utf-8")[:8000]
                     except Exception:  # noqa: BLE001
                         pass
                     break
@@ -678,13 +660,9 @@ class FlySupervisor(xo.Actor):
                 cwd=self._inputs.cwd,
             )
         except Exception as exc:  # noqa: BLE001 — runway is best-effort
-            logger.warning(
-                "fly_supervisor.runway_record_failed", error=str(exc)
-            )
+            logger.warning("fly_supervisor.runway_record_failed", error=str(exc))
 
-    async def _record_review_findings(
-        self, findings: tuple[ReviewFindingPayload, ...]
-    ) -> None:
+    async def _record_review_findings(self, findings: tuple[ReviewFindingPayload, ...]) -> None:
         if not findings:
             return
         try:
@@ -706,9 +684,7 @@ class FlySupervisor(xo.Actor):
                 cwd=self._inputs.cwd,
             )
         except Exception as exc:  # noqa: BLE001 — runway is best-effort
-            logger.warning(
-                "fly_supervisor.runway_review_record_failed", error=str(exc)
-            )
+            logger.warning("fly_supervisor.runway_review_record_failed", error=str(exc))
 
     # ------------------------------------------------------------------
     # Human-in-the-loop escalation
@@ -756,20 +732,13 @@ class FlySupervisor(xo.Actor):
         client = BeadClient(cwd=Path(self._inputs.cwd))
         bead_id = bead.get("bead_id", "")
         bead_title = bead.get("title", bead_id)
-        findings_text = (
-            "\n".join(f"- {f}" for f in (findings or []))
-            if findings
-            else "None"
-        )
+        findings_text = "\n".join(f"- {f}" for f in (findings or [])) if findings else "None"
         review_def = BeadDefinition(
             title=f"Review: {bead_title[:150]}",
             bead_type=BeadType.TASK,
             priority=1,
             category=BeadCategory.REVIEW,
-            description=(
-                f"## Escalation Reason\n\n{reason}\n\n"
-                f"## Findings\n\n{findings_text}"
-            ),
+            description=(f"## Escalation Reason\n\n{reason}\n\n## Findings\n\n{findings_text}"),
             assignee="human",
             labels=["assumption-review", "needs-human-review"],
         )
@@ -851,8 +820,7 @@ class FlySupervisor(xo.Actor):
         self._last_aggregate_review = payload
         await self._emit_output(
             "fly",
-            f"Aggregate review submitted "
-            f"({'approved' if payload.approved else 'findings'})",
+            f"Aggregate review submitted ({'approved' if payload.approved else 'findings'})",
         )
 
     async def prompt_error(self, error: PromptError) -> None:

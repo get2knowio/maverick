@@ -99,8 +99,7 @@ class SpecCheckActor(xo.Actor):
             else "all checks passed"
         )
         formatted = tuple(
-            f"{f['file']}:{f['line']}: {f['description']} — `{f['text']}`"
-            for f in findings
+            f"{f['file']}:{f['line']}: {f['description']} — `{f['text']}`" for f in findings
         )
         return SpecResult(passed=passed, details=details, findings=formatted)
 
@@ -137,9 +136,7 @@ class SpecCheckActor(xo.Actor):
                 source_files.append(f)
         return source_files
 
-    def _grep_files(
-        self, cwd: str, pattern: str, files: list[str]
-    ) -> list[tuple[str, str, str]]:
+    def _grep_files(self, cwd: str, pattern: str, files: list[str]) -> list[tuple[str, str, str]]:
         hits: list[tuple[str, str, str]] = []
         try:
             cmd = ["grep", "-n", "-F", pattern, *files]

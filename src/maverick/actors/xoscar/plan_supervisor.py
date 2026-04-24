@@ -236,13 +236,9 @@ class PlanSupervisor(xo.Actor):
                 if name in self._briefing_actors
             ]
         )
-        missing = [
-            name for name in PARALLEL_PLAN_BRIEFING_NAMES if name not in self._briefs
-        ]
+        missing = [name for name in PARALLEL_PLAN_BRIEFING_NAMES if name not in self._briefs]
         if missing:
-            raise RuntimeError(
-                f"Briefing agents did not submit tool calls: {sorted(missing)}"
-            )
+            raise RuntimeError(f"Briefing agents did not submit tool calls: {sorted(missing)}")
 
         if "contrarian" in self._briefing_actors:
             await self._run_contrarian_phase()
@@ -261,9 +257,7 @@ class PlanSupervisor(xo.Actor):
         self._briefing_start_times["Contrarian"] = _time.monotonic()
 
         scope_json = json.dumps(
-            dump_supervisor_payload(self._briefs["scope"])
-            if "scope" in self._briefs
-            else {},
+            dump_supervisor_payload(self._briefs["scope"]) if "scope" in self._briefs else {},
             indent=2,
         )
         analysis_json = json.dumps(
@@ -299,9 +293,7 @@ class PlanSupervisor(xo.Actor):
         self._briefing_markdown = serialize_briefs_to_markdown(
             self._inputs.plan_name,
             scope=(
-                dump_supervisor_payload(self._briefs["scope"])
-                if "scope" in self._briefs
-                else None
+                dump_supervisor_payload(self._briefs["scope"]) if "scope" in self._briefs else None
             ),
             analysis=(
                 dump_supervisor_payload(self._briefs["analysis"])
@@ -325,9 +317,7 @@ class PlanSupervisor(xo.Actor):
     # ------------------------------------------------------------------
 
     async def _run_generator_phase(self) -> None:
-        await self._emit_output(
-            "plan", "Sending briefing to flight-plan generator"
-        )
+        await self._emit_output("plan", "Sending briefing to flight-plan generator")
         parts = [f"## PRD Content\n\n{self._inputs.prd_content}"]
         if self._briefing_markdown:
             parts.append(f"## Pre-Flight Briefing\n\n{self._briefing_markdown}")
@@ -408,9 +398,7 @@ class PlanSupervisor(xo.Actor):
     async def challenge_ready(self, payload: SubmitChallengePayload) -> None:
         await self._record_brief("challenge", "Contrarian", payload)
 
-    async def _record_brief(
-        self, key: str, label: str, payload: SupervisorInboxPayload
-    ) -> None:
+    async def _record_brief(self, key: str, label: str, payload: SupervisorInboxPayload) -> None:
         import time as _time
 
         self._briefs[key] = payload

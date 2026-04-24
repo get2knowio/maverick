@@ -77,9 +77,7 @@ class BeadCreatorActor(xo.Actor):
 
             epic = creation_result.epic or {}
             epic_id = (
-                epic.get("bd_id", "")
-                if isinstance(epic, dict)
-                else getattr(epic, "bd_id", "")
+                epic.get("bd_id", "") if isinstance(epic, dict) else getattr(epic, "bd_id", "")
             )
 
             return BeadsCreatedResult(
