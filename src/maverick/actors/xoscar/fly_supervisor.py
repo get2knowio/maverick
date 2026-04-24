@@ -122,7 +122,7 @@ class FlySupervisor(xo.Actor):
         self._briefing_context: str = ""
         self._work_units_cache: dict[str, dict[str, str]] = {}
 
-        self_ref = self.ref
+        self_ref = self.ref()
 
         self._implementer = await xo.create_actor(
             ImplementerActor,

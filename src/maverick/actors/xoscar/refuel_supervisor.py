@@ -178,7 +178,7 @@ class RefuelSupervisor(xo.Actor):
             except (SupervisorToolPayloadError, ValueError) as exc:
                 logger.warning("refuel_supervisor.invalid_outline_cache", error=str(exc))
 
-        self_ref = self.ref
+        self_ref = self.ref()
 
         # --- Decomposer primary ---
         self._decomposer = await xo.create_actor(

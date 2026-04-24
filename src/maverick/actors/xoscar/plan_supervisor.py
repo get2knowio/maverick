@@ -112,7 +112,7 @@ class PlanSupervisor(xo.Actor):
         self._flight_plan: SubmitFlightPlanPayload | None = None
         self._briefing_start_times: dict[str, float] = {}
 
-        self_ref = self.ref
+        self_ref = self.ref()
 
         # --- Briefing actors ---
         self._briefing_actors: dict[str, xo.ActorRef] = {}

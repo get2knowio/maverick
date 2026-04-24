@@ -48,3 +48,27 @@ def test_actor_module_calls_super_init(path: Path) -> None:
         "xoscar's AsyncActorMixin.__init__ initialises self._generators; "
         "skipping it breaks any @xo.generator method on the actor."
     )
+
+
+@pytest.mark.parametrize("path", _actor_files(), ids=lambda p: p.name)
+def test_actor_module_calls_self_ref_as_method(path: Path) -> None:
+    """``self.ref`` is a ``cpdef ActorRef ref(self)`` method on xoscar's
+    ``_BaseActor`` — not a property. Accessing it without calling it
+    returns an unbound Cython function, which then gets passed to
+    children as ``supervisor_ref`` and produces
+    ``'_cython_3_2_4.cython_function_or_method' object has no
+    attribute '<method_name>'`` at first RPC call.
+
+    This test forbids the bare ``self.ref`` form. Use ``self.ref()``.
+    """
+    src = path.read_text()
+    # Match "self.ref" NOT followed by an opening paren or another word
+    # character. That excludes valid forms like self.ref() and things
+    # like self._refresh or self.refresh that happen to share a prefix.
+    bare_ref_matches = re.findall(r"self\.ref(?![\w(])", src)
+    assert not bare_ref_matches, (
+        f"{path.name} uses 'self.ref' without parentheses. "
+        "self.ref is a Cython cpdef method on xoscar's _BaseActor; "
+        "you must call it — self.ref() — to get an ActorRef. "
+        f"Found {len(bare_ref_matches)} bare occurrence(s)."
+    )
