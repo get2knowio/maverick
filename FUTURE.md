@@ -50,6 +50,8 @@ It reconciles those documents against the current codebase as of 2026-04-19 and 
 | Reusable supervisor fragments | Active | New opportunity observed in current code. |
 | ACP prompt-cache optimization | Implemented | Phase A observability + Phase B retry-session reuse shipped; Phases C/D/1h-TTL closed after Phase A data showed caching is content-keyed and already at ~99.98% hit on measured workloads. |
 | Consolidate agent `_end_turn` helpers | Active | Five xoscar agents duplicate a ~10-line cancel-after-forward helper. Minor refactor opportunity — extract to mixin or module helper when a sixth agent-with-inbox appears. |
+| Fly checkpoint resume ignores `--max-beads` | Active (bug) | Observed in 2026-04-24 e2e: launched with `--max-beads 2`, processed 12 beads. Resume path must reset / re-evaluate the budget against the new arg. |
+| Review prompts don't emit `prompt_usage` | Active (observability gap) | Observed in 2026-04-24 e2e: 13 review sessions created, 12 beads closed via review, 0 `acp_executor.prompt_usage` lines for review. Reviewer's agent-side cancel likely racing against the response path in `prompt_session`. |
 
 ## 1. Orchestration And Human Review
 
@@ -159,6 +161,27 @@ Relevant code:
 - [src/maverick/actors/fly_supervisor.py](src/maverick/actors/fly_supervisor.py)
 - [src/maverick/cli/commands/review.py](src/maverick/cli/commands/review.py)
 - [src/maverick/library/actions/consolidation.py](src/maverick/library/actions/consolidation.py)
+
+### 1.7 Fly Checkpoint Resume Ignores `--max-beads`
+
+**Status:** Active (bug)
+
+Observed during the 2026-04-24 e2e run on `sample-maverick-project`: launched ``maverick fly --epic <id> --max-beads 2`` and the run processed **12 beads** before being stopped manually. The header banner showed ``max_beads=2`` parsed correctly. The first log line was:
+
+> Resuming from checkpoint 'checkpoint' (saved at 2026-03-19T02:24:14...)
+
+So the workflow restored a stale checkpoint and never re-evaluated the new ``max_beads`` budget against it — it just kept iterating until the epic was nearly complete. The bug is in the resume path: when a stale checkpoint is loaded, the bead-loop counter must either reset against the new ``max_beads`` argument or treat ``max_beads`` as the total-from-now budget.
+
+Why it matters:
+
+- Anyone trying to do a constrained "smoke test" run gets a full epic instead.
+- Cost-control intent (cap the number of agent invocations on a debug run) is silently overridden.
+- Combined with auto-commit, this means a probe run can change the workspace far more than intended.
+
+Relevant code:
+
+- [src/maverick/workflows/fly_beads/workflow.py](src/maverick/workflows/fly_beads/workflow.py) (resume + bead-loop counter)
+- [src/maverick/checkpoint/](src/maverick/checkpoint/) (checkpoint shape — does it need a counter field?)
 
 ## 2. Agent Architecture And MCP Boundaries
 
@@ -272,7 +295,7 @@ Until there is a clearer payoff, this should remain exploratory.
 
 ### 2.7 ACP Prompt-Cache Optimization
 
-**Status:** Partial (Phase A shipped and validated; Phases B–D reframed by Phase A data)
+**Status:** Implemented (Phase A and Phase B shipped 2026-04-24; Phases C / D / 1h-TTL closed as not needed)
 
 Per-turn Anthropic quota burn has been unsustainable. The original hypothesis was that Maverick was getting ~0% cache hits because the Claude Agent SDK disables caching by default when MCP servers are attached (per Anthropic docs). Phase A observability proved that hypothesis **wrong**. Live run against `sample-maverick-project` on 2026-04-24:
 
@@ -454,6 +477,35 @@ What should happen next:
 
 - give every durable artifact a single renderer and a single reader;
 - stop scattering format rules across ad hoc JSON dumps and inline markdown assembly.
+
+### 3.8 Review Prompts Don't Emit `acp_executor.prompt_usage`
+
+**Status:** Active (observability gap)
+
+Observed during the 2026-04-24 e2e run on `sample-maverick-project`. The fly run closed 12 beads — every bead went through the implement → gate → ac → spec → review → commit cycle, so there should have been at least 12 review prompts. Log evidence:
+
+| signal | count |
+|---|---|
+| ``acp_executor.session_created`` with ``step_name=review`` | 13 |
+| ``bead_closed`` (review gate passed) | 12 |
+| ``acp_executor.prompt_usage`` with ``step_name=review`` | **0** |
+
+Implementer prompts on the same run logged 12 ``prompt_usage`` events as expected (with ``usage_reported=False`` because copilot's ACP bridge doesn't surface token counts — that part is upstream and not Maverick's bug). Reviewer prompts produced zero log lines despite the sessions clearly being created and the reviews clearly running successfully.
+
+Most likely cause: the agent-side cancel from ``reviewer.on_tool_call._end_turn`` is firing fast enough that ``prompt_session()`` returns via an exception path rather than via the response-with-usage path, bypassing the ``logger.info("acp_executor.prompt_usage", ...)`` call at the bottom of the success branch in [src/maverick/executor/acp.py](src/maverick/executor/acp.py). The implementer somehow doesn't hit this path — possibly because the implementer's submit tool is followed by a small wrap-up that delays the cancel just enough for the response to land first.
+
+Why it matters:
+
+- Phase A observability is the foundation of all the prompt-cache and cost-tracking work — any agent that silently doesn't log usage is invisible to that monitoring.
+- Reviewers run on every bead; this is half of the fly token budget going unobserved.
+
+Relevant code:
+
+- [src/maverick/executor/acp.py](src/maverick/executor/acp.py) (``prompt_session``, lines around the ``acp_executor.prompt_usage`` info log)
+- [src/maverick/actors/xoscar/reviewer.py](src/maverick/actors/xoscar/reviewer.py) (``_end_turn``, ``on_tool_call``)
+- Compare with [src/maverick/actors/xoscar/implementer.py](src/maverick/actors/xoscar/implementer.py) which works correctly.
+
+Investigation should add a DEBUG-level log right at the start of every ``prompt_session()`` exception branch and at the success branch entry, then re-run the same fly scenario — the missing path will become obvious.
 
 ## 4. Developer Experience And Platform
 
