@@ -961,11 +961,6 @@ class RefuelMaverickWorkflow(PythonWorkflow):
             RefuelSupervisor,
         )
 
-        # Legacy cache paths are currently unused by the xoscar
-        # supervisor (Phase 1.5 will re-wire them); suppress the
-        # "unused local" ruff warning without losing the computed paths.
-        _ = (briefing_cache_path, outline_cache_path, detail_cache_dir, briefing_key)
-
         DECOMPOSER_POOL_SIZE = 4
 
         supervisor_inputs = RefuelInputs(
@@ -978,6 +973,16 @@ class RefuelMaverickWorkflow(PythonWorkflow):
             provider_labels=provider_labels,
             detail_session_max_turns=DETAIL_SESSION_MAX_TURNS,
             fix_session_max_turns=FIX_SESSION_MAX_TURNS,
+            briefing_cache_path=str(briefing_cache_path),
+            outline_cache_path=str(outline_cache_path),
+            detail_cache_dir=str(detail_cache_dir),
+            briefing_cache_key=briefing_key,
+            briefing_cache_schema_version=BRIEFING_CACHE_SCHEMA_VERSION,
+            outline_cache_key_inputs={
+                "flight_plan_content": raw_content,
+                "verification_properties": verification_properties,
+            },
+            outline_cache_schema_version=OUTLINE_CACHE_SCHEMA_VERSION,
         )
 
         async with actor_pool() as (_pool, address):

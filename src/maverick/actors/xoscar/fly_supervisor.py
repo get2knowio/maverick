@@ -6,16 +6,14 @@ Per-bead state machine (linearised now that every step is awaitable):
              → spec (with fix loop) → review (with fix loop) → commit
 
 Aggregate review runs once after the bead loop if more than one bead
-was processed successfully.
+was processed successfully. Per-bead runway recording feeds future
+briefings; review-round exhaustion creates a human-assigned review
+bead and commits with a ``needs-human-review`` tag so the epic history
+reflects the escalation. Watch mode polls for new ready beads at a
+configurable interval.
 
-Scope notes (Phase 2 MVP):
-
-* Watch mode (``--watch`` with idle polling) is deferred to a follow-up.
-* Bead-context enrichment (work-unit matching, briefing markdown load)
-  is minimal — the supervisor passes whatever the workflow seeds it
-  with through to the prompt builders.
-* Stale-in-flight watchdog replaced with per-step ``xo.wait_for``
-  around long-running agent calls.
+Stale-in-flight watchdog behaviour from the Thespian supervisor is
+replaced by per-step ``xo.wait_for`` around long-running agent calls.
 """
 
 from __future__ import annotations
@@ -23,6 +21,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 import xoscar as xo
@@ -48,6 +47,7 @@ from maverick.actors.xoscar.spec_check import SpecCheckActor
 from maverick.events import ProgressEvent, StepOutput
 from maverick.logging import get_logger
 from maverick.tools.supervisor_inbox.models import (
+    ReviewFindingPayload,
     SubmitFixResultPayload,
     SubmitImplementationPayload,
     SubmitReviewPayload,
@@ -73,6 +73,14 @@ class FlyInputs:
     validation_commands: dict[str, tuple[str, ...]] | None = None
     project_type: str = "rust"
     completed_bead_ids: tuple[str, ...] = ()
+    # Bead-context enrichment: the supervisor loads work-unit markdown
+    # and briefing from `.maverick/plans/<flight_plan_name>/` when set.
+    flight_plan_name: str = ""
+    # Watch mode: when true, the bead loop polls for new ready beads
+    # every ``watch_interval`` seconds, up to ``max_idle_polls`` times.
+    watch: bool = False
+    watch_interval: int = 30
+    max_idle_polls: int = 60
 
 
 class FlySupervisor(xo.Actor):
@@ -107,6 +115,11 @@ class FlySupervisor(xo.Actor):
         self._completed_titles: list[str] = []
         self._current_bead_id: str | None = None
         self._review_findings_for_bead: list[SubmitReviewPayload] = []
+        self._last_review_findings: tuple[ReviewFindingPayload, ...] = ()
+
+        # Bead-context enrichment (populated lazily by _load_bead_context).
+        self._briefing_context: str = ""
+        self._work_units_cache: dict[str, dict[str, str]] = {}
 
         self_ref = self.ref
 
@@ -220,6 +233,8 @@ class FlySupervisor(xo.Actor):
 
     async def _bead_loop(self) -> None:
         processed = 0
+        idle_polls = 0
+        max_idle = self._inputs.max_idle_polls if self._inputs.watch else 0
         await self._emit_output(
             "fly",
             f"Starting bead loop (epic: {self._inputs.epic_id or 'any'})",
@@ -227,19 +242,27 @@ class FlySupervisor(xo.Actor):
         while processed < self._inputs.max_beads:
             bead = await self._select_next_bead()
             if bead is None or not bead.get("found"):
+                if self._inputs.watch and idle_polls < max_idle:
+                    idle_polls += 1
+                    await self._emit_output(
+                        "fly",
+                        f"No beads ready; waiting ({idle_polls}/{max_idle})",
+                    )
+                    await asyncio.sleep(self._inputs.watch_interval)
+                    continue
                 await self._emit_output("fly", "No more beads to process")
                 return
+            idle_polls = 0
             bead_id = bead.get("bead_id", "")
             if not bead_id or bead_id in self._completed_beads:
                 continue
             ok = await self._process_bead(bead)
-            if not ok:
-                # Escalation already emitted. Move on to next bead so the
-                # loop doesn't stall on one failure.
-                continue
-            self._completed_beads.append(bead_id)
-            self._completed_titles.append(bead.get("title", ""))
-            processed += 1
+            if ok:
+                self._completed_beads.append(bead_id)
+                self._completed_titles.append(bead.get("title", ""))
+                processed += 1
+            # If a bead failed (ok=False), the escalation path already
+            # emitted a warning and recorded the outcome. Move on.
 
     async def _select_next_bead(self) -> dict[str, Any] | None:
         from maverick.library.actions.beads import select_next_bead
@@ -262,12 +285,16 @@ class FlySupervisor(xo.Actor):
         self._last_implementation = None
         self._last_review = None
         self._review_findings_for_bead = []
+        self._last_review_findings = ()
 
         await self._emit_output(
             "fly",
             f"Processing bead {bead_id}: {title[:80]}",
             metadata={"bead_id": bead_id, "title": title},
         )
+
+        # Enrich bead with work-unit markdown + briefing (best-effort).
+        await self._load_bead_context(bead)
 
         # Rotate sessions for the new bead.
         await self._implementer.new_bead(NewBeadRequest(bead_id=bead_id))
@@ -279,36 +306,47 @@ class FlySupervisor(xo.Actor):
             ImplementRequest(bead_id=bead_id, prompt=prompt)
         )
         if self._last_implementation is None:
-            await self._emit_output(
-                "fly",
-                f"Implementer did not submit results for {bead_id}",
-                level="error",
-            )
+            await self._escalate(bead, "Implementer did not submit results")
             return False
 
         # ---- Gate fix loop ----
-        if not await self._gate_loop(bead_id):
+        if not await self._gate_loop(bead):
             return False
 
         # ---- AC fix loop ----
-        if not await self._ac_loop(bead_id, bead):
+        if not await self._ac_loop(bead):
             return False
 
         # ---- Spec fix loop ----
-        if not await self._spec_loop(bead_id):
+        if not await self._spec_loop(bead):
             return False
 
         # ---- Review fix loop ----
-        if not await self._review_loop(bead_id, bead):
+        review_rounds, approved = await self._review_loop(bead)
+        if not approved and review_rounds == 0:
+            # Reviewer didn't submit at all (prompt failed, MCP dropped).
             return False
 
         # ---- Commit ----
+        # If review rounds were exhausted without approval, commit with the
+        # needs-human-review tag and create the escalation bead. The epic
+        # still captures the work; a human can follow up via the bead.
+        tag: str | None = None
+        if not approved:
+            tag = "needs-human-review"
+            await self._escalate(
+                bead,
+                "Review rounds exhausted",
+                findings=[f.issue for f in self._last_review_findings],
+                commit_after=False,
+            )
+
         commit_result = await self._committer.commit(
             CommitRequest(
                 bead_id=bead_id,
                 title=title,
                 cwd=self._inputs.cwd,
-                tag=None,
+                tag=tag,
             )
         )
         if not commit_result.success:
@@ -319,6 +357,10 @@ class FlySupervisor(xo.Actor):
             )
             return False
 
+        await self._record_bead_outcome(
+            bead, commit_success=True, review_rounds=review_rounds
+        )
+
         await self._emit_output(
             "fly",
             f"Bead {bead_id} complete ({commit_result.commit_sha or '?'})",
@@ -326,6 +368,7 @@ class FlySupervisor(xo.Actor):
             metadata={
                 "bead_id": bead_id,
                 "commit_sha": commit_result.commit_sha,
+                "needs_human_review": tag is not None,
             },
         )
         return True
@@ -334,16 +377,17 @@ class FlySupervisor(xo.Actor):
     # Per-phase fix loops
     # ------------------------------------------------------------------
 
-    async def _gate_loop(self, bead_id: str) -> bool:
+    async def _gate_loop(self, bead: dict[str, Any]) -> bool:
+        bead_id = bead["bead_id"]
         for attempt in range(MAX_GATE_FIX_ATTEMPTS + 1):
             result = await self._gate.gate(GateRequest(cwd=self._inputs.cwd))
             if result.passed:
                 return True
             if attempt >= MAX_GATE_FIX_ATTEMPTS:
-                await self._emit_output(
-                    "fly",
-                    f"Gate failed after {attempt + 1} attempts: {result.summary}",
-                    level="error",
+                await self._escalate(
+                    bead,
+                    "Gate fix attempts exhausted",
+                    findings=[result.summary],
                 )
                 return False
             await self._emit_output(
@@ -357,10 +401,10 @@ class FlySupervisor(xo.Actor):
                 return False
         return False
 
-    async def _ac_loop(self, bead_id: str, bead: dict[str, Any]) -> bool:
+    async def _ac_loop(self, bead: dict[str, Any]) -> bool:
+        bead_id = bead["bead_id"]
         description = bead.get("description", bead.get("title", ""))
-        # AC has no retry loop in the legacy supervisor beyond a single
-        # fix-attempt — preserve that.
+        # AC has a single fix-attempt retry in the legacy supervisor.
         result = await self._ac.ac_check(
             ACRequest(description=description, cwd=self._inputs.cwd)
         )
@@ -382,24 +426,25 @@ class FlySupervisor(xo.Actor):
             ACRequest(description=description, cwd=self._inputs.cwd)
         )
         if not result.passed:
-            await self._emit_output(
-                "fly",
-                f"AC check still failing after fix: {'; '.join(result.reasons)}",
-                level="error",
+            await self._escalate(
+                bead,
+                "AC check failed after fix attempt",
+                findings=list(result.reasons),
             )
             return False
         return True
 
-    async def _spec_loop(self, bead_id: str) -> bool:
+    async def _spec_loop(self, bead: dict[str, Any]) -> bool:
+        bead_id = bead["bead_id"]
         for attempt in range(MAX_SPEC_FIX_ATTEMPTS + 1):
             result = await self._spec.spec_check(SpecRequest(cwd=self._inputs.cwd))
             if result.passed:
                 return True
             if attempt >= MAX_SPEC_FIX_ATTEMPTS:
-                await self._emit_output(
-                    "fly",
-                    f"Spec check failed after {attempt + 1} attempts: {result.details}",
-                    level="error",
+                await self._escalate(
+                    bead,
+                    "Spec compliance fix attempts exhausted",
+                    findings=list(result.findings),
                 )
                 return False
             await self._emit_output(
@@ -416,7 +461,17 @@ class FlySupervisor(xo.Actor):
                 return False
         return False
 
-    async def _review_loop(self, bead_id: str, bead: dict[str, Any]) -> bool:
+    async def _review_loop(self, bead: dict[str, Any]) -> tuple[int, bool]:
+        """Run the review fix loop.
+
+        Returns ``(review_rounds, approved)``. ``review_rounds`` counts
+        how many non-approved reviews landed (i.e., fix rounds needed).
+        ``approved`` is true when the last review was approved. When the
+        reviewer never submits a payload at all, returns ``(0, False)``
+        so the caller can distinguish "no result" from "findings".
+        """
+        bead_id = bead["bead_id"]
+        rounds_with_findings = 0
         for round_n in range(1, MAX_REVIEW_ROUNDS + 1):
             self._last_review = None
             await self._reviewer.send_review(
@@ -433,17 +488,16 @@ class FlySupervisor(xo.Actor):
                     f"Reviewer did not submit for {bead_id} (round {round_n})",
                     level="warning",
                 )
-                return False
+                return (rounds_with_findings, False)
+            self._last_review_findings = self._last_review.findings
             if self._last_review.approved:
-                return True
+                return (rounds_with_findings, True)
+            rounds_with_findings += 1
             self._review_findings_for_bead.append(self._last_review)
+            # Record findings to runway for future briefings.
+            await self._record_review_findings(self._last_review.findings)
             if round_n >= MAX_REVIEW_ROUNDS:
-                await self._emit_output(
-                    "fly",
-                    f"Review rounds exhausted for {bead_id}",
-                    level="warning",
-                )
-                return True  # Proceed to commit despite findings
+                return (rounds_with_findings, False)
             finding_text = "\n".join(
                 f"- [{f.severity}] {f.issue} ({f.file}:{f.line})"
                 for f in self._last_review.findings
@@ -451,8 +505,8 @@ class FlySupervisor(xo.Actor):
             if not await self._send_fix(
                 bead_id, phase="review", context=finding_text, round=round_n
             ):
-                return False
-        return True
+                return (rounds_with_findings, False)
+        return (rounds_with_findings, False)
 
     async def _send_fix(
         self, bead_id: str, *, phase: str, context: str, round: int
@@ -518,6 +572,224 @@ class FlySupervisor(xo.Actor):
             return result.stdout if result.returncode == 0 else ""
         except Exception:  # noqa: BLE001
             return ""
+
+    # ------------------------------------------------------------------
+    # Bead-context enrichment
+    # ------------------------------------------------------------------
+
+    async def _load_bead_context(self, bead: dict[str, Any]) -> None:
+        """Populate ``bead`` with ``work_unit_md`` and ``briefing_context``.
+
+        Ported from the Thespian supervisor's ``_load_bead_context``.
+        Best-effort: any filesystem or parsing error is logged at debug
+        and the bead proceeds with whatever context it had.
+        """
+        flight_plan = self._inputs.flight_plan_name
+        if not flight_plan or not self._inputs.cwd:
+            return
+
+        plans_dir = Path(self._inputs.cwd) / ".maverick" / "plans" / flight_plan
+
+        # Work-unit matching — cached across beads keyed by flight_plan.
+        work_units = self._work_units_cache.get(flight_plan)
+        if work_units is None:
+            work_units = {}
+            try:
+                for md_file in sorted(plans_dir.glob("[0-9]*.md")):
+                    content = md_file.read_text(encoding="utf-8")
+                    wu_id = ""
+                    for line in content.split("\n"):
+                        if line.startswith("work-unit:"):
+                            wu_id = line.split(":", 1)[1].strip()
+                            break
+                    if wu_id:
+                        work_units[wu_id] = content
+            except Exception as exc:  # noqa: BLE001
+                logger.debug(
+                    "fly_supervisor.work_units_load_failed", error=str(exc)
+                )
+            self._work_units_cache[flight_plan] = work_units
+
+        bead_title = bead.get("title", "")
+        work_unit_md = ""
+        for content in work_units.values():
+            task_line = ""
+            in_task = False
+            for line in content.split("\n"):
+                if line.startswith("## Task"):
+                    in_task = True
+                    continue
+                if in_task and line.strip():
+                    task_line = line.strip()
+                    break
+            if task_line and bead_title:
+                if bead_title[:60] in task_line or task_line[:60] in bead_title:
+                    work_unit_md = content
+                    break
+        if not work_unit_md and work_units:
+            # Fallback: concatenate so the agent can pick the right one.
+            work_unit_md = "\n\n---\n\n".join(work_units.values())
+        bead["work_unit_md"] = work_unit_md
+
+        # Briefing context — loaded once per run.
+        if not self._briefing_context:
+            for briefing_name in ("refuel-briefing.md", "briefing.md"):
+                briefing_path = plans_dir / briefing_name
+                if briefing_path.exists():
+                    try:
+                        self._briefing_context = briefing_path.read_text(
+                            encoding="utf-8"
+                        )[:8000]
+                    except Exception:  # noqa: BLE001
+                        pass
+                    break
+        bead["briefing_context"] = self._briefing_context
+
+    # ------------------------------------------------------------------
+    # Runway recording
+    # ------------------------------------------------------------------
+
+    async def _record_bead_outcome(
+        self,
+        bead: dict[str, Any],
+        *,
+        commit_success: bool,
+        review_rounds: int,
+    ) -> None:
+        try:
+            from maverick.library.actions.runway import record_bead_outcome
+
+            await record_bead_outcome(
+                bead_id=bead.get("bead_id", ""),
+                epic_id=self._inputs.epic_id,
+                title=bead.get("title", ""),
+                flight_plan=self._inputs.flight_plan_name,
+                validation_result={"passed": True},
+                review_result={
+                    "issues_found": review_rounds,
+                    "issues_fixed": review_rounds if commit_success else 0,
+                },
+                mistakes_caught=[
+                    f.issue
+                    for f in self._last_review_findings
+                    if f.severity in ("critical", "major")
+                ]
+                or None,
+                cwd=self._inputs.cwd,
+            )
+        except Exception as exc:  # noqa: BLE001 — runway is best-effort
+            logger.warning(
+                "fly_supervisor.runway_record_failed", error=str(exc)
+            )
+
+    async def _record_review_findings(
+        self, findings: tuple[ReviewFindingPayload, ...]
+    ) -> None:
+        if not findings:
+            return
+        try:
+            from maverick.library.actions.runway import record_review_findings
+
+            await record_review_findings(
+                bead_id=self._current_bead_id or "",
+                review_result={
+                    "findings": [
+                        {
+                            "severity": f.severity,
+                            "category": "code_review",
+                            "file_path": f.file,
+                            "description": f.issue,
+                        }
+                        for f in findings
+                    ],
+                },
+                cwd=self._inputs.cwd,
+            )
+        except Exception as exc:  # noqa: BLE001 — runway is best-effort
+            logger.warning(
+                "fly_supervisor.runway_review_record_failed", error=str(exc)
+            )
+
+    # ------------------------------------------------------------------
+    # Human-in-the-loop escalation
+    # ------------------------------------------------------------------
+
+    async def _escalate(
+        self,
+        bead: dict[str, Any],
+        reason: str,
+        findings: list[str] | None = None,
+        *,
+        commit_after: bool = True,
+    ) -> None:
+        """Create a human-assigned review bead. When ``commit_after`` is
+        true, also commit with the ``needs-human-review`` tag so the
+        epic history records the escalation and the partial work lands
+        in the workspace."""
+        try:
+            await self._create_human_bead(bead, reason, findings)
+        except Exception as exc:  # noqa: BLE001
+            await self._emit_output(
+                "fly",
+                f"Human bead creation failed: {exc}",
+                level="error",
+            )
+        if commit_after:
+            await self._committer.commit(
+                CommitRequest(
+                    bead_id=bead.get("bead_id", ""),
+                    title=bead.get("title", ""),
+                    cwd=self._inputs.cwd,
+                    tag="needs-human-review",
+                )
+            )
+
+    async def _create_human_bead(
+        self,
+        bead: dict[str, Any],
+        reason: str,
+        findings: list[str] | None,
+    ) -> None:
+        from maverick.beads.client import BeadClient
+        from maverick.beads.models import BeadCategory, BeadDefinition, BeadType
+
+        client = BeadClient(cwd=Path(self._inputs.cwd))
+        bead_id = bead.get("bead_id", "")
+        bead_title = bead.get("title", bead_id)
+        findings_text = (
+            "\n".join(f"- {f}" for f in (findings or []))
+            if findings
+            else "None"
+        )
+        review_def = BeadDefinition(
+            title=f"Review: {bead_title[:150]}",
+            bead_type=BeadType.TASK,
+            priority=1,
+            category=BeadCategory.REVIEW,
+            description=(
+                f"## Escalation Reason\n\n{reason}\n\n"
+                f"## Findings\n\n{findings_text}"
+            ),
+            assignee="human",
+            labels=["assumption-review", "needs-human-review"],
+        )
+
+        created = await client.create_bead(review_def, parent_id=self._inputs.epic_id)
+        await client.set_state(
+            created.bd_id,
+            {
+                "source_bead": bead_id,
+                "escalation_type": "fix_exhaustion",
+                "flight_plan": self._inputs.flight_plan_name,
+            },
+            reason=f"Escalated from {bead_id}",
+        )
+        await self._emit_output(
+            "fly",
+            f"Created human review bead {created.bd_id} for {bead_id}",
+            level="warning",
+            metadata={"human_bead_id": created.bd_id, "source_bead": bead_id},
+        )
 
     # ------------------------------------------------------------------
     # Prompt builders

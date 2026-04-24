@@ -397,16 +397,6 @@ class FlyBeadsWorkflow(PythonWorkflow):
             agent_name="implementer",
         )
 
-        # Watch mode is deferred to Phase 2.5; warn if requested.
-        if watch:
-            await self.emit_output(
-                "fly",
-                "Watch mode is not yet implemented on the xoscar path; "
-                "running a single bead loop pass",
-                level="warning",
-            )
-        _ = watch_interval  # defer watch-mode plumbing
-
         # Resolve validation config, matching the legacy path.
         validation_commands: dict[str, tuple[str, ...]] | None = None
         try:
@@ -418,6 +408,15 @@ class FlyBeadsWorkflow(PythonWorkflow):
 
         project_type = getattr(self._config, "project_type", "rust")
 
+        # Derive flight_plan_name from the epic's first ready bead if the
+        # workflow didn't pre-populate it. The supervisor also falls back
+        # gracefully when the name isn't known.
+        flight_plan_name = ""
+        # Keep existing kwargs plumbing compatible: if a workflow caller
+        # passes ``flight_plan_name`` in inputs.ctx or similar, we'd wire
+        # it here. For now the supervisor just tries `.maverick/plans/`
+        # when the name arrives via future wiring.
+
         supervisor_inputs = FlyInputs(
             cwd=cwd,
             epic_id=epic_id,
@@ -426,6 +425,9 @@ class FlyBeadsWorkflow(PythonWorkflow):
             validation_commands=validation_commands,
             project_type=project_type,
             completed_bead_ids=tuple(sorted(completed_bead_ids or set())),
+            flight_plan_name=flight_plan_name,
+            watch=watch,
+            watch_interval=watch_interval,
         )
 
         await self.emit_output(

@@ -9,14 +9,15 @@ agent actors; the supervisor exposes a narrow typed domain surface
 ``prompt_error``, ``payload_parse_error``) that children invoke via
 in-pool RPC.
 
-Scope notes (Phase 1 MVP):
+Scope notes:
 
-* Core flow only. Briefing/outline/detail on-disk caching is deferred
-  to Phase 1.5 — a resumed run re-executes briefing unless the caller
-  seeds it via ``initial_payload``.
-* Stale-in-flight watchdog is replaced with per-task
-  ``xo.wait_for`` timeouts plus a retry-capable fan-out; the separate
-  30s heartbeat task is intentionally not ported.
+* On-disk caching (briefing / outline / per-unit detail) is preserved
+  so a Ctrl-C'd run resumes mid-phase. The workflow seeds
+  ``initial_payload`` with any cached JSON; the supervisor writes each
+  artifact back to its cache path as soon as it arrives.
+* Stale-in-flight watchdog is replaced with per-task ``xo.wait_for``
+  timeouts plus a retry-capable fan-out; the separate 30s heartbeat
+  task is intentionally not ported.
 """
 
 from __future__ import annotations
@@ -105,6 +106,16 @@ class RefuelInputs:
     provider_labels: dict[str, str] = field(default_factory=dict)
     detail_session_max_turns: int = 5
     fix_session_max_turns: int = 1
+    # Cache paths — when set, the supervisor writes briefing / outline /
+    # per-unit detail JSON back so a resumed run short-circuits each
+    # phase. Empty strings disable caching.
+    briefing_cache_path: str = ""
+    outline_cache_path: str = ""
+    detail_cache_dir: str = ""
+    briefing_cache_key: str = ""
+    briefing_cache_schema_version: int = 1
+    outline_cache_key_inputs: dict[str, str] = field(default_factory=dict)
+    outline_cache_schema_version: int = 1
 
 
 class RefuelSupervisor(xo.Actor):
@@ -341,6 +352,9 @@ class RefuelSupervisor(xo.Actor):
             agent_name: dump_supervisor_payload(payload)
             for agent_name, payload in self._briefing_results.items()
         }
+        # Persist briefing so a Ctrl-C during decomposition doesn't
+        # force the expensive briefing pass to repeat.
+        self._cache_briefing_results()
 
     async def _run_contrarian_phase(self) -> None:
         import time as _time
@@ -601,6 +615,8 @@ class RefuelSupervisor(xo.Actor):
             level="success",
             metadata={"unit_count": len(unit_ids)},
         )
+        # Persist outline so a Ctrl-C mid-detail keeps the cheap phase.
+        self._cache_outline()
 
     async def detail_ready(self, payload: SubmitDetailsPayload) -> None:
         for detail in payload.details:
@@ -610,6 +626,8 @@ class RefuelSupervisor(xo.Actor):
             ]
             self._accumulated_details.append(detail)
             self._pending_detail_ids.discard(uid)
+            # Per-unit cache write so a killed run resumes at N-of-M.
+            self._cache_detail(uid, detail)
         remaining = len(self._pending_detail_ids)
         done = len(self._accumulated_details)
         if remaining > 0:
@@ -889,6 +907,122 @@ class RefuelSupervisor(xo.Actor):
             for dep_id in dep_list:
                 deps.append([sid, dep_id])
         return deps
+
+    # ------------------------------------------------------------------
+    # On-disk cache writes (resumes short-circuit re-doing phases)
+    # ------------------------------------------------------------------
+
+    def _cache_briefing_results(self) -> None:
+        """Persist briefing payloads. Always overwrites so a resumed run
+        whose inputs drifted refreshes the cache instead of keeping a
+        stale copy."""
+        import hashlib
+        from pathlib import Path
+
+        cache_path = self._inputs.briefing_cache_path
+        if not cache_path or not self._briefing_results:
+            return
+
+        path = Path(cache_path)
+        payloads = self._inputs.initial_payload.get("briefing", {})
+        cache_key = self._inputs.briefing_cache_key
+        if not cache_key:
+            raw = json.dumps(payloads, default=str, sort_keys=True).encode("utf-8")
+            cache_key = hashlib.sha256(raw).hexdigest()[:16]
+
+        envelope = {
+            "schema_version": self._inputs.briefing_cache_schema_version,
+            "cache_key": cache_key,
+            "payloads": payloads,
+        }
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(
+                json.dumps(envelope, indent=2, default=str),
+                encoding="utf-8",
+            )
+            logger.info(
+                "refuel_supervisor.briefing_cached",
+                path=cache_path,
+                agents=list(self._briefing_results.keys()),
+                cache_key=cache_key,
+            )
+        except OSError as exc:
+            logger.warning(
+                "refuel_supervisor.briefing_cache_write_failed",
+                path=cache_path,
+                error=str(exc),
+            )
+
+    def _cache_outline(self) -> None:
+        """Persist the decomposer outline."""
+        import hashlib
+        from pathlib import Path
+
+        cache_path = self._inputs.outline_cache_path
+        if not cache_path or not self._outline:
+            return
+
+        path = Path(cache_path)
+        payload = self._outline_payload()
+
+        inputs = self._inputs.outline_cache_key_inputs or {}
+        briefing_payloads = self._inputs.initial_payload.get("briefing") or {}
+        h = hashlib.sha256()
+        h.update(inputs.get("flight_plan_content", "").encode("utf-8"))
+        h.update(b"\x00")
+        h.update(inputs.get("verification_properties", "").encode("utf-8"))
+        h.update(b"\x00")
+        h.update(
+            json.dumps(briefing_payloads, default=str, sort_keys=True).encode("utf-8")
+        )
+        cache_key = h.hexdigest()[:16]
+
+        envelope = {
+            "schema_version": self._inputs.outline_cache_schema_version,
+            "cache_key": cache_key,
+            "payload": payload,
+        }
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(
+                json.dumps(envelope, indent=2, default=str),
+                encoding="utf-8",
+            )
+            logger.info(
+                "refuel_supervisor.outline_cached",
+                path=cache_path,
+                unit_count=len(self._outline.work_units),
+                cache_key=cache_key,
+            )
+        except OSError as exc:
+            logger.warning(
+                "refuel_supervisor.outline_cache_write_failed",
+                path=cache_path,
+                error=str(exc),
+            )
+
+    def _cache_detail(self, unit_id: str, detail: WorkUnitDetailPayload) -> None:
+        """Persist a single unit's detail JSON."""
+        from pathlib import Path
+
+        cache_dir = self._inputs.detail_cache_dir
+        if not cache_dir or not unit_id:
+            return
+
+        path = Path(cache_dir) / f"{unit_id}.json"
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(
+                json.dumps(dump_supervisor_payload(detail), indent=2, default=str),
+                encoding="utf-8",
+            )
+        except OSError as exc:
+            logger.warning(
+                "refuel_supervisor.detail_cache_write_failed",
+                unit_id=unit_id,
+                error=str(exc),
+            )
 
     def _enrich_gaps(self, gaps: list[str]) -> list[str]:
         flight_plan = self._inputs.flight_plan
