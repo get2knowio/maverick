@@ -48,7 +48,7 @@ It reconciles those documents against the current codebase as of 2026-04-19 and 
 | Unified trace and correlation envelope | Active | New opportunity observed in current code. |
 | Canonical artifact rendering and formatting | Active | New opportunity observed in current code. |
 | Reusable supervisor fragments | Active | New opportunity observed in current code. |
-| ACP prompt-cache optimization | Mostly addressed | Phase A observability proved caching is working end-to-end with MCP attached (cache_read ≈ 99.98% of prompt on parallel briefings). Phases C/D dropped; only Phase B retry-session reuse remains as a small improvement. |
+| ACP prompt-cache optimization | Implemented | Phase A observability + Phase B retry-session reuse shipped; Phases C/D/1h-TTL closed after Phase A data showed caching is content-keyed and already at ~99.98% hit on measured workloads. |
 
 ## 1. Orchestration And Human Review
 
@@ -295,34 +295,30 @@ This reframes Phases B–D — the original framing assumed MCP was actively sup
 
 **Xoscar-migration bugs fixed on the way to validating Phase A** (2026-04-24): every xoscar actor was missing `super().__init__()` so `self._generators` was never set and `@xo.generator run()` crashed on first iteration (`4eb67ef`); every supervisor used `self.ref` instead of `self.ref()` and passed the unbound Cython method to children as `supervisor_ref` (`b9c2dd3`); `self.uid` returns bytes so supervisor-child uid f-strings produced the `b'...'` repr which garbled the MCP subprocess argv (`6be0a9d`); briefing/decomposer/implementer/reviewer/generator `on_tool_call` was missing `@xo.no_lock` and deadlocked with the agent's own `send_*` method that holds the actor lock across the ACP prompt (`4e8689f`); one-shot cancel fired on `ToolCallStart` racing against the MCP round-trip (`da65394`); supervisor callback methods (`*_ready`, `*_error`, `get_terminal_result`) all needed `@xo.no_lock` because the `@xo.generator run()` method holds the supervisor's lock while awaiting the event queue and the callbacks are what push onto that queue (`06fed8e`). None of these were caught by the existing unit tests because those tests assert on method-level routing, not on end-to-end generator iteration or cross-actor RPC. Regression guards added in `tests/unit/actors/xoscar_runtime/test_super_init.py` (parametrised per actor file) to keep new actors correct by default.
 
-**Phase B — Low-risk structural fixes (Reframed):**
+**Phase B — Retry-session reuse (Implemented 2026-04-24, `6eed6a1`):**
 
-Phase A data shows briefing parallel fan-out already shares cache (`cache_read_tokens≈33,946` on all three parallel briefings with zero cache writes on two of them), so the originally proposed "warm-up cascade" is not worth the wall-clock cost it would add to every refuel. What remains worth doing:
+`_execute_with_retry` used to call `conn.new_session(...)` on every retry attempt, so a transient hiccup + one retry meant paying for two cache-prefix writes on the same content. After `6eed6a1`, `_run_single_attempt` calls `_ensure_session()` which is a no-op when a session already exists; a reconnect (subprocess died) still forces a fresh session on the new connection. Regression tests lock in both behaviors: `test_retry_reuses_session` and `test_reconnect_does_create_fresh_session`.
 
-- `_execute_with_retry` creates a fresh session via `conn.new_session(...)` on every retry attempt — including the transparent-reconnect branch. A transient reconnect throws away any prefix cache write we just paid for and pays for a second one. Reusing the existing session on retry (where possible) would amortize. Priority: medium — retries are rare in the happy path, but painful when they hit.
-- `ENABLE_PROMPT_CACHING_1H=1` (set in the spawned subprocess env) is worth enabling for long-running phases where prompts are separated by more than 5 minutes (refuel detail pass between fan-out rounds; fly bead loop across many beads). Trade-off: 2× write cost vs 1.25× for 5-minute TTL — only a win when the 5-minute cache would otherwise evict between prompts. Priority: low unless we see `cache_write_tokens` rising on the same prefix across the same phase.
+The originally proposed "warm-up cascade" for the briefing fan-out was dropped — Phase A data showed parallel briefings already share cache (`cache_read_tokens≈33,946` on all three with zero cache writes on two), so sequencing the first agent would buy zero tokens at the cost of wall-clock latency.
 
-Relevant code:
+**Phase C — Unblock MCP caching (Closed, not needed):**
 
-- [src/maverick/executor/acp.py](src/maverick/executor/acp.py) (`_execute_with_retry`, `prompt_session`)
-- [src/maverick/executor/_connection_pool.py](src/maverick/executor/_connection_pool.py) (subprocess env construction)
-- [src/maverick/actors/xoscar/briefing.py](src/maverick/actors/xoscar/briefing.py) (briefing fan-out pattern)
-- [src/maverick/actors/xoscar/refuel_supervisor.py](src/maverick/actors/xoscar/refuel_supervisor.py) and [src/maverick/actors/xoscar/plan_supervisor.py](src/maverick/actors/xoscar/plan_supervisor.py) (fan-out launch sites)
+Phase A data contradicted the premise. The Anthropic docs claim MCP servers disable caching by default; the live run showed clear cache reads (99.98% of prompt served from cache on parallel briefings) with `agent-inbox` MCP attached. No upstream patch needed.
 
-**Phase C — Unblock MCP caching (No longer needed):**
+**Phase D — Session-lifetime refactors (Closed, not needed):**
 
-Phase A data contradicts the premise of Phase C. The Anthropic docs claim MCP servers disable caching by default, but the live run shows clear cache reads even with `agent-inbox` attached. No upstream patch needed. Close this phase once the FUTURE.md update is merged.
+The premise of Phase D was that rotating sessions across bead/mode boundaries discarded the prefix cache. Phase A data shows that's wrong: Anthropic's prompt cache is **content-keyed, not session-keyed**. Proof: structuralist (session A) and recon (session B) both read 33,940+ cached tokens in the same refuel — different sessions, same content, shared cache. Fusing implementer/reviewer/decomposer sessions across beads would therefore buy essentially nothing on token cost while introducing real regression risk (longer conversation history, cross-bead context bleed, harder debugging).
 
-**Phase D — Session-lifetime refactors (Deferred until data justifies):**
+Reopen only if a live refuel/fly run shows `cache_write_tokens` climbing on prompts that should have been cache-fed — that would indicate either a cache-key invalidation (prompt drift) or actual 5-min TTL eviction, and the remedy would differ case by case.
 
-With cache hit ratios near 100% on the briefing phase, collapsing implementer/reviewer/decomposer sessions across beads/modes is no longer the obvious token-saver it appeared to be. Defer until fly Phase A data (run `maverick fly --epic <id>` and grep `acp_executor.prompt_usage`) shows cache misses at bead boundaries big enough to justify the context-bleed risk.
+**Phase B leftover — 1h TTL (`ENABLE_PROMPT_CACHING_1H=1`) (Not needed):**
+
+The 5-min default is enough for every phase we've measured. Structuralist/recon hit cache with `cache_write=0` (didn't even need to write — already warm). Contrarian ran 215s and still completed inside 5 min of briefing start. No evidence of eviction-driven re-writes. If later data shows `cache_write_tokens` rising across same-prefix prompts in a multi-minute session, this is a one-env-var change — until then it's a bet with 2× write cost.
 
 Relevant code:
 
-- [src/maverick/actors/xoscar/implementer.py](src/maverick/actors/xoscar/implementer.py) (`new_bead` session rotation)
-- [src/maverick/actors/xoscar/reviewer.py](src/maverick/actors/xoscar/reviewer.py) (`new_bead` session rotation, aggregate-review session)
-- [src/maverick/actors/xoscar/decomposer.py](src/maverick/actors/xoscar/decomposer.py) (`_ensure_mode_session` mode rotation)
-- [src/maverick/actors/xoscar/fly_supervisor.py](src/maverick/actors/xoscar/fly_supervisor.py) (`new_bead()` call sites)
+- [src/maverick/executor/acp.py](src/maverick/executor/acp.py) (`_execute_with_retry`, `_ensure_session`)
+- [src/maverick/executor/_connection_pool.py](src/maverick/executor/_connection_pool.py) (subprocess env construction — site for `ENABLE_PROMPT_CACHING_1H` if ever needed)
 
 ## 3. Learning, Feedback, And Telemetry
 
