@@ -24,6 +24,7 @@ class GateActor(xo.Actor):
         *,
         validation_commands: dict[str, tuple[str, ...]] | None = None,
     ) -> None:
+        super().__init__()
         self._validation_commands = validation_commands
 
     async def gate(self, request: GateRequest) -> GateResult:

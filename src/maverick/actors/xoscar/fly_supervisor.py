@@ -87,6 +87,7 @@ class FlySupervisor(xo.Actor):
     """Orchestrates the fly bead loop."""
 
     def __init__(self, inputs: FlyInputs) -> None:
+        super().__init__()
         if not inputs.cwd:
             raise ValueError("FlySupervisor requires 'cwd'")
         self._inputs = inputs

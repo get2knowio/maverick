@@ -13,6 +13,7 @@ class PlanWriterActor(xo.Actor):
     """Deterministic file writer for flight plan and briefing."""
 
     def __init__(self, *, output_dir: str) -> None:
+        super().__init__()
         if not output_dir:
             raise ValueError("PlanWriterActor requires 'output_dir'")
         self._output_dir = output_dir

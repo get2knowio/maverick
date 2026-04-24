@@ -133,6 +133,7 @@ class RefuelSupervisor(xo.Actor):
     """
 
     def __init__(self, inputs: RefuelInputs) -> None:
+        super().__init__()
         if not inputs.cwd:
             raise ValueError("RefuelSupervisor requires 'cwd'")
         self._inputs = inputs

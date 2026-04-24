@@ -24,6 +24,7 @@ class BeadCreatorActor(xo.Actor):
     """Creates beads from work-unit specs."""
 
     def __init__(self, plan_name: str = "", plan_objective: str = "") -> None:
+        super().__init__()
         self._plan_name = plan_name
         self._plan_objective = plan_objective
 

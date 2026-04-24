@@ -88,6 +88,7 @@ class PlanSupervisor(xo.Actor):
     """Orchestrates PRD → flight-plan generation."""
 
     def __init__(self, inputs: PlanInputs) -> None:
+        super().__init__()
         if not inputs.cwd:
             raise ValueError("PlanSupervisor requires 'cwd'")
         if not inputs.plan_name:

@@ -79,6 +79,7 @@ class DecomposerActor(xo.Actor):
         detail_session_max_turns: int = 5,
         fix_session_max_turns: int = 1,
     ) -> None:
+        super().__init__()
         if not cwd:
             raise ValueError("DecomposerActor requires 'cwd'")
         self._supervisor_ref = supervisor_ref

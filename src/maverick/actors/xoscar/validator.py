@@ -22,6 +22,7 @@ class ValidatorActor(xo.Actor):
     """Validates decomposition specs against flight-plan success criteria."""
 
     def __init__(self, flight_plan: Any) -> None:
+        super().__init__()
         self._flight_plan = flight_plan
         sc_list = getattr(flight_plan, "success_criteria", []) or []
         self._sc_count = len(sc_list)

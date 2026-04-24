@@ -60,6 +60,7 @@ class ImplementerActor(xo.Actor):
         cwd: str,
         config: StepConfig | dict[str, Any] | None = None,
     ) -> None:
+        super().__init__()
         if not cwd:
             raise ValueError("ImplementerActor requires 'cwd'")
         self._supervisor_ref = supervisor_ref

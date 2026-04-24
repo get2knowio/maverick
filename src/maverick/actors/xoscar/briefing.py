@@ -66,6 +66,7 @@ class BriefingActor(xo.Actor):
         cwd: str,
         config: StepConfig | dict[str, Any] | None = None,
     ) -> None:
+        super().__init__()
         if not cwd:
             raise ValueError("BriefingActor requires 'cwd'")
         if not mcp_tool:

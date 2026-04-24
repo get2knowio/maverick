@@ -39,6 +39,7 @@ class SpecCheckActor(xo.Actor):
     """Deterministic spec compliance check against changed files."""
 
     def __init__(self, *, project_type: str = "rust") -> None:
+        super().__init__()
         self._project_type = project_type
 
     async def spec_check(self, request: SpecRequest) -> SpecResult:
