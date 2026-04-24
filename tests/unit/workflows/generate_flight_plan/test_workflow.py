@@ -60,7 +60,7 @@ def _make_thespian_result(
     plan_dir: Path,
     output: FlightPlanOutput | None = None,
 ) -> dict[str, Any]:
-    """Build a dict matching what _generate_with_thespian returns.
+    """Build a dict matching what _generate_with_xoscar returns.
 
     Also writes the flight plan file to disk so tests that check file
     existence continue to work.
@@ -204,7 +204,7 @@ class TestGenerateFlightPlanWorkflowHappyPath:
         workflow = _make_workflow(mock_config, mock_registry)
         with patch.object(
             workflow,
-            "_generate_with_thespian",
+            "_generate_with_xoscar",
             new=AsyncMock(return_value=thespian_result),
         ):
             events = await _collect_events(
@@ -234,7 +234,7 @@ class TestGenerateFlightPlanWorkflowHappyPath:
         workflow = _make_workflow(mock_config, mock_registry)
         with patch.object(
             workflow,
-            "_generate_with_thespian",
+            "_generate_with_xoscar",
             new=AsyncMock(return_value=thespian_result),
         ):
             events = await _collect_events(
@@ -263,7 +263,7 @@ class TestGenerateFlightPlanWorkflowHappyPath:
         workflow = _make_workflow(mock_config, mock_registry)
         with patch.object(
             workflow,
-            "_generate_with_thespian",
+            "_generate_with_xoscar",
             new=AsyncMock(return_value=thespian_result),
         ):
             events = await _collect_events(
@@ -293,7 +293,7 @@ class TestGenerateFlightPlanWorkflowHappyPath:
         workflow = _make_workflow(mock_config, mock_registry)
         with patch.object(
             workflow,
-            "_generate_with_thespian",
+            "_generate_with_xoscar",
             new=AsyncMock(return_value=thespian_result),
         ):
             await _collect_events(
@@ -325,7 +325,7 @@ class TestGenerateFlightPlanWorkflowHappyPath:
         workflow = _make_workflow(mock_config, mock_registry)
         with patch.object(
             workflow,
-            "_generate_with_thespian",
+            "_generate_with_xoscar",
             new=AsyncMock(return_value=thespian_result),
         ):
             await _collect_events(
@@ -376,7 +376,7 @@ class TestGenerateFlightPlanWorkflowErrors:
         workflow = _make_workflow(mock_config, mock_registry)
         with patch.object(
             workflow,
-            "_generate_with_thespian",
+            "_generate_with_xoscar",
             new=AsyncMock(
                 side_effect=WorkflowError("Plan generation failed: no output from agent")
             ),
@@ -393,36 +393,18 @@ class TestGenerateFlightPlanWorkflowErrors:
                 )
 
 
-class TestGenerateFlightPlanWorkflowThespianConfig:
-    """Tests for config propagation into active Thespian actors."""
+class TestGenerateFlightPlanWorkflowXoscarConfig:
+    """Tests for config propagation into the xoscar PlanSupervisor."""
 
-    async def test_thespian_actor_inits_receive_resolved_step_config(
+    async def test_xoscar_supervisor_receives_typed_inputs(
         self,
         mock_config: MagicMock,
         mock_registry: MagicMock,
         tmp_path: Path,
     ) -> None:
-        """Briefing and generator actors receive the workflow's resolved config."""
+        """PlanSupervisor gets PlanInputs carrying the generator's StepConfig
+        and the resolved provider labels for the briefing Rich Live table."""
         from maverick.config import AgentConfig, AgentProviderConfig
-
-        class _FakeActorSystem:
-            def __init__(self) -> None:
-                self.asks: list[tuple[str, dict[str, Any], int]] = []
-                self._counter = 0
-
-            def createActor(self, _cls, **kwargs):  # noqa: N802
-                self._counter += 1
-                return kwargs.get("globalName") or f"actor-{self._counter}"
-
-            def ask(self, addr, message, timeout):
-                self.asks.append((addr, message, timeout))
-                return {"type": "init_ok"}
-
-            def tell(self, addr, message):
-                return None
-
-            def shutdown(self):
-                return None
 
         mock_config.steps = {}
         mock_config.agents = {
@@ -448,51 +430,50 @@ class TestGenerateFlightPlanWorkflowThespianConfig:
         }
 
         workflow = _make_workflow(mock_config, mock_registry)
-        fake_asys = _FakeActorSystem()
+
+        captured_inputs: dict[str, Any] = {}
+
+        async def _fake_create_actor(_cls, *args: Any, **kwargs: Any) -> AsyncMock:
+            if args and not captured_inputs:
+                captured_inputs["value"] = args[0]
+            return AsyncMock()
+
+        async def _fake_destroy_actor(_ref: Any) -> None:
+            return None
 
         with (
-            patch("maverick.actors.create_actor_system", return_value=fake_asys),
+            patch("xoscar.create_actor", new=_fake_create_actor),
+            patch("xoscar.destroy_actor", new=_fake_destroy_actor),
             patch.object(workflow, "emit_output", new=AsyncMock()),
             patch.object(
                 workflow,
-                "_drain_supervisor_events",
+                "_drain_xoscar_supervisor",
                 new=AsyncMock(
                     return_value={
                         "success": True,
                         "success_criteria_count": 1,
                         "validation_passed": True,
                         "briefing_path": None,
+                        "flight_plan_path": str(tmp_path / "test-plan" / "flight-plan.md"),
                     }
                 ),
             ),
         ):
-            await workflow._generate_with_thespian(
+            await workflow._generate_with_xoscar(
                 prd_content="Build a CLI",
                 name="test-plan",
                 plan_dir=tmp_path / "test-plan",
                 skip_briefing=False,
             )
 
-        briefing_inits = [
-            message
-            for _addr, message, _timeout in fake_asys.asks
-            if message.get("type") == "init" and message.get("mcp_tool")
-        ]
-        scopist_init = next(msg for msg in briefing_inits if msg.get("agent_name") == "scopist")
-        assert scopist_init["config"]["provider"] == "gemini"
-        assert scopist_init["config"]["model_id"] == "gemini-3.1-pro-preview"
-
-        generator_init = next(
-            message
-            for _addr, message, _timeout in fake_asys.asks
-            if message.get("type") == "init"
-            and message.get("config", {}).get("model_id") == "opus"
+        inputs = captured_inputs.get("value")
+        assert inputs is not None, "PlanSupervisor was never created"
+        assert inputs.plan_name == "test-plan"
+        assert inputs.prd_content == "Build a CLI"
+        assert inputs.skip_briefing is False
+        assert inputs.config is not None
+        assert inputs.config.provider == "claude"
+        assert inputs.config.model_id == "opus"
+        assert (
+            inputs.provider_labels["Scopist"] == "gemini/gemini-3.1-pro-preview"
         )
-        assert generator_init["config"]["provider"] == "claude"
-
-        supervisor_init = next(
-            message
-            for _addr, message, _timeout in fake_asys.asks
-            if message.get("type") == "init" and message.get("provider_labels")
-        )
-        assert supervisor_init["provider_labels"]["Scopist"] == "gemini/gemini-3.1-pro-preview"

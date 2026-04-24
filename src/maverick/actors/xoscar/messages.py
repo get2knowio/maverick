@@ -266,6 +266,55 @@ class CommitResult:
     error: str = ""
 
 
+# ---------------------------------------------------------------------------
+# Plan-generation workflow envelopes (Phase 3)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class GenerateRequest:
+    """Supervisor → GeneratorActor kickoff.
+
+    The supervisor builds the composite PRD + briefing prompt and
+    hands it over. The agent submits a flight plan via
+    ``submit_flight_plan`` → ``flight_plan_ready`` on the supervisor.
+    """
+
+    prompt: str
+
+
+@dataclass(frozen=True, slots=True)
+class PlanValidateRequest:
+    """Supervisor → PlanValidatorActor request.
+
+    ``flight_plan`` is the dumped ``SubmitFlightPlanPayload`` (dict
+    form) so the validator can re-render the markdown without pulling
+    in Pydantic dependencies inside the actor.
+    """
+
+    flight_plan: dict[str, Any]
+    plan_name: str
+    prd_content: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class PlanValidateResult:
+    passed: bool
+    warnings: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class WritePlanRequest:
+    flight_plan_markdown: str
+    briefing_markdown: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class WritePlanResult:
+    flight_plan_path: str
+    briefing_path: str | None = None
+
+
 __all__ = [
     "ACRequest",
     "ACResult",
@@ -281,14 +330,19 @@ __all__ = [
     "FlyFixRequest",
     "GateRequest",
     "GateResult",
+    "GenerateRequest",
     "ImplementRequest",
     "NewBeadRequest",
     "NudgeRequest",
     "OutlineRequest",
+    "PlanValidateRequest",
+    "PlanValidateResult",
     "PromptError",
     "ReviewRequest",
     "SpecRequest",
     "SpecResult",
     "ValidateRequest",
     "ValidationResult",
+    "WritePlanRequest",
+    "WritePlanResult",
 ]

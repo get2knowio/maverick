@@ -47,3 +47,7 @@ def test_refuel_path_does_not_import_thespian() -> None:
 
 def test_fly_path_does_not_import_thespian() -> None:
     _assert_no_thespian_after_import("maverick.workflows.fly_beads")
+
+
+def test_plan_path_does_not_import_thespian() -> None:
+    _assert_no_thespian_after_import("maverick.workflows.generate_flight_plan")

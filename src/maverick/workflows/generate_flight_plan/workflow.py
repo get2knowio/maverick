@@ -188,7 +188,7 @@ class GenerateFlightPlanWorkflow(PythonWorkflow):
         # Steps 2-5: Thespian actor system handles briefing, generation,
         # validation, and writing via supervisor-driven message routing.
         # ------------------------------------------------------------------
-        result = await self._generate_with_thespian(
+        result = await self._generate_with_xoscar(
             prd_content=prd_content,
             name=name,
             plan_dir=plan_dir,
@@ -338,7 +338,7 @@ class GenerateFlightPlanWorkflow(PythonWorkflow):
 
         return outcome
 
-    async def _generate_with_thespian(
+    async def _generate_with_xoscar(
         self,
         *,
         prd_content: str,
@@ -346,145 +346,75 @@ class GenerateFlightPlanWorkflow(PythonWorkflow):
         plan_dir: Path,
         skip_briefing: bool,
     ) -> dict[str, Any]:
-        """Generate flight plan using Thespian actor system.
+        """Generate flight plan using the xoscar actor system.
 
-        Creates actors for parallel briefing, contrarian, generator,
-        validator, and writer. The supervisor routes messages.
+        Creates a single ``PlanSupervisor`` which spawns its own
+        briefing agents, generator, validator, and writer in
+        ``__post_create__``. The workflow consumes progress events
+        via the ``@xo.generator`` ``run()`` drain helper.
         """
-        from maverick.actors import THESPIAN_PORT, create_actor_system
-        from maverick.actors.briefing import BriefingActor
-        from maverick.actors.generator import GeneratorActor
-        from maverick.actors.plan_supervisor import PlanSupervisorActor
-        from maverick.actors.plan_validator import PlanValidatorActor
-        from maverick.actors.plan_writer import PlanWriterActor
+        import xoscar as xo
+
+        from maverick.actors.xoscar.plan_supervisor import PlanInputs, PlanSupervisor
+        from maverick.actors.xoscar.pool import actor_pool
         from maverick.types import StepType as _StepType
 
-        asys = create_actor_system()
+        cwd = str(Path.cwd())
 
-        try:
-            cwd = str(Path.cwd())
-
-            def _serialize_config(cfg) -> dict[str, Any]:
-                return cfg.model_dump(mode="json", exclude_none=True)
-
-            # Create briefing actors (4 instances of BriefingActor)
-            scopist = asys.createActor(BriefingActor)
-            analyst = asys.createActor(BriefingActor)
-            criteria = asys.createActor(BriefingActor)
-            contrarian = asys.createActor(BriefingActor)
-
-            # Init each with its MCP tool
-            _briefing_actor_specs = [
-                (scopist, "submit_scope", "scopist", "briefing_scopist", "Scopist"),
+        # Resolve provider labels so the Rich Live briefing table shows
+        # the right provider/model per agent.
+        provider_labels: dict[str, str] = {}
+        if not skip_briefing:
+            for step_name, agent_name, label in (
+                ("briefing_scopist", "scopist", "Scopist"),
                 (
-                    analyst,
-                    "submit_analysis",
-                    "codebase_analyst",
                     "briefing_codebase_analyst",
+                    "codebase_analyst",
                     "Codebase Analyst",
                 ),
                 (
-                    criteria,
-                    "submit_criteria",
-                    "criteria_writer",
                     "briefing_criteria_writer",
+                    "criteria_writer",
                     "Criteria Writer",
                 ),
-                (
-                    contrarian,
-                    "submit_challenge",
-                    "contrarian",
-                    "briefing_contrarian",
-                    "Contrarian",
-                ),
-            ]
-            _provider_labels: dict[str, str] = {}
-            for addr, tool, agent_name, step_name, label in _briefing_actor_specs:
+                ("briefing_contrarian", "contrarian", "Contrarian"),
+            ):
                 config = self.resolve_step_config(
-                    step_name,
-                    _StepType.PYTHON,
-                    agent_name=agent_name,
+                    step_name, _StepType.PYTHON, agent_name=agent_name
                 )
-                _provider_labels[label] = self._resolve_display_label_for_config(config)
-                asys.ask(
-                    addr,
-                    {
-                        "type": "init",
-                        "agent_name": agent_name,
-                        "mcp_tool": tool,
-                        "admin_port": THESPIAN_PORT,
-                        "cwd": cwd,
-                        "config": _serialize_config(config),
-                    },
-                    timeout=10,
-                )
+                provider_labels[label] = self._resolve_display_label_for_config(config)
 
-            # Create generator
-            gen = asys.createActor(GeneratorActor)
-            gen_config = self.resolve_step_config(
-                "generate",
-                _StepType.PYTHON,
-                agent_name="flight_plan_generator",
-            )
-            asys.ask(
-                gen,
-                {
-                    "type": "init",
-                    "admin_port": THESPIAN_PORT,
-                    "cwd": cwd,
-                    "config": _serialize_config(gen_config),
-                },
-                timeout=10,
-            )
+        # Generator config drives the agent session used for plan generation.
+        gen_config = self.resolve_step_config(
+            "generate",
+            _StepType.PYTHON,
+            agent_name="flight_plan_generator",
+        )
 
-            # Create deterministic actors
-            validator = asys.createActor(PlanValidatorActor)
-            writer = asys.createActor(PlanWriterActor)
-            asys.ask(
-                writer,
-                {
-                    "type": "init",
-                    "output_dir": str(plan_dir),
-                },
-                timeout=10,
-            )
+        supervisor_inputs = PlanInputs(
+            cwd=cwd,
+            plan_name=name,
+            prd_content=prd_content,
+            output_dir=str(plan_dir),
+            config=gen_config,
+            skip_briefing=skip_briefing,
+            provider_labels=provider_labels,
+        )
 
-            # Create supervisor
-            supervisor = asys.createActor(
-                PlanSupervisorActor,
-                globalName="supervisor-inbox",
+        async with actor_pool() as (_pool, address):
+            supervisor = await xo.create_actor(
+                PlanSupervisor,
+                supervisor_inputs,
+                address=address,
+                uid="plan-supervisor",
             )
-
-            asys.ask(
-                supervisor,
-                {
-                    "type": "init",
-                    "prd_content": prd_content,
-                    "plan_name": name,
-                    "skip_briefing": skip_briefing,
-                    "scopist_addr": scopist,
-                    "analyst_addr": analyst,
-                    "criteria_addr": criteria,
-                    "contrarian_addr": contrarian,
-                    "generator_addr": gen,
-                    "validator_addr": validator,
-                    "writer_addr": writer,
-                    "provider_labels": _provider_labels,
-                },
-                timeout=10,
-            )
-
-            # Start and drain events
-            asys.tell(supervisor, "start")
-            result = await self._drain_supervisor_events(
-                asys=asys,
-                supervisor=supervisor,
-                poll_interval=0.25,
-                hard_timeout_seconds=3600.0,
-            )
-
-        finally:
-            asys.shutdown()
+            try:
+                result = await self._drain_xoscar_supervisor(supervisor)
+            finally:
+                try:
+                    await xo.destroy_actor(supervisor)
+                except Exception:  # noqa: BLE001 — teardown must not raise
+                    pass
 
         if not result or not result.get("success"):
             from maverick.exceptions import WorkflowError
