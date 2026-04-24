@@ -12,10 +12,9 @@ from __future__ import annotations
 import sys
 
 
-def test_refuel_path_does_not_import_thespian() -> None:
-    # Subprocess-level check is more reliable than in-process (test
-    # collection might have already imported thespian for other test
-    # modules). Do an in-process check as a best-effort too.
+def _assert_no_thespian_after_import(module_path: str) -> None:
+    """Spawn a subprocess that imports ``module_path`` and asserts
+    ``thespian`` is not in ``sys.modules`` afterwards."""
     import subprocess
 
     result = subprocess.run(
@@ -24,7 +23,7 @@ def test_refuel_path_does_not_import_thespian() -> None:
             "-c",
             (
                 "import sys\n"
-                "import maverick.workflows.refuel_maverick  # noqa: F401\n"
+                f"import {module_path}  # noqa: F401\n"
                 "assert 'thespian' not in sys.modules, "
                 "sorted(m for m in sys.modules if 'thespian' in m)\n"
                 "print('OK')\n"
@@ -36,6 +35,15 @@ def test_refuel_path_does_not_import_thespian() -> None:
         check=False,
     )
     assert result.returncode == 0, (
-        f"subprocess import leaked thespian:\nstdout={result.stdout}\nstderr={result.stderr}"
+        f"subprocess import leaked thespian:\n"
+        f"stdout={result.stdout}\nstderr={result.stderr}"
     )
     assert "OK" in result.stdout
+
+
+def test_refuel_path_does_not_import_thespian() -> None:
+    _assert_no_thespian_after_import("maverick.workflows.refuel_maverick")
+
+
+def test_fly_path_does_not_import_thespian() -> None:
+    _assert_no_thespian_after_import("maverick.workflows.fly_beads")

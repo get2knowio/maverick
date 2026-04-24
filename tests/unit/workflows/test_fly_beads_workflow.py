@@ -218,7 +218,7 @@ _PATCH_SPECS: list[tuple[str, str, str | None, str]] = [
     ),
     (
         "thespian",
-        f"{_WF_MOD}.FlyBeadsWorkflow._run_fly_with_thespian",
+        f"{_WF_MOD}.FlyBeadsWorkflow._run_fly_with_xoscar",
         "thespian_return",
         _RV,
     ),

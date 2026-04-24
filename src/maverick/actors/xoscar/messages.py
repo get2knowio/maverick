@@ -147,16 +147,148 @@ class PromptError:
     unit_id: str | None = None
 
 
+# ---------------------------------------------------------------------------
+# Fly workflow envelopes (Phase 2)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class ImplementRequest:
+    """Supervisor → ImplementerActor prompt for implementation work.
+
+    The supervisor builds the full prompt (work unit + briefing +
+    runway context); this envelope carries that prompt plus the
+    ``bead_id`` for logs and error routing.
+    """
+
+    bead_id: str
+    prompt: str
+
+
+@dataclass(frozen=True, slots=True)
+class FlyFixRequest:
+    """Supervisor → ImplementerActor fix-round prompt.
+
+    Named distinctly from the decompose-flow ``FixRequest`` — fly carries
+    the prompt text already composed by the supervisor from review/gate
+    findings rather than a typed findings list.
+    """
+
+    bead_id: str
+    prompt: str
+
+
+@dataclass(frozen=True, slots=True)
+class ReviewRequest:
+    """Supervisor → ReviewerActor request for a new bead review.
+
+    The reviewer builds the full prompt internally from these fields so
+    the supervisor doesn't have to know about first-review vs follow-up
+    prompt differences.
+    """
+
+    bead_id: str
+    bead_description: str = ""
+    work_unit_md: str = ""
+    briefing_context: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class AggregateReviewRequest:
+    """Supervisor → ReviewerActor request for the epic-level aggregate review."""
+
+    objective: str
+    bead_list: str
+    diff_stat: str
+    bead_count: int
+
+
+@dataclass(frozen=True, slots=True)
+class NewBeadRequest:
+    """Supervisor → implementer/reviewer signal to rotate session state."""
+
+    bead_id: str
+
+
+# --- Deterministic fly-actor requests/results ---
+
+
+@dataclass(frozen=True, slots=True)
+class GateRequest:
+    cwd: str
+    timeout_seconds: float = 600.0
+
+
+@dataclass(frozen=True, slots=True)
+class GateResult:
+    passed: bool
+    summary: str = ""
+    stages: tuple[dict[str, Any], ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class ACRequest:
+    description: str
+    cwd: str
+
+
+@dataclass(frozen=True, slots=True)
+class ACResult:
+    passed: bool
+    reasons: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class SpecRequest:
+    cwd: str
+
+
+@dataclass(frozen=True, slots=True)
+class SpecResult:
+    passed: bool
+    details: str = ""
+    findings: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class CommitRequest:
+    bead_id: str
+    title: str
+    cwd: str
+    tag: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class CommitResult:
+    success: bool
+    commit_sha: str | None = None
+    tag: str | None = None
+    error: str = ""
+
+
 __all__ = [
+    "ACRequest",
+    "ACResult",
+    "AggregateReviewRequest",
     "BeadsCreatedResult",
     "BriefingRequest",
+    "CommitRequest",
+    "CommitResult",
     "CreateBeadsRequest",
     "DecomposerContext",
     "DetailRequest",
     "FixRequest",
+    "FlyFixRequest",
+    "GateRequest",
+    "GateResult",
+    "ImplementRequest",
+    "NewBeadRequest",
     "NudgeRequest",
     "OutlineRequest",
     "PromptError",
+    "ReviewRequest",
+    "SpecRequest",
+    "SpecResult",
     "ValidateRequest",
     "ValidationResult",
 ]

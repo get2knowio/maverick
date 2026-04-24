@@ -324,7 +324,7 @@ class FlyBeadsWorkflow(PythonWorkflow):
         # ----------------------------------------------------------------
         # Bead loop — canonical Thespian actor system
         # ----------------------------------------------------------------
-        thespian_result = await self._run_fly_with_thespian(
+        thespian_result = await self._run_fly_with_xoscar(
             epic_id=epic_id,
             workspace_path=workspace_path,
             watch=watch,
@@ -372,7 +372,7 @@ class FlyBeadsWorkflow(PythonWorkflow):
         )
         return result.to_dict()
 
-    async def _run_fly_with_thespian(
+    async def _run_fly_with_xoscar(
         self,
         *,
         epic_id: str,
@@ -382,137 +382,72 @@ class FlyBeadsWorkflow(PythonWorkflow):
         max_beads: int = MAX_BEADS,
         completed_bead_ids: set[str] | None = None,
     ) -> dict[str, Any]:
-        """Run the canonical fly bead loop using the Thespian actor system."""
-        from maverick.actors import THESPIAN_PORT, create_actor_system
-        from maverick.actors.ac_check import ACCheckActor
-        from maverick.actors.committer import CommitActor
-        from maverick.actors.fly_supervisor import FlySupervisorActor
-        from maverick.actors.gate import GateActor
-        from maverick.actors.implementer import ImplementerActor
-        from maverick.actors.reviewer import ReviewerActor
-        from maverick.actors.spec_check import SpecCheckActor
+        """Run the canonical fly bead loop on xoscar actors."""
+        import xoscar as xo
+
+        from maverick.actors.xoscar.fly_supervisor import FlyInputs, FlySupervisor
+        from maverick.actors.xoscar.pool import actor_pool
         from maverick.types import StepType
 
         cwd = str(workspace_path) if workspace_path else str(Path.cwd())
-        asys = create_actor_system()
 
-        try:
+        impl_config = self.resolve_step_config(
+            "implement",
+            StepType.PYTHON,
+            agent_name="implementer",
+        )
 
-            def _serialize_config(cfg) -> dict[str, Any]:
-                return cfg.model_dump(mode="json", exclude_none=True)
-
-            # Create all actors
-            impl = asys.createActor(ImplementerActor)
-            reviewer = asys.createActor(ReviewerActor)
-            gate = asys.createActor(GateActor)
-            ac = asys.createActor(ACCheckActor)
-            spec = asys.createActor(SpecCheckActor)
-            committer = asys.createActor(CommitActor)
-
-            supervisor = asys.createActor(
-                FlySupervisorActor,
-                globalName="supervisor-inbox",
-            )
-
-            # Init actors
-            impl_config = self.resolve_step_config(
-                "implement",
-                StepType.PYTHON,
-                agent_name="implementer",
-            )
-            reviewer_config = self.resolve_step_config(
-                "review",
-                StepType.PYTHON,
-                agent_name="reviewer",
-            )
-            for addr, config in [(impl, impl_config), (reviewer, reviewer_config)]:
-                asys.ask(
-                    addr,
-                    {
-                        "type": "init",
-                        "admin_port": THESPIAN_PORT,
-                        "cwd": cwd,
-                        "config": _serialize_config(config),
-                    },
-                    timeout=10,
-                )
-
-            # Init gate with validation config
-            validation_commands = None
-            _timeout_secs = 600.0
-            try:
-                from maverick.workflows.fly_beads.steps import (
-                    _build_validation_commands,
-                )
-
-                validation_commands = _build_validation_commands(self._config.validation)
-                _timeout_secs = float(self._config.validation.timeout_seconds)
-            except (AttributeError, TypeError):
-                pass
-
-            asys.ask(
-                gate,
-                {
-                    "type": "init",
-                    "cwd": cwd,
-                    "validation_commands": validation_commands,
-                    "timeout_seconds": _timeout_secs,
-                },
-                timeout=10,
-            )
-
-            # Init spec check with project type
-            project_type = getattr(self._config, "project_type", "rust")
-            asys.ask(
-                spec,
-                {
-                    "type": "init",
-                    "cwd": cwd,
-                    "project_type": project_type,
-                },
-                timeout=10,
-            )
-
-            # Init supervisor
-            asys.ask(
-                supervisor,
-                {
-                    "type": "init",
-                    "epic_id": epic_id,
-                    "cwd": cwd,
-                    "implementer_addr": impl,
-                    "reviewer_addr": reviewer,
-                    "gate_addr": gate,
-                    "ac_addr": ac,
-                    "spec_addr": spec,
-                    "committer_addr": committer,
-                    "config": {},
-                    "watch": watch,
-                    "watch_interval": watch_interval,
-                    "max_beads": max_beads,
-                    "completed_bead_ids": sorted(completed_bead_ids or set()),
-                },
-                timeout=10,
-            )
-
+        # Watch mode is deferred to Phase 2.5; warn if requested.
+        if watch:
             await self.emit_output(
                 "fly",
-                "Running fly with Thespian actor system",
-                level="info",
+                "Watch mode is not yet implemented on the xoscar path; "
+                "running a single bead loop pass",
+                level="warning",
             )
+        _ = watch_interval  # defer watch-mode plumbing
 
-            # Fire-and-drain: supervisor runs asynchronously, workflow
-            # polls for events until done=True.
-            asys.tell(supervisor, "start")
-            result = await self._drain_supervisor_events(
-                asys=asys,
-                supervisor=supervisor,
-                poll_interval=0.25,
-                hard_timeout_seconds=86400.0 if watch else 7200.0,
+        # Resolve validation config, matching the legacy path.
+        validation_commands: dict[str, tuple[str, ...]] | None = None
+        try:
+            from maverick.workflows.fly_beads.steps import _build_validation_commands
+
+            validation_commands = _build_validation_commands(self._config.validation)
+        except (AttributeError, TypeError):
+            pass
+
+        project_type = getattr(self._config, "project_type", "rust")
+
+        supervisor_inputs = FlyInputs(
+            cwd=cwd,
+            epic_id=epic_id,
+            config=impl_config,
+            max_beads=max_beads,
+            validation_commands=validation_commands,
+            project_type=project_type,
+            completed_bead_ids=tuple(sorted(completed_bead_ids or set())),
+        )
+
+        await self.emit_output(
+            "fly",
+            "Running fly with xoscar actor system",
+            level="info",
+        )
+
+        async with actor_pool() as (_pool, address):
+            supervisor = await xo.create_actor(
+                FlySupervisor,
+                supervisor_inputs,
+                address=address,
+                uid="fly-supervisor",
             )
-
-        finally:
-            asys.shutdown()
+            try:
+                result = await self._drain_xoscar_supervisor(supervisor)
+            finally:
+                try:
+                    await xo.destroy_actor(supervisor)
+                except Exception:  # noqa: BLE001 — teardown must not raise
+                    pass
 
         if not result:
             return {

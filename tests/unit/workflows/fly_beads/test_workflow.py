@@ -1,4 +1,4 @@
-"""Unit tests for FlyBeadsWorkflow Thespian orchestration."""
+"""Unit tests for ``FlyBeadsWorkflow`` xoscar orchestration."""
 
 from __future__ import annotations
 
@@ -47,72 +47,52 @@ def _make_workflow() -> FlyBeadsWorkflow:
     )
 
 
-class _FakeActorSystem:
-    def __init__(self) -> None:
-        self.asks: list[tuple[str, dict[str, Any], int]] = []
-        self.tell_calls: list[tuple[str, str]] = []
-        self._counter = 0
-
-    def createActor(self, _cls, **kwargs):  # noqa: N802
-        self._counter += 1
-        return kwargs.get("globalName") or f"actor-{self._counter}"
-
-    def ask(self, addr, message, timeout):
-        self.asks.append((addr, message, timeout))
-        return {"type": "init_ok"}
-
-    def tell(self, addr, message):
-        self.tell_calls.append((addr, message))
-
-    def shutdown(self):
-        return None
-
-
-class TestFlyBeadsWorkflowThespianConfig:
-    async def test_actor_inits_receive_resolved_step_config(self, tmp_path: Path) -> None:
-        """Implementer and reviewer init messages carry provider/model overrides."""
+class TestFlyBeadsWorkflowXoscarConfig:
+    async def test_xoscar_supervisor_receives_typed_inputs(self, tmp_path: Path) -> None:
+        """The xoscar FlySupervisor gets ``FlyInputs`` carrying the resolved
+        implementer ``StepConfig`` and the project type."""
         workflow = _make_workflow()
-        fake_asys = _FakeActorSystem()
+
+        captured_inputs: dict[str, Any] = {}
+
+        async def _fake_create_actor(_cls, *args: Any, **kwargs: Any) -> AsyncMock:
+            if args and not captured_inputs:
+                captured_inputs["value"] = args[0]
+            return AsyncMock()
+
+        async def _fake_destroy_actor(_ref: Any) -> None:
+            return None
 
         with (
-            patch("maverick.actors.create_actor_system", return_value=fake_asys),
             patch(
                 "maverick.workflows.fly_beads.steps._build_validation_commands",
-                return_value=[["make", "test"]],
+                return_value={"test": ("make", "test")},
             ),
+            patch("xoscar.create_actor", new=_fake_create_actor),
+            patch("xoscar.destroy_actor", new=_fake_destroy_actor),
             patch.object(workflow, "emit_output", new=AsyncMock()),
             patch.object(
                 workflow,
-                "_drain_supervisor_events",
+                "_drain_xoscar_supervisor",
                 new=AsyncMock(
                     return_value={
-                        "bead_events": [],
-                        "aggregate_review": [],
+                        "success": True,
                         "beads_completed": 0,
-                        "beads_failed": 0,
-                        "beads_skipped": 0,
+                        "completed_bead_ids": [],
                     }
                 ),
             ),
         ):
-            await workflow._run_fly_with_thespian(
+            await workflow._run_fly_with_xoscar(
                 epic_id="",
                 workspace_path=tmp_path,
             )
 
-        actor_inits = [
-            message
-            for _addr, message, _timeout in fake_asys.asks
-            if message.get("type") == "init" and message.get("config")
-        ]
-        assert len(actor_inits) == 2
-
-        implementer_init = next(
-            msg for msg in actor_inits if msg["config"].get("provider") == "gemini"
-        )
-        assert implementer_init["config"]["model_id"] == "gemini-3.1-pro-preview"
-
-        reviewer_init = next(
-            msg for msg in actor_inits if msg["config"].get("provider") == "claude"
-        )
-        assert reviewer_init["config"]["model_id"] == "opus"
+        inputs = captured_inputs.get("value")
+        assert inputs is not None, "FlySupervisor was never created"
+        assert inputs.cwd == str(tmp_path)
+        assert inputs.project_type == "python"
+        # Implementer config flows through to the supervisor inputs.
+        assert inputs.config is not None
+        assert inputs.config.provider == "gemini"
+        assert inputs.config.model_id == "gemini-3.1-pro-preview"
