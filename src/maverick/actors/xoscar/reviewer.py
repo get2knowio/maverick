@@ -163,7 +163,20 @@ class ReviewerActor(xo.Actor):
             await self._supervisor_ref.aggregate_review_ready(payload)
         else:
             await self._supervisor_ref.review_ready(payload)
+        await self._end_turn()
         return "ok"
+
+    async def _end_turn(self) -> None:
+        """Cancel the current ACP turn after a successful MCP submission."""
+        if self._session_id and self._executor is not None:
+            try:
+                await self._executor.cancel_session(self._session_id)
+            except Exception as exc:  # noqa: BLE001
+                logger.debug(
+                    "reviewer.cancel_after_submit_failed",
+                    actor=self._actor_tag,
+                    error=str(exc),
+                )
 
     # ------------------------------------------------------------------
     # ACP plumbing
@@ -203,7 +216,6 @@ class ReviewerActor(xo.Actor):
             cwd=cwd,
             allowed_tools=step_allowed_tools(self._step_config),
             mcp_servers=[mcp_config],
-            one_shot_tools=[REVIEWER_MCP_TOOL],
         )
 
     async def _send_review_prompt(self, request: ReviewRequest) -> None:

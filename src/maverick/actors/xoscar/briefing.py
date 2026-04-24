@@ -162,7 +162,27 @@ class BriefingActor(xo.Actor):
             )
             return "error"
         await forward(payload)
+        # Payload is safely in the supervisor; end the ACP turn so
+        # send_briefing returns. If we didn't, the agent would keep
+        # generating post-submission wrap-up text and the briefing
+        # phase would drag long past the point of no useful work.
+        await self._end_turn()
         return "ok"
+
+    async def _end_turn(self) -> None:
+        """Cancel the current ACP turn after the MCP submission is
+        safely forwarded to the supervisor. Best-effort: a failure to
+        cancel is not fatal — the agent will just finish its turn
+        naturally."""
+        if self._session_id and self._executor is not None:
+            try:
+                await self._executor.cancel_session(self._session_id)
+            except Exception as exc:  # noqa: BLE001
+                logger.debug(
+                    "briefing.cancel_after_submit_failed",
+                    actor=self._actor_tag,
+                    error=str(exc),
+                )
 
     # ------------------------------------------------------------------
     # ACP plumbing (internal)
@@ -202,7 +222,6 @@ class BriefingActor(xo.Actor):
             cwd=cwd,
             allowed_tools=step_allowed_tools(self._step_config),
             mcp_servers=[mcp_config],
-            one_shot_tools=[self._mcp_tool],
         )
 
     async def _send_prompt(self, request: BriefingRequest) -> None:

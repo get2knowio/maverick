@@ -345,7 +345,6 @@ class AcpStepExecutor:
         agent_name: str = "actor",
         event_callback: EventCallback | None = None,
         allowed_tools: list[str] | None = None,
-        one_shot_tools: list[str] | None = None,
         mcp_servers: list[Any] | None = None,
     ) -> str:
         """Create a persistent ACP session and return its session_id.
@@ -398,13 +397,11 @@ class AcpStepExecutor:
 
         # Reset client for the new session
         allowed_tools_frozen = frozenset(allowed_tools) if allowed_tools else None
-        one_shot_frozen = frozenset(one_shot_tools) if one_shot_tools else None
         cached.client.reset(
             step_name=step_name,
             agent_name=agent_name,
             event_callback=event_callback,
             allowed_tools=allowed_tools_frozen,
-            one_shot_tools=one_shot_frozen,
         )
 
         session = await cached.conn.new_session(cwd=cwd_str, mcp_servers=mcp_servers or [])

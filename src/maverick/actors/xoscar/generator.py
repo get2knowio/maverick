@@ -117,7 +117,20 @@ class GeneratorActor(xo.Actor):
             )
             return "error"
         await self._supervisor_ref.flight_plan_ready(payload)
+        await self._end_turn()
         return "ok"
+
+    async def _end_turn(self) -> None:
+        """Cancel the current ACP turn after a successful MCP submission."""
+        if self._session_id and self._executor is not None:
+            try:
+                await self._executor.cancel_session(self._session_id)
+            except Exception as exc:  # noqa: BLE001
+                logger.debug(
+                    "generator.cancel_after_submit_failed",
+                    actor=self._actor_tag,
+                    error=str(exc),
+                )
 
     # ------------------------------------------------------------------
     # ACP plumbing
@@ -157,7 +170,6 @@ class GeneratorActor(xo.Actor):
             cwd=cwd,
             allowed_tools=step_allowed_tools(self._step_config),
             mcp_servers=[mcp_config],
-            one_shot_tools=[GENERATOR_MCP_TOOL],
         )
 
     async def _send_prompt(self, raw_prompt: str) -> None:

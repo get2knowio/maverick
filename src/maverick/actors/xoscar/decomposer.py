@@ -245,7 +245,23 @@ class DecomposerActor(xo.Actor):
                 tool, f"Decomposer has no handler for tool {tool!r}"
             )
             return "error"
+        # Payload forwarded to supervisor; end the ACP turn so the
+        # agent does not keep generating wrap-up text. The session
+        # stays alive for the next mode/turn.
+        await self._end_turn()
         return "ok"
+
+    async def _end_turn(self) -> None:
+        """Cancel the current ACP turn after a successful MCP submission."""
+        if self._session_id and self._executor is not None:
+            try:
+                await self._executor.cancel_session(self._session_id)
+            except Exception as exc:  # noqa: BLE001
+                logger.debug(
+                    "decomposer.cancel_after_submit_failed",
+                    actor=self._actor_tag,
+                    error=str(exc),
+                )
 
     # ------------------------------------------------------------------
     # ACP session plumbing (internal)
@@ -283,10 +299,6 @@ class DecomposerActor(xo.Actor):
         )
 
         cwd = Path(self._cwd)
-        # Every MCP submission this role owns ends the turn: a single
-        # successful call is all we want per prompt, regardless of the
-        # current mode (outline / detail / fix).
-        one_shot: list[str] = list(self._mcp_tool_names)
         allowed_tools = [*READ_ONLY_DECOMPOSER_TOOLS, *self._mcp_tool_names]
 
         self._session_id = await self._executor.create_session(
@@ -297,7 +309,6 @@ class DecomposerActor(xo.Actor):
             cwd=cwd,
             allowed_tools=allowed_tools,
             mcp_servers=[mcp_config],
-            one_shot_tools=one_shot,
         )
 
     async def _ensure_mode_session(
