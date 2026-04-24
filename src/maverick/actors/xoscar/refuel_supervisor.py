@@ -596,6 +596,7 @@ class RefuelSupervisor(xo.Actor):
     # Typed domain methods (called by children via in-pool RPC)
     # ------------------------------------------------------------------
 
+    @xo.no_lock
     async def outline_ready(self, payload: SubmitOutlinePayload) -> None:
         if self._outline is not None:
             await self._emit_output(
@@ -615,6 +616,7 @@ class RefuelSupervisor(xo.Actor):
         # Persist outline so a Ctrl-C mid-detail keeps the cheap phase.
         self._cache_outline()
 
+    @xo.no_lock
     async def detail_ready(self, payload: SubmitDetailsPayload) -> None:
         for detail in payload.details:
             uid = detail.id
@@ -631,6 +633,7 @@ class RefuelSupervisor(xo.Actor):
                 f"Detail {done}/{done + remaining} complete",
             )
 
+    @xo.no_lock
     async def fix_ready(self, payload: SubmitFixPayload) -> None:
         if payload.work_units:
             self._outline = SubmitOutlinePayload(work_units=payload.work_units)
@@ -645,15 +648,19 @@ class RefuelSupervisor(xo.Actor):
 
     # --- Briefing forward methods ---
 
+    @xo.no_lock
     async def navigator_brief_ready(self, payload: SubmitNavigatorBriefPayload) -> None:
         await self._record_brief("navigator", payload)
 
+    @xo.no_lock
     async def structuralist_brief_ready(self, payload: SubmitStructuralistBriefPayload) -> None:
         await self._record_brief("structuralist", payload)
 
+    @xo.no_lock
     async def recon_brief_ready(self, payload: SubmitReconBriefPayload) -> None:
         await self._record_brief("recon", payload)
 
+    @xo.no_lock
     async def contrarian_brief_ready(self, payload: SubmitContrarianBriefPayload) -> None:
         await self._record_brief("contrarian", payload)
 
@@ -666,6 +673,7 @@ class RefuelSupervisor(xo.Actor):
         elapsed = _time.monotonic() - self._briefing_start_times.get(agent_name, 0)
         await self._emit_agent_completed("briefing", label, elapsed)
 
+    @xo.no_lock
     async def prompt_error(self, error: PromptError) -> None:
         """Handle an ACP prompt failure reported by an agent.
 
@@ -701,6 +709,7 @@ class RefuelSupervisor(xo.Actor):
             }
         )
 
+    @xo.no_lock
     async def payload_parse_error(self, tool: str, message: str) -> None:
         """Handle a malformed MCP tool payload.
 
@@ -824,6 +833,7 @@ class RefuelSupervisor(xo.Actor):
         self._done = True
         self._event_queue.put_nowait(None)
 
+    @xo.no_lock
     async def get_terminal_result(self) -> dict[str, Any] | None:
         """Fetch the supervisor's terminal result after ``run()`` completes.
 

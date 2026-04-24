@@ -795,6 +795,7 @@ class FlySupervisor(xo.Actor):
     # Typed domain methods (called by children via in-pool RPC)
     # ------------------------------------------------------------------
 
+    @xo.no_lock
     async def implementation_ready(self, payload: SubmitImplementationPayload) -> None:
         self._last_implementation = payload
         await self._emit_output(
@@ -802,6 +803,7 @@ class FlySupervisor(xo.Actor):
             f"Implementation submitted: {payload.summary[:80]}",
         )
 
+    @xo.no_lock
     async def fix_result_ready(self, payload: SubmitFixResultPayload) -> None:
         self._last_fix_result = payload
         await self._emit_output(
@@ -809,6 +811,7 @@ class FlySupervisor(xo.Actor):
             f"Fix submitted: {payload.summary[:80]}",
         )
 
+    @xo.no_lock
     async def review_ready(self, payload: SubmitReviewPayload) -> None:
         self._last_review = payload
         approved = "approved" if payload.approved else "findings"
@@ -817,6 +820,7 @@ class FlySupervisor(xo.Actor):
             f"Review submitted ({approved}, {len(payload.findings)} finding(s))",
         )
 
+    @xo.no_lock
     async def aggregate_review_ready(self, payload: SubmitReviewPayload) -> None:
         self._last_aggregate_review = payload
         await self._emit_output(
@@ -824,6 +828,7 @@ class FlySupervisor(xo.Actor):
             f"Aggregate review submitted ({'approved' if payload.approved else 'findings'})",
         )
 
+    @xo.no_lock
     async def prompt_error(self, error: PromptError) -> None:
         """Handle an ACP prompt failure.
 
@@ -848,6 +853,7 @@ class FlySupervisor(xo.Actor):
             }
         )
 
+    @xo.no_lock
     async def payload_parse_error(self, tool: str, message: str) -> None:
         self._last_parse_error = (tool, message)
         await self._emit_output(
@@ -887,5 +893,6 @@ class FlySupervisor(xo.Actor):
         self._done = True
         self._event_queue.put_nowait(None)
 
+    @xo.no_lock
     async def get_terminal_result(self) -> dict[str, Any] | None:
         return self._terminal_result

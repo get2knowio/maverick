@@ -387,15 +387,19 @@ class PlanSupervisor(xo.Actor):
     # Typed domain methods (called by agent actors)
     # ------------------------------------------------------------------
 
+    @xo.no_lock
     async def scope_ready(self, payload: SubmitScopePayload) -> None:
         await self._record_brief("scope", "Scopist", payload)
 
+    @xo.no_lock
     async def analysis_ready(self, payload: SubmitAnalysisPayload) -> None:
         await self._record_brief("analysis", "Codebase Analyst", payload)
 
+    @xo.no_lock
     async def criteria_ready(self, payload: SubmitCriteriaPayload) -> None:
         await self._record_brief("criteria", "Criteria Writer", payload)
 
+    @xo.no_lock
     async def challenge_ready(self, payload: SubmitChallengePayload) -> None:
         await self._record_brief("challenge", "Contrarian", payload)
 
@@ -406,6 +410,7 @@ class PlanSupervisor(xo.Actor):
         elapsed = _time.monotonic() - self._briefing_start_times.get(label, 0)
         await self._emit_agent_completed("briefing", label, elapsed)
 
+    @xo.no_lock
     async def flight_plan_ready(self, payload: SubmitFlightPlanPayload) -> None:
         self._flight_plan = payload
         sc_count = len(payload.success_criteria)
@@ -416,6 +421,7 @@ class PlanSupervisor(xo.Actor):
             metadata={"success_criteria_count": sc_count},
         )
 
+    @xo.no_lock
     async def prompt_error(self, error: PromptError) -> None:
         await self._emit_output(
             "plan",
@@ -432,6 +438,7 @@ class PlanSupervisor(xo.Actor):
             }
         )
 
+    @xo.no_lock
     async def payload_parse_error(self, tool: str, message: str) -> None:
         await self._emit_output(
             "plan",
@@ -510,5 +517,6 @@ class PlanSupervisor(xo.Actor):
         self._done = True
         self._event_queue.put_nowait(None)
 
+    @xo.no_lock
     async def get_terminal_result(self) -> dict[str, Any] | None:
         return self._terminal_result

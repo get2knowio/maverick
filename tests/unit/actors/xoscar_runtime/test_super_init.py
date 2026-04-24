@@ -105,6 +105,61 @@ def test_on_tool_call_is_no_lock(path: Path) -> None:
     )
 
 
+#: Supervisor-style methods (called by child actors via RPC) that must
+#: not take the supervisor's actor lock — the supervisor's
+#: ``@xo.generator`` ``run()`` method holds that lock while blocked on
+#: ``self._event_queue.get()``, and the callbacks are what push onto
+#: that queue. Without ``@xo.no_lock`` every such call deadlocks.
+_SUPERVISOR_CALLBACK_SUFFIXES = ("_ready", "_error", "_result", "get_terminal_result")
+
+
+def _supervisor_files() -> list[Path]:
+    return [p for p in _actor_files() if "supervisor" in p.name]
+
+
+@pytest.mark.parametrize("path", _supervisor_files(), ids=lambda p: p.name)
+def test_supervisor_callback_methods_are_no_lock(path: Path) -> None:
+    """Supervisor callback methods invoked by child actors must carry
+    ``@xo.no_lock``. If the supervisor is suspended inside its
+    ``@xo.generator run()`` awaiting the event queue (which it nearly
+    always is, between child events), the actor lock is held and any
+    incoming callback RPC queues forever. The callbacks are what push
+    onto the queue, so the generator never wakes up."""
+    src = path.read_text()
+    # Find every "async def <name>(" where the name ends with a
+    # callback-style suffix and the method is defined at class scope
+    # (indented four spaces — xoscar Actors keep everything at that
+    # level). Skip private helpers (names starting with _).
+    methods = re.findall(
+        r"^(?:    @[\w.]+\s*\n)*    async def ([a-z][\w]*)\(",
+        src,
+        re.MULTILINE,
+    )
+    callbacks = [
+        name
+        for name in methods
+        if any(name.endswith(suffix) for suffix in _SUPERVISOR_CALLBACK_SUFFIXES)
+        or name == "get_terminal_result"
+    ]
+    missing: list[str] = []
+    for name in callbacks:
+        # Require that the `async def <name>(` line is immediately
+        # preceded by a line containing `@xo.no_lock` (allowing blank
+        # comments between).
+        match = re.search(
+            rf"(@[\w.]+\s*\n\s*)+async def {re.escape(name)}\(",
+            src,
+        )
+        if not match or "xo.no_lock" not in match.group(0):
+            missing.append(name)
+    assert not missing, (
+        f"{path.name} has supervisor callback(s) without @xo.no_lock: {missing}. "
+        "These methods are invoked by child actor RPC; without @xo.no_lock "
+        "they deadlock against the supervisor's @xo.generator run() "
+        "which holds the actor lock while awaiting the event queue."
+    )
+
+
 @pytest.mark.parametrize("path", _actor_files(), ids=lambda p: p.name)
 def test_actor_module_decodes_self_uid(path: Path) -> None:
     """``self.uid`` on an xoscar Actor returns ``bytes``, not ``str``.
