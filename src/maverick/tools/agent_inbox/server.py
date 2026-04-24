@@ -14,14 +14,16 @@ whose inbox we serve. Tool calls invoke
 
 from __future__ import annotations
 
-import sys
 from typing import Any
 
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from mcp.types import TextContent, Tool
 
+from maverick.logging import get_logger
 from maverick.tools.agent_inbox.schemas import ALL_TOOL_SCHEMAS
+
+logger = get_logger(__name__)
 
 # Module-level state set at startup by the serve_inbox command.
 _active_tools: dict[str, Tool] = {}
@@ -36,7 +38,7 @@ def _build_mcp_tools(tool_names: set[str]) -> dict[str, Tool]:
     for name in tool_names:
         schema = ALL_TOOL_SCHEMAS.get(name)
         if schema is None:
-            print(f"WARNING: unknown tool '{name}', skipping", file=sys.stderr)
+            logger.warning("agent_inbox.unknown_tool", tool=name)
             continue
         tools[name] = Tool(
             name=schema["name"],
@@ -49,11 +51,7 @@ def _build_mcp_tools(tool_names: set[str]) -> dict[str, Tool]:
 @server.list_tools()
 async def list_tools() -> list[Tool]:
     """Return the tools this agent is allowed to call."""
-    print(
-        f"INBOX_SERVER: list_tools called, returning: {list(_active_tools.keys())}",
-        file=sys.stderr,
-        flush=True,
-    )
+    logger.debug("agent_inbox.list_tools", tools=list(_active_tools.keys()))
     return list(_active_tools.values())
 
 
@@ -85,18 +83,14 @@ async def call_tool(name: str, arguments: dict[str, Any] | None) -> list[TextCon
                 f"'{name}' again."
             ) from exc
 
-    print(
-        f"INBOX_SERVER: tool call received: {name} "
-        f"(args keys: {list(args.keys()) if args else 'none'})",
-        file=sys.stderr,
-        flush=True,
+    logger.debug(
+        "agent_inbox.tool_call_received",
+        tool=name,
+        arg_keys=list(args.keys()) if args else [],
     )
 
     if _inbox_ref is None:
-        print(
-            f"WARNING: no inbox configured, message dropped: {name}",
-            file=sys.stderr,
-        )
+        logger.warning("agent_inbox.no_inbox_configured", tool=name)
         return [
             TextContent(
                 type="text",
@@ -105,11 +99,7 @@ async def call_tool(name: str, arguments: dict[str, Any] | None) -> list[TextCon
         ]
 
     result = await _inbox_ref.on_tool_call(name, args)
-    print(
-        f"INBOX_SERVER: delivered {name} to agent — result={result!r}",
-        file=sys.stderr,
-        flush=True,
-    )
+    logger.debug("agent_inbox.tool_delivered", tool=name, result=repr(result))
     return [
         TextContent(
             type="text",

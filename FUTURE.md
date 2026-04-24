@@ -49,6 +49,7 @@ It reconciles those documents against the current codebase as of 2026-04-19 and 
 | Canonical artifact rendering and formatting | Active | New opportunity observed in current code. |
 | Reusable supervisor fragments | Active | New opportunity observed in current code. |
 | ACP prompt-cache optimization | Implemented | Phase A observability + Phase B retry-session reuse shipped; Phases C/D/1h-TTL closed after Phase A data showed caching is content-keyed and already at ~99.98% hit on measured workloads. |
+| Consolidate agent `_end_turn` helpers | Active | Five xoscar agents duplicate a ~10-line cancel-after-forward helper. Minor refactor opportunity — extract to mixin or module helper when a sixth agent-with-inbox appears. |
 
 ## 1. Orchestration And Human Review
 
@@ -319,6 +320,27 @@ Relevant code:
 
 - [src/maverick/executor/acp.py](src/maverick/executor/acp.py) (`_execute_with_retry`, `_ensure_session`)
 - [src/maverick/executor/_connection_pool.py](src/maverick/executor/_connection_pool.py) (subprocess env construction — site for `ENABLE_PROMPT_CACHING_1H` if ever needed)
+
+### 2.8 Consolidate Agent `_end_turn` Helpers
+
+**Status:** Active (minor refactor)
+
+Each of the five xoscar agent actors (`briefing`, `decomposer`, `implementer`, `reviewer`, `generator`) has its own ``_end_turn()`` helper that does the same thing: after ``on_tool_call`` forwards a payload to the supervisor, cancel the current ACP turn via ``self._executor.cancel_session(self._session_id)`` with best-effort error handling. The five copies are identical modulo the logger name.
+
+This is a minor code smell rather than a bug — each copy is ~10 lines and they don't drift easily since the regression test in `test_super_init.py` forces the presence of the agent-side cancel pattern. Extraction options:
+
+- Module-level helper: `async def end_acp_turn(executor, session_id, log_tag) -> None` in a shared utility module.
+- Mixin class `AgentInboxEndTurnMixin` that every agent actor inherits alongside `xo.Actor`. Xoscar's MRO handles this cleanly since `xo.Actor` itself is just a class.
+
+Either works; the mixin is slightly cleaner since the helper needs `self._session_id`, `self._executor`, and `self._actor_tag` anyway. Defer until a sixth agent-with-inbox gets added — at four copies it's just duplication; at six it's a pattern waiting for a name.
+
+Relevant code:
+
+- [src/maverick/actors/xoscar/briefing.py](src/maverick/actors/xoscar/briefing.py) (`_end_turn`)
+- [src/maverick/actors/xoscar/decomposer.py](src/maverick/actors/xoscar/decomposer.py) (`_end_turn`)
+- [src/maverick/actors/xoscar/implementer.py](src/maverick/actors/xoscar/implementer.py) (`_end_turn`)
+- [src/maverick/actors/xoscar/reviewer.py](src/maverick/actors/xoscar/reviewer.py) (`_end_turn`)
+- [src/maverick/actors/xoscar/generator.py](src/maverick/actors/xoscar/generator.py) (`_end_turn`)
 
 ## 3. Learning, Feedback, And Telemetry
 
