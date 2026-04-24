@@ -63,8 +63,11 @@ class AcpStepExecutor:
     and maps ACP events/errors to Maverick's event and exception hierarchy.
 
     One subprocess is spawned per provider and cached for the lifetime of this
-    executor. Sessions are created fresh per execute() call (and per retry
-    attempt). Call cleanup() when the executor is no longer needed.
+    executor. Sessions are created fresh per execute() call and reused across
+    retry attempts (so the prompt-cache prefix — tools + system prompt — is
+    not re-written on every retry). A reconnect invalidates the old session
+    and creates a new one on the fresh connection. Call cleanup() when the
+    executor is no longer needed.
 
     Args:
         provider_registry: Resolves provider names → AgentProviderConfig.
@@ -641,7 +644,11 @@ class AcpStepExecutor:
     ) -> tuple[Any, str | None, UsageMetadata | None]:
         """Run the ACP prompt with optional tenacity retry.
 
-        A fresh ACP session is created per attempt. The connection is reused.
+        The ACP session is created **once** and reused across retry
+        attempts so the prompt cache prefix (tools + system prompt)
+        is not re-written on every retry. Only a transparent reconnect
+        (the underlying subprocess died) forces session recreation.
+
         When an ``AcpRequestError`` is raised by ``conn.new_session()`` or
         ``conn.prompt()``, a single transparent reconnect is attempted (FR-021)
         before the tenacity retry loop re-raises or retries.
@@ -652,31 +659,35 @@ class AcpStepExecutor:
         current_cached: list[CachedConnection] = [cached]
         resolved_model_label: list[str | None] = [None]
         resolved_usage: list[UsageMetadata | None] = [None]
+        #: Session id reused across retries until a reconnect invalidates it.
+        current_session_id: list[str | None] = [None]
 
-        async def _run_single_attempt() -> Any:
-            """Execute one ACP session: create session → prompt → extract output."""
+        async def _ensure_session() -> str:
+            """Return an ACP session id, creating one only if we don't
+            have a live session (first attempt, or after a reconnect).
+            """
+            if current_session_id[0] is not None:
+                return current_session_id[0]
+
             conn = current_cached[0].conn
             client = current_cached[0].client
-
             client.reset(
                 step_name=step_name,
                 agent_name=agent_name,
                 event_callback=event_callback,
                 allowed_tools=allowed_tools_frozen,
             )
-
             self._logger.debug(
                 "acp_executor.session_create",
                 step_name=step_name,
                 provider=current_cached[0].provider_name,
                 cwd=cwd_str,
             )
-
-            # --- new_session with transparent reconnect (FR-021) ---
             try:
                 session = await conn.new_session(cwd=cwd_str, mcp_servers=[])
             except AcpRequestError:
-                # Attempt one transparent reconnect, then retry session creation once.
+                # Transparent reconnect: subprocess is dead, bring up a
+                # new one and create the session on the fresh connection.
                 try:
                     current_cached[0] = await self._pool.reconnect(provider_key, provider_config)
                     conn = current_cached[0].conn
@@ -693,13 +704,12 @@ class AcpStepExecutor:
                         f"Failed to create ACP session after reconnect: {retry_exc}"
                     ) from retry_exc
 
-            session_id = session.session_id
+            current_session_id[0] = session.session_id
 
             # Thread model selection into the ACP session (Phase 3)
             resolved_model = effective_config.model_id or provider_config.default_model
             if resolved_model:
                 resolved_model = resolve_model_for_provider(resolved_model, session)
-
                 available_ids = get_available_model_ids(session)
                 if available_ids and resolved_model not in available_ids:
                     available_list = ", ".join(sorted(available_ids))
@@ -712,12 +722,12 @@ class AcpStepExecutor:
                 try:
                     await conn.set_session_model(
                         model_id=resolved_model,
-                        session_id=session_id,
+                        session_id=session.session_id,
                     )
                     self._logger.debug(
                         "acp_executor.session_model_set",
                         step_name=step_name,
-                        session_id=session_id,
+                        session_id=session.session_id,
                         model_id=resolved_model,
                     )
                 except Exception as exc:
@@ -728,13 +738,21 @@ class AcpStepExecutor:
                         error=str(exc),
                     )
 
-            # Resolve and store effective model for observability
-            label = resolve_model_label(
-                session,
-                resolved_model,
-            )
+            label = resolve_model_label(session, resolved_model)
             if label:
                 resolved_model_label[0] = f"{provider_name}/{label}"
+
+            return session.session_id
+
+        async def _run_single_attempt() -> Any:
+            """Execute one ACP prompt on the (possibly reused) session."""
+            session_id = await _ensure_session()
+            conn = current_cached[0].conn
+            client = current_cached[0].client
+
+            # Clear per-turn state without destroying session identity so
+            # the next prompt starts with fresh accumulators.
+            client.reset_for_turn()
 
             self._logger.debug(
                 "acp_executor.prompt_send",
@@ -761,8 +779,8 @@ class AcpStepExecutor:
                     timeout_seconds=float(effective_config.timeout or 0),
                 ) from exc
             except AcpRequestError:
-                # Attempt one transparent reconnect and retry the full
-                # session + prompt once before surfacing as NetworkError.
+                # Subprocess died mid-prompt: reconnect, create a new
+                # session on the new connection, retry the prompt once.
                 try:
                     current_cached[0] = await self._pool.reconnect(provider_key, provider_config)
                     conn = current_cached[0].conn
@@ -773,11 +791,13 @@ class AcpStepExecutor:
                         event_callback=event_callback,
                         allowed_tools=allowed_tools_frozen,
                     )
-                    retry_session = await conn.new_session(cwd=cwd_str, mcp_servers=[])
-                    retry_session_id = retry_session.session_id
+                    # Invalidate the old session id and create a fresh
+                    # one on the new connection.
+                    current_session_id[0] = None
+                    session_id = await _ensure_session()
                     retry_coro = conn.prompt(
                         prompt=[text_block(prompt_text)],
-                        session_id=retry_session_id,
+                        session_id=session_id,
                     )
                     if effective_config.timeout is not None:
                         response = await asyncio.wait_for(
@@ -785,8 +805,6 @@ class AcpStepExecutor:
                         )
                     else:
                         response = await retry_coro
-                    # Update session_id so response_complete log is accurate
-                    session_id = retry_session_id
                 except AcpRequestError as retry_exc:
                     raise NetworkError(
                         f"ACP request failed for step '{step_name}' after reconnect: {retry_exc}",

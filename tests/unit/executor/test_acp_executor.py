@@ -1270,8 +1270,11 @@ class TestErrorResilience:
         assert "claude" in executor._pool  # still cached
         assert session_id in executor._session_provider_keys
 
-    async def test_retry_creates_fresh_sessions(self) -> None:
-        """When prompt() fails twice then succeeds, new_session() is called 3 times."""
+    async def test_retry_reuses_session(self) -> None:
+        """When prompt() fails twice then succeeds, the ACP session is
+        reused across retries so the prompt-cache prefix (tools + system
+        prompt) isn't re-written on each attempt. new_session() runs
+        exactly once; the three prompt() calls share the session."""
         executor = _make_executor()
         mock_conn, mock_proc = _mock_spawn_context()
 
@@ -1298,8 +1301,45 @@ class TestErrorResilience:
                     )
 
         assert result.success is True
-        # new_session should be called once per attempt: 3 total
-        assert mock_conn.new_session.call_count == 3
+        # Session is created once and reused across retries — Phase B
+        # prompt-cache optimization.
+        assert mock_conn.new_session.call_count == 1
+        # prompt() should still be called three times (two failures + one success).
+        assert mock_conn.prompt.call_count == 3
+
+    async def test_reconnect_does_create_fresh_session(self) -> None:
+        """An AcpRequestError during prompt() triggers a transparent
+        reconnect. After reconnect the old session id is invalid (the
+        subprocess is a brand-new process with no knowledge of the old
+        session), so a fresh session must be created against the new
+        connection. This preserves the FR-021 reconnect semantics
+        alongside the new session-reuse across ordinary retries."""
+        executor = _make_executor()
+        mock_conn, mock_proc = _mock_spawn_context()
+
+        call_count = 0
+
+        async def _prompt_side_effect(*args: Any, **kwargs: Any) -> None:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise AcpRequestError(code=-1, message="subprocess died")
+
+        mock_conn.prompt = AsyncMock(side_effect=_prompt_side_effect)
+
+        with patch("maverick.executor._connection_pool.spawn_agent_process") as mock_spawn:
+            mock_spawn.return_value = _FakeAsyncContextManager(mock_conn, mock_proc)
+            with patch.object(MaverickAcpClient, "get_accumulated_text", return_value="ok"):
+                with patch("maverick.executor.acp.wait_exponential"):
+                    result = await executor.execute(
+                        step_name="s",
+                        agent_name="test_agent",
+                        prompt={},
+                    )
+
+        assert result.success is True
+        # Two new_session calls: one for initial, one after reconnect.
+        assert mock_conn.new_session.call_count == 2
 
     async def test_command_not_found_raises_cli_not_found_error(self) -> None:
         """FileNotFoundError from spawn_agent_process raises CLINotFoundError."""
