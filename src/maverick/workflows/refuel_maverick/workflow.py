@@ -441,7 +441,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
             logger.warning("refuel_runway_context_failed", error=str(exc))
 
         # ------------------------------------------------------------------
-        # Steps 2b-4: Briefing + Decompose + Validate via Thespian actor system
+        # Steps 2b-4: Briefing + Decompose + Validate via xoscar supervisor
         # ------------------------------------------------------------------
         decomposition = await self._run_with_xoscar(
             flight_plan=flight_plan,
@@ -764,7 +764,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
         skip_briefing: bool = False,
         ctx: dict[str, Any] | None = None,
     ) -> Any:
-        """Run briefing + decomposition via Thespian actor system.
+        """Run briefing + decomposition via xoscar supervisor.
 
         Creates briefing actors (Navigator, Structuralist, Recon, Contrarian)
         and decomposer actors in the same ActorSystem. The supervisor

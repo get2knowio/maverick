@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from maverick.tools.supervisor_inbox.models import (
+from maverick.tools.agent_inbox.models import (
     SubmitAnalysisPayload,
     SubmitFlightPlanPayload,
     SubmitReviewPayload,

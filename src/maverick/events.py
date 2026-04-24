@@ -584,7 +584,7 @@ ProgressEvent = (
 # event_from_dict() to reconstruct a ProgressEvent from its serialized form.
 # RollbackError is intentionally omitted — it uses a non-standard to_dict() that
 # does not include the "event" key, and is only emitted by workflow base code,
-# never by supervisors crossing the Thespian boundary.
+# never by supervisors.
 _EVENT_CLASSES: dict[str, type] = {
     "PreflightStarted": PreflightStarted,
     "PreflightCheckPassed": PreflightCheckPassed,
@@ -628,8 +628,8 @@ _STEP_TYPE_FIELDS: dict[str, tuple[str, ...]] = {
 def event_from_dict(data: dict[str, Any]) -> ProgressEvent:
     """Reconstruct a ProgressEvent from its serialized dict form.
 
-    Inverse of ``_event_to_dict()``. Used when events cross the Thespian
-    actor boundary as dicts and must be rehydrated in the workflow process.
+    Inverse of ``_event_to_dict()``. Useful when events are persisted
+    to disk or carried over a process boundary and must be rehydrated.
 
     Args:
         data: Dictionary produced by ``event.to_dict()``. Must contain an

@@ -1,23 +1,15 @@
-"""Supervisor inbox MCP tool server.
+"""Agent inbox MCP tool server.
 
-Generic MCP server that exposes a filtered set of tools per agent. Each
-tool represents a structured result the AGENT owns. Tool calls flow:
+Generic MCP server that exposes a filtered set of tools per agent.
+Each tool represents a structured result the AGENT owns. Tool calls
+flow:
 
     agent → MCP stdio → this server → agent_actor.on_tool_call(...)
 
-During the Thespian→xoscar migration, this server supports two
-discovery modes — set by ``serve_inbox`` at startup via module globals:
-
-* **xoscar (preferred):** ``_inbox_ref`` is a live ``xo.ActorRef``
-  pointing at the agent actor whose inbox we serve. Tool calls invoke
-  ``await _inbox_ref.on_tool_call(name, args)``.
-* **Thespian (legacy):** ``_thespian_system`` / ``_thespian_inbox`` are
-  the ActorSystem + supervisor address resolved by globalName. Tool
-  calls are delivered via ``tell()``.
-
-The directory name ``supervisor_inbox/`` is a Thespian-era misnomer
-once agents own their inboxes. Phase 4 renames the package to
-``agent_inbox/``; no rename during Phase 1 to minimise churn.
+Discovery: the CLI command ``maverick serve-inbox`` sets
+``_inbox_ref`` to a live ``xo.ActorRef`` pointing at the agent actor
+whose inbox we serve. Tool calls invoke
+``await _inbox_ref.on_tool_call(name, args)``.
 """
 
 from __future__ import annotations
@@ -29,19 +21,13 @@ from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from mcp.types import TextContent, Tool
 
-from maverick.tools.supervisor_inbox.schemas import ALL_TOOL_SCHEMAS
+from maverick.tools.agent_inbox.schemas import ALL_TOOL_SCHEMAS
 
 # Module-level state set at startup by the serve_inbox command.
 _active_tools: dict[str, Tool] = {}
-
-# xoscar mode (preferred post-migration).
 _inbox_ref: Any = None
 
-# Thespian mode (legacy, kept until Phase 4).
-_thespian_system: Any = None
-_thespian_inbox: Any = None
-
-server = Server("supervisor-inbox")
+server = Server("agent-inbox")
 
 
 def _build_mcp_tools(tool_names: set[str]) -> dict[str, Tool]:
@@ -73,7 +59,7 @@ async def list_tools() -> list[Tool]:
 
 @server.call_tool()
 async def call_tool(name: str, arguments: dict[str, Any] | None) -> list[TextContent]:
-    """Handle a tool call — validate and deliver to the configured inbox."""
+    """Handle a tool call — validate and forward to the agent actor."""
     if name not in _active_tools:
         raise ValueError(
             f"Tool '{name}' is not available. Available tools: {', '.join(sorted(_active_tools))}"
@@ -108,40 +94,28 @@ async def call_tool(name: str, arguments: dict[str, Any] | None) -> list[TextCon
         flush=True,
     )
 
-    if _inbox_ref is not None:
-        # xoscar: typed in-pool RPC to the agent actor's on_tool_call.
-        result = await _inbox_ref.on_tool_call(name, args)
+    if _inbox_ref is None:
         print(
-            f"INBOX_SERVER: delivered {name} to agent (xoscar) — result={result!r}",
+            f"WARNING: no inbox configured, message dropped: {name}",
             file=sys.stderr,
-            flush=True,
         )
         return [
             TextContent(
                 type="text",
-                text=f"Submitted {name} to agent (result: {result}).",
+                text=f"WARNING: {name} dropped — no inbox configured on this server.",
             )
         ]
 
-    if _thespian_system is not None and _thespian_inbox is not None:
-        # Legacy Thespian: one-way tell().
-        message = {"tool": name, "arguments": args}
-        _thespian_system.tell(_thespian_inbox, message)
-        print(
-            f"INBOX_SERVER: delivered {name} to supervisor (thespian)",
-            file=sys.stderr,
-            flush=True,
-        )
-        return [TextContent(type="text", text=f"Submitted {name} to supervisor.")]
-
+    result = await _inbox_ref.on_tool_call(name, args)
     print(
-        f"WARNING: no inbox configured, message dropped: {name}",
+        f"INBOX_SERVER: delivered {name} to agent — result={result!r}",
         file=sys.stderr,
+        flush=True,
     )
     return [
         TextContent(
             type="text",
-            text=f"WARNING: {name} dropped — no inbox configured on this server.",
+            text=f"Submitted {name} to agent (result: {result}).",
         )
     ]
 

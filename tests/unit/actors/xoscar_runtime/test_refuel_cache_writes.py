@@ -15,7 +15,7 @@ from types import SimpleNamespace
 import pytest
 
 from maverick.actors.xoscar.refuel_supervisor import RefuelInputs, RefuelSupervisor
-from maverick.tools.supervisor_inbox.models import (
+from maverick.tools.agent_inbox.models import (
     SubmitNavigatorBriefPayload,
     SubmitOutlinePayload,
     WorkUnitDetailPayload,

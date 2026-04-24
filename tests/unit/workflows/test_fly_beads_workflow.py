@@ -148,7 +148,7 @@ def _make_mock_actions(
         },
         "mark_complete_return": mark_complete,
         "check_done_return": check_done_result,
-        "thespian_return": {
+        "xoscar_return": {
             "beads_completed": 1,
             "completed_bead_ids": ["b1"],
             "beads_failed": 0,
@@ -217,9 +217,9 @@ _PATCH_SPECS: list[tuple[str, str, str | None, str]] = [
         _RV,
     ),
     (
-        "thespian",
+        "xoscar",
         f"{_WF_MOD}.FlyBeadsWorkflow._run_fly_with_xoscar",
-        "thespian_return",
+        "xoscar_return",
         _RV,
     ),
 ]
@@ -368,7 +368,7 @@ class TestFlyBeadsWorkflow:
     async def test_bead_failure_reported_in_result(self, fly_workflow: Any) -> None:
         """When Thespian reports bead failures, they appear in the result."""
         mv = _make_mock_actions()
-        mv["thespian_return"] = {
+        mv["xoscar_return"] = {
             "beads_completed": 0,
             "completed_bead_ids": [],
             "beads_failed": 1,
@@ -377,7 +377,7 @@ class TestFlyBeadsWorkflow:
         with _patch_all_actions(mv) as mocks:
             events = await _collect_events(fly_workflow, {"epic_id": "", "max_beads": 5})
 
-        mocks["thespian"].assert_called_once()
+        mocks["xoscar"].assert_called_once()
 
         completed = next(e for e in events if isinstance(e, WorkflowCompleted))
         assert completed.success is True
@@ -419,18 +419,18 @@ class TestFlyBeadsWorkflow:
         completed = next(e for e in events if isinstance(e, WorkflowCompleted))
         assert completed.success is False
 
-    async def test_thespian_path_invoked(self, fly_workflow: Any) -> None:
+    async def test_xoscar_path_invoked(self, fly_workflow: Any) -> None:
         """Thespian path is invoked for execution."""
         with _patch_all_actions() as mocks:
             await _collect_events(fly_workflow, {"epic_id": "", "max_beads": 5})
 
-        mocks["thespian"].assert_called_once()
+        mocks["xoscar"].assert_called_once()
         mocks["select"].assert_not_called()
 
-    async def test_human_review_items_come_from_thespian_events(self, fly_workflow: Any) -> None:
+    async def test_human_review_items_come_from_xoscar_events(self, fly_workflow: Any) -> None:
         """Needs-human-review beads are derived from Thespian bead events."""
         mv = _make_mock_actions()
-        mv["thespian_return"] = {
+        mv["xoscar_return"] = {
             "beads_completed": 1,
             "completed_bead_ids": ["b1"],
             "beads_failed": 0,
@@ -475,7 +475,7 @@ class TestFlyBeadsWorkflow:
             ),
         )
 
-        mv["thespian_return"] = {
+        mv["xoscar_return"] = {
             "beads_completed": 3,
             "completed_bead_ids": ["b1", "b2", "b3"],
             "beads_failed": 0,
@@ -491,7 +491,7 @@ class TestFlyBeadsWorkflow:
     async def test_multiple_beads_processed(self, fly_workflow: Any) -> None:
         """Multiple beads reported by Thespian appear in result."""
         mv = _make_mock_actions()
-        mv["thespian_return"] = {
+        mv["xoscar_return"] = {
             "beads_completed": 2,
             "completed_bead_ids": ["b1", "b2"],
             "beads_failed": 0,
@@ -503,14 +503,14 @@ class TestFlyBeadsWorkflow:
 
         assert fly_workflow.result.final_output["beads_succeeded"] == 2
 
-    async def test_epic_id_passed_to_thespian(self, fly_workflow: Any) -> None:
+    async def test_epic_id_passed_to_supervisor(self, fly_workflow: Any) -> None:
         """Epic ID is passed to the Thespian path for processing."""
         with _patch_all_actions() as mocks:
             async for _ in fly_workflow.execute({"epic_id": "epic-99", "max_beads": 5}):
                 pass
 
-        mocks["thespian"].assert_called_once()
-        call_kwargs = mocks["thespian"].call_args[1]
+        mocks["xoscar"].assert_called_once()
+        call_kwargs = mocks["xoscar"].call_args[1]
         assert call_kwargs["epic_id"] == "epic-99"
 
     async def test_epic_not_closed_when_children_still_open(self, fly_workflow: Any) -> None:

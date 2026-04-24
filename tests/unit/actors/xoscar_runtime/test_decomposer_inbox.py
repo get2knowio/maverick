@@ -13,7 +13,7 @@ import pytest
 import xoscar as xo
 
 from maverick.actors.xoscar.decomposer import DecomposerActor
-from maverick.tools.supervisor_inbox.models import (
+from maverick.tools.agent_inbox.models import (
     SubmitDetailsPayload,
     SubmitFixPayload,
     SubmitOutlinePayload,

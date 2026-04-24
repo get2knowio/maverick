@@ -46,7 +46,7 @@ from maverick.actors.xoscar.reviewer import ReviewerActor
 from maverick.actors.xoscar.spec_check import SpecCheckActor
 from maverick.events import ProgressEvent, StepOutput
 from maverick.logging import get_logger
-from maverick.tools.supervisor_inbox.models import (
+from maverick.tools.agent_inbox.models import (
     ReviewFindingPayload,
     SubmitFixResultPayload,
     SubmitImplementationPayload,

@@ -46,7 +46,7 @@ from maverick.events import (
     StepStarted,
 )
 from maverick.logging import get_logger
-from maverick.tools.supervisor_inbox.models import (
+from maverick.tools.agent_inbox.models import (
     SubmitAnalysisPayload,
     SubmitChallengePayload,
     SubmitCriteriaPayload,

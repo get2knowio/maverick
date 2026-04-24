@@ -185,7 +185,7 @@ class GenerateFlightPlanWorkflow(PythonWorkflow):
         await self.emit_step_completed(READ_PRD, output={"prd_size": prd_size})
 
         # ------------------------------------------------------------------
-        # Steps 2-5: Thespian actor system handles briefing, generation,
+        # Steps 2-5: xoscar supervisor handles briefing, generation,
         # validation, and writing via supervisor-driven message routing.
         # ------------------------------------------------------------------
         result = await self._generate_with_xoscar(

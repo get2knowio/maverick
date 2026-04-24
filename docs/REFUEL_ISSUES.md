@@ -63,7 +63,15 @@ Contrast with the fly_beads workflow: `src/maverick/workflows/fly_beads/actors/`
 
 ### Issue 2: Actor async bridge leaks coroutines on timeout
 
-**Priority:** High · **Effort:** Small · **Status:** Completed
+**Priority:** High · **Effort:** Small · **Status:** Resolved (superseded by xoscar migration)
+
+**Post-migration note (2026-04):** the async bridge and the entire
+Thespian runtime have been removed. xoscar actor methods are native
+`async def`; timeouts wrap calls in `xo.wait_for(ref.method(...),
+timeout=...)` which cancels the remote coroutine cleanly — the actor
+method observes `asyncio.CancelledError` and can unwind resources.
+The leaked-coroutine scenario is architecturally impossible under
+xoscar.
 
 #### Summary
 
@@ -755,7 +763,15 @@ if msg_type == "init":
 
 ### Issue 12: `receiveMessage` blocks for up to 30 minutes on prompt work
 
-**Priority:** Low (document) / Medium (if fixed) · **Effort:** Medium-to-Large · **Status:** Completed (minimum action — documented)
+**Priority:** Low (document) / Medium (if fixed) · **Effort:** Medium-to-Large · **Status:** Resolved (superseded by xoscar migration)
+
+**Post-migration note (2026-04):** `receiveMessage` is gone. xoscar
+supervisors are async actors; children expose typed `async def`
+methods and the supervisor awaits them concurrently via
+`asyncio.gather` + `xo.wait_for`. Shutdown signals, nudges, and
+control traffic are ordinary awaited coroutines — none block behind
+an in-flight prompt. The architectural trade-off this issue
+documented no longer exists.
 
 #### Summary
 

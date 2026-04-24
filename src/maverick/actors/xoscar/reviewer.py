@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING, Any
 import xoscar as xo
 from acp.schema import McpServerStdio
 
-from maverick.actors._step_config import (
+from maverick.actors.step_config import (
     load_step_config,
     step_allowed_tools,
     step_config_with_timeout,
@@ -33,7 +33,7 @@ from maverick.actors.xoscar.messages import (
     ReviewRequest,
 )
 from maverick.logging import get_logger
-from maverick.tools.supervisor_inbox.models import (
+from maverick.tools.agent_inbox.models import (
     SubmitReviewPayload,
     SupervisorToolPayloadError,
     parse_supervisor_tool_payload,

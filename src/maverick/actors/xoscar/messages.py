@@ -1,19 +1,11 @@
-"""Typed request/response envelopes for xoscar actors in the refuel path.
+"""Typed request/response envelopes for xoscar actors.
 
-These frozen dataclasses replace the ``dict[str, Any]`` payloads that the
-Thespian ``receiveMessage`` handlers keyed off a ``"type"`` string. They
-carry the same fields as the legacy dicts so the migration is
-field-for-field reversible during review.
-
-Scope is intentionally narrow: these are the *supervisor → agent*
-typed requests, plus the deterministic-actor result types. Inbound
-MCP tool payloads are already Pydantic-typed in
-``src/maverick/tools/supervisor_inbox/models.py`` (``SubmitOutlinePayload``
-et al.) — agents pass those objects straight through to the supervisor's
-typed domain methods rather than redefining them here.
-
-Plan and fly workflows will grow their own envelopes in later phases;
-keeping them in separate modules prevents one big "all messages" file.
+These frozen dataclasses are the supervisor-to-agent typed-request and
+deterministic-actor result surfaces. Inbound MCP tool payloads are
+already Pydantic-typed in ``src/maverick/tools/agent_inbox/models.py``
+(``SubmitOutlinePayload`` et al.) — agents pass those objects straight
+through to the supervisor's typed domain methods rather than
+redefining them here.
 """
 
 from __future__ import annotations

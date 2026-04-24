@@ -1,13 +1,12 @@
 """xoscar actor-pool lifecycle helpers.
 
-These helpers replace ``create_actor_system`` / ``cleanup_stale_admin``
-from ``src/maverick/actors/__init__.py``: xoscar binds to an ephemeral
-port instead of the hardcoded 19500, so there is no stale-daemon problem
-and no port-coordination problem between concurrent workflows.
+xoscar binds to an ephemeral port instead of the hardcoded 19500 the
+legacy Thespian runtime used, so there is no stale-daemon problem and
+no port-coordination problem between concurrent workflows.
 
 Single-process model (``n_process=0``) is intentional — all actors run
 as coroutines in the pool's event loop, which skips pickling ACP
-executors and matches the in-process semantics already used by
+executors and matches the in-process semantics used by
 ``src/maverick/workflows/fly_beads/actors/``. Process isolation
 continues to come from the ACP agent subprocess each agent actor owns,
 not from the actor runtime.

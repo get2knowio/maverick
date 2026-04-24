@@ -6,7 +6,7 @@ from datetime import date
 
 import yaml
 
-from maverick.tools.supervisor_inbox.models import SubmitFlightPlanPayload
+from maverick.tools.agent_inbox.models import SubmitFlightPlanPayload
 
 
 def render_flight_plan_markdown(

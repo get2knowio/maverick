@@ -1,10 +1,10 @@
-"""Regression guard: no Thespian imports on the xoscar refuel path.
+"""Regression guard: no Thespian imports on any xoscar workflow path.
 
-Confirms that importing the refuel-maverick workflow does not drag
-``thespian`` into ``sys.modules``. Once Phase 4 removes ``thespian``
-from dependencies entirely, this test becomes belt-and-suspenders, but
-while both runtimes coexist it catches accidental re-introductions of
-the legacy path.
+``thespian`` was removed in Phase 4 of the xoscar migration. This test
+keeps that property enforced: importing any of the three workflow
+modules must not drag ``thespian`` (or any module containing that
+substring) into ``sys.modules``. A future refactor that accidentally
+reintroduces a ``thespian`` import will fail here.
 """
 
 from __future__ import annotations

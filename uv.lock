@@ -966,7 +966,6 @@ dependencies = [
     { name = "rich" },
     { name = "structlog" },
     { name = "tenacity" },
-    { name = "thespian" },
     { name = "tiktoken" },
     { name = "unidiff" },
     { name = "xoscar" },
@@ -1020,7 +1019,6 @@ requires-dist = [
     { name = "rich", specifier = ">=13.0,<14" },
     { name = "structlog", specifier = ">=24.1,<26" },
     { name = "tenacity", specifier = ">=8.2,<10" },
-    { name = "thespian", specifier = ">=4.0.1" },
     { name = "tiktoken", specifier = ">=0.8,<1" },
     { name = "unidiff", specifier = ">=0.7,<1" },
     { name = "xoscar", specifier = "==0.9.5" },
@@ -2336,12 +2334,6 @@ wheels = [
 ]
 
 [[package]]
-name = "thespian"
-version = "4.0.1"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/c0/a7/f4529906c026b35b4aa90bc95860c124da8409f9b15a78b48fafb8207dc2/thespian-4.0.1.tar.gz", hash = "sha256:a4ae87849ca24d4545555a7fa45c500e2cae0ce03cba0ddf863cfb576d76a819", size = 437434, upload-time = "2025-03-12T13:18:45.392Z" }
-
-[[package]]
 name = "tiktoken"
 version = "0.12.0"
 source = { registry = "https://pypi.org/simple" }
@@ -2515,8 +2507,8 @@ name = "uvicorn"
 version = "0.43.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "click" },
-    { name = "h11" },
+    { name = "click", marker = "sys_platform != 'emscripten'" },
+    { name = "h11", marker = "sys_platform != 'emscripten'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/62/f2/368268300fb8af33743508d738ef7bb4d56afdb46c6d9c0fa3dd515df171/uvicorn-0.43.0.tar.gz", hash = "sha256:ab1652d2fb23abf124f36ccc399828558880def222c3cb3d98d24021520dc6e8", size = 85686, upload-time = "2026-04-03T18:37:48.984Z" }
 wheels = [

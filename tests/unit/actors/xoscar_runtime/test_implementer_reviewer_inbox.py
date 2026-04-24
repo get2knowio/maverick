@@ -9,7 +9,7 @@ import xoscar as xo
 
 from maverick.actors.xoscar.implementer import ImplementerActor
 from maverick.actors.xoscar.reviewer import ReviewerActor
-from maverick.tools.supervisor_inbox.models import (
+from maverick.tools.agent_inbox.models import (
     SubmitFixResultPayload,
     SubmitImplementationPayload,
     SubmitReviewPayload,

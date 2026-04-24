@@ -295,7 +295,13 @@ async def init(
             if result.beads_initialized:
                 console.print("[green]✓[/] Beads initialized (.beads/)")
 
-            # Write provider MCP config files
+            # Resolve provider list for subsequent model discovery. Static
+            # per-provider MCP config files (Copilot/Gemini) no longer apply:
+            # the xoscar runtime uses an ephemeral pool address per run, so
+            # the MCP server is spawned by each agent actor via
+            # ``McpServerStdio`` with ``--inbox-address``/``--inbox-uid``
+            # passed at spawn time. Providers that don't support dynamic MCP
+            # attachment via ACP (Copilot, Gemini) fall back to text output.
             provider_list = (
                 [p.strip() for p in providers.split(",") if p.strip()]
                 if providers
@@ -308,12 +314,6 @@ async def init(
                     )
                 ]
             )
-            if provider_list:
-                from maverick.init.mcp_config import write_provider_mcp_configs
-
-                mcp_written = write_provider_mcp_configs(provider_list)
-                for prov, path in mcp_written.items():
-                    console.print(f"[green]✓[/] MCP config written for {prov}: [dim]{path}[/]")
 
             # Model discovery
             if provider_list:

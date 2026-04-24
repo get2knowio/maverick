@@ -322,9 +322,9 @@ class FlyBeadsWorkflow(PythonWorkflow):
             await self.emit_step_completed(BASELINE_GATE, baseline_result)
 
         # ----------------------------------------------------------------
-        # Bead loop — canonical Thespian actor system
+        # Bead loop — xoscar supervisor path
         # ----------------------------------------------------------------
-        thespian_result = await self._run_fly_with_xoscar(
+        xoscar_result = await self._run_fly_with_xoscar(
             epic_id=epic_id,
             workspace_path=workspace_path,
             watch=watch,
@@ -332,10 +332,10 @@ class FlyBeadsWorkflow(PythonWorkflow):
             max_beads=max_beads,
             completed_bead_ids=completed_bead_ids,
         )
-        beads_succeeded = int(thespian_result.get("beads_completed", 0))
-        beads_failed = int(thespian_result.get("beads_failed", 0))
-        beads_skipped = int(thespian_result.get("beads_skipped", 0))
-        human_review_items = thespian_result.get("human_review_items")
+        beads_succeeded = int(xoscar_result.get("beads_completed", 0))
+        beads_failed = int(xoscar_result.get("beads_failed", 0))
+        beads_skipped = int(xoscar_result.get("beads_skipped", 0))
+        human_review_items = xoscar_result.get("human_review_items")
         if human_review_items is None:
             human_review_items = [
                 {
@@ -345,7 +345,7 @@ class FlyBeadsWorkflow(PythonWorkflow):
                     "tag": event.get("tag"),
                     "review_rounds": event.get("review_rounds", 0),
                 }
-                for event in thespian_result.get("bead_events", [])
+                for event in xoscar_result.get("bead_events", [])
                 if event.get("tag") == "needs-human-review"
             ]
         human_review_items = tuple(human_review_items)

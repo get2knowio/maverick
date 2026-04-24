@@ -51,7 +51,7 @@ Representative code:
 
 Variant worth knowing:
 
-- The logical contract is stable, but fly_beads and generate_flight_plan ship a second delivery variant alongside the Thespian-backed [top-level actors](../src/maverick/actors): a workflow-scoped actor package (`workflows/fly_beads/actors/`, `workflows/generate_flight_plan/actors/`) with a file-backed inbox shim used for in-process composition and tests. Refuel does not have this variant — the top-level `actors/refuel_supervisor.py` is the only refuel implementation.
+- The logical contract is stable, but fly_beads and generate_flight_plan ship a second delivery variant alongside the xoscar-backed [top-level actors](../src/maverick/actors/xoscar): a workflow-scoped actor package (`workflows/fly_beads/actors/`, `workflows/generate_flight_plan/actors/`) with a file-backed inbox shim used for in-process composition and tests. Refuel does not have this variant — the xoscar `RefuelSupervisor` is the only refuel implementation.
 
 ## 3. Validate Strictly At The MCP Boundary, Then Parse Into Permissive Typed Models
 
@@ -198,48 +198,39 @@ Representative code:
 
 The broader pattern is "events first, presentation second."
 
-## 9a. Supervisor Event Bus And Polled Drain
+## 9a. Supervisor Streams Events Through `@xo.generator`
 
-> **Migration note:** This pattern describes the current Thespian-based implementation. The planned xoscar migration ([docs/prd-xoscar-migration.md](prd-xoscar-migration.md)) will replace it with a native async generator on the supervisor method (see §9b note below), eliminating the poll loop and `SupervisorEventBusMixin`.
-
-Each multi-actor workflow (fly, refuel, generate_flight_plan) runs its supervisor in a separate OS process via Thespian's `multiprocTCPBase`. Supervisors accumulate typed `ProgressEvent` objects and expose them through a `{"type": "get_events", "since": int}` message. The workflow-side async generator polls the supervisor at a fixed interval (typically 0.25s) via `asys.ask(...)` and forwards each new event onto its own asyncio queue. The terminal result rides on the final reply with `done=True`.
+Each multi-actor workflow (fly, refuel, generate_flight_plan) spawns an xoscar actor pool and creates a typed supervisor inside it. The supervisor exposes `@xo.generator async def run() → AsyncGenerator[ProgressEvent, None]`. The workflow consumes events via `async for event in await supervisor_ref.run()` and forwards each onto the workflow's own `asyncio.Queue` for the CLI renderer. The terminal result is pulled via `await supervisor_ref.get_terminal_result()` after the generator closes.
 
 Why it repeats:
 
-- The workflow's async generator stays responsive to the CLI while the supervisor runs in its own process.
-- Events survive the cross-process boundary without shared memory or pubsub infrastructure.
-- Polling is simple, idempotent, and avoids backpressure complexity.
-- A hard timeout on the drain loop guards against wedged supervisors without interfering with healthy long runs (the supervisor has its own stale-unit watchdog).
+- No polling, no cursor, no per-ask timeout — the pool pushes events as the supervisor emits them.
+- The supervisor's `asyncio.Queue` gives it backpressure-free event emission with the same semantics as the old polled event bus.
+- Cancellation propagates cleanly: a workflow-side exception or Ctrl-C tears down the async generator, which cancels the supervisor's driver task, which cancels in-flight child calls.
+- The terminal result survives the generator close because `get_terminal_result` is a separate RPC on the ref.
 
 Representative code:
 
-- [SupervisorEventBusMixin](../src/maverick/actors/event_bus.py)
-- [_drain_supervisor_events helper](../src/maverick/workflows/base.py)
-- [fly supervisor event usage](../src/maverick/actors/fly_supervisor.py)
-- [refuel supervisor event usage](../src/maverick/actors/refuel_supervisor.py)
+- [_drain_xoscar_supervisor helper](../src/maverick/workflows/base.py)
+- [RefuelSupervisor.run](../src/maverick/actors/xoscar/refuel_supervisor.py)
+- [FlySupervisor.run](../src/maverick/actors/xoscar/fly_supervisor.py)
+- [PlanSupervisor.run](../src/maverick/actors/xoscar/plan_supervisor.py)
 
-**xoscar target pattern:** Each multi-actor workflow creates an xoscar actor pool and obtains a typed `supervisor_ref`. The supervisor exposes `async def run(inputs) → AsyncGenerator[ProgressEvent, None]`. The workflow-side code consumes events via `async for event in supervisor_ref.run(inputs)`. No polling; events are pushed immediately via an `asyncio.Queue` on the supervisor instance. `SupervisorEventBusMixin` and `_drain_supervisor_events` are removed.
+## 9b. Async-Native Actor Methods (No Threading Bridge)
 
-## 9b. Persistent Event Loop Bridges Async Work Into Thespian Actors
-
-> **Migration note:** This pattern is superseded by the planned xoscar migration ([docs/prd-xoscar-migration.md](prd-xoscar-migration.md)). In xoscar, all actor methods are native `async def`. The `ActorAsyncBridge`, daemon thread, and `asyncio.run_coroutine_threadsafe` are eliminated. This section documents the current Thespian-era pattern for historical reference.
-
-Thespian's `receiveMessage` is synchronous; ACP's `prompt_session` and executor cleanup are async. The repo-wide solution is `ActorAsyncBridge`: one long-lived `asyncio` event loop on a daemon thread per actor, with all async work handed to it via `asyncio.run_coroutine_threadsafe`. On timeout, the bridge cancels its own coroutine so leaked tasks do not accumulate across retries.
+All actor methods are `async def`; `await executor.prompt_session(...)` is called directly. The ACP executor keeps its own async plumbing alive across many prompts; actors just `await` into it. There is no threading bridge, no persistent daemon thread, no `run_coroutine_threadsafe` — these workarounds existed under the legacy Thespian runtime (whose `receiveMessage` was synchronous) and were removed with the migration.
 
 Why it repeats:
 
-- `asyncio.run()` tears down async generators on exit, which breaks ACP's stdio transport.
-- Every agent actor needs to reach into async code; centralizing the pattern prevents per-actor reinvention.
-- The loop stays alive across many messages in the actor's lifetime, so session reuse and ACP connection caching work correctly.
+- xoscar actor methods share a single event loop with the rest of the process, so there is no sync↔async boundary inside the actor.
+- Cancellation via `xo.wait_for(ref.method(...), timeout=...)` propagates cleanly to the actor's coroutine, which observes `asyncio.CancelledError` and can unwind resources in a `try/except` or `finally` block.
+- Session reuse and ACP connection caching work naturally because each actor holds the executor as plain `self` state.
 
 Representative code:
 
-- [ActorAsyncBridge mixin](../src/maverick/actors/_bridge.py)
-- [refuel decomposer actor](../src/maverick/actors/decomposer.py)
-- [top-level briefing actor](../src/maverick/actors/briefing.py)
-- [bridge tests](../tests/unit/actors/test_bridge.py)
-
-**xoscar target pattern:** Actor methods are `async def`; `await executor.prompt_session(...)` is called directly. No threading bridge, no persistent daemon thread, no `run_coroutine_threadsafe`. `ActorAsyncBridge` and `_bridge.py` are removed in the xoscar migration.
+- [DecomposerActor.send_detail](../src/maverick/actors/xoscar/decomposer.py)
+- [ImplementerActor.send_implement](../src/maverick/actors/xoscar/implementer.py)
+- [ReviewerActor.send_review](../src/maverick/actors/xoscar/reviewer.py)
 
 ## 10. Stable Outputs Use Frozen Dataclasses With `to_dict()`
 
@@ -281,7 +272,7 @@ Representative code:
 
 One subtle repeated lesson from the tests: `@runtime_checkable` verifies attribute presence, not full signature correctness. Static typing still matters.
 
-Scope note: the Protocol-over-inheritance rule applies to cross-module seams (step executors, VCS reads, runner validation, the workflow-scoped actor mailbox). The top-level actors in [`src/maverick/actors/`](../src/maverick/actors) currently inherit directly from `thespian.actors.Actor` plus the `ActorAsyncBridge` mixin — Thespian requires concrete subclasses, so Protocol doesn't apply to that surface. In the planned xoscar migration, the top-level actors will inherit from `xoscar.Actor` instead; the `Actor` protocol defined in `src/maverick/workflows/fly_beads/actors/protocol.py` remains the canonical typed interface for all other cross-module seams.
+Scope note: the Protocol-over-inheritance rule applies to cross-module seams (step executors, VCS reads, runner validation, the workflow-scoped actor mailbox). The top-level actors in [`src/maverick/actors/xoscar/`](../src/maverick/actors/xoscar) inherit from `xoscar.Actor` — xoscar requires concrete subclasses, so Protocol doesn't apply to that surface. The `Actor` protocol defined in `src/maverick/workflows/fly_beads/actors/protocol.py` remains the canonical typed interface for all other cross-module seams.
 
 ## 12. External Systems Sit Behind Safe Wrappers
 
@@ -300,11 +291,11 @@ Representative code:
 - [ACP client streaming and permission handling](../src/maverick/executor/acp_client.py)
 - [Git repository wrapper](../src/maverick/git/repository.py)
 - [jj client](../src/maverick/jj/client.py)
-- [actor async bridge](../src/maverick/actors/_bridge.py) *(Thespian-era; removed in xoscar migration)*
+- [xoscar pool helpers](../src/maverick/actors/xoscar/pool.py)
 
 Repeated sub-patterns inside these wrappers include explicit timeouts, Tenacity-based retries, structured logging, and specific error mapping.
 
-One known-but-acknowledged boundary (Thespian era): the Thespian+asyncio bridge in [actor bridge](../src/maverick/actors/_bridge.py) blocks `receiveMessage` for the entire duration of an ACP prompt (typically 10–30 minutes). The bridge cancels its own coroutine on timeout, but control traffic (shutdown, nudges) still queues behind the in-flight prompt until it completes. This is an acknowledged trade-off of Thespian's synchronous message model; it is eliminated by the xoscar migration.
+One area where xoscar's cross-ref conventions matter: `xo.wait_for(ref.method(...), timeout=...)` — not `asyncio.wait_for` — is the correct cancellation primitive for remote actor calls. xoscar documents a pitfall where `asyncio.wait_for` around a remote call can lose the timeout if the target pool hangs. Supervisors use `xo.wait_for` around fan-out tasks (e.g., the detail-phase fan-out in `RefuelSupervisor._run_detail_fan_out`).
 
 ## 13. Long-Running Work Leaves Recovery And Audit Artifacts
 
@@ -348,7 +339,7 @@ Key convention: the cache envelope is `{"schema_version": int, "cache_key": str,
 
 These are the main places where the codebase currently carries more than one version of the same idea:
 
-- **Thespian → xoscar migration planned.** The top-level actors in [`src/maverick/actors/`](../src/maverick/actors) are the canonical runtime path for every workflow and currently run on Thespian. A full migration to xoscar is planned; see [docs/prd-xoscar-migration.md](prd-xoscar-migration.md) for the detailed plan. Fly and plan also ship workflow-scoped actor packages (`workflows/fly_beads/actors/`, `workflows/generate_flight_plan/actors/`) that use the correct async pattern and do **not** depend on Thespian. Refuel does not have a workflow-scoped variant — the top-level `actors/refuel_supervisor.py` is the only refuel implementation.
+- **xoscar actor runtime.** The top-level actors in [`src/maverick/actors/xoscar/`](../src/maverick/actors/xoscar) are the canonical runtime path for every workflow (refuel, fly, plan). They subclass `xo.Actor` and expose typed `async def` methods; the pool is created per workflow run via `maverick.actors.actor_pool()` bound to an ephemeral port. Agent actors own their own MCP inboxes (Design Decision #3 in the migration plan) and forward typed payloads to the supervisor via in-pool RPC. Fly and plan also ship workflow-scoped actor packages (`workflows/fly_beads/actors/`, `workflows/generate_flight_plan/actors/`) for in-process composition and tests.
 - MCP tool-backed structured returns are the preferred path, but plain text plus `output_schema` still exists for some one-shot execution paths. The executor explicitly rejects `output_schema` on MCP tool-backed sessions in [ACP executor](../src/maverick/executor/acp.py).
 - The legacy rules in [cli-output-rules.md](cli-output-rules.md) do not fully describe the current renderer in [workflow_executor.py](../src/maverick/cli/workflow_executor.py), which now collapses simple steps, buffers interim output, and uses Rich Live tables for concurrent agent views.
 - "Parallel briefing" is a stable conceptual pattern, but some in-process supervisors currently run specialist prompts sequentially while preserving the same fan-in shape. The pattern is stable; the transport and scheduling details are still settling.

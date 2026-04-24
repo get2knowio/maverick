@@ -56,7 +56,7 @@ def _make_workflow(
     )
 
 
-def _make_thespian_result(
+def _make_supervisor_result(
     plan_dir: Path,
     output: FlightPlanOutput | None = None,
 ) -> dict[str, Any]:
@@ -199,13 +199,13 @@ class TestGenerateFlightPlanWorkflowHappyPath:
     ) -> None:
         """read_prd step produces a StepCompleted event (other steps run inside Thespian)."""
         plan_dir = tmp_path / "test-plan"
-        thespian_result = _make_thespian_result(plan_dir)
+        supervisor_result = _make_supervisor_result(plan_dir)
 
         workflow = _make_workflow(mock_config, mock_registry)
         with patch.object(
             workflow,
             "_generate_with_xoscar",
-            new=AsyncMock(return_value=thespian_result),
+            new=AsyncMock(return_value=supervisor_result),
         ):
             events = await _collect_events(
                 workflow,
@@ -229,13 +229,13 @@ class TestGenerateFlightPlanWorkflowHappyPath:
     ) -> None:
         """Workflow emits WorkflowStarted at the beginning."""
         plan_dir = tmp_path / "test-plan"
-        thespian_result = _make_thespian_result(plan_dir)
+        supervisor_result = _make_supervisor_result(plan_dir)
 
         workflow = _make_workflow(mock_config, mock_registry)
         with patch.object(
             workflow,
             "_generate_with_xoscar",
-            new=AsyncMock(return_value=thespian_result),
+            new=AsyncMock(return_value=supervisor_result),
         ):
             events = await _collect_events(
                 workflow,
@@ -258,13 +258,13 @@ class TestGenerateFlightPlanWorkflowHappyPath:
     ) -> None:
         """Workflow emits WorkflowCompleted with success=True."""
         plan_dir = tmp_path / "test-plan"
-        thespian_result = _make_thespian_result(plan_dir)
+        supervisor_result = _make_supervisor_result(plan_dir)
 
         workflow = _make_workflow(mock_config, mock_registry)
         with patch.object(
             workflow,
             "_generate_with_xoscar",
-            new=AsyncMock(return_value=thespian_result),
+            new=AsyncMock(return_value=supervisor_result),
         ):
             events = await _collect_events(
                 workflow,
@@ -288,13 +288,13 @@ class TestGenerateFlightPlanWorkflowHappyPath:
     ) -> None:
         """Thespian actor system writes the flight plan file to disk."""
         plan_dir = tmp_path / "test-plan"
-        thespian_result = _make_thespian_result(plan_dir)
+        supervisor_result = _make_supervisor_result(plan_dir)
 
         workflow = _make_workflow(mock_config, mock_registry)
         with patch.object(
             workflow,
             "_generate_with_xoscar",
-            new=AsyncMock(return_value=thespian_result),
+            new=AsyncMock(return_value=supervisor_result),
         ):
             await _collect_events(
                 workflow,
@@ -320,13 +320,13 @@ class TestGenerateFlightPlanWorkflowHappyPath:
     ) -> None:
         """Workflow result includes the output path."""
         plan_dir = tmp_path / "test-plan"
-        thespian_result = _make_thespian_result(plan_dir)
+        supervisor_result = _make_supervisor_result(plan_dir)
 
         workflow = _make_workflow(mock_config, mock_registry)
         with patch.object(
             workflow,
             "_generate_with_xoscar",
-            new=AsyncMock(return_value=thespian_result),
+            new=AsyncMock(return_value=supervisor_result),
         ):
             await _collect_events(
                 workflow,

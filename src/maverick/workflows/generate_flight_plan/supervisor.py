@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from maverick.logging import get_logger
-from maverick.tools.supervisor_inbox.models import (
+from maverick.tools.agent_inbox.models import (
     SubmitChallengePayload,
     SubmitFlightPlanPayload,
     SupervisorInboxPayload,

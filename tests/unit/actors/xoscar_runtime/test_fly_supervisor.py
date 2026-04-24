@@ -12,7 +12,7 @@ import xoscar as xo
 
 from maverick.actors.xoscar.fly_supervisor import FlyInputs, FlySupervisor
 from maverick.actors.xoscar.messages import PromptError
-from maverick.tools.supervisor_inbox.models import (
+from maverick.tools.agent_inbox.models import (
     SubmitFixResultPayload,
     SubmitImplementationPayload,
     SubmitReviewPayload,

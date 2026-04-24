@@ -14,7 +14,7 @@ Maverick is a Python CLI application that orchestrates AI-powered development wo
 | Package Manager | uv                      | Fast, reproducible builds via `uv.lock`  |
 | Build System    | Make                    | AI-friendly commands with minimal output |
 | AI/Agents       | Agent Client Protocol   | `agent-client-protocol` SDK + `claude-agent-acp` subprocess |
-| Actor Framework | Thespian                | `multiprocTCPBase` for cross-process actor messaging |
+| Actor Framework | xoscar                  | Async-native in-pool actors (`n_process=0`) |
 | MCP Tools       | MCP SDK                 | Supervisor inbox server for schema-enforced agent output |
 | CLI             | Click                   | `click` package                          |
 | CLI Output      | Rich                    | `rich` package (auto TTY detection)      |
@@ -134,7 +134,7 @@ src/maverick/
 ├── constants.py         # Workflow execution constants
 ├── events.py            # Workflow progress event dataclasses
 ├── results.py           # StepResult, WorkflowResult dataclasses
-├── actors/              # Thespian actor definitions
+├── actors/              # xoscar actor definitions (xoscar/ subpackage)
 │   ├── refuel_supervisor.py  # RefuelSupervisorActor (routing + inbox)
 │   ├── decomposer.py        # DecomposerActor (ACP prompts)
 │   ├── validator.py          # ValidatorActor (pure sync)
@@ -170,8 +170,8 @@ src/maverick/
 
 ### Separation of Concerns
 
-- **Actors**: Thespian actors that own state and process messages. Agent actors hold persistent ACP sessions; deterministic actors wrap Python functions.
-- **Supervisors**: Route messages between actors via policy. The supervisor IS a Thespian actor — `receiveMessage` is its inbox.
+- **Actors**: ``xo.Actor`` subclasses that own state and expose typed ``async def`` methods. Agent actors hold persistent ACP sessions and an MCP inbox; deterministic actors wrap Python functions.
+- **Supervisors**: ``xo.Actor``s that orchestrate a workflow via typed RPC to children and emit ``ProgressEvent``s through an ``@xo.generator`` ``run()`` method consumed by the workflow.
 - **Agents**: Know HOW to do a task (system prompts, tool selection). Build prompts; don't own orchestration.
 - **Workflows**: Know WHAT to do and WHEN. Create the ActorSystem, actors, send "start", wait for "complete".
 - **MCP Tools**: The supervisor's inbox. Agents call MCP tools to deliver structured results; the protocol validates schemas.
@@ -283,91 +283,88 @@ call MCP tools in ACP sessions — use the text fallback path for Copilot-routed
 
 ### Actor-Mailbox Architecture
 
-All three workflows (plan, refuel, fly) use a supervisor that routes messages between actors:
+All three workflows (plan, refuel, fly) use a supervisor that orchestrates typed
+calls between actors:
 
-- **Agent actors** (implementer, reviewer, decomposer): Persistent ACP sessions, deliver
-  results via MCP tool calls to the supervisor's inbox
-- **Deterministic actors** (gate, validator, bead creator): Pure Python, no ACP session
-- **Supervisor**: Routes messages via a policy (match on message type). The supervisor IS
-  the Thespian actor — its `receiveMessage` is its inbox
+- **Agent actors** (implementer, reviewer, decomposer, briefing, generator): Persistent
+  ACP sessions; own their MCP inbox (``on_tool_call``) and forward typed results to the
+  supervisor via in-pool RPC (e.g. ``await self._supervisor_ref.outline_ready(payload)``)
+- **Deterministic actors** (gate, validator, bead creator, committer, ac_check,
+  spec_check, plan_validator, plan_writer): Pure async Python, no ACP session, no
+  MCP inbox — the supervisor calls a typed method and awaits the typed result
+- **Supervisor**: ``xo.Actor`` with an ``@xo.generator run()`` method that yields
+  ``ProgressEvent``s to the workflow, and typed domain methods (``outline_ready``,
+  ``review_ready``, etc.) that child actors invoke
 
-See `docs/AGENT-MCP.md` for the full architecture design.
+### xoscar Actor System
 
-### Thespian Actor System
+All workflows run on an **xoscar** actor pool (see
+``src/maverick/actors/xoscar/``). The pool is created per workflow run via
+``maverick.actors.actor_pool()`` bound to an ephemeral port
+(``127.0.0.1:0``) — two concurrent workflows can coexist with no
+port-coordination problem. Per-actor process isolation comes from the
+ACP agent subprocess each agent actor owns, not from the actor runtime
+(the pool uses ``n_process=0``: every actor is a coroutine in a shared
+event loop).
 
-The refuel workflow uses Thespian `multiprocTCPBase` for true cross-process actor messaging.
-Each actor runs in its own OS process. The supervisor IS the Thespian actor — its
-`receiveMessage` is its inbox. MCP tool calls arrive directly via Thespian `tell()`.
+**Pool lifecycle**: workflows use the ``actor_pool()`` async context
+manager. The supervisor is created via
+``await xo.create_actor(Supervisor, inputs, address=address, uid=...)``
+and drained via ``self._drain_xoscar_supervisor(supervisor)`` on
+``PythonWorkflow``. Children are created in ``__post_create__`` and
+destroyed in ``__pre_destroy__`` (which reaps each agent actor's ACP
+subprocess).
 
-**Admin Port**: Use a fixed port (default 19500) via `capabilities={'Admin Port': 19500}`.
-Do NOT use `transientUnique=True` — child processes (the MCP server) cannot discover a
-random-port Admin. Pass `--admin-port` to `maverick serve-inbox` so it connects to the
-same Admin.
+**MCP inbox (Design Decision #3)**: every agent actor owns its own
+MCP inbox. The ``maverick serve-inbox`` subprocess is spawned by
+``McpServerStdio`` with ``--inbox-address <pool>`` and
+``--inbox-uid <agent_uid>`` flags pointing at the specific agent
+actor. Incoming tool calls land on that actor's ``on_tool_call`` method,
+which parses the payload and forwards a typed call to the supervisor
+(``await self._supervisor_ref.outline_ready(payload)``). The supervisor
+exposes only typed domain methods — **no** ``on_tool_call`` — so its
+surface stays dict-free.
 
-**Stale Admin Cleanup**: The Admin daemon survives the parent process. Always call
-`asys.shutdown()` in a finally block. Register an `atexit` handler as backup. On startup,
-check if the port is occupied and shut down any stale Admin before creating a new one.
+**Cancellation and timeouts**: wrap any long-running child call in
+``xo.wait_for`` (not ``asyncio.wait_for`` — xoscar has a documented
+pitfall where ``asyncio.wait_for`` around a remote call can lose the
+timeout if the pool hangs). ``xo.wait_for(child.send_detail(req),
+timeout=STALE_IN_FLIGHT_SECONDS)`` cancels the remote coroutine
+cleanly; the actor method observes ``asyncio.CancelledError``. The
+STALE watchdog that existed under Thespian is replaced by per-call
+timeouts on the fan-out tasks.
 
-**Async Bridge in Actor Processes**: ACP's `prompt_session()` is async but Thespian's
-`receiveMessage` is synchronous. Use a persistent background event loop:
+**Async generators across actor refs**: a supervisor's ``run()`` must
+be decorated with ``@xo.generator``; callers consume via
+``async for event in await supervisor_ref.run(...)`` (note the
+``await`` before the loop). Plain ``AsyncGenerator`` returns do not
+stream across an actor ref — this is a published xoscar API
+constraint.
 
-```python
-# In actor __init__ or init message handler:
-self._loop = asyncio.new_event_loop()
-self._thread = threading.Thread(target=self._loop.run_forever, daemon=True)
-self._thread.start()
+**Teardown**: ``await xo.destroy_actor(ref)`` runs ``__pre_destroy__``
+before removing the actor. ``await pool.stop()`` alone does NOT invoke
+``__pre_destroy__`` per actor — supervisors destroy their children
+explicitly on completion so each agent's ACP subprocess is reaped
+cleanly.
 
-# In message handler:
-future = asyncio.run_coroutine_threadsafe(self._do_prompt(), self._loop)
-result = future.result(timeout=1800)
-```
-
-Do NOT use `asyncio.run()` — it tears down async generators (ACP's stdio transport) on
-completion, causing `RuntimeError: aclose(): asynchronous generator is already running`.
-The persistent loop keeps the event loop alive across multiple message handlers.
-
-**Known Limitations (async bridge)**: The bridge blocks `receiveMessage` for the entire
-duration of an ACP prompt — up to `timeout_seconds`. While a prompt is in flight:
-
-- `ActorExitRequest` from `asys.shutdown()` queues behind the running `receiveMessage`,
-  so shutdown can take up to one prompt timeout to drain cleanly.
-- Supervisor messages (nudges, shutdowns) queue behind the in-flight prompt and are
-  processed when it completes.
-- Ctrl-C may orphan ACP subprocesses if the atexit handler's shutdown does not finish
-  before the process exits. The bridge now cancels its own coroutine on timeout (see
-  `_run_coro` in `actors/_bridge.py`), but a SIGINT during the 1-2s gap between
-  "stopped waiting" and "executor cleanup" can still leave the ACP subprocess to be
-  reaped by PID 1.
-
-These are acknowledged trade-offs of keeping Thespian's sync message model. A full
-cancellation path (cancel_current message from supervisor → future.cancel on the
-actor's running coroutine) is a larger redesign — see `docs/REFUEL_ISSUES.md` Issue 12.
-
-**Timeout Guidance**: Decomposition prompts on large flight plans take 10-20 minutes.
-Set `StepConfig(timeout=1800)` for prompt_session calls. Set `asys.ask(timeout=3600)`
-for the overall supervisor workflow.
-
-**globalName Discovery**: The MCP server discovers the supervisor via
-`asys.createActor(SupervisorClass, globalName='supervisor-inbox')` which returns the
-existing actor, not a new one. No serialized addresses needed.
-
-**Module Importability**: Thespian actor classes MUST be importable by forked child
-processes. Actor modules must be in an installed package (on `sys.path`). Defining
-actors in `__main__` or uninstalled modules causes `InvalidActorSpecification`.
-
-**Self-Contained Actors**: Each agent actor MUST own its own ACP agent subprocess.
-Do NOT share executors, sessions, or connections between actor processes.
+**Cross-process MCP constraint**: the parent process hosting the pool
+must keep its asyncio loop running while any MCP subprocess is live.
+``subprocess.Popen.communicate()`` blocks the loop and starves the
+pool's accept loop — the subprocess's ``xo.actor_ref`` lookup hangs.
+The ACP executor already spawns MCP servers via
+``asyncio.create_subprocess_exec`` (through ``McpServerStdio``), so
+production is safe. Tests that spawn MCP subprocesses must do the
+same.
 
 Standard agent actor lifecycle:
 
 | Phase | What happens |
 |-------|-------------|
-| **init** | Create persistent event loop + thread. Set `_executor = None`, `_session_id = None`. |
-| **first prompt** | `_ensure_executor()` lazily creates executor (spawns ACP agent subprocess). `_new_session()` creates fresh ACP session with MCP config. |
+| **``__post_create__``** | Initialise state: ``_executor = None``, ``_session_id = None``, plus any caches. |
+| **first prompt** | ``_ensure_executor()`` lazily creates the ACP executor (spawns ACP agent subprocess). ``_new_session()`` creates a fresh ACP session with MCP config pointing at this actor's own uid. |
 | **subsequent prompts** (same bead/task) | Reuse executor + session. Agent remembers conversation context. |
-| **new bead/task** | `_new_session()` creates fresh session on existing connection. Agent subprocess stays alive; only the conversation resets. |
-| **shutdown** | `executor.cleanup()` kills ACP agent subprocess. Only called on explicit "shutdown" message from supervisor. |
-| **ActorSystem shutdown** | Thespian kills the actor OS process. |
+| **new bead/task** | ``new_bead(request)`` rotates the session; agent subprocess stays alive. |
+| **``__pre_destroy__``** | ``await self._executor.cleanup()`` kills the ACP agent subprocess. Runs automatically when the supervisor destroys the child on completion. |
 
 Key rules:
 - Do NOT call `executor.cleanup()` after every prompt — agent subprocess must persist
@@ -719,13 +716,13 @@ conventions and recovery procedures.
 - Python 3.11+ with `from __future__ import annotations`
 - Agent Client Protocol (ACP) via `agent-client-protocol` SDK + `claude-agent-acp` subprocess
 - MCP SDK for supervisor inbox tool server
-- Thespian actor framework for cross-process actor messaging
+- xoscar actor framework for in-pool async actor messaging
 - Click + Rich for CLI, Pydantic for models, structlog for logging
 - Jujutsu (jj) for VCS writes, GitPython for VCS reads
 - Beads via `bd` CLI for work unit management
 
 ## Recent Changes
-- All workflows use Thespian actor system exclusively (no legacy fallbacks)
+- All workflows migrated to xoscar (Thespian removed in Phase 4)
 - Rich Live CLI output with agent fan-out rendering
 - Parallel decomposer pool for detail pass
 - Self-contained actors (create own ACP executors)

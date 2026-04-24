@@ -12,7 +12,7 @@ import pytest
 import xoscar as xo
 
 from maverick.actors.xoscar.briefing import BriefingActor
-from maverick.tools.supervisor_inbox.models import SubmitNavigatorBriefPayload
+from maverick.tools.agent_inbox.models import SubmitNavigatorBriefPayload
 
 
 class _BriefingRecorder(xo.Actor):
