@@ -193,6 +193,39 @@ class TestAcpStepExecutorBasicExecute:
         assert result.usage is None
         assert result.events == ()
 
+    async def test_populates_usage_from_acp_response(self) -> None:
+        """ExecutorResult.usage reflects ACP PromptResponse.usage when reported."""
+        from maverick.executor.result import UsageMetadata
+
+        executor = _make_executor()
+        mock_conn, mock_proc = _mock_spawn_context(accumulated_text="agent output")
+
+        # Simulate ACP PromptResponse with a populated usage field.
+        fake_usage = SimpleNamespace(
+            input_tokens=1200,
+            output_tokens=400,
+            cached_read_tokens=800,
+            cached_write_tokens=1000,
+        )
+        mock_conn.prompt = AsyncMock(return_value=SimpleNamespace(usage=fake_usage))
+
+        with patch("maverick.executor._connection_pool.spawn_agent_process") as mock_spawn:
+            mock_spawn.return_value = _FakeAsyncContextManager(mock_conn, mock_proc)
+            with patch.object(
+                MaverickAcpClient, "get_accumulated_text", return_value="agent output"
+            ):
+                result = await executor.execute(
+                    step_name="usage_step",
+                    agent_name="test_agent",
+                    prompt={"k": "v"},
+                )
+
+        assert isinstance(result.usage, UsageMetadata)
+        assert result.usage.input_tokens == 1200
+        assert result.usage.output_tokens == 400
+        assert result.usage.cache_read_tokens == 800
+        assert result.usage.cache_write_tokens == 1000
+
     async def test_calls_build_prompt(self) -> None:
         """execute() calls agent.build_prompt() with the prompt context."""
         called_with: list[Any] = []
@@ -398,6 +431,42 @@ class TestPromptSessionOutputContracts:
         assert isinstance(result.output, _SampleOutput)
         assert result.output.message == "hello"
         assert result.output.count == 3
+
+    async def test_prompt_session_populates_usage_from_acp_response(self) -> None:
+        """prompt_session propagates PromptResponse.usage to ExecutorResult.usage."""
+        from maverick.executor.result import UsageMetadata
+
+        executor = _make_executor()
+        mock_conn, mock_proc = _mock_spawn_context()
+
+        fake_usage = SimpleNamespace(
+            input_tokens=500,
+            output_tokens=150,
+            cached_read_tokens=420,
+            cached_write_tokens=0,
+        )
+        mock_conn.prompt = AsyncMock(return_value=SimpleNamespace(usage=fake_usage))
+
+        with patch("maverick.executor._connection_pool.spawn_agent_process") as mock_spawn:
+            mock_spawn.return_value = _FakeAsyncContextManager(mock_conn, mock_proc)
+
+            session_id = await executor.create_session(
+                step_name="session_usage",
+                agent_name="test_agent",
+            )
+            with patch.object(MaverickAcpClient, "get_accumulated_text", return_value="reply"):
+                result = await executor.prompt_session(
+                    session_id=session_id,
+                    prompt_text="follow-up",
+                    step_name="session_usage",
+                    agent_name="test_agent",
+                )
+
+        assert isinstance(result.usage, UsageMetadata)
+        assert result.usage.input_tokens == 500
+        assert result.usage.output_tokens == 150
+        assert result.usage.cache_read_tokens == 420
+        assert result.usage.cache_write_tokens == 0
 
     async def test_create_session_tracks_gemini_override_connection_for_followup_prompts(
         self,

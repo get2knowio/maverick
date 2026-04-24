@@ -44,7 +44,7 @@ from maverick.executor.acp_client import MAX_SAME_TOOL_CALLS, MaverickAcpClient
 from maverick.executor.config import DEFAULT_EXECUTOR_CONFIG, StepConfig
 from maverick.executor.protocol import EventCallback
 from maverick.executor.provider_registry import AgentProviderRegistry
-from maverick.executor.result import ExecutorResult
+from maverick.executor.result import ExecutorResult, UsageMetadata
 from maverick.logging import get_logger
 from maverick.registry import ComponentRegistry
 
@@ -245,8 +245,9 @@ class AcpStepExecutor:
         cwd_str = str(cwd) if cwd is not None else str(Path.cwd())
 
         model_label: str | None = None
+        usage: UsageMetadata | None = None
         try:
-            output, model_label = await self._execute_with_retry(
+            output, model_label, usage = await self._execute_with_retry(
                 step_name=step_name,
                 agent_name=agent_name,
                 prompt_text=prompt_text,
@@ -287,7 +288,7 @@ class AcpStepExecutor:
         return ExecutorResult(
             output=output,
             success=True,
-            usage=None,
+            usage=usage,
             events=(),
             model_label=model_label,
         )
@@ -520,9 +521,9 @@ class AcpStepExecutor:
                 session_id=session_id,
             )
             if effective_config.timeout is not None:
-                await asyncio.wait_for(coro, timeout=float(effective_config.timeout))
+                response = await asyncio.wait_for(coro, timeout=float(effective_config.timeout))
             else:
-                await coro
+                response = await coro
         except TimeoutError as exc:
             # Send an ACP CancelNotification so the agent stops the
             # stalled turn instead of leaving the session half-alive.
@@ -534,9 +535,7 @@ class AcpStepExecutor:
             # a fresh subprocess via get_or_create.
             cancel_failed = False
             try:
-                await asyncio.wait_for(
-                    cached.conn.cancel(session_id), timeout=5.0
-                )
+                await asyncio.wait_for(cached.conn.cancel(session_id), timeout=5.0)
             except TimeoutError:
                 cancel_failed = True
                 self._logger.warning(
@@ -583,12 +582,27 @@ class AcpStepExecutor:
         accumulated_text = cached.client.get_accumulated_text()
         duration_ms = int((time.monotonic() - start_time) * 1000)
 
+        usage = _usage_from_acp(getattr(response, "usage", None))
+
         self._logger.debug(
             "acp_executor.prompt_session_complete",
             session_id=session_id,
             step_name=step_name,
             response_len=len(accumulated_text),
             duration_ms=duration_ms,
+        )
+        self._logger.info(
+            "acp_executor.prompt_usage",
+            step_name=step_name,
+            agent_name=agent_name,
+            session_id=session_id,
+            provider=provider_key,
+            input_tokens=usage.input_tokens if usage else None,
+            output_tokens=usage.output_tokens if usage else None,
+            cache_read_tokens=usage.cache_read_tokens if usage else None,
+            cache_write_tokens=usage.cache_write_tokens if usage else None,
+            usage_reported=usage is not None,
+            session_kind="multi_turn",
         )
 
         # Extract and validate output
@@ -605,7 +619,7 @@ class AcpStepExecutor:
         return ExecutorResult(
             output=output,
             success=True,
-            usage=None,
+            usage=usage,
             events=(),
         )
 
@@ -627,7 +641,7 @@ class AcpStepExecutor:
         max_attempts: int,
         wait_min: float,
         wait_max: float,
-    ) -> tuple[Any, str | None]:
+    ) -> tuple[Any, str | None, UsageMetadata | None]:
         """Run the ACP prompt with optional tenacity retry.
 
         A fresh ACP session is created per attempt. The connection is reused.
@@ -640,6 +654,7 @@ class AcpStepExecutor:
         # resolved model label.
         current_cached: list[CachedConnection] = [cached]
         resolved_model_label: list[str | None] = [None]
+        resolved_usage: list[UsageMetadata | None] = [None]
 
         async def _run_single_attempt() -> Any:
             """Execute one ACP session: create session → prompt → extract output."""
@@ -738,9 +753,11 @@ class AcpStepExecutor:
                     session_id=session_id,
                 )
                 if effective_config.timeout is not None:
-                    await asyncio.wait_for(coro, timeout=float(effective_config.timeout))
+                    response = await asyncio.wait_for(
+                        coro, timeout=float(effective_config.timeout)
+                    )
                 else:
-                    await coro
+                    response = await coro
             except TimeoutError as exc:
                 raise MaverickTimeoutError(
                     f"ACP step '{step_name}' timed out after {effective_config.timeout}s",
@@ -766,15 +783,34 @@ class AcpStepExecutor:
                         session_id=retry_session_id,
                     )
                     if effective_config.timeout is not None:
-                        await asyncio.wait_for(retry_coro, timeout=float(effective_config.timeout))
+                        response = await asyncio.wait_for(
+                            retry_coro, timeout=float(effective_config.timeout)
+                        )
                     else:
-                        await retry_coro
+                        response = await retry_coro
                     # Update session_id so response_complete log is accurate
                     session_id = retry_session_id
                 except AcpRequestError as retry_exc:
                     raise NetworkError(
                         f"ACP request failed for step '{step_name}' after reconnect: {retry_exc}",
                     ) from retry_exc
+
+            usage = _usage_from_acp(getattr(response, "usage", None))
+            resolved_usage[0] = usage
+            self._logger.info(
+                "acp_executor.prompt_usage",
+                step_name=step_name,
+                agent_name=agent_name,
+                session_id=session_id,
+                provider=current_cached[0].provider_name,
+                model=resolved_model_label[0],
+                input_tokens=usage.input_tokens if usage else None,
+                output_tokens=usage.output_tokens if usage else None,
+                cache_read_tokens=usage.cache_read_tokens if usage else None,
+                cache_write_tokens=usage.cache_write_tokens if usage else None,
+                usage_reported=usage is not None,
+                session_kind="one_shot",
+            )
 
             # Check circuit breaker
             if client.aborted:
@@ -805,7 +841,7 @@ class AcpStepExecutor:
 
         if max_attempts <= 1:
             output = await _run_single_attempt()
-            return output, resolved_model_label[0]
+            return output, resolved_model_label[0], resolved_usage[0]
 
         result: Any = None
         async for attempt in AsyncRetrying(
@@ -815,7 +851,26 @@ class AcpStepExecutor:
         ):
             with attempt:
                 result = await _run_single_attempt()
-        return result, resolved_model_label[0]
+        return result, resolved_model_label[0], resolved_usage[0]
+
+
+def _usage_from_acp(usage: Any) -> UsageMetadata | None:
+    """Convert an ACP ``PromptResponse.usage`` to Maverick's ``UsageMetadata``.
+
+    ACP's ``Usage`` is an **unstable** field (per protocol docs) and may be
+    absent when a provider does not supply token accounting. Returns ``None``
+    in that case so downstream consumers can distinguish "no data" from
+    "data with zero tokens".
+    """
+    if usage is None:
+        return None
+    return UsageMetadata(
+        input_tokens=int(getattr(usage, "input_tokens", 0) or 0),
+        output_tokens=int(getattr(usage, "output_tokens", 0) or 0),
+        cache_read_tokens=int(getattr(usage, "cached_read_tokens", 0) or 0),
+        cache_write_tokens=int(getattr(usage, "cached_write_tokens", 0) or 0),
+        total_cost_usd=None,
+    )
 
 
 def _find_most_called_tool(client: MaverickAcpClient) -> str:
