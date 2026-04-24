@@ -38,7 +38,7 @@ from tests.unit.workflows.refuel_maverick.conftest import (
 _MODULE = "maverick.workflows.refuel_maverick.workflow"
 
 # Step order constants — decompose + validate now run inside the Thespian
-# supervisor (_run_with_thespian) so their events are not visible
+# supervisor (_run_with_xoscar) so their events are not visible
 # when that method is mocked.
 _OUTER_STEPS = [
     PARSE_FLIGHT_PLAN,
@@ -137,7 +137,7 @@ class TestRefuelMaverickWorkflowHappyPath:
         mock_registry: MagicMock,
         tmp_path: Path,
     ) -> None:
-        """_run_with_thespian is called during the workflow."""
+        """_run_with_xoscar is called during the workflow."""
         fp = make_simple_flight_plan(tmp_path)
         workflow = make_workflow(mock_config, mock_registry)
         bead_result = make_bead_result()
@@ -157,7 +157,7 @@ class TestRefuelMaverickWorkflowHappyPath:
             ),
             patch(f"{_MODULE}.create_beads", new=AsyncMock(return_value=bead_result)),
             patch(f"{_MODULE}.wire_dependencies", new=AsyncMock(return_value=wire_result)),
-            patch.object(workflow, "_run_with_thespian", new=mock_decompose),
+            patch.object(workflow, "_run_with_xoscar", new=mock_decompose),
         ):
             await collect_events(
                 workflow,
@@ -166,45 +166,47 @@ class TestRefuelMaverickWorkflowHappyPath:
 
         mock_decompose.assert_called_once()
 
-    async def test_run_with_thespian_passes_internal_session_thresholds(
+    async def test_xoscar_supervisor_receives_typed_inputs(
         self,
         mock_config: MagicMock,
         mock_registry: MagicMock,
         tmp_path: Path,
     ) -> None:
-        """Decomposer actor init receives the internal detail/fix thresholds."""
+        """The xoscar supervisor receives a ``RefuelInputs`` carrying the
+        resolved ``StepConfig`` and the internal detail/fix session
+        thresholds. Replaces the two Thespian-specific init-dict tests."""
+        from maverick.config import AgentConfig, AgentProviderConfig
 
-        class _FakeActorSystem:
-            def __init__(self) -> None:
-                self.asks: list[tuple[object, dict, int]] = []
-                self.tell_calls: list[tuple[object, object]] = []
-                self._counter = 0
-
-            def createActor(self, _cls, **kwargs):  # noqa: N802
-                self._counter += 1
-                return (
-                    kwargs.get("globalName")
-                    or kwargs.get("global_name")
-                    or f"actor-{self._counter}"
-                )
-
-            def ask(self, addr, message, timeout):
-                self.asks.append((addr, message, timeout))
-                return {"type": "init_ok"}
-
-            def tell(self, addr, message):
-                self.tell_calls.append((addr, message))
-
-            def shutdown(self):
-                return None
+        mock_config.steps = {}
+        mock_config.agents = {
+            "decomposer": AgentConfig(provider="claude", model_id="opus"),
+        }
+        mock_config.agent_providers = {
+            "claude": AgentProviderConfig(
+                command=["claude-agent"],
+                default=True,
+                default_model="sonnet",
+            ),
+        }
 
         fp = make_simple_flight_plan(tmp_path)
         workflow = make_workflow(mock_config, mock_registry)
-        fake_asys = _FakeActorSystem()
         flight_plan = await __import__(
             "maverick.flight.loader",
             fromlist=["FlightPlanFile"],
         ).FlightPlanFile.aload(fp)
+
+        captured_inputs: dict[str, Any] = {}
+
+        async def _fake_create_actor(_cls, *args: Any, **kwargs: Any) -> AsyncMock:
+            # First positional arg is the RefuelInputs dataclass.
+            if args and not captured_inputs:
+                captured_inputs["value"] = args[0]
+            ref = AsyncMock()
+            return ref
+
+        async def _fake_destroy_actor(_ref: Any) -> None:
+            return None
 
         with (
             patch_cwd(tmp_path),
@@ -212,12 +214,13 @@ class TestRefuelMaverickWorkflowHappyPath:
                 "maverick.agents.briefing.prompts.build_briefing_prompt",
                 return_value="briefing prompt",
             ),
-            patch("maverick.actors.create_actor_system", return_value=fake_asys),
+            patch("xoscar.create_actor", new=_fake_create_actor),
+            patch("xoscar.destroy_actor", new=_fake_destroy_actor),
             patch.object(workflow, "emit_output", new=AsyncMock()),
             patch.object(workflow, "emit_step_completed", new=AsyncMock()),
             patch.object(
                 workflow,
-                "_drain_supervisor_events",
+                "_drain_xoscar_supervisor",
                 new=AsyncMock(
                     return_value={
                         "success": True,
@@ -226,7 +229,7 @@ class TestRefuelMaverickWorkflowHappyPath:
                 ),
             ),
         ):
-            await workflow._run_with_thespian(
+            await workflow._run_with_xoscar(
                 flight_plan=flight_plan,
                 raw_content=fp.read_text(encoding="utf-8"),
                 codebase_context=_EMPTY_CONTEXT,
@@ -236,136 +239,15 @@ class TestRefuelMaverickWorkflowHappyPath:
                 skip_briefing=True,
             )
 
-        decomposer_inits = [
-            message
-            for _addr, message, _timeout in fake_asys.asks
-            if message.get("type") == "init" and message.get("role") in {"primary", "pool"}
-        ]
-        assert decomposer_inits
-        assert all(
-            msg["detail_session_max_turns"] == DETAIL_SESSION_MAX_TURNS for msg in decomposer_inits
-        )
-        assert all(
-            msg["fix_session_max_turns"] == FIX_SESSION_MAX_TURNS for msg in decomposer_inits
-        )
-
-    async def test_thespian_actor_inits_receive_resolved_step_config(
-        self,
-        mock_config: MagicMock,
-        mock_registry: MagicMock,
-        tmp_path: Path,
-    ) -> None:
-        """Briefing and decomposer actors receive resolved provider/model config."""
-        from maverick.config import AgentConfig, AgentProviderConfig
-
-        class _FakeActorSystem:
-            def __init__(self) -> None:
-                self.asks: list[tuple[str, dict[str, Any], int]] = []
-                self.tell_calls: list[tuple[str, str]] = []
-                self._counter = 0
-
-            def createActor(self, _cls, **kwargs):  # noqa: N802
-                self._counter += 1
-                return (
-                    kwargs.get("globalName")
-                    or kwargs.get("global_name")
-                    or f"actor-{self._counter}"
-                )
-
-            def ask(self, addr, message, timeout):
-                self.asks.append((addr, message, timeout))
-                return {"type": "init_ok"}
-
-            def tell(self, addr, message):
-                self.tell_calls.append((addr, message))
-
-            def shutdown(self):
-                return None
-
-        mock_config.steps = {}
-        mock_config.agents = {
-            "navigator": AgentConfig(
-                provider="gemini",
-                model_id="gemini-3.1-pro-preview",
-            ),
-            "decomposer": AgentConfig(
-                provider="claude",
-                model_id="opus",
-            ),
-        }
-        mock_config.agent_providers = {
-            "claude": AgentProviderConfig(
-                command=["claude-agent"],
-                default=True,
-                default_model="sonnet",
-            ),
-            "gemini": AgentProviderConfig(
-                command=["gemini-agent"],
-                default_model="gemini-default",
-            ),
-        }
-
-        fp = make_simple_flight_plan(tmp_path)
-        workflow = make_workflow(mock_config, mock_registry)
-        fake_asys = _FakeActorSystem()
-        flight_plan = await __import__(
-            "maverick.flight.loader",
-            fromlist=["FlightPlanFile"],
-        ).FlightPlanFile.aload(fp)
-
-        with (
-            patch_cwd(tmp_path),
-            patch(
-                "maverick.agents.briefing.prompts.build_briefing_prompt",
-                return_value="briefing prompt",
-            ),
-            patch("maverick.actors.create_actor_system", return_value=fake_asys),
-            patch.object(workflow, "emit_output", new=AsyncMock()),
-            patch.object(workflow, "emit_step_completed", new=AsyncMock()),
-            patch.object(
-                workflow,
-                "_drain_supervisor_events",
-                new=AsyncMock(
-                    return_value={
-                        "success": True,
-                        "specs": make_simple_decomposition_output().work_units,
-                    }
-                ),
-            ),
-        ):
-            await workflow._run_with_thespian(
-                flight_plan=flight_plan,
-                raw_content=fp.read_text(encoding="utf-8"),
-                codebase_context=_EMPTY_CONTEXT,
-                open_bead_result=None,
-                runway_context_text=None,
-                run_dir=None,
-                skip_briefing=False,
-            )
-
-        briefing_init = next(
-            message
-            for _addr, message, _timeout in fake_asys.asks
-            if message.get("type") == "init" and message.get("agent_name") == "navigator"
-        )
-        assert briefing_init["config"]["provider"] == "gemini"
-        assert briefing_init["config"]["model_id"] == "gemini-3.1-pro-preview"
-
-        decomposer_inits = [
-            message
-            for _addr, message, _timeout in fake_asys.asks
-            if message.get("type") == "init" and message.get("role") in {"primary", "pool"}
-        ]
-        assert decomposer_inits
-        assert all(msg["config"]["provider"] == "claude" for msg in decomposer_inits)
-        assert all(msg["config"]["model_id"] == "opus" for msg in decomposer_inits)
-
-        supervisor_init = next(
-            message
-            for _addr, message, _timeout in fake_asys.asks
-            if message.get("type") == "init" and message.get("provider_labels")
-        )
-        assert supervisor_init["provider_labels"]["Navigator"] == "gemini/gemini-3.1-pro-preview"
+        inputs = captured_inputs.get("value")
+        assert inputs is not None, "RefuelSupervisor was never created"
+        assert inputs.detail_session_max_turns == DETAIL_SESSION_MAX_TURNS
+        assert inputs.fix_session_max_turns == FIX_SESSION_MAX_TURNS
+        assert inputs.skip_briefing is True
+        # Resolved StepConfig carries the provider/model.
+        assert inputs.config is not None
+        assert inputs.config.provider == "claude"
+        assert inputs.config.model_id == "opus"
 
     async def test_work_unit_files_written_with_correct_naming(
         self,

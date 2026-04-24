@@ -443,7 +443,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
         # ------------------------------------------------------------------
         # Steps 2b-4: Briefing + Decompose + Validate via Thespian actor system
         # ------------------------------------------------------------------
-        decomposition = await self._run_with_thespian(
+        decomposition = await self._run_with_xoscar(
             flight_plan=flight_plan,
             raw_content=raw_content,
             codebase_context=codebase_context,
@@ -752,7 +752,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
         )
         return result.to_dict()
 
-    async def _run_with_thespian(
+    async def _run_with_xoscar(
         self,
         *,
         flight_plan: Any,
@@ -773,11 +773,6 @@ class RefuelMaverickWorkflow(PythonWorkflow):
         Returns a DecompositionOutput.
         """
 
-        from maverick.actors.bead_creator import BeadCreatorActor
-        from maverick.actors.briefing import BriefingActor
-        from maverick.actors.decomposer import DecomposerActor
-        from maverick.actors.refuel_supervisor import RefuelSupervisorActor
-        from maverick.actors.validator import ValidatorActor
         from maverick.agents.briefing.prompts import build_briefing_prompt
         from maverick.workflows.refuel_maverick.models import (
             DecompositionOutput,
@@ -938,170 +933,67 @@ class RefuelMaverickWorkflow(PythonWorkflow):
             "cached_details": cached_details,  # keyed by unit_id; empty dict if none
         }
 
-        from maverick.actors import THESPIAN_PORT, create_actor_system
-
-        asys = create_actor_system()
-
-        try:
-
-            def _serialize_config(cfg) -> dict[str, Any]:
-                return cfg.model_dump(mode="json", exclude_none=True)
-
-            # Create child actors — primary decomposer handles outline + fixes,
-            # pool members handle detail pass in parallel.
-            DECOMPOSER_POOL_SIZE = 4
-            decomposer_addr = asys.createActor(DecomposerActor)
-            decomposer_pool = [
-                asys.createActor(DecomposerActor) for _ in range(DECOMPOSER_POOL_SIZE - 1)
-            ]
-            validator_addr = asys.createActor(ValidatorActor)
-            bead_creator_addr = asys.createActor(BeadCreatorActor)
-
-            # Create briefing actors (one per agent role, each with its MCP tool)
-            briefing_actors: dict[str, Any] = {}
-            provider_labels: dict[str, str] = {}
-            if not skip_briefing:
-                _briefing_tools = {
-                    "navigator": "submit_navigator_brief",
-                    "structuralist": "submit_structuralist_brief",
-                    "recon": "submit_recon_brief",
-                    "contrarian": "submit_contrarian_brief",
-                }
-                for agent_name, mcp_tool in _briefing_tools.items():
-                    config = self.resolve_step_config(
-                        BRIEFING,
-                        StepType.PYTHON,
-                        agent_name=agent_name,
-                    )
-                    label = agent_name.replace("_", " ").title()
-                    provider_labels[label] = self._resolve_display_label_for_config(config)
-                    addr = asys.createActor(BriefingActor)
-                    asys.ask(
-                        addr,
-                        {
-                            "type": "init",
-                            "agent_name": agent_name,
-                            "mcp_tool": mcp_tool,
-                            "admin_port": THESPIAN_PORT,
-                            "cwd": str(Path.cwd()),
-                            "config": _serialize_config(config),
-                        },
-                        timeout=10,
-                    )
-                    briefing_actors[agent_name] = addr
-
-            decompose_config = self.resolve_step_config(
-                DECOMPOSE,
-                StepType.PYTHON,
-                agent_name="decomposer",
-            )
-
-            # Create supervisor with globalName for MCP server discovery
-            supervisor_addr = asys.createActor(
-                RefuelSupervisorActor,
-                globalName="supervisor-inbox",
-            )
-
-            # Init decomposer actors — tools are hardcoded per role
-            # inside the actor (primary gets outline+details+fix,
-            # pool members only get details).
-            asys.ask(
-                decomposer_addr,
-                {
-                    "type": "init",
-                    "cwd": str(Path.cwd()),
-                    "role": "primary",
-                    "admin_port": THESPIAN_PORT,
-                    "config": _serialize_config(decompose_config),
-                    "detail_session_max_turns": DETAIL_SESSION_MAX_TURNS,
-                    "fix_session_max_turns": FIX_SESSION_MAX_TURNS,
-                },
-                timeout=10,
-            )
-            for pool_addr in decomposer_pool:
-                asys.ask(
-                    pool_addr,
-                    {
-                        "type": "init",
-                        "cwd": str(Path.cwd()),
-                        "role": "pool",
-                        "admin_port": THESPIAN_PORT,
-                        "config": _serialize_config(decompose_config),
-                        "detail_session_max_turns": DETAIL_SESSION_MAX_TURNS,
-                        "fix_session_max_turns": FIX_SESSION_MAX_TURNS,
-                    },
-                    timeout=10,
+        # Provider labels for briefing agents are still useful for the
+        # Rich Live display the supervisor emits; compute them here so
+        # the supervisor doesn't need access to ``resolve_step_config``.
+        provider_labels: dict[str, str] = {}
+        if not skip_briefing:
+            for agent_name in ("navigator", "structuralist", "recon", "contrarian"):
+                config = self.resolve_step_config(
+                    BRIEFING,
+                    StepType.PYTHON,
+                    agent_name=agent_name,
                 )
+                label = agent_name.replace("_", " ").title()
+                provider_labels[label] = self._resolve_display_label_for_config(config)
 
-            asys.ask(
-                validator_addr,
-                {
-                    "type": "init",
-                    "flight_plan": flight_plan,
-                },
-                timeout=10,
+        decompose_config = self.resolve_step_config(
+            DECOMPOSE,
+            StepType.PYTHON,
+            agent_name="decomposer",
+        )
+
+        import xoscar as xo
+
+        from maverick.actors.xoscar.pool import actor_pool
+        from maverick.actors.xoscar.refuel_supervisor import (
+            RefuelInputs,
+            RefuelSupervisor,
+        )
+
+        # Legacy cache paths are currently unused by the xoscar
+        # supervisor (Phase 1.5 will re-wire them); suppress the
+        # "unused local" ruff warning without losing the computed paths.
+        _ = (briefing_cache_path, outline_cache_path, detail_cache_dir, briefing_key)
+
+        DECOMPOSER_POOL_SIZE = 4
+
+        supervisor_inputs = RefuelInputs(
+            cwd=str(Path.cwd()),
+            flight_plan=flight_plan,
+            initial_payload=initial_payload,
+            config=decompose_config,
+            decomposer_pool_size=DECOMPOSER_POOL_SIZE - 1,
+            skip_briefing=skip_briefing,
+            provider_labels=provider_labels,
+            detail_session_max_turns=DETAIL_SESSION_MAX_TURNS,
+            fix_session_max_turns=FIX_SESSION_MAX_TURNS,
+        )
+
+        async with actor_pool() as (_pool, address):
+            supervisor = await xo.create_actor(
+                RefuelSupervisor,
+                supervisor_inputs,
+                address=address,
+                uid="refuel-supervisor",
             )
-
-            asys.ask(
-                bead_creator_addr,
-                {
-                    "type": "init",
-                    "plan_name": flight_plan.name if hasattr(flight_plan, "name") else "",
-                    "plan_objective": flight_plan.objective
-                    if hasattr(flight_plan, "objective")
-                    else "",  # noqa: E501
-                },
-                timeout=10,
-            )
-
-            # Init supervisor with child addresses and config
-            asys.ask(
-                supervisor_addr,
-                {
-                    "type": "init",
-                    "decomposer_addr": decomposer_addr,
-                    "decomposer_pool": decomposer_pool,
-                    "validator_addr": validator_addr,
-                    "bead_creator_addr": bead_creator_addr,
-                    "briefing_actors": briefing_actors,
-                    "provider_labels": provider_labels,
-                    "skip_briefing": skip_briefing,
-                    "initial_payload": initial_payload,
-                    "config": {"flight_plan": flight_plan},
-                    "briefing_cache_path": str(briefing_cache_path),
-                    "outline_cache_path": str(outline_cache_path),
-                    "detail_cache_dir": str(detail_cache_dir),
-                    "briefing_cache_key": briefing_key,
-                    "briefing_cache_schema_version": BRIEFING_CACHE_SCHEMA_VERSION,
-                    "outline_cache_key_inputs": {
-                        "flight_plan_content": raw_content,
-                        "verification_properties": verification_properties,
-                    },
-                    "outline_cache_schema_version": OUTLINE_CACHE_SCHEMA_VERSION,
-                },
-                timeout=10,
-            )
-
-            # Start decomposition (fire-and-drain)
-            asys.tell(supervisor_addr, "start")
-
-            # The drain-loop hard timeout is a runaway-cost guard, not
-            # the primary stall detector — the supervisor's
-            # STALE_IN_FLIGHT_SECONDS watchdog catches wedged units and
-            # _handle_detail_error requeues them. A flat 6h cap is
-            # comfortably above worst-case legitimate runs (large plans
-            # with 60+ units and multiple fix rounds) while still
-            # bounding damage if the supervisor itself dies.
-            drain_timeout = 6 * 60 * 60.0
-            result = await self._drain_supervisor_events(
-                asys=asys,
-                supervisor=supervisor_addr,
-                poll_interval=0.25,
-                hard_timeout_seconds=drain_timeout,
-            )
-
-        finally:
-            asys.shutdown()
+            try:
+                result = await self._drain_xoscar_supervisor(supervisor)
+            finally:
+                try:
+                    await xo.destroy_actor(supervisor)
+                except Exception:  # noqa: BLE001 — teardown must not raise
+                    pass
 
         if not result or not result.get("success"):
             from maverick.exceptions import WorkflowError

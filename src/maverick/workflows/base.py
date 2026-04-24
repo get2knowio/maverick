@@ -568,6 +568,23 @@ class PythonWorkflow(ABC):
 
             await asyncio.sleep(poll_interval)
 
+    async def _drain_xoscar_supervisor(
+        self,
+        supervisor_ref: Any,
+    ) -> dict[str, Any] | None:
+        """Stream events from an ``@xo.generator`` supervisor into the
+        workflow's event queue.
+
+        Replaces ``_drain_supervisor_events`` for xoscar-backed
+        supervisors: no polling, no cursor, no per-ask timeout — the
+        pool pushes events as the supervisor emits them. After the
+        generator closes, the supervisor's ``get_terminal_result``
+        method returns the terminal payload.
+        """
+        async for event in await supervisor_ref.run():
+            await self._event_queue.put(event)
+        return await supervisor_ref.get_terminal_result()
+
     # ------------------------------------------------------------------
     # Rollback
     # ------------------------------------------------------------------
