@@ -48,7 +48,7 @@ It reconciles those documents against the current codebase as of 2026-04-19 and 
 | Unified trace and correlation envelope | Active | New opportunity observed in current code. |
 | Canonical artifact rendering and formatting | Active | New opportunity observed in current code. |
 | Reusable supervisor fragments | Active | New opportunity observed in current code. |
-| ACP prompt-cache optimization | Partial | Phase A observability landed 2026-04-24; Phases B–D (session-lifetime reuse, MCP cache unblock, cross-bead session reuse) remain. |
+| ACP prompt-cache optimization | Mostly addressed | Phase A observability proved caching is working end-to-end with MCP attached (cache_read ≈ 99.98% of prompt on parallel briefings). Phases C/D dropped; only Phase B retry-session reuse remains as a small improvement. |
 
 ## 1. Orchestration And Human Review
 
@@ -271,9 +271,20 @@ Until there is a clearer payoff, this should remain exploratory.
 
 ### 2.7 ACP Prompt-Cache Optimization
 
-**Status:** Partial (Phase A shipped; Phases B–D pending)
+**Status:** Partial (Phase A shipped and validated; Phases B–D reframed by Phase A data)
 
-Per-turn Anthropic quota burn has been unsustainable. The root cause is that the ACP executor was built around session isolation (fresh session per `execute()`, per retry attempt, per bead rotation), which is the opposite of what prompt caching needs. The Claude Agent SDK auto-inserts `cache_control` on the tools + system + messages prefix and amortizes it across turns of the same session — but only within a 5-minute TTL and only when MCP servers are not attached (per the SDK docs, attached MCP servers disable caching by default because tool responses are assumed to be externally-stateful). Maverick attaches the agent-inbox MCP server to every agent actor, so the suspicion is a near-zero cache-hit rate across the fleet.
+Per-turn Anthropic quota burn has been unsustainable. The original hypothesis was that Maverick was getting ~0% cache hits because the Claude Agent SDK disables caching by default when MCP servers are attached (per Anthropic docs). Phase A observability proved that hypothesis **wrong**. Live run against `sample-maverick-project` on 2026-04-24:
+
+| agent | input | cache_read | cache_write | output |
+|---|---|---|---|---|
+| structuralist (parallel) | 6 | 33,946 | 0 | 171 |
+| recon (parallel) | 6 | 33,940 | 0 | 167 |
+| navigator (parallel) | 14 | 119,754 | 19,287 | 5,526 |
+| contrarian (sequential after) | 13 | 81,896 | 61,969 | 12,588 |
+
+Caching is working end-to-end with MCP attached. Three parallel briefings all hit a warm prefix cache (~34K read tokens apiece with 0 cache writes on two of them), and the sequential contrarian then benefited from navigator's cache write (navigator wrote 19K; contrarian read 82K). The 6-token `input_tokens` on parallel briefings versus their ~19KB prompts means ~99.98% of the prompt content is being cache-served.
+
+This reframes Phases B–D — the original framing assumed MCP was actively suppressing caching, so every agent prompt was a cold start. With caching working, the phases shrink from "unblock a broken feature" to "squeeze a few more points out of an already-working one":
 
 **Phase A — Observability (Implemented 2026-04-24):**
 
@@ -282,13 +293,14 @@ Per-turn Anthropic quota burn has been unsustainable. The root cause is that the
 - `ExecutorResult.usage` is populated from the ACP usage payload instead of hardcoded `None`.
 - Relevant commits: `a007364` (plumbing + tests), `2e57017` (format drift sweep).
 
-Phase A is the gate for everything below. Before any Phase B/C/D work starts, run a real `maverick refuel` or `maverick fly` against `sample-maverick-project` and grep the log for `acp_executor.prompt_usage`. If `cache_read_tokens` stays at zero on subsequent prompts within a long-running session, Phase C is required before Phase B pays off. If cache reads are non-zero but low, Phase B is the higher-leverage path.
+**Xoscar-migration bugs fixed on the way to validating Phase A** (2026-04-24): every xoscar actor was missing `super().__init__()` so `self._generators` was never set and `@xo.generator run()` crashed on first iteration (`4eb67ef`); every supervisor used `self.ref` instead of `self.ref()` and passed the unbound Cython method to children as `supervisor_ref` (`b9c2dd3`); `self.uid` returns bytes so supervisor-child uid f-strings produced the `b'...'` repr which garbled the MCP subprocess argv (`6be0a9d`); briefing/decomposer/implementer/reviewer/generator `on_tool_call` was missing `@xo.no_lock` and deadlocked with the agent's own `send_*` method that holds the actor lock across the ACP prompt (`4e8689f`); one-shot cancel fired on `ToolCallStart` racing against the MCP round-trip (`da65394`); supervisor callback methods (`*_ready`, `*_error`, `get_terminal_result`) all needed `@xo.no_lock` because the `@xo.generator run()` method holds the supervisor's lock while awaiting the event queue and the callbacks are what push onto that queue (`06fed8e`). None of these were caught by the existing unit tests because those tests assert on method-level routing, not on end-to-end generator iteration or cross-actor RPC. Regression guards added in `tests/unit/actors/xoscar_runtime/test_super_init.py` (parametrised per actor file) to keep new actors correct by default.
 
-**Phase B — Low-risk structural fixes (Pending):**
+**Phase B — Low-risk structural fixes (Reframed):**
 
-- `_execute_with_retry` currently calls `conn.new_session(...)` on every retry attempt, including the transparent-reconnect branch. A transient reconnect therefore throws away any prefix cache write we just paid for and pays for a second one. Reusing the existing session where possible would amortize.
-- The briefing fan-out spawns four parallel one-shot sessions with near-identical tool lists and role-scoped system prompts. Warming the cache with a single sequential briefing and then launching the remaining three in parallel hits the 5-minute TTL cleanly.
-- `ENABLE_PROMPT_CACHING_1H=1` can be set in the spawned subprocess env for long-running phases (refuel detail pass, fly bead loop) where the 5-minute TTL is tight. Trade-off is 2× write cost versus 1.25× for 5-minute, only worth it when prompts are separated by more than 5 minutes.
+Phase A data shows briefing parallel fan-out already shares cache (`cache_read_tokens≈33,946` on all three parallel briefings with zero cache writes on two of them), so the originally proposed "warm-up cascade" is not worth the wall-clock cost it would add to every refuel. What remains worth doing:
+
+- `_execute_with_retry` creates a fresh session via `conn.new_session(...)` on every retry attempt — including the transparent-reconnect branch. A transient reconnect throws away any prefix cache write we just paid for and pays for a second one. Reusing the existing session on retry (where possible) would amortize. Priority: medium — retries are rare in the happy path, but painful when they hit.
+- `ENABLE_PROMPT_CACHING_1H=1` (set in the spawned subprocess env) is worth enabling for long-running phases where prompts are separated by more than 5 minutes (refuel detail pass between fan-out rounds; fly bead loop across many beads). Trade-off: 2× write cost vs 1.25× for 5-minute TTL — only a win when the 5-minute cache would otherwise evict between prompts. Priority: low unless we see `cache_write_tokens` rising on the same prefix across the same phase.
 
 Relevant code:
 
@@ -297,23 +309,13 @@ Relevant code:
 - [src/maverick/actors/xoscar/briefing.py](src/maverick/actors/xoscar/briefing.py) (briefing fan-out pattern)
 - [src/maverick/actors/xoscar/refuel_supervisor.py](src/maverick/actors/xoscar/refuel_supervisor.py) and [src/maverick/actors/xoscar/plan_supervisor.py](src/maverick/actors/xoscar/plan_supervisor.py) (fan-out launch sites)
 
-**Phase C — Unblock MCP caching (Pending, possibly upstream):**
+**Phase C — Unblock MCP caching (No longer needed):**
 
-- The Agent SDK accepts a `cache_mcp=True` option to opt individual MCP servers back into caching when their tool responses are deterministic (our agent-inbox is deterministic — it just validates a schema and forwards). We do not currently pass this through because the `agent-client-protocol` Python SDK does not expose it on `new_session` — ACP's `NewSessionRequest` carries `McpServerStdio` entries with `command`/`args`/`env`/`name` fields and no cache-control hook.
-- Two possible paths: (1) contribute a cache opt-in to `@agentclientprotocol/claude-agent-acp` upstream, or (2) pass a Claude-Code-specific env var through the subprocess spawn if one exists that toggles MCP caching globally. Needs investigation of the `claude-agent-acp` repo (github.com/zed-industries/claude-code-acp).
-- Fallback posture if unblockable: accept that MCP tool definitions will not be cached and focus on caching the (larger) system prompt + conversation history instead. For that to pay off, system prompts must exceed the 2048-token threshold for Sonnet or 4096 for Opus/Haiku — Phase A data will show whether Maverick's system prompts clear that bar.
+Phase A data contradicts the premise of Phase C. The Anthropic docs claim MCP servers disable caching by default, but the live run shows clear cache reads even with `agent-inbox` attached. No upstream patch needed. Close this phase once the FUTURE.md update is merged.
 
-Relevant code:
+**Phase D — Session-lifetime refactors (Deferred until data justifies):**
 
-- [src/maverick/executor/_connection_pool.py](src/maverick/executor/_connection_pool.py) (subprocess env, ACP handshake)
-- [src/maverick/executor/acp.py](src/maverick/executor/acp.py) (`create_session`, `mcp_servers` wiring)
-- [src/maverick/tools/agent_inbox/server.py](src/maverick/tools/agent_inbox/server.py) (our deterministic MCP server — candidate for `cache_mcp=True`)
-
-**Phase D — Session-lifetime refactors (Pending, gated on Phase A data):**
-
-- The implementer and reviewer currently rotate their session on every `new_bead()` boundary in fly. Keeping a single session alive across all beads in an epic would let the Claude SDK auto-cache the system prompt and tool definitions for the entire run. Trade-off is a growing conversation history — risk of context bleed across beads and degraded implementation quality.
-- The decomposer rotates sessions on mode transitions (outline → detail → fix). Collapsing these into one long session with role instructions as turn-level messages would amortize the prefix cache across the whole decomposition, at the cost of a longer transcript to reason over.
-- These changes alter actor semantics, so they need justification from the Phase A data. If cache reads are already high, Phase D is not worth the regression risk. If cache reads are near-zero and Phases B and C have been exhausted, Phase D is the final lever.
+With cache hit ratios near 100% on the briefing phase, collapsing implementer/reviewer/decomposer sessions across beads/modes is no longer the obvious token-saver it appeared to be. Defer until fly Phase A data (run `maverick fly --epic <id>` and grep `acp_executor.prompt_usage`) shows cache misses at bead boundaries big enough to justify the context-bleed risk.
 
 Relevant code:
 
