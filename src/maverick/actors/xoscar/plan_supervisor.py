@@ -237,7 +237,15 @@ class PlanSupervisor(xo.Actor):
                 if name in self._briefing_actors
             ]
         )
-        missing = [name for name in PARALLEL_PLAN_BRIEFING_NAMES if name not in self._briefs]
+        # ``_record_brief`` keys ``_briefs`` by the role-name derived
+        # from the forward_method ("scope_ready" → "scope"), not by the
+        # agent name (scopist / analyst / criteria). Translate for the
+        # missing-check so we're comparing the same thing we stored.
+        missing = [
+            agent_name
+            for agent_name, _label, _tool, method in PLAN_BRIEFING_CONFIG[:3]
+            if method.removesuffix("_ready") not in self._briefs
+        ]
         if missing:
             raise RuntimeError(f"Briefing agents did not submit tool calls: {sorted(missing)}")
 
