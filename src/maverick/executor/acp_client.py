@@ -47,6 +47,10 @@ class _SessionState:
 
     text_chunks: list[str] = field(default_factory=list)
     tool_call_counts: dict[str, int] = field(default_factory=dict)
+    #: Map ``tool_call_id`` → normalized title captured at ToolCallStart,
+    #: used to identify the tool on ToolCallProgress(status=completed)
+    #: where the title field may be omitted.
+    tool_call_titles: dict[str, str] = field(default_factory=dict)
     abort: bool = False
     one_shot_fired: bool = False
 
@@ -181,38 +185,15 @@ class MaverickAcpClient(Client):
             # Track circuit breaker
             title = update.title or "unknown_tool"
             self._state.tool_call_counts[title] = self._state.tool_call_counts.get(title, 0) + 1
+            # Remember the title so ToolCallProgress (which usually omits
+            # the title field) can still identify the tool for one_shot
+            # matching via the tool_call_id.
+            self._state.tool_call_titles[update.tool_call_id] = title
             logger.debug(
                 "acp_client.tool_call_start",
                 tool=title,
                 count=self._state.tool_call_counts[title],
             )
-
-            # One-shot tool: a single successful invocation ends the turn.
-            # Cancel the session so the agent stops instead of looping.
-            # Use a distinct flag (not `abort`) so the executor does NOT
-            # raise CircuitBreakerError — this cancellation is intentional
-            # and successful, not a failure.
-            #
-            # ACP surfaces MCP tools as ``mcp__<server>__<tool>`` titles,
-            # but callers configure one_shot_tools with the bare name
-            # (e.g. "submit_outline"). Normalise by checking both the
-            # full title and the bare suffix.
-            bare_title = title.rsplit("__", 1)[-1] if title.startswith("mcp__") else title
-            if (
-                title in self._one_shot_tools or bare_title in self._one_shot_tools
-            ) and not self._state.one_shot_fired:
-                logger.info(
-                    "acp_client.one_shot_tool_fired",
-                    tool=title,
-                    session_id=session_id,
-                )
-                self._state.one_shot_fired = True
-                if self._conn is not None:
-                    try:
-                        loop = asyncio.get_running_loop()
-                        loop.create_task(self._conn.cancel(session_id))
-                    except RuntimeError:
-                        pass  # No running event loop
 
             # Check circuit breaker
             if self._state.tool_call_counts[title] >= MAX_SAME_TOOL_CALLS:
@@ -239,6 +220,33 @@ class MaverickAcpClient(Client):
             await _fire_callback(self._event_callback, chunk)
 
         elif isinstance(update, ToolCallProgress):
+            # One-shot tool: cancel the session only AFTER the tool has
+            # completed. Cancelling on ToolCallStart aborts the MCP
+            # round-trip before serve-inbox has forwarded the payload
+            # to the supervisor via on_tool_call, which races against
+            # prompt_session returning and produces a missing-payload
+            # error in the supervisor.
+            #
+            # ACP surfaces MCP tools as ``mcp__<server>__<tool>``;
+            # callers configure one_shot_tools with the bare name,
+            # so compare both forms.
+            if update.status == "completed" and not self._state.one_shot_fired:
+                title = update.title or self._state.tool_call_titles.get(update.tool_call_id, "")
+                bare_title = title.rsplit("__", 1)[-1] if title.startswith("mcp__") else title
+                if title in self._one_shot_tools or bare_title in self._one_shot_tools:
+                    logger.info(
+                        "acp_client.one_shot_tool_fired",
+                        tool=title,
+                        session_id=session_id,
+                    )
+                    self._state.one_shot_fired = True
+                    if self._conn is not None:
+                        try:
+                            loop = asyncio.get_running_loop()
+                            loop.create_task(self._conn.cancel(session_id))
+                        except RuntimeError:
+                            pass  # No running event loop
+
             text = _extract_text_content(update.content)
             if text:
                 chunk = AgentStreamChunk(

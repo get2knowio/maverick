@@ -407,6 +407,15 @@ Test objective.
                     return_value=CodebaseContext(files=(), missing_files=(), total_size=0)
                 ),
             ),
+            # Mock the xoscar decompose path to simulate retry exhaustion.
+            # Without this, the test would launch a real claude-agent-acp
+            # subprocess and, if the environment has working credentials,
+            # the agent would successfully decompose and the workflow
+            # would not fail — defeating the test's intent.
+            patch(
+                f"{_MODULE}.RefuelMaverickWorkflow._run_with_xoscar",
+                new=AsyncMock(side_effect=RuntimeError("ACP prompt failed after retries")),
+            ),
         ):
             events, result = await collect_events(
                 workflow,
@@ -435,6 +444,8 @@ Test objective.
                     return_value=CodebaseContext(files=(), missing_files=(), total_size=0)
                 ),
             ),
+            # Skip the real xoscar decompose so we reach create_beads deterministically.
+            patch_decompose_supervisor(),
             patch(
                 f"{_MODULE}.create_beads",
                 new=AsyncMock(side_effect=RuntimeError("bd: command not found")),
