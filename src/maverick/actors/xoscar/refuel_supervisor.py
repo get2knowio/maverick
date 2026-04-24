@@ -190,7 +190,7 @@ class RefuelSupervisor(xo.Actor):
             detail_session_max_turns=self._inputs.detail_session_max_turns,
             fix_session_max_turns=self._inputs.fix_session_max_turns,
             address=self.address,
-            uid=f"{self.uid}:decomposer-primary",
+            uid=f"{self.uid.decode()}:decomposer-primary",
         )
 
         # --- Decomposer pool ---
@@ -205,7 +205,7 @@ class RefuelSupervisor(xo.Actor):
                 detail_session_max_turns=self._inputs.detail_session_max_turns,
                 fix_session_max_turns=self._inputs.fix_session_max_turns,
                 address=self.address,
-                uid=f"{self.uid}:decomposer-pool-{i}",
+                uid=f"{self.uid.decode()}:decomposer-pool-{i}",
             )
             self._decomposer_pool.append(pool_ref)
 
@@ -214,7 +214,7 @@ class RefuelSupervisor(xo.Actor):
             ValidatorActor,
             self._inputs.flight_plan,
             address=self.address,
-            uid=f"{self.uid}:validator",
+            uid=f"{self.uid.decode()}:validator",
         )
         plan_name = getattr(self._inputs.flight_plan, "name", "") or ""
         plan_objective = getattr(self._inputs.flight_plan, "objective", "") or ""
@@ -223,7 +223,7 @@ class RefuelSupervisor(xo.Actor):
             plan_name=plan_name,
             plan_objective=plan_objective,
             address=self.address,
-            uid=f"{self.uid}:bead-creator",
+            uid=f"{self.uid.decode()}:bead-creator",
         )
 
         # --- Briefing actors ---
@@ -239,7 +239,7 @@ class RefuelSupervisor(xo.Actor):
                     cwd=self._inputs.cwd,
                     config=self._inputs.config,
                     address=self.address,
-                    uid=f"{self.uid}:briefing-{name}",
+                    uid=f"{self.uid.decode()}:briefing-{name}",
                 )
 
     async def __pre_destroy__(self) -> None:

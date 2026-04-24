@@ -130,7 +130,7 @@ class FlySupervisor(xo.Actor):
             cwd=self._inputs.cwd,
             config=self._inputs.config,
             address=self.address,
-            uid=f"{self.uid}:implementer",
+            uid=f"{self.uid.decode()}:implementer",
         )
         self._reviewer = await xo.create_actor(
             ReviewerActor,
@@ -138,29 +138,29 @@ class FlySupervisor(xo.Actor):
             cwd=self._inputs.cwd,
             config=self._inputs.config,
             address=self.address,
-            uid=f"{self.uid}:reviewer",
+            uid=f"{self.uid.decode()}:reviewer",
         )
         self._gate = await xo.create_actor(
             GateActor,
             validation_commands=self._inputs.validation_commands,
             address=self.address,
-            uid=f"{self.uid}:gate",
+            uid=f"{self.uid.decode()}:gate",
         )
         self._ac = await xo.create_actor(
             ACCheckActor,
             address=self.address,
-            uid=f"{self.uid}:ac",
+            uid=f"{self.uid.decode()}:ac",
         )
         self._spec = await xo.create_actor(
             SpecCheckActor,
             project_type=self._inputs.project_type,
             address=self.address,
-            uid=f"{self.uid}:spec",
+            uid=f"{self.uid.decode()}:spec",
         )
         self._committer = await xo.create_actor(
             CommitterActor,
             address=self.address,
-            uid=f"{self.uid}:committer",
+            uid=f"{self.uid.decode()}:committer",
         )
 
     async def __pre_destroy__(self) -> None:

@@ -127,7 +127,7 @@ class PlanSupervisor(xo.Actor):
                     cwd=self._inputs.cwd,
                     config=self._inputs.config,
                     address=self.address,
-                    uid=f"{self.uid}:briefing-{agent_name}",
+                    uid=f"{self.uid.decode()}:briefing-{agent_name}",
                 )
 
         # --- Generator, validator, writer ---
@@ -137,18 +137,18 @@ class PlanSupervisor(xo.Actor):
             cwd=self._inputs.cwd,
             config=self._inputs.config,
             address=self.address,
-            uid=f"{self.uid}:generator",
+            uid=f"{self.uid.decode()}:generator",
         )
         self._validator = await xo.create_actor(
             PlanValidatorActor,
             address=self.address,
-            uid=f"{self.uid}:plan-validator",
+            uid=f"{self.uid.decode()}:plan-validator",
         )
         self._writer = await xo.create_actor(
             PlanWriterActor,
             output_dir=self._inputs.output_dir,
             address=self.address,
-            uid=f"{self.uid}:plan-writer",
+            uid=f"{self.uid.decode()}:plan-writer",
         )
 
     async def __pre_destroy__(self) -> None:

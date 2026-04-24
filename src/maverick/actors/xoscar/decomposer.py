@@ -96,7 +96,7 @@ class DecomposerActor(xo.Actor):
         self._mcp_tools_csv = ",".join(self._mcp_tool_names)
 
     async def __post_create__(self) -> None:
-        self._actor_tag = f"decomposer[{self._role}:{self.uid}]"
+        self._actor_tag = f"decomposer[{self._role}:{self.uid.decode()}]"
         self._executor: Any = None
         self._session_id: str | None = None
         self._session_mode: str | None = None
@@ -276,7 +276,7 @@ class DecomposerActor(xo.Actor):
                 "--inbox-address",
                 self.address,
                 "--inbox-uid",
-                self.uid,
+                self.uid.decode(),
             ],
             env=[],
         )

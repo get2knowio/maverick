@@ -72,3 +72,33 @@ def test_actor_module_calls_self_ref_as_method(path: Path) -> None:
         "you must call it — self.ref() — to get an ActorRef. "
         f"Found {len(bare_ref_matches)} bare occurrence(s)."
     )
+
+
+@pytest.mark.parametrize("path", _actor_files(), ids=lambda p: p.name)
+def test_actor_module_decodes_self_uid(path: Path) -> None:
+    """``self.uid`` on an xoscar Actor returns ``bytes``, not ``str``.
+
+    xoscar's ``_BaseActor.__init__`` encodes any str uid at construction
+    time (``if isinstance(uid, str): uid = uid.encode()``), so every
+    subsequent ``self.uid`` access yields bytes. Using ``self.uid``
+    directly in an f-string produces the repr ``"b'actor-name'"`` and
+    in a subprocess argv list it gets coerced to that same ugly string.
+    Either way, external tools downstream (MCP inbox subprocess,
+    xo.actor_ref lookups, log scrapers) break.
+
+    The rule: every ``self.uid`` access must be followed by
+    ``.decode()``. Use it for uid= kwargs when spawning child actors
+    and for argv entries in McpServerStdio.args.
+    """
+    src = path.read_text()
+    # Match `self.uid` that is NOT followed by `.decode()` or a word
+    # character. Word-character exclusion skips `self.uid_something`
+    # (hypothetical, but safe).
+    bare_uid_matches = re.findall(r"self\.uid(?!\.decode\(\))(?!\w)", src)
+    assert not bare_uid_matches, (
+        f"{path.name} uses 'self.uid' without '.decode()'. "
+        "self.uid is bytes on xoscar; f-strings produce the 'b\\'...\\'' "
+        "repr and subprocess argv entries carry the ugly string. "
+        "Use self.uid.decode() instead. "
+        f"Found {len(bare_uid_matches)} bare occurrence(s)."
+    )

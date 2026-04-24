@@ -67,7 +67,7 @@ class ReviewerActor(xo.Actor):
         self._step_config = load_step_config(config)
 
     async def __post_create__(self) -> None:
-        self._actor_tag = f"reviewer[{self.uid}]"
+        self._actor_tag = f"reviewer[{self.uid.decode()}]"
         self._executor: Any = None
         self._session_id: str | None = None
         self._review_count = 0
@@ -188,7 +188,7 @@ class ReviewerActor(xo.Actor):
                 "--inbox-address",
                 self.address,
                 "--inbox-uid",
-                self.uid,
+                self.uid.decode(),
             ],
             env=[],
         )
