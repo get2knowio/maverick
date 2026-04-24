@@ -154,6 +154,7 @@ class ImplementerActor(xo.Actor):
     # MCP subprocess → agent inbox
     # ------------------------------------------------------------------
 
+    @xo.no_lock
     async def on_tool_call(self, tool: str, args: dict[str, Any]) -> str:
         try:
             payload = parse_supervisor_tool_payload(tool, args)
@@ -210,6 +211,7 @@ class ImplementerActor(xo.Actor):
             cwd=cwd,
             allowed_tools=step_allowed_tools(self._step_config),
             mcp_servers=[mcp_config],
+            one_shot_tools=list(IMPLEMENTER_MCP_TOOLS),
         )
 
     async def _send_prompt(self, prompt_text: str, *, phase: str, tool_name: str) -> None:

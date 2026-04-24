@@ -192,7 +192,15 @@ class MaverickAcpClient(Client):
             # Use a distinct flag (not `abort`) so the executor does NOT
             # raise CircuitBreakerError — this cancellation is intentional
             # and successful, not a failure.
-            if title in self._one_shot_tools and not self._state.one_shot_fired:
+            #
+            # ACP surfaces MCP tools as ``mcp__<server>__<tool>`` titles,
+            # but callers configure one_shot_tools with the bare name
+            # (e.g. "submit_outline"). Normalise by checking both the
+            # full title and the bare suffix.
+            bare_title = title.rsplit("__", 1)[-1] if title.startswith("mcp__") else title
+            if (
+                title in self._one_shot_tools or bare_title in self._one_shot_tools
+            ) and not self._state.one_shot_fired:
                 logger.info(
                     "acp_client.one_shot_tool_fired",
                     tool=title,
@@ -292,8 +300,22 @@ class MaverickAcpClient(Client):
             )
 
     def _is_allowlisted_tool(self, tool_name: str) -> bool:
-        """Check whether a tool is permitted by the explicit allowlist."""
-        return self._allowed_tools is None or tool_name in self._allowed_tools
+        """Check whether a tool is permitted by the explicit allowlist.
+
+        ACP surfaces MCP tools as ``mcp__<server>__<tool>``; callers
+        typically configure their allowlist with the bare tool name.
+        Match both forms so ``allowed_tools=["submit_outline"]`` accepts
+        a call whose title is ``mcp__agent-inbox__submit_outline``.
+        """
+        if self._allowed_tools is None:
+            return True
+        if tool_name in self._allowed_tools:
+            return True
+        if tool_name.startswith("mcp__"):
+            bare = tool_name.rsplit("__", 1)[-1]
+            if bare in self._allowed_tools:
+                return True
+        return False
 
     def _is_dangerous_tool(self, tool_name: str) -> bool:
         """Check if a tool should be denied in deny_dangerous mode.

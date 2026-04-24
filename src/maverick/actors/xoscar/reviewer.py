@@ -145,6 +145,7 @@ class ReviewerActor(xo.Actor):
     # MCP subprocess → agent inbox
     # ------------------------------------------------------------------
 
+    @xo.no_lock
     async def on_tool_call(self, tool: str, args: dict[str, Any]) -> str:
         try:
             payload = parse_supervisor_tool_payload(tool, args)
@@ -202,6 +203,7 @@ class ReviewerActor(xo.Actor):
             cwd=cwd,
             allowed_tools=step_allowed_tools(self._step_config),
             mcp_servers=[mcp_config],
+            one_shot_tools=[REVIEWER_MCP_TOOL],
         )
 
     async def _send_review_prompt(self, request: ReviewRequest) -> None:

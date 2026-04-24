@@ -216,6 +216,7 @@ class DecomposerActor(xo.Actor):
     # MCP subprocess → agent inbox
     # ------------------------------------------------------------------
 
+    @xo.no_lock
     async def on_tool_call(self, tool: str, args: dict[str, Any]) -> str:
         """Parse an MCP tool call and forward the typed result to the
         supervisor via in-pool RPC.
@@ -282,7 +283,10 @@ class DecomposerActor(xo.Actor):
         )
 
         cwd = Path(self._cwd)
-        one_shot: list[str] | None = ["submit_outline"] if self._role == "primary" else None
+        # Every MCP submission this role owns ends the turn: a single
+        # successful call is all we want per prompt, regardless of the
+        # current mode (outline / detail / fix).
+        one_shot: list[str] = list(self._mcp_tool_names)
         allowed_tools = [*READ_ONLY_DECOMPOSER_TOOLS, *self._mcp_tool_names]
 
         self._session_id = await self._executor.create_session(

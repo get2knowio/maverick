@@ -98,6 +98,7 @@ class GeneratorActor(xo.Actor):
     # MCP subprocess → agent inbox
     # ------------------------------------------------------------------
 
+    @xo.no_lock
     async def on_tool_call(self, tool: str, args: dict[str, Any]) -> str:
         if tool != GENERATOR_MCP_TOOL:
             await self._supervisor_ref.payload_parse_error(
@@ -156,6 +157,7 @@ class GeneratorActor(xo.Actor):
             cwd=cwd,
             allowed_tools=step_allowed_tools(self._step_config),
             mcp_servers=[mcp_config],
+            one_shot_tools=[GENERATOR_MCP_TOOL],
         )
 
     async def _send_prompt(self, raw_prompt: str) -> None:

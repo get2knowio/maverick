@@ -141,6 +141,7 @@ class BriefingActor(xo.Actor):
     # MCP subprocess → agent inbox
     # ------------------------------------------------------------------
 
+    @xo.no_lock
     async def on_tool_call(self, tool: str, args: dict[str, Any]) -> str:
         if tool != self._mcp_tool:
             await self._supervisor_ref.payload_parse_error(
@@ -201,6 +202,7 @@ class BriefingActor(xo.Actor):
             cwd=cwd,
             allowed_tools=step_allowed_tools(self._step_config),
             mcp_servers=[mcp_config],
+            one_shot_tools=[self._mcp_tool],
         )
 
     async def _send_prompt(self, request: BriefingRequest) -> None:

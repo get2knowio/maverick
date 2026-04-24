@@ -75,6 +75,37 @@ def test_actor_module_calls_self_ref_as_method(path: Path) -> None:
 
 
 @pytest.mark.parametrize("path", _actor_files(), ids=lambda p: p.name)
+def test_on_tool_call_is_no_lock(path: Path) -> None:
+    """Actor methods run under ``self._lock`` by default, which serialises
+    every incoming message. ``on_tool_call`` is invoked by the
+    ``serve-inbox`` subprocess while the agent actor is still blocked
+    inside its own ``send_*`` method awaiting the ACP ``prompt_session``
+    response — which cannot complete until the MCP tool call the agent
+    just issued returns. Without ``@xo.no_lock`` this is a hard deadlock:
+    ``on_tool_call`` waits for the lock ``send_*`` holds, ``send_*``
+    waits for the ACP prompt which waits for the MCP tool response
+    which waits for ``on_tool_call``.
+
+    This test enforces the decorator on any ``on_tool_call`` method.
+    """
+    src = path.read_text()
+    if "async def on_tool_call(" not in src:
+        return  # deterministic actors don't own MCP tools
+    # Look for @xo.no_lock (or @no_lock with xoscar import) on the line
+    # immediately before `async def on_tool_call(`.
+    match = re.search(
+        r"(@[\w.]+\s*)+\n\s*async def on_tool_call\(",
+        src,
+    )
+    assert match and ("xo.no_lock" in match.group(0) or "@no_lock" in match.group(0)), (
+        f"{path.name} defines on_tool_call without @xo.no_lock. "
+        "This causes a deadlock with the agent's own send_* method "
+        "(both take the actor lock, but on_tool_call arrives while "
+        "send_* is blocked inside prompt_session)."
+    )
+
+
+@pytest.mark.parametrize("path", _actor_files(), ids=lambda p: p.name)
 def test_actor_module_decodes_self_uid(path: Path) -> None:
     """``self.uid`` on an xoscar Actor returns ``bytes``, not ``str``.
 
