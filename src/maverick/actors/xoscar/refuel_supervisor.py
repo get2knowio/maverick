@@ -337,12 +337,28 @@ class RefuelSupervisor(xo.Actor):
             ]
         )
 
+        # Each BriefingActor self-nudges if its agent finishes without
+        # calling its tool, then routes a prompt_error if the nudge also
+        # fails. So when we get here, either every expected briefing
+        # delivered its payload, or self._done was already flipped via
+        # prompt_error → _mark_done. Bail in the latter case so the driver
+        # surfaces the recorded failure.
+        if self._done:
+            return
         missing = self._briefing_expected - set(self._briefing_results.keys())
         if missing:
-            raise RuntimeError(f"Briefing agents did not submit tool calls: {sorted(missing)}")
+            # Defensive guard against an actor contract regression — should
+            # not be reachable in normal operation.
+            raise RuntimeError(
+                f"Briefing actor returned without delivering and without "
+                f"reporting a prompt_error — actor contract violation: "
+                f"{sorted(missing)}"
+            )
 
         if "contrarian" in self._briefing_actors:
             await self._run_contrarian_phase()
+            if self._done:
+                return
 
         elapsed_ms = int((_time.monotonic() - briefing_start) * 1000)
         await self._emit_phase_completed("briefing", "Briefing", elapsed_ms)
@@ -379,8 +395,11 @@ class RefuelSupervisor(xo.Actor):
             BriefingRequest(agent_name="contrarian", prompt=contrarian_prompt)
         )
 
-        if "contrarian" not in self._briefing_results:
-            raise RuntimeError("Contrarian briefing did not submit its tool call")
+        if "contrarian" not in self._briefing_results and not self._done:
+            raise RuntimeError(
+                "Contrarian briefing returned without delivering and "
+                "without reporting a prompt_error — actor contract violation"
+            )
 
     # ------------------------------------------------------------------
     # Decomposition phase

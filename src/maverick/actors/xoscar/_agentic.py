@@ -22,6 +22,7 @@ returns the ``HttpMcpServer`` config that points the agent's MCP client at
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any, ClassVar
 
 import xoscar as xo
@@ -149,6 +150,122 @@ class AgenticActorMixin:
             self._gateway = None
             self._gateway_url = None
             self._registered_uid = None
+
+    # ------------------------------------------------------------------
+    # ACP session helper
+    # ------------------------------------------------------------------
+
+    # ------------------------------------------------------------------
+    # Tool-delivery tracking + self-nudge
+    # ------------------------------------------------------------------
+    #
+    # Encapsulation rule from CLAUDE.md: every agentic actor owns its
+    # ACP session, its ``on_tool_call`` handler, and the determination of
+    # whether the agent's turn produced a real tool call. Supervisors
+    # must not infer "the agent didn't call my tool" by post-hoc
+    # inspection of their own state — by the time a ``send_X`` returns,
+    # either the tool was delivered or a ``prompt_error`` has been
+    # routed.
+    #
+    # Helpers below give every actor a uniform implementation:
+    #   * mark a tool delivered from on_tool_call after a successful
+    #     forward to the supervisor;
+    #   * orchestrate "run prompt → if tool missing, run nudge once →
+    #     if still missing, route prompt_error" without re-implementing
+    #     the loop in every actor.
+
+    # Tool name → True when on_tool_call has forwarded its payload during
+    # the active prompt cycle. Lazy-initialized per instance via
+    # ``__dict__`` to avoid the class-level shared-mutable-default
+    # footgun and to keep subclasses from having to know about
+    # initialization order.
+
+    def _tool_delivered_map(self) -> dict[str, bool]:
+        """Return the per-instance delivery map, creating it on first access."""
+        state = self.__dict__.get("_tool_delivered_state")
+        if state is None:
+            state = {}
+            self.__dict__["_tool_delivered_state"] = state
+        return state
+
+    def _reset_tool_tracking(self, expected_tool: str) -> None:
+        """Clear the delivery flag for ``expected_tool`` before a new prompt."""
+        self._tool_delivered_map()[expected_tool] = False
+
+    def _mark_tool_delivered(self, tool: str) -> None:
+        """Subclass calls this from ``on_tool_call`` after a payload has
+        been successfully forwarded to the supervisor.
+
+        Safe to call even when the tool wasn't being tracked — the next
+        ``_run_with_self_nudge`` cycle will reset before re-checking.
+        """
+        self._tool_delivered_map()[tool] = True
+
+    def _was_tool_delivered(self, tool: str) -> bool:
+        return self._tool_delivered_map().get(tool, False)
+
+    async def _run_with_self_nudge(
+        self,
+        *,
+        expected_tool: str,
+        run_prompt: Callable[[], Awaitable[None]],
+        run_nudge: Callable[[], Awaitable[None]],
+        on_failure: Callable[[str], Awaitable[None]],
+        log_prefix: str,
+    ) -> None:
+        """Run a prompt that must end in a specific MCP tool call.
+
+        * Resets the delivery flag for ``expected_tool``.
+        * Awaits ``run_prompt``. If it raises, calls ``on_failure(str(exc))``
+          and returns.
+        * If the tool was delivered, returns successfully.
+        * Otherwise awaits ``run_nudge`` once. Same exception handling.
+        * If still not delivered, calls ``on_failure(...)`` with a
+          standardized message describing the two-turn exhaustion.
+
+        ``log_prefix`` keys structured log events (e.g. ``"briefing"``
+        emits ``briefing.tool_missing_nudging`` etc.) so each actor's
+        traces stay distinguishable.
+        """
+        self._reset_tool_tracking(expected_tool)
+        actor_tag = getattr(self, "_actor_tag", type(self).__name__)
+
+        try:
+            await run_prompt()
+        except Exception as exc:  # noqa: BLE001 — actor-level reporter wraps
+            await on_failure(str(exc))
+            return
+
+        if self._was_tool_delivered(expected_tool):
+            return
+
+        logger.info(
+            f"{log_prefix}.tool_missing_nudging",
+            actor=actor_tag,
+            expected_tool=expected_tool,
+        )
+        try:
+            await run_nudge()
+        except Exception as exc:  # noqa: BLE001
+            await on_failure(str(exc))
+            return
+
+        if self._was_tool_delivered(expected_tool):
+            logger.info(
+                f"{log_prefix}.tool_delivered_after_nudge",
+                actor=actor_tag,
+                expected_tool=expected_tool,
+            )
+            return
+
+        logger.warning(
+            f"{log_prefix}.tool_missing_after_nudge",
+            actor=actor_tag,
+            expected_tool=expected_tool,
+        )
+        await on_failure(
+            f"Agent finished two turns without calling `{expected_tool}`"
+        )
 
     # ------------------------------------------------------------------
     # ACP session helper

@@ -85,22 +85,33 @@ class GeneratorActor(AgenticActorMixin, xo.Actor):
     # ------------------------------------------------------------------
 
     async def send_generate(self, request: GenerateRequest) -> None:
+        """Run the flight-plan generation prompt.
+
+        Self-nudge contract (see AgenticActorMixin._run_with_self_nudge):
+        returns once ``submit_flight_plan`` has been delivered to the
+        supervisor's ``flight_plan_ready``, OR routes a ``PromptError``
+        if both attempts skip the tool.
+        """
+        logger.debug("generator.prompt_starting")
+        await self._run_with_self_nudge(
+            expected_tool=GENERATOR_MCP_TOOL,
+            run_prompt=lambda: self._send_prompt(request.prompt),
+            run_nudge=lambda: self._send_nudge_prompt(),
+            on_failure=self._report_generator_failure,
+            log_prefix="generator",
+        )
+
+    async def _report_generator_failure(self, error_str: str) -> None:
         from maverick.exceptions.quota import is_quota_error
 
-        logger.debug("generator.prompt_starting")
-        try:
-            await self._send_prompt(request.prompt)
-            logger.debug("generator.prompt_completed")
-        except Exception as exc:  # noqa: BLE001
-            error_str = str(exc)
-            logger.debug("generator.prompt_failed", error=error_str)
-            await self._supervisor_ref.prompt_error(
-                PromptError(
-                    phase="generate",
-                    error=error_str,
-                    quota_exhausted=is_quota_error(error_str),
-                )
+        logger.debug("generator.prompt_failed", error=error_str)
+        await self._supervisor_ref.prompt_error(
+            PromptError(
+                phase="generate",
+                error=error_str,
+                quota_exhausted=is_quota_error(error_str),
             )
+        )
 
     # ------------------------------------------------------------------
     # MCP gateway → agent inbox
@@ -125,6 +136,7 @@ class GeneratorActor(AgenticActorMixin, xo.Actor):
             )
             return "error"
         await self._supervisor_ref.flight_plan_ready(payload)
+        self._mark_tool_delivered(tool)
         await self._end_turn()
         return "ok"
 
@@ -206,4 +218,31 @@ class GeneratorActor(AgenticActorMixin, xo.Actor):
             text_len=len(text),
             output_type=type(output).__name__,
             output_preview=str(output)[:500],
+        )
+
+    async def _send_nudge_prompt(self) -> None:
+        """Re-prompt the same session asking the agent to call its tool.
+
+        Re-uses the existing ACP session so the agent has full
+        conversation context — the agent already saw the original
+        prompt; the nudge just reminds it to deliver via the tool.
+        """
+        await self._ensure_executor()
+        if not self._session_id:
+            await self._new_session()
+
+        prompt_text = (
+            f"Your previous turn finished without calling "
+            f"`{GENERATOR_MCP_TOOL}`. You MUST submit your flight plan via "
+            "that MCP tool — text-only responses are dropped by the "
+            "supervisor. Call it now using the work you already prepared."
+        )
+
+        await self._executor.prompt_session(
+            session_id=self._session_id,
+            prompt_text=prompt_text,
+            provider=self._step_config.provider if self._step_config else None,
+            config=step_config_with_timeout(self._step_config, GENERATOR_PROMPT_TIMEOUT_SECONDS),
+            step_name="generate_nudge",
+            agent_name="flight_plan_generator",
         )

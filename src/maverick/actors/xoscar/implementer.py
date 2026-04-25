@@ -132,29 +132,47 @@ class ImplementerActor(AgenticActorMixin, xo.Actor):
         tool_name: str,
         bead_id: str,
     ) -> None:
+        """Self-nudge contract: returns once ``tool_name`` has been
+        delivered to the supervisor, OR routes a ``PromptError`` if
+        both the original prompt and the nudge skip the tool.
+        """
+        logger.debug("implementer.phase_starting", phase=phase, bead_id=bead_id)
+
+        async def _failure(error_str: str) -> None:
+            await self._report_implementer_failure(
+                error_str, phase=phase, bead_id=bead_id
+            )
+
+        await self._run_with_self_nudge(
+            expected_tool=tool_name,
+            run_prompt=lambda: self._send_prompt(
+                prompt_text, phase=phase, tool_name=tool_name
+            ),
+            run_nudge=lambda: self._send_nudge_prompt(tool_name, phase=phase),
+            on_failure=_failure,
+            log_prefix="implementer",
+        )
+
+    async def _report_implementer_failure(
+        self, error_str: str, *, phase: str, bead_id: str
+    ) -> None:
         from maverick.exceptions.quota import is_quota_error
 
-        logger.debug("implementer.phase_starting", phase=phase, bead_id=bead_id)
-        try:
-            await self._send_prompt(prompt_text, phase=phase, tool_name=tool_name)
-            logger.debug("implementer.phase_completed", phase=phase, bead_id=bead_id)
-        except Exception as exc:  # noqa: BLE001
-            error_str = str(exc)
-            quota = is_quota_error(error_str)
-            logger.debug(
-                "implementer.phase_failed",
+        quota = is_quota_error(error_str)
+        logger.debug(
+            "implementer.phase_failed",
+            phase=phase,
+            bead_id=bead_id,
+            error=error_str,
+        )
+        await self._supervisor_ref.prompt_error(
+            PromptError(
                 phase=phase,
-                bead_id=bead_id,
                 error=error_str,
+                quota_exhausted=quota,
+                unit_id=bead_id,
             )
-            await self._supervisor_ref.prompt_error(
-                PromptError(
-                    phase=phase,
-                    error=error_str,
-                    quota_exhausted=quota,
-                    unit_id=bead_id,
-                )
-            )
+        )
 
     # ------------------------------------------------------------------
     # MCP gateway → agent inbox
@@ -177,6 +195,7 @@ class ImplementerActor(AgenticActorMixin, xo.Actor):
                 tool, f"Implementer has no handler for tool {tool!r}"
             )
             return "error"
+        self._mark_tool_delivered(tool)
         await self._end_turn()
         return "ok"
 
@@ -232,5 +251,27 @@ class ImplementerActor(AgenticActorMixin, xo.Actor):
             provider=self._step_config.provider if self._step_config else None,
             config=step_config_with_timeout(self._step_config, IMPLEMENTER_PROMPT_TIMEOUT_SECONDS),
             step_name=phase,
+            agent_name="implementer",
+        )
+
+    async def _send_nudge_prompt(self, expected_tool: str, *, phase: str) -> None:
+        """Re-prompt the same session asking the agent to call its tool."""
+        await self._ensure_executor()
+        if not self._session_id:
+            await self._new_session()
+
+        prompt_text = (
+            f"Your previous turn finished without calling `{expected_tool}`. "
+            "You MUST submit your result via that MCP tool — text-only "
+            "responses are dropped by the supervisor. Call it now using "
+            "the work you already prepared."
+        )
+
+        await self._executor.prompt_session(
+            session_id=self._session_id,
+            prompt_text=prompt_text,
+            provider=self._step_config.provider if self._step_config else None,
+            config=step_config_with_timeout(self._step_config, IMPLEMENTER_PROMPT_TIMEOUT_SECONDS),
+            step_name=f"{phase}_nudge",
             agent_name="implementer",
         )

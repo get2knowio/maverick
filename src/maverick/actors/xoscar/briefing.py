@@ -108,39 +108,46 @@ class BriefingActor(AgenticActorMixin, xo.Actor):
 
     async def send_briefing(self, request: BriefingRequest) -> None:
         """Run the briefing prompt. The typed result arrives on the
-        supervisor via this actor's own ``on_tool_call``."""
-        from maverick.exceptions.quota import is_quota_error
+        supervisor via this actor's own ``on_tool_call``.
 
+        Self-nudge contract (see AgenticActorMixin._run_with_self_nudge):
+        returns once the agent's MCP tool has been delivered to the
+        supervisor's forward method, OR routes a ``PromptError`` if
+        both the initial prompt and the nudge come up empty.
+        """
         logger.debug(
             "briefing.prompt_starting",
             actor=self._actor_tag,
             tool=self._mcp_tool,
         )
-        try:
-            await self._send_prompt(request)
-            logger.debug(
-                "briefing.prompt_completed",
-                actor=self._actor_tag,
-                tool=self._mcp_tool,
-            )
-        except Exception as exc:  # noqa: BLE001 — route all errors to the supervisor
-            error_str = str(exc)
-            quota = is_quota_error(error_str)
-            logger.debug(
-                "briefing.prompt_failed",
-                actor=self._actor_tag,
-                tool=self._mcp_tool,
+        await self._run_with_self_nudge(
+            expected_tool=self._mcp_tool,
+            run_prompt=lambda: self._send_prompt(request),
+            run_nudge=lambda: self._send_nudge_prompt(),
+            on_failure=self._report_briefing_failure,
+            log_prefix="briefing",
+        )
+
+    async def _report_briefing_failure(self, error_str: str) -> None:
+        """Send a ``PromptError`` to the supervisor for this briefing actor."""
+        from maverick.exceptions.quota import is_quota_error
+
+        quota = is_quota_error(error_str)
+        logger.debug(
+            "briefing.prompt_failed",
+            actor=self._actor_tag,
+            tool=self._mcp_tool,
+            error=error_str,
+            quota=quota,
+        )
+        await self._supervisor_ref.prompt_error(
+            PromptError(
+                phase="briefing",
                 error=error_str,
-                quota=quota,
+                quota_exhausted=quota,
+                unit_id=self._agent_name,
             )
-            await self._supervisor_ref.prompt_error(
-                PromptError(
-                    phase="briefing",
-                    error=error_str,
-                    quota_exhausted=quota,
-                    unit_id=self._agent_name,
-                )
-            )
+        )
 
     # ------------------------------------------------------------------
     # MCP gateway → agent inbox
@@ -167,6 +174,9 @@ class BriefingActor(AgenticActorMixin, xo.Actor):
             )
             return "error"
         await forward(payload)
+        # Mark the tool delivered so send_briefing's self-nudge loop
+        # knows the prompt produced a real submission.
+        self._mark_tool_delivered(tool)
         # Payload is safely in the supervisor; end the ACP turn so
         # send_briefing returns. If we didn't, the agent would keep
         # generating post-submission wrap-up text and the briefing
@@ -233,5 +243,35 @@ class BriefingActor(AgenticActorMixin, xo.Actor):
             provider=self._step_config.provider if self._step_config else None,
             config=step_config_with_timeout(self._step_config, BRIEFING_TIMEOUT_SECONDS),
             step_name=f"briefing_{self._agent_name}",
+            agent_name=self._agent_name,
+        )
+
+    async def _send_nudge_prompt(self) -> None:
+        """Send a follow-up prompt asking the agent to call its tool.
+
+        Re-uses the same ACP session so the agent has full conversation
+        context — the agent already saw the original prompt, the nudge
+        just reminds it to deliver via the tool. ``_send_prompt`` is not
+        re-used so we don't re-send the (potentially huge) original
+        prompt body.
+        """
+        await self._ensure_executor()
+        if not self._session_id:
+            # Should not happen — _send_prompt would have created one.
+            await self._new_session()
+
+        prompt_text = (
+            f"Your previous turn finished without calling `{self._mcp_tool}`. "
+            "You MUST submit your result via that MCP tool — text-only "
+            "responses are dropped by the supervisor. Call it now using "
+            "the work you already prepared in your previous turn."
+        )
+
+        await self._executor.prompt_session(
+            session_id=self._session_id,
+            prompt_text=prompt_text,
+            provider=self._step_config.provider if self._step_config else None,
+            config=step_config_with_timeout(self._step_config, BRIEFING_TIMEOUT_SECONDS),
+            step_name=f"briefing_{self._agent_name}_nudge",
             agent_name=self._agent_name,
         )

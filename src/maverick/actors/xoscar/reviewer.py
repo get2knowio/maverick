@@ -112,41 +112,70 @@ class ReviewerActor(AgenticActorMixin, xo.Actor):
             )
 
     async def send_review(self, request: ReviewRequest) -> None:
+        """Self-nudge contract: returns once ``submit_review`` is delivered
+        (to ``review_ready``), or routes a ``PromptError`` after a failed
+        nudge."""
         self._review_count += 1
         self._in_aggregate = False
-        from maverick.exceptions.quota import is_quota_error
 
         logger.debug(
             "reviewer.review_starting",
             review_count=self._review_count,
             bead_id=request.bead_id,
         )
-        try:
-            await self._send_review_prompt(request)
-        except Exception as exc:  # noqa: BLE001
-            error_str = str(exc)
-            logger.debug("reviewer.review_failed", error=error_str)
-            await self._supervisor_ref.prompt_error(
-                PromptError(
-                    phase="review",
-                    error=error_str,
-                    quota_exhausted=is_quota_error(error_str),
-                    unit_id=request.bead_id,
-                )
+
+        async def _failure(error_str: str) -> None:
+            await self._report_review_failure(error_str, bead_id=request.bead_id)
+
+        await self._run_with_self_nudge(
+            expected_tool=REVIEWER_MCP_TOOL,
+            run_prompt=lambda: self._send_review_prompt(request),
+            run_nudge=lambda: self._send_nudge_prompt(phase="review"),
+            on_failure=_failure,
+            log_prefix="reviewer",
+        )
+
+    async def _report_review_failure(self, error_str: str, *, bead_id: str) -> None:
+        from maverick.exceptions.quota import is_quota_error
+
+        logger.debug("reviewer.review_failed", error=error_str)
+        await self._supervisor_ref.prompt_error(
+            PromptError(
+                phase="review",
+                error=error_str,
+                quota_exhausted=is_quota_error(error_str),
+                unit_id=bead_id,
             )
+        )
 
     async def send_aggregate_review(self, request: AggregateReviewRequest) -> None:
+        """Aggregate review with same self-nudge contract.
+
+        Aggregate failures are non-fatal at the workflow level (the epic
+        still closes), so we route through ``payload_parse_error`` rather
+        than ``prompt_error``.
+        """
         self._in_aggregate = True
         logger.debug("reviewer.aggregate_starting", bead_count=request.bead_count)
         try:
             await self._new_session()
-            await self._send_aggregate_prompt(request)
-            logger.debug("reviewer.aggregate_completed")
         except Exception as exc:  # noqa: BLE001
             logger.error("reviewer.aggregate_failed", error=str(exc))
-            # Aggregate failures are non-fatal — emit a payload_parse_error
-            # so the supervisor notes it but the epic still closes.
             await self._supervisor_ref.payload_parse_error("aggregate_review", str(exc))
+            return
+
+        async def _failure(error_str: str) -> None:
+            logger.error("reviewer.aggregate_failed", error=error_str)
+            await self._supervisor_ref.payload_parse_error("aggregate_review", error_str)
+
+        await self._run_with_self_nudge(
+            expected_tool=REVIEWER_MCP_TOOL,
+            run_prompt=lambda: self._send_aggregate_prompt(request),
+            run_nudge=lambda: self._send_nudge_prompt(phase="aggregate_review"),
+            on_failure=_failure,
+            log_prefix="reviewer",
+        )
+        logger.debug("reviewer.aggregate_completed")
 
     # ------------------------------------------------------------------
     # MCP subprocess → agent inbox
@@ -170,6 +199,7 @@ class ReviewerActor(AgenticActorMixin, xo.Actor):
             await self._supervisor_ref.aggregate_review_ready(payload)
         else:
             await self._supervisor_ref.review_ready(payload)
+        self._mark_tool_delivered(tool)
         await self._end_turn()
         return "ok"
 
@@ -295,5 +325,37 @@ class ReviewerActor(AgenticActorMixin, xo.Actor):
             provider=self._step_config.provider if self._step_config else None,
             config=step_config_with_timeout(self._step_config, AGGREGATE_REVIEW_TIMEOUT_SECONDS),
             step_name="aggregate_review",
+            agent_name="reviewer",
+        )
+
+    async def _send_nudge_prompt(self, *, phase: str) -> None:
+        """Re-prompt the same session asking the agent to call its tool.
+
+        The session is reused so the agent has full conversation context;
+        the nudge is just a short reminder.
+        """
+        await self._ensure_executor()
+        if not self._session_id:
+            await self._new_session()
+
+        # Aggregate review uses a longer timeout than per-bead review.
+        timeout = (
+            AGGREGATE_REVIEW_TIMEOUT_SECONDS
+            if phase == "aggregate_review"
+            else REVIEW_PROMPT_TIMEOUT_SECONDS
+        )
+        prompt_text = (
+            f"Your previous turn finished without calling `{REVIEWER_MCP_TOOL}`. "
+            "You MUST submit your review via that MCP tool — text-only "
+            "responses are dropped by the supervisor. Call it now using "
+            "the work you already prepared."
+        )
+
+        await self._executor.prompt_session(
+            session_id=self._session_id,
+            prompt_text=prompt_text,
+            provider=self._step_config.provider if self._step_config else None,
+            config=step_config_with_timeout(self._step_config, timeout),
+            step_name=f"{phase}_nudge",
             agent_name="reviewer",
         )

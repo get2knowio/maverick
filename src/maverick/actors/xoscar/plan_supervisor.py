@@ -246,11 +246,23 @@ class PlanSupervisor(xo.Actor):
             for agent_name, _label, _tool, method in PLAN_BRIEFING_CONFIG[:3]
             if method.removesuffix("_ready") not in self._briefs
         ]
+        # Each BriefingActor self-nudges if its agent finishes without
+        # calling its tool, then routes a prompt_error if the nudge also
+        # fails. Bail if the workflow was already marked done so the
+        # driver surfaces the recorded failure.
+        if self._done:
+            return
         if missing:
-            raise RuntimeError(f"Briefing agents did not submit tool calls: {sorted(missing)}")
+            raise RuntimeError(
+                f"Briefing actor returned without delivering and without "
+                f"reporting a prompt_error — actor contract violation: "
+                f"{sorted(missing)}"
+            )
 
         if "contrarian" in self._briefing_actors:
             await self._run_contrarian_phase()
+            if self._done:
+                return
 
         elapsed_ms = int((_time.monotonic() - briefing_start) * 1000)
         await self._emit_phase_completed("briefing", "Briefing", elapsed_ms)
@@ -293,8 +305,11 @@ class PlanSupervisor(xo.Actor):
         await self._briefing_actors["contrarian"].send_briefing(
             BriefingRequest(agent_name="contrarian", prompt=prompt)
         )
-        if "challenge" not in self._briefs:
-            raise RuntimeError("Contrarian briefing did not submit its tool call")
+        if "challenge" not in self._briefs and not self._done:
+            raise RuntimeError(
+                "Contrarian briefing returned without delivering and "
+                "without reporting a prompt_error — actor contract violation"
+            )
 
     async def _synthesize_briefing_markdown(self) -> None:
         from maverick.preflight_briefing.serializer import serialize_briefs_to_markdown

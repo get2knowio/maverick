@@ -107,12 +107,9 @@ class DecomposerActor(AgenticActorMixin, xo.Actor):
         self._session_mode: str | None = None
         self._session_turns_in_mode = 0
 
-        # Per-prompt tool-delivery tracking. Reset by _run_prompt before each
-        # turn; flipped to True by on_tool_call when the matching tool fires.
-        # Lets the actor self-nudge instead of leaking turn state to the
-        # supervisor (the actor owns the session, so the actor decides
-        # whether the turn delivered).
-        self._tool_delivered: dict[str, bool] = {}
+        # Self-nudge tool-delivery tracking lives on AgenticActorMixin;
+        # see :meth:`AgenticActorMixin._mark_tool_delivered` and
+        # :meth:`AgenticActorMixin._run_with_self_nudge`.
 
         # Bulk context broadcast once per detail phase — keeps per-unit
         # detail_request messages tiny.
@@ -221,105 +218,62 @@ class DecomposerActor(AgenticActorMixin, xo.Actor):
         unit_id: str | None = None,
         expected_tool: str | None = None,
     ) -> None:
-        """Run an ACP-driving coroutine, translate exceptions into
-        ``PromptError`` messages on the supervisor's ref, and (when
-        ``expected_tool`` is set) self-nudge once if the agent finishes its
-        turn without calling that tool.
+        """Run an ACP-driving coroutine and route results to the supervisor.
 
-        The supervisor fans these out concurrently via ``asyncio.gather``
-        or a task pool. This method blocks only until the underlying
-        ``prompt_session`` call completes — the structured result lands
-        on the supervisor through the MCP inbox path during that time.
+        When ``expected_tool`` is set, delegates to
+        :meth:`AgenticActorMixin._run_with_self_nudge` so the supervisor
+        only sees a typed callback (success) or a ``PromptError`` (failure)
+        — no post-hoc "did the tool fire" inspection across the boundary.
 
-        Encapsulation: the actor owns its session and its
-        ``on_tool_call`` handler, so it's the only one that can know
-        whether the matching tool fired during the turn. The supervisor
-        sees a successful return iff the payload was actually delivered
-        (or a ``prompt_error`` if the nudge also failed).
+        When ``expected_tool`` is ``None`` (e.g., the detail phase, where
+        the supervisor's per-unit fan-out retry covers missing tools),
+        we just translate exceptions into a ``PromptError``.
         """
-        from maverick.exceptions.quota import is_quota_error
-
-        if expected_tool is not None:
-            self._tool_delivered[expected_tool] = False
-
         logger.debug("decomposer.phase_starting", phase=phase, unit_id=unit_id)
-        try:
-            await coro
-        except Exception as exc:  # noqa: BLE001 — route all errors to the supervisor
-            await self._report_prompt_failure(exc, phase=phase, unit_id=unit_id)
-            return
 
-        if expected_tool is None or self._tool_delivered.get(expected_tool):
+        async def _failure(error_str: str) -> None:
+            await self._report_decomposer_failure(error_str, phase=phase, unit_id=unit_id)
+
+        if expected_tool is None:
+            try:
+                await coro
+            except Exception as exc:  # noqa: BLE001
+                await _failure(str(exc))
+                return
             logger.debug("decomposer.phase_completed", phase=phase, unit_id=unit_id)
             return
 
-        # Tool wasn't called. Nudge once and re-await delivery.
-        logger.info(
-            "decomposer.tool_missing_nudging",
-            actor=self._actor_tag,
-            phase=phase,
-            unit_id=unit_id,
-            expected_tool=expected_tool,
-        )
-        nudge_request = NudgeRequest(
-            expected_tool=expected_tool,
-            reason=(
-                f"Your previous turn finished without calling `{expected_tool}`. "
-                "You MUST submit your result via that MCP tool — text-only "
-                "responses are dropped."
-            ),
-            unit_id=unit_id,
-        )
-        try:
-            await self._send_nudge_prompt(nudge_request)
-        except Exception as exc:  # noqa: BLE001
-            await self._report_prompt_failure(exc, phase=phase, unit_id=unit_id)
-            return
-
-        if self._tool_delivered.get(expected_tool):
-            logger.info(
-                "decomposer.tool_delivered_after_nudge",
-                actor=self._actor_tag,
-                phase=phase,
-                unit_id=unit_id,
-                expected_tool=expected_tool,
+        async def _nudge() -> None:
+            await self._send_nudge_prompt(
+                NudgeRequest(
+                    expected_tool=expected_tool,
+                    reason=(
+                        f"Your previous turn finished without calling "
+                        f"`{expected_tool}`. You MUST submit your result via "
+                        "that MCP tool — text-only responses are dropped."
+                    ),
+                    unit_id=unit_id,
+                )
             )
-            return
 
-        # Still nothing — give up and report.
-        error_str = (
-            f"Agent finished two turns without calling `{expected_tool}` "
-            f"during {phase} phase"
-        )
-        logger.warning(
-            "decomposer.tool_missing_after_nudge",
-            actor=self._actor_tag,
-            phase=phase,
-            unit_id=unit_id,
+        await self._run_with_self_nudge(
             expected_tool=expected_tool,
-        )
-        # Wrap the no-tool-call into the existing PromptError contract so the
-        # supervisor handles it the same way as any other prompt failure.
-        await self._supervisor_ref.prompt_error(
-            PromptError(
-                phase=phase,
-                error=error_str,
-                quota_exhausted=is_quota_error(error_str),
-                unit_id=unit_id,
-            )
+            run_prompt=lambda: coro,
+            run_nudge=_nudge,
+            on_failure=_failure,
+            log_prefix="decomposer",
         )
 
-    async def _report_prompt_failure(
+    async def _report_decomposer_failure(
         self,
-        exc: Exception,
+        error_str: str,
         *,
         phase: str,
         unit_id: str | None,
     ) -> None:
-        """Forward an exception during a prompt to the supervisor."""
+        """Forward a decomposer prompt failure to the supervisor."""
         from maverick.exceptions.quota import is_quota_error
 
-        error_str = str(exc)
         quota = is_quota_error(error_str)
         logger.debug(
             "decomposer.phase_failed",
@@ -371,7 +325,7 @@ class DecomposerActor(AgenticActorMixin, xo.Actor):
             return "error"
         # Mark this tool as delivered so the actor's _run_prompt loop knows
         # the prompt produced a real submission and doesn't self-nudge.
-        self._tool_delivered[tool] = True
+        self._mark_tool_delivered(tool)
         # Payload forwarded to supervisor; end the ACP turn so the
         # agent does not keep generating wrap-up text. The session
         # stays alive for the next mode/turn.
