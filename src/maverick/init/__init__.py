@@ -15,6 +15,8 @@ Models are re-exported from maverick.init.models.
 from __future__ import annotations
 
 import asyncio
+import json
+import os
 import shutil
 from pathlib import Path
 
@@ -92,7 +94,95 @@ logger = get_logger(__name__)
 # Beads Initialization
 # =============================================================================
 
-_BD_INIT_TIMEOUT_SECONDS = 10
+_BD_INIT_TIMEOUT_SECONDS = 60
+
+
+def _is_valid_dolt_db_name(name: str) -> bool:
+    """Return True iff ``name`` is a legal Dolt database identifier.
+
+    Dolt rejects names with hyphens or other non-alphanumeric/underscore chars,
+    and disallows leading digits.
+    """
+    if not name:
+        return False
+    if name[0].isdigit():
+        return False
+    return all(ch.isalnum() or ch == "_" for ch in name)
+
+
+def _clear_invalid_bd_state(project_path: Path) -> None:
+    """Reset stale bd state so ``bd init --force`` can re-initialize cleanly.
+
+    Two failure modes have to be handled:
+
+    1. Older bd versions wrote ``dolt_database`` values that the current Dolt
+       engine refuses to open (typically because of hyphens carried over from
+       the repository directory name). bd init then silently keeps the bad
+       name even when given a fresh ``--prefix``.
+    2. A previous ``bd init`` attempt may have aborted mid-clone, leaving a
+       partial ``embeddeddolt/`` directory. ``bd init --force`` does not wipe
+       that on its own and rejects the next clone with "database exists".
+
+    With ``--force`` semantics we always remove the embedded Dolt directory and
+    additionally drop ``metadata.json`` if it points at an invalid database
+    name (preserving the file when the name is already valid keeps
+    ``project_id`` stable across re-inits).
+    """
+    beads_dir = project_path / ".beads"
+    metadata_path = beads_dir / "metadata.json"
+    if metadata_path.is_file():
+        try:
+            metadata = json.loads(metadata_path.read_text())
+        except (OSError, ValueError):
+            metadata = None
+        db_name = metadata.get("dolt_database") if isinstance(metadata, dict) else None
+        if not (isinstance(db_name, str) and _is_valid_dolt_db_name(db_name)):
+            try:
+                metadata_path.unlink()
+            except OSError:
+                pass
+    # Clean any embedded Dolt store and any stale server-mode artifacts left
+    # over from older bd versions or aborted previous runs.
+    embedded_dir = beads_dir / "embeddeddolt"
+    if embedded_dir.is_dir():
+        shutil.rmtree(embedded_dir, ignore_errors=True)
+    server_dir = beads_dir / "dolt"
+    if server_dir.is_dir():
+        shutil.rmtree(server_dir, ignore_errors=True)
+    for stale in (
+        "dolt-server.lock",
+        "dolt-server.log",
+        "dolt-server.pid",
+        "dolt-server.port",
+        "dolt-server.activity",
+        "dolt-monitor.pid",
+        "dolt-monitor.pid.lock",
+        ".local_version",
+    ):
+        try:
+            (beads_dir / stale).unlink()
+        except FileNotFoundError:
+            pass
+        except OSError:
+            pass
+
+
+def _sanitize_bd_prefix(name: str) -> str:
+    """Convert a directory name into a Dolt-safe bd issue prefix.
+
+    Dolt rejects hyphens in database names; bd derives the database name from
+    the prefix, so we replace any non-alphanumeric character with an underscore
+    and collapse repeats. Leading digits get an ``_`` prefix to keep the result
+    a valid identifier.
+    """
+    cleaned = "".join(ch if ch.isalnum() else "_" for ch in name).strip("_")
+    while "__" in cleaned:
+        cleaned = cleaned.replace("__", "_")
+    if not cleaned:
+        cleaned = "project"
+    if cleaned[0].isdigit():
+        cleaned = f"_{cleaned}"
+    return cleaned
 
 
 async def _init_beads(project_path: Path, verbose: bool) -> bool:
@@ -122,12 +212,48 @@ async def _init_beads(project_path: Path, verbose: bool) -> bool:
             "https://github.com/get2knowio/bd)"
         )
 
+    # bd defaults --prefix to the directory name, but Dolt rejects hyphens in
+    # database names. Sanitize the directory name so initialization succeeds on
+    # repos like "sample-maverick-project".
+    prefix = _sanitize_bd_prefix(project_path.name)
+
+    # If a previous bd init left metadata pointing at an invalid Dolt database
+    # name (e.g., one containing hyphens), bd will refuse to open the store and
+    # ignore --prefix. With --force semantics we wipe the stale metadata and
+    # embedded store so bd can re-init cleanly.
+    _clear_invalid_bd_state(project_path)
+
+    # Disable git hooks for the bd-internal git commit only. bd installs a
+    # pre-commit hook (via core.hooksPath = .beads/hooks) that calls back into
+    # ``bd export``, which deadlocks against the embeddeddolt lock the parent
+    # ``bd init`` already holds. Injecting core.hooksPath via GIT_CONFIG_*
+    # env vars takes effect for git invocations bd makes, without modifying
+    # the repository's persistent config.
+    bd_env = {
+        **os.environ,
+        "GIT_CONFIG_COUNT": "1",
+        "GIT_CONFIG_KEY_0": "core.hooksPath",
+        "GIT_CONFIG_VALUE_0": "/dev/null",
+    }
+
     try:
         proc = await asyncio.create_subprocess_exec(
             "bd",
             "init",
             "--force",
+            "--prefix",
+            prefix,
+            # Source issues from .beads/issues.jsonl (which auto-export keeps in
+            # sync) rather than re-cloning from the git remote. The Dolt
+            # clone-from-remote path collides with the embedded store bd just
+            # created, failing with "database exists".
+            "--from-jsonl",
+            # Skip bd's interactive setup wizard. Without this, bd hangs on
+            # role/contributor prompts in subprocess contexts where stdin is
+            # closed but stdout/stderr remain attached.
+            "--non-interactive",
             cwd=str(project_path),
+            env=bd_env,
             stdin=asyncio.subprocess.DEVNULL,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
