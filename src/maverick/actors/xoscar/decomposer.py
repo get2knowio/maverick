@@ -34,6 +34,7 @@ import xoscar as xo
 
 from maverick.actors.step_config import load_step_config, step_config_with_timeout
 from maverick.actors.xoscar._agentic import AgenticActorMixin
+from maverick.actors.xoscar._agentic import extract_text_output as _extract_text_output
 from maverick.actors.xoscar.messages import (
     DecomposerContext,
     DetailRequest,
@@ -447,7 +448,7 @@ class DecomposerActor(AgenticActorMixin, xo.Actor):
         timeout_seconds: int = DEFAULT_PROMPT_TIMEOUT_SECONDS,
     ) -> None:
         await self._ensure_agent()
-        await self._executor.prompt_session(
+        result = await self._executor.prompt_session(
             session_id=self._session_id,
             prompt_text=prompt_text,
             provider=self._step_config.provider if self._step_config else None,
@@ -455,6 +456,9 @@ class DecomposerActor(AgenticActorMixin, xo.Actor):
             step_name=step_name,
             agent_name="decomposer",
         )
+        # Capture the agent's text response so the mixin can surface it
+        # in tool-missing logs and the next nudge can quote it.
+        self._record_last_response(_extract_text_output(result))
 
     # ------------------------------------------------------------------
     # Prompt builders (mirror the Thespian implementation)
@@ -632,5 +636,18 @@ class DecomposerActor(AgenticActorMixin, xo.Actor):
             )
         if reason:
             prompt_text += f" (reason: {reason})"
+
+        # Quote the agent's previous text so the LLM is forced to convert
+        # it into a tool call rather than repeating the same refusal.
+        previous = self._get_last_response()
+        if previous:
+            preview = previous if len(previous) <= 1500 else previous[:1500] + "…"
+            prompt_text += (
+                f"\n\nYour previous turn produced this text instead of a "
+                f"tool call:\n\n---\n{preview}\n---\n\n"
+                f"Convert that work into a single `{tool_name}` tool call. "
+                "Do NOT refuse — even partial results should be submitted "
+                "via the tool."
+            )
 
         await self._prompt(prompt_text, f"decompose_nudge_{tool_name}")

@@ -40,6 +40,39 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 
+# Maximum chars of agent text to include in structlog events / failure
+# messages. Long enough to be useful for diagnosis, short enough to keep
+# log lines readable and avoid embedding the entire 50k-token PRD.
+_RESPONSE_PREVIEW_CHARS = 400
+
+
+def _preview(text: str) -> str:
+    """Truncate ``text`` to a single-line preview for logging."""
+    if not text:
+        return "<empty>"
+    collapsed = " ".join(text.split())
+    if len(collapsed) <= _RESPONSE_PREVIEW_CHARS:
+        return collapsed
+    return collapsed[:_RESPONSE_PREVIEW_CHARS] + "…"
+
+
+def extract_text_output(result: Any) -> str:
+    """Coerce an :class:`ExecutorResult.output` into a string.
+
+    ACP sessions without an ``output_schema`` return ``output =
+    accumulated_text`` (a ``str``); sessions with one return a Pydantic
+    model. The agentic actors use the no-schema form (their structured
+    output flows through MCP tool calls), so ``output`` is normally a
+    ``str`` already — but be defensive in case a result type changes.
+    """
+    output = getattr(result, "output", None)
+    if isinstance(output, str):
+        return output
+    if output is None:
+        return ""
+    return str(output)
+
+
 class AgenticActorMixin:
     """Mixin providing :class:`AgentToolGateway` registration for ACP-backed agent actors.
 
@@ -204,6 +237,23 @@ class AgenticActorMixin:
     def _was_tool_delivered(self, tool: str) -> bool:
         return self._tool_delivered_map().get(tool, False)
 
+    # --- Agent response capture (for diagnostics + nudge prompts) ----------
+    #
+    # When the agent finishes a turn without calling its expected tool, the
+    # most useful thing the actor can know is *what the agent said instead*.
+    # Subclasses call ``_record_last_response`` from their prompt-running
+    # methods (right after ``_executor.prompt_session(...)`` returns) so the
+    # mixin can surface the text in failure logs and the actor can quote it
+    # in its nudge prompt.
+
+    def _record_last_response(self, text: str | None) -> None:
+        """Store the agent's most recent text response (if any)."""
+        self.__dict__["_last_response_text"] = text or ""
+
+    def _get_last_response(self) -> str:
+        """Return the agent's most recent text response (empty when none)."""
+        return self.__dict__.get("_last_response_text", "")
+
     async def _run_with_self_nudge(
         self,
         *,
@@ -228,6 +278,9 @@ class AgenticActorMixin:
         traces stay distinguishable.
         """
         self._reset_tool_tracking(expected_tool)
+        # Clear stale captured text from a previous run so we don't surface
+        # it in this run's failure logs.
+        self._record_last_response("")
         actor_tag = getattr(self, "_actor_tag", type(self).__name__)
 
         try:
@@ -239,10 +292,13 @@ class AgenticActorMixin:
         if self._was_tool_delivered(expected_tool):
             return
 
+        first_response = self._get_last_response()
         logger.info(
             f"{log_prefix}.tool_missing_nudging",
             actor=actor_tag,
             expected_tool=expected_tool,
+            response_len=len(first_response),
+            response_preview=_preview(first_response),
         )
         try:
             await run_nudge()
@@ -258,13 +314,21 @@ class AgenticActorMixin:
             )
             return
 
+        nudge_response = self._get_last_response()
         logger.warning(
             f"{log_prefix}.tool_missing_after_nudge",
             actor=actor_tag,
             expected_tool=expected_tool,
+            initial_response_len=len(first_response),
+            initial_response_preview=_preview(first_response),
+            nudge_response_len=len(nudge_response),
+            nudge_response_preview=_preview(nudge_response),
         )
         await on_failure(
-            f"Agent finished two turns without calling `{expected_tool}`"
+            f"Agent finished two turns without calling `{expected_tool}`. "
+            f"Agent said (first turn, {len(first_response)} chars): "
+            f"{_preview(first_response)} | (nudge turn, "
+            f"{len(nudge_response)} chars): {_preview(nudge_response)}"
         )
 
     # ------------------------------------------------------------------

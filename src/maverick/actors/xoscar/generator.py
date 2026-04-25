@@ -25,6 +25,7 @@ from maverick.actors.step_config import (
     step_config_with_timeout,
 )
 from maverick.actors.xoscar._agentic import AgenticActorMixin
+from maverick.actors.xoscar._agentic import extract_text_output as _extract_text_output
 from maverick.actors.xoscar.messages import GenerateRequest, PromptError
 from maverick.logging import get_logger
 from maverick.tools.agent_inbox.models import (
@@ -209,36 +210,49 @@ class GeneratorActor(AgenticActorMixin, xo.Actor):
             step_name="generate",
             agent_name="flight_plan_generator",
         )
-        text = getattr(result, "text", "") or ""
-        output = getattr(result, "output", None)
-        success = getattr(result, "success", None)
+        accumulated = _extract_text_output(result)
+        self._record_last_response(accumulated)
         logger.debug(
             "generator.result",
-            success=success,
-            text_len=len(text),
-            output_type=type(output).__name__,
-            output_preview=str(output)[:500],
+            success=getattr(result, "success", None),
+            text_len=len(accumulated),
+            output_type=type(getattr(result, "output", None)).__name__,
+            output_preview=accumulated[:500],
         )
 
     async def _send_nudge_prompt(self) -> None:
         """Re-prompt the same session asking the agent to call its tool.
 
         Re-uses the existing ACP session so the agent has full
-        conversation context — the agent already saw the original
-        prompt; the nudge just reminds it to deliver via the tool.
+        conversation context. Quotes the agent's previous text response
+        so the LLM is forced to convert that work into a tool call
+        rather than repeating the same refusal.
         """
         await self._ensure_executor()
         if not self._session_id:
             await self._new_session()
 
+        previous = self._get_last_response()
+        if previous:
+            preview = previous if len(previous) <= 1500 else previous[:1500] + "…"
+            quoted = (
+                f"\n\nYour previous turn produced this text instead of a "
+                f"tool call:\n\n---\n{preview}\n---\n\n"
+                f"Convert that work into a single `{GENERATOR_MCP_TOOL}` "
+                "tool call. Do NOT refuse — even partial output should be "
+                "submitted via the tool."
+            )
+        else:
+            quoted = ""
+
         prompt_text = (
             f"Your previous turn finished without calling "
             f"`{GENERATOR_MCP_TOOL}`. You MUST submit your flight plan via "
             "that MCP tool — text-only responses are dropped by the "
-            "supervisor. Call it now using the work you already prepared."
+            f"supervisor.{quoted}"
         )
 
-        await self._executor.prompt_session(
+        result = await self._executor.prompt_session(
             session_id=self._session_id,
             prompt_text=prompt_text,
             provider=self._step_config.provider if self._step_config else None,
@@ -246,3 +260,4 @@ class GeneratorActor(AgenticActorMixin, xo.Actor):
             step_name="generate_nudge",
             agent_name="flight_plan_generator",
         )
+        self._record_last_response(_extract_text_output(result))

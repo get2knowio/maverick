@@ -29,6 +29,7 @@ from maverick.actors.step_config import (
     step_config_with_timeout,
 )
 from maverick.actors.xoscar._agentic import AgenticActorMixin
+from maverick.actors.xoscar._agentic import extract_text_output as _extract_text_output
 from maverick.actors.xoscar.messages import (
     AggregateReviewRequest,
     NewBeadRequest,
@@ -289,7 +290,7 @@ class ReviewerActor(AgenticActorMixin, xo.Actor):
                 "Call the `submit_review` tool."
             )
 
-        await self._executor.prompt_session(
+        result = await self._executor.prompt_session(
             session_id=self._session_id,
             prompt_text=prompt,
             provider=self._step_config.provider if self._step_config else None,
@@ -297,6 +298,7 @@ class ReviewerActor(AgenticActorMixin, xo.Actor):
             step_name="review",
             agent_name="reviewer",
         )
+        self._record_last_response(_extract_text_output(result))
 
     async def _send_aggregate_prompt(self, request: AggregateReviewRequest) -> None:
         prompt = (
@@ -319,7 +321,7 @@ class ReviewerActor(AgenticActorMixin, xo.Actor):
             "no cross-bead concerns found."
         )
 
-        await self._executor.prompt_session(
+        result = await self._executor.prompt_session(
             session_id=self._session_id,
             prompt_text=prompt,
             provider=self._step_config.provider if self._step_config else None,
@@ -327,12 +329,15 @@ class ReviewerActor(AgenticActorMixin, xo.Actor):
             step_name="aggregate_review",
             agent_name="reviewer",
         )
+        self._record_last_response(_extract_text_output(result))
 
     async def _send_nudge_prompt(self, *, phase: str) -> None:
         """Re-prompt the same session asking the agent to call its tool.
 
         The session is reused so the agent has full conversation context;
-        the nudge is just a short reminder.
+        the nudge quotes the agent's previous text so the LLM is forced
+        to convert that work into a tool call instead of repeating the
+        same refusal.
         """
         await self._ensure_executor()
         if not self._session_id:
@@ -344,14 +349,27 @@ class ReviewerActor(AgenticActorMixin, xo.Actor):
             if phase == "aggregate_review"
             else REVIEW_PROMPT_TIMEOUT_SECONDS
         )
+
+        previous = self._get_last_response()
+        if previous:
+            preview = previous if len(previous) <= 1500 else previous[:1500] + "…"
+            quoted = (
+                f"\n\nYour previous turn produced this text instead of a "
+                f"tool call:\n\n---\n{preview}\n---\n\n"
+                f"Convert that into a single `{REVIEWER_MCP_TOOL}` tool "
+                "call. If the review found nothing, call the tool with "
+                "approved=true and an empty findings array — do NOT refuse."
+            )
+        else:
+            quoted = ""
+
         prompt_text = (
             f"Your previous turn finished without calling `{REVIEWER_MCP_TOOL}`. "
             "You MUST submit your review via that MCP tool — text-only "
-            "responses are dropped by the supervisor. Call it now using "
-            "the work you already prepared."
+            f"responses are dropped by the supervisor.{quoted}"
         )
 
-        await self._executor.prompt_session(
+        result = await self._executor.prompt_session(
             session_id=self._session_id,
             prompt_text=prompt_text,
             provider=self._step_config.provider if self._step_config else None,
@@ -359,3 +377,4 @@ class ReviewerActor(AgenticActorMixin, xo.Actor):
             step_name=f"{phase}_nudge",
             agent_name="reviewer",
         )
+        self._record_last_response(_extract_text_output(result))

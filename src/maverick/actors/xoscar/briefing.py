@@ -24,6 +24,7 @@ from maverick.actors.step_config import (
     step_config_with_timeout,
 )
 from maverick.actors.xoscar._agentic import AgenticActorMixin
+from maverick.actors.xoscar._agentic import extract_text_output as _extract_text_output
 from maverick.actors.xoscar.messages import BriefingRequest, PromptError
 from maverick.logging import get_logger
 from maverick.tools.agent_inbox.models import (
@@ -234,10 +235,14 @@ class BriefingActor(AgenticActorMixin, xo.Actor):
             f"You MUST call the `{self._mcp_tool}` tool with your "
             f"results. Do NOT put results in a text response — the "
             f"supervisor can only receive your work via the "
-            f"{self._mcp_tool} tool call."
+            f"{self._mcp_tool} tool call.\n"
+            "If your analysis surfaced no findings (e.g. greenfield "
+            "project with no existing code), still call the tool with "
+            "empty arrays / minimal fields. Do NOT respond with text "
+            "saying 'nothing to report' — that is dropped."
         )
 
-        await self._executor.prompt_session(
+        result = await self._executor.prompt_session(
             session_id=self._session_id,
             prompt_text=prompt_text,
             provider=self._step_config.provider if self._step_config else None,
@@ -245,29 +250,43 @@ class BriefingActor(AgenticActorMixin, xo.Actor):
             step_name=f"briefing_{self._agent_name}",
             agent_name=self._agent_name,
         )
+        self._record_last_response(_extract_text_output(result))
 
     async def _send_nudge_prompt(self) -> None:
         """Send a follow-up prompt asking the agent to call its tool.
 
         Re-uses the same ACP session so the agent has full conversation
         context — the agent already saw the original prompt, the nudge
-        just reminds it to deliver via the tool. ``_send_prompt`` is not
-        re-used so we don't re-send the (potentially huge) original
-        prompt body.
+        just reminds it to deliver via the tool. Quotes the agent's
+        previous text response so the LLM is forced to convert it into
+        a tool call instead of repeating the same refusal.
         """
         await self._ensure_executor()
         if not self._session_id:
             # Should not happen — _send_prompt would have created one.
             await self._new_session()
 
+        previous = self._get_last_response()
+        if previous:
+            preview = previous if len(previous) <= 1500 else previous[:1500] + "…"
+            quoted = (
+                f"\n\nYour previous turn produced this text instead of a "
+                f"tool call:\n\n---\n{preview}\n---\n\n"
+                f"Convert that work into a single `{self._mcp_tool}` "
+                "tool call. If the analysis is 'nothing to report' (e.g. "
+                "greenfield project), call the tool with empty arrays — "
+                "do NOT refuse."
+            )
+        else:
+            quoted = ""
+
         prompt_text = (
             f"Your previous turn finished without calling `{self._mcp_tool}`. "
             "You MUST submit your result via that MCP tool — text-only "
-            "responses are dropped by the supervisor. Call it now using "
-            "the work you already prepared in your previous turn."
+            f"responses are dropped by the supervisor.{quoted}"
         )
 
-        await self._executor.prompt_session(
+        result = await self._executor.prompt_session(
             session_id=self._session_id,
             prompt_text=prompt_text,
             provider=self._step_config.provider if self._step_config else None,
@@ -275,3 +294,4 @@ class BriefingActor(AgenticActorMixin, xo.Actor):
             step_name=f"briefing_{self._agent_name}_nudge",
             agent_name=self._agent_name,
         )
+        self._record_last_response(_extract_text_output(result))
