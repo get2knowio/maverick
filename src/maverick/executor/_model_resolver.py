@@ -28,8 +28,11 @@ def resolve_model_for_provider(
     Resolution steps:
     1. If ``requested_model`` is already in the available IDs → return as-is.
     2. Determine the *model type* (haiku / sonnet / opus) from the request.
-    3. Scan each available model's ``name`` field for a case-insensitive
-       match on the type (e.g. ``"Claude Sonnet 4.6"`` contains ``"sonnet"``).
+    3. Scan each available model's ``name`` and ``description`` fields for a
+       case-insensitive match on the type. Real Claude Code sessions advertise
+       e.g. ``name="Default (recommended)"``,
+       ``description="Opus 4.7 with 1M context …"`` — the floating "default"
+       slot is identified only by description.
     4. If no match is found, return the original ``requested_model`` unchanged
        (the caller's existing validation will raise if it's truly invalid).
 
@@ -49,13 +52,20 @@ def resolve_model_for_provider(
     if model_type is None:
         return requested_model
 
-    # Pass 1: Match by human-readable name (most reliable).
+    # Match by human-readable name or description. Both are scanned because
+    # providers vary: some put the model family in `name` (e.g.
+    # "Claude Opus 4.6"), others put it only in `description` (Claude Code's
+    # "Default (recommended)" / "Opus 4.7 with 1M context …").
     models_state = getattr(session, "models", None)
     if models_state:
         for m in getattr(models_state, "available_models", []):
             mid = getattr(m, "model_id", None)
-            name = getattr(m, "name", None) or ""
-            if mid and model_type in name.lower():
+            if not mid:
+                continue
+            haystack = " ".join(
+                str(getattr(m, attr, None) or "") for attr in ("name", "description")
+            ).lower()
+            if model_type in haystack:
                 return str(mid)
 
     return requested_model

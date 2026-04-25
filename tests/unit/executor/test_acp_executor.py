@@ -402,6 +402,37 @@ class TestPromptSessionOutputContracts:
 
         mock_conn.prompt.assert_not_awaited()
 
+    async def test_prompt_session_rejects_output_schema_for_http_gateway_sessions(self) -> None:
+        """``name='agent-tool-gateway'`` sessions are tool-contract sessions."""
+        executor = _make_executor()
+        mock_conn, mock_proc = _mock_spawn_context()
+
+        with patch("maverick.executor._connection_pool.spawn_agent_process") as mock_spawn:
+            mock_spawn.return_value = _FakeAsyncContextManager(mock_conn, mock_proc)
+
+            session_id = await executor.create_session(
+                step_name="mailbox_http",
+                agent_name="test_agent",
+                mcp_servers=[
+                    SimpleNamespace(
+                        name="agent-tool-gateway",
+                        url="http://127.0.0.1:9999/mcp/test-actor",
+                        headers=[],
+                    )
+                ],
+            )
+
+            with pytest.raises(AgentError, match="output_schema is incompatible"):
+                await executor.prompt_session(
+                    session_id=session_id,
+                    prompt_text="ignored",
+                    step_name="mailbox_http",
+                    agent_name="test_agent",
+                    output_schema=_SampleOutput,
+                )
+
+        mock_conn.prompt.assert_not_awaited()
+
     async def test_prompt_session_allows_output_schema_for_plain_text_sessions(self) -> None:
         """Plain text sessions still support output_schema extraction."""
         executor = _make_executor()
@@ -1697,12 +1728,13 @@ class TestResolveModelForProvider:
 
     @staticmethod
     def _make_session(
-        available: list[tuple[str, str]] | None = None,
+        available: list[tuple[str, str]] | list[tuple[str, str, str]] | None = None,
     ) -> MagicMock:
         """Build a mock ACP session with available_models.
 
         Args:
-            available: List of (model_id, name) tuples, or None for no models.
+            available: List of (model_id, name) or (model_id, name, description)
+                tuples, or None for no models.
         """
         session = MagicMock()
         if available is None:
@@ -1711,10 +1743,13 @@ class TestResolveModelForProvider:
             return session
 
         model_mocks = []
-        for mid, name in available:
+        for entry in available:
+            mid, name, *rest = entry
+            description = rest[0] if rest else ""
             m = MagicMock()
             m.model_id = mid
             m.name = name
+            m.description = description
             model_mocks.append(m)
         models = MagicMock()
         models.available_models = model_mocks
@@ -1842,6 +1877,56 @@ class TestResolveModelForProvider:
         assert _resolve_model_for_provider("opus", session) == "default"
         # "haiku" → direct match
         assert _resolve_model_for_provider("haiku", session) == "haiku"
+
+    def test_matches_description_when_name_lacks_family(self) -> None:
+        """Real Claude Code: family appears only in `description`."""
+        # Mirrors what the live Claude Code provider returned during the
+        # 2026-04 lifecycle test:
+        #   id=default       name=Default (recommended)
+        #     desc=Opus 4.7 with 1M context · Most capable for complex work
+        #   id=sonnet        name=Sonnet
+        #     desc=Sonnet 4.6 · Best for everyday tasks
+        #   id=sonnet[1m]    name=Sonnet (1M context)
+        #     desc=Sonnet 4.6 with 1M context · Billed as extra usage · ...
+        #   id=haiku         name=Haiku   desc=Haiku 4.5 · Fastest for ...
+        session = self._make_session(
+            [
+                (
+                    "default",
+                    "Default (recommended)",
+                    "Opus 4.7 with 1M context · Most capable for complex work",
+                ),
+                ("sonnet", "Sonnet", "Sonnet 4.6 · Best for everyday tasks"),
+                (
+                    "sonnet[1m]",
+                    "Sonnet (1M context)",
+                    "Sonnet 4.6 with 1M context · Billed as extra usage",
+                ),
+                ("haiku", "Haiku", "Haiku 4.5 · Fastest for quick answers"),
+            ]
+        )
+
+        # "opus" → matches description on "default".
+        assert _resolve_model_for_provider("opus", session) == "default"
+        # "sonnet" / "haiku" → direct id match.
+        assert _resolve_model_for_provider("sonnet", session) == "sonnet"
+        assert _resolve_model_for_provider("haiku", session) == "haiku"
+        # Full id forms also resolve through description.
+        assert (
+            _resolve_model_for_provider("claude-opus-4-7", session) == "default"
+        )
+
+    def test_description_match_when_name_is_missing(self) -> None:
+        """Models that omit `name` entirely still resolve via description."""
+        m = MagicMock()
+        m.model_id = "default"
+        m.name = None
+        m.description = "Opus 4.7 with 1M context"
+        models = MagicMock(available_models=[m])
+        session = MagicMock()
+        session.models = models
+        session.config_options = None
+        assert _resolve_model_for_provider("opus", session) == "default"
 
 
 # ---------------------------------------------------------------------------
