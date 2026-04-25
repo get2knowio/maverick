@@ -33,7 +33,11 @@ from maverick.exceptions.agent import (
     NetworkError,
 )
 from maverick.exceptions.workflow import ReferenceResolutionError
-from maverick.executor._connection_pool import CachedConnection, ConnectionPool
+from maverick.executor._connection_pool import (
+    CachedConnection,
+    ConnectionPool,
+    format_acp_error,
+)
 from maverick.executor._json_output import extract_json_output
 from maverick.executor._model_resolver import (
     get_available_model_ids,
@@ -364,11 +368,12 @@ class AcpStepExecutor:
             agent_name: For logging/observability.
             event_callback: Async callback for streaming events.
             allowed_tools: Tool allowlist for the client.
-            mcp_servers: MCP server configs (McpServerStdio) to attach
-                to the session.  The agent subprocess spawns and connects
-                to these servers, making their tools available. When these
-                servers define the structured output contract, use their tool
-                schemas instead of output_schema on prompt_session().
+            mcp_servers: MCP server configs (HttpMcpServer / SseMcpServer /
+                McpServerStdio) to attach to the session. The agent
+                subprocess spawns and connects to these servers, making
+                their tools available. When these servers define the
+                structured output contract, use their tool schemas instead
+                of output_schema on prompt_session().
 
         Returns:
             The ACP session_id string.
@@ -407,7 +412,15 @@ class AcpStepExecutor:
             allowed_tools=allowed_tools_frozen,
         )
 
-        session = await cached.conn.new_session(cwd=cwd_str, mcp_servers=mcp_servers or [])
+        try:
+            session = await cached.conn.new_session(
+                cwd=cwd_str, mcp_servers=mcp_servers or []
+            )
+        except AcpRequestError as exc:
+            raise AgentError(
+                f"ACP new_session failed for provider '{provider_name}': "
+                f"{format_acp_error(exc)}"
+            ) from exc
         session_id = session.session_id
         self._session_uses_tool_output_contract[session_id] = _uses_tool_output_contract(
             mcp_servers
@@ -566,7 +579,8 @@ class AcpStepExecutor:
             ) from exc
         except AcpRequestError as exc:
             raise NetworkError(
-                f"ACP prompt failed on session '{session_id}': {exc}",
+                f"ACP prompt failed on session '{session_id}': "
+                f"{format_acp_error(exc)}",
             ) from exc
 
         # Check circuit breaker
@@ -701,7 +715,8 @@ class AcpStepExecutor:
                     session = await conn.new_session(cwd=cwd_str, mcp_servers=[])
                 except AcpRequestError as retry_exc:
                     raise NetworkError(
-                        f"Failed to create ACP session after reconnect: {retry_exc}"
+                        "Failed to create ACP session after reconnect: "
+                        f"{format_acp_error(retry_exc)}"
                     ) from retry_exc
 
             current_session_id[0] = session.session_id
@@ -807,7 +822,8 @@ class AcpStepExecutor:
                         response = await retry_coro
                 except AcpRequestError as retry_exc:
                     raise NetworkError(
-                        f"ACP request failed for step '{step_name}' after reconnect: {retry_exc}",
+                        f"ACP request failed for step '{step_name}' after reconnect: "
+                        f"{format_acp_error(retry_exc)}",
                     ) from retry_exc
 
             usage = _usage_from_acp(getattr(response, "usage", None))
@@ -911,7 +927,14 @@ def _find_most_called_tool(client: MaverickAcpClient) -> str:
 def _uses_tool_output_contract(mcp_servers: list[Any] | None) -> bool:
     """Return True when attached MCP servers define the output contract."""
     for server in mcp_servers or []:
-        if getattr(server, "name", "") == "supervisor-inbox":
+        # HTTP gateway uses ``agent-tool-gateway``; the older ``agent-inbox``
+        # and ``supervisor-inbox`` names are kept for back-compat with mocks
+        # in test fixtures.
+        if getattr(server, "name", "") in {
+            "agent-tool-gateway",
+            "agent-inbox",
+            "supervisor-inbox",
+        }:
             return True
 
         args = getattr(server, "args", None) or []

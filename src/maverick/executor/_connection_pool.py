@@ -31,6 +31,33 @@ from maverick.logging import get_logger
 
 _default_logger = get_logger(__name__)
 
+
+def format_acp_error(exc: AcpRequestError) -> str:
+    """Render an ACP JSON-RPC error including ``data.details`` when present.
+
+    ``acp.RequestError.__str__`` returns only the bare ``message`` field
+    (e.g. ``"Internal error"``), losing the much more useful ``data.details``
+    string the agent often supplies (e.g.
+    ``"Invalid permissions.defaultMode: auto."``). This helper appends the
+    JSON-RPC code and surfaces ``data`` so callers can wrap the exception
+    with a meaningful message.
+    """
+    parts: list[str] = [str(exc) or "ACP error"]
+    code = getattr(exc, "code", None)
+    if code is not None:
+        parts.append(f"(code={code})")
+    data = getattr(exc, "data", None)
+    if isinstance(data, dict):
+        details = data.get("details")
+        if isinstance(details, str) and details:
+            parts.append(f"— {details}")
+        else:
+            # Surface whatever the agent shipped — better than silently dropping.
+            parts.append(f"data={data!r}")
+    elif data is not None:
+        parts.append(f"data={data!r}")
+    return " ".join(parts)
+
 #: ACP client info — sent during connection initialization
 _CLIENT_INFO = Implementation(
     name="maverick",
@@ -181,7 +208,8 @@ class ConnectionPool:
             )
         except AcpRequestError as exc:
             raise NetworkError(
-                f"ACP initialize handshake failed for provider '{provider_name}': {exc}"
+                f"ACP initialize handshake failed for provider '{provider_name}': "
+                f"{format_acp_error(exc)}"
             ) from exc
         except Exception as exc:
             raise NetworkError(
