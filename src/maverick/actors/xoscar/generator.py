@@ -24,8 +24,14 @@ from maverick.actors.step_config import (
     step_allowed_tools,
     step_config_with_timeout,
 )
-from maverick.actors.xoscar._agentic import AgenticActorMixin
-from maverick.actors.xoscar._agentic import extract_text_output as _extract_text_output
+from maverick.actors.xoscar._agentic import (
+    AgenticActorMixin,
+    build_tool_required_nudge_prompt,
+    build_tool_required_prompt,
+)
+from maverick.actors.xoscar._agentic import (
+    extract_text_output as _extract_text_output,
+)
 from maverick.actors.xoscar.messages import GenerateRequest, PromptError
 from maverick.logging import get_logger
 from maverick.tools.agent_inbox.models import (
@@ -182,24 +188,19 @@ class GeneratorActor(AgenticActorMixin, xo.Actor):
         if not self._session_id:
             await self._new_session()
 
-        prompt_text = (
-            "You are a flight plan generator. Your ONLY job is to read "
-            "the PRD and briefing below, then call the `submit_flight_plan` "
-            "tool with a structured flight plan.\n\n"
-            "DO NOT read files from the filesystem. DO NOT explore the codebase. "
-            "DO NOT write any code. Your sole output is a single call to "
-            "`submit_flight_plan`.\n\n"
-            "The tool requires:\n"
-            "- objective: one-line summary of what this plan achieves\n"
-            "- success_criteria: array of {description, verification} objects\n"
-            "- in_scope: array of strings for what's in scope\n"
-            "- out_of_scope: array of strings for what's out of scope\n"
-            "- constraints: array of strings for constraints\n"
-            "- context: background context as markdown\n"
-            "- tags: categorization tags\n\n"
-            f"{raw_prompt}\n\n"
-            "Now call `submit_flight_plan` with the structured plan. "
-            "Do NOT respond with text — ONLY call the tool."
+        prompt_text = build_tool_required_prompt(
+            expected_tool=GENERATOR_MCP_TOOL,
+            user_content=raw_prompt,
+            user_content_label="PRD and briefing",
+            role_intro=(
+                "You are a flight plan generator. DO NOT read files from "
+                "the filesystem. DO NOT explore the codebase. DO NOT "
+                "write code. Your sole output is a single call to "
+                f"`{GENERATOR_MCP_TOOL}` with these fields: objective "
+                "(one-line summary), success_criteria (array of "
+                "{description, verification}), in_scope, out_of_scope, "
+                "constraints, context (markdown), tags."
+            ),
         )
 
         result = await self._executor.prompt_session(
@@ -232,24 +233,12 @@ class GeneratorActor(AgenticActorMixin, xo.Actor):
         if not self._session_id:
             await self._new_session()
 
-        previous = self._get_last_response()
-        if previous:
-            preview = previous if len(previous) <= 1500 else previous[:1500] + "…"
-            quoted = (
-                f"\n\nYour previous turn produced this text instead of a "
-                f"tool call:\n\n---\n{preview}\n---\n\n"
-                f"Convert that work into a single `{GENERATOR_MCP_TOOL}` "
-                "tool call. Do NOT refuse — even partial output should be "
-                "submitted via the tool."
-            )
-        else:
-            quoted = ""
-
-        prompt_text = (
-            f"Your previous turn finished without calling "
-            f"`{GENERATOR_MCP_TOOL}`. You MUST submit your flight plan via "
-            "that MCP tool — text-only responses are dropped by the "
-            f"supervisor.{quoted}"
+        prompt_text = build_tool_required_nudge_prompt(
+            expected_tool=GENERATOR_MCP_TOOL,
+            previous_response=self._get_last_response(),
+            empty_result_guidance=(
+                "Submit even a partial plan rather than refusing."
+            ),
         )
 
         result = await self._executor.prompt_session(

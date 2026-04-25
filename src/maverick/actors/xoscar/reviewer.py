@@ -28,8 +28,13 @@ from maverick.actors.step_config import (
     step_allowed_tools,
     step_config_with_timeout,
 )
-from maverick.actors.xoscar._agentic import AgenticActorMixin
-from maverick.actors.xoscar._agentic import extract_text_output as _extract_text_output
+from maverick.actors.xoscar._agentic import (
+    AgenticActorMixin,
+    build_tool_required_nudge_prompt,
+)
+from maverick.actors.xoscar._agentic import (
+    extract_text_output as _extract_text_output,
+)
 from maverick.actors.xoscar.messages import (
     AggregateReviewRequest,
     NewBeadRequest,
@@ -350,23 +355,13 @@ class ReviewerActor(AgenticActorMixin, xo.Actor):
             else REVIEW_PROMPT_TIMEOUT_SECONDS
         )
 
-        previous = self._get_last_response()
-        if previous:
-            preview = previous if len(previous) <= 1500 else previous[:1500] + "…"
-            quoted = (
-                f"\n\nYour previous turn produced this text instead of a "
-                f"tool call:\n\n---\n{preview}\n---\n\n"
-                f"Convert that into a single `{REVIEWER_MCP_TOOL}` tool "
-                "call. If the review found nothing, call the tool with "
-                "approved=true and an empty findings array — do NOT refuse."
-            )
-        else:
-            quoted = ""
-
-        prompt_text = (
-            f"Your previous turn finished without calling `{REVIEWER_MCP_TOOL}`. "
-            "You MUST submit your review via that MCP tool — text-only "
-            f"responses are dropped by the supervisor.{quoted}"
+        prompt_text = build_tool_required_nudge_prompt(
+            expected_tool=REVIEWER_MCP_TOOL,
+            previous_response=self._get_last_response(),
+            empty_result_guidance=(
+                "If the review found nothing, call the tool with "
+                "approved=true and an empty findings array."
+            ),
         )
 
         result = await self._executor.prompt_session(

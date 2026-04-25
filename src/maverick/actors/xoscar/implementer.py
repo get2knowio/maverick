@@ -29,8 +29,14 @@ from maverick.actors.step_config import (
     step_allowed_tools,
     step_config_with_timeout,
 )
-from maverick.actors.xoscar._agentic import AgenticActorMixin
-from maverick.actors.xoscar._agentic import extract_text_output as _extract_text_output
+from maverick.actors.xoscar._agentic import (
+    AgenticActorMixin,
+    build_tool_required_nudge_prompt,
+    build_tool_required_prompt,
+)
+from maverick.actors.xoscar._agentic import (
+    extract_text_output as _extract_text_output,
+)
 from maverick.actors.xoscar.messages import (
     FlyFixRequest,
     ImplementRequest,
@@ -241,9 +247,13 @@ class ImplementerActor(AgenticActorMixin, xo.Actor):
         if not self._session_id:
             await self._new_session()
 
-        prompt_text = (
-            f"{prompt_text}\n\n## REQUIRED: Submit via tool call\n"
-            f"You MUST call the `{tool_name}` tool with your results."
+        prompt_text = build_tool_required_prompt(
+            expected_tool=tool_name,
+            user_content=prompt_text,
+            user_content_label="Bead specification",
+            role_intro=(
+                f"You are the implementer for the {phase} phase."
+            ),
         )
 
         result = await self._executor.prompt_session(
@@ -267,23 +277,12 @@ class ImplementerActor(AgenticActorMixin, xo.Actor):
         if not self._session_id:
             await self._new_session()
 
-        previous = self._get_last_response()
-        if previous:
-            preview = previous if len(previous) <= 1500 else previous[:1500] + "…"
-            quoted = (
-                f"\n\nYour previous turn produced this text instead of a "
-                f"tool call:\n\n---\n{preview}\n---\n\n"
-                f"Convert that work into a single `{expected_tool}` tool "
-                "call. Do NOT refuse — even a partial result should be "
-                "submitted via the tool."
-            )
-        else:
-            quoted = ""
-
-        prompt_text = (
-            f"Your previous turn finished without calling `{expected_tool}`. "
-            "You MUST submit your result via that MCP tool — text-only "
-            f"responses are dropped by the supervisor.{quoted}"
+        prompt_text = build_tool_required_nudge_prompt(
+            expected_tool=expected_tool,
+            previous_response=self._get_last_response(),
+            empty_result_guidance=(
+                "Submit a partial result rather than refusing."
+            ),
         )
 
         result = await self._executor.prompt_session(

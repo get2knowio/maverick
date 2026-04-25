@@ -33,8 +33,14 @@ from typing import TYPE_CHECKING, Any
 import xoscar as xo
 
 from maverick.actors.step_config import load_step_config, step_config_with_timeout
-from maverick.actors.xoscar._agentic import AgenticActorMixin
-from maverick.actors.xoscar._agentic import extract_text_output as _extract_text_output
+from maverick.actors.xoscar._agentic import (
+    AgenticActorMixin,
+    build_tool_required_nudge_prompt,
+    build_tool_required_prompt,
+)
+from maverick.actors.xoscar._agentic import (
+    extract_text_output as _extract_text_output,
+)
 from maverick.actors.xoscar.messages import (
     DecomposerContext,
     DetailRequest,
@@ -467,7 +473,7 @@ class DecomposerActor(AgenticActorMixin, xo.Actor):
     async def _send_outline_prompt(self, request: OutlineRequest) -> None:
         from maverick.library.actions.decompose import build_outline_prompt
 
-        prompt_text = build_outline_prompt(
+        body = build_outline_prompt(
             request.flight_plan_content,
             request.codebase_context,
             briefing=request.briefing,
@@ -475,15 +481,17 @@ class DecomposerActor(AgenticActorMixin, xo.Actor):
         )
 
         if request.validation_feedback:
-            prompt_text += (
+            body += (
                 "\n\n## PREVIOUS ATTEMPT FAILED VALIDATION\n"
                 f"{request.validation_feedback}\n"
                 "Fix these issues in your new decomposition."
             )
 
-        prompt_text += (
-            "\n\n## REQUIRED: Submit via tool call\n"
-            "You MUST call the `submit_outline` tool with your results."
+        prompt_text = build_tool_required_prompt(
+            expected_tool="submit_outline",
+            user_content=body,
+            user_content_label="Decomposition input (flight plan + briefing)",
+            role_intro="You are the decomposer's outline pass.",
         )
 
         await self._ensure_agent()
@@ -522,11 +530,13 @@ class DecomposerActor(AgenticActorMixin, xo.Actor):
                 )
             )
         prompt_parts.append(build_detail_turn_prompt(unit_ids=unit_ids))
-        prompt_text = "\n\n".join(prompt_parts)
+        body = "\n\n".join(prompt_parts)
 
-        prompt_text += (
-            "\n\n## REQUIRED: Submit via tool call\n"
-            "You MUST call the `submit_details` tool with your results."
+        prompt_text = build_tool_required_prompt(
+            expected_tool="submit_details",
+            user_content=body,
+            user_content_label="Decomposition input (outline + details turn)",
+            role_intro="You are the decomposer's detail pass.",
         )
 
         if needs_seed:
@@ -584,13 +594,17 @@ class DecomposerActor(AgenticActorMixin, xo.Actor):
                 overloaded=list(request.overloaded),
             )
         )
-        prompt_parts.append(
-            "\n\n## REQUIRED: Submit via tool call\n"
-            "You MUST call the `submit_fix` tool with the COMPLETE "
-            "updated work_units and details."
+        body = "\n\n".join(prompt_parts)
+        fix_prompt_text = build_tool_required_prompt(
+            expected_tool="submit_fix",
+            user_content=body,
+            user_content_label="Decomposition input (fix turn)",
+            role_intro="You are the decomposer's fix pass.",
+            empty_result_guidance=(
+                "Submit the COMPLETE updated work_units and details, not just "
+                "the changes."
+            ),
         )
-
-        fix_prompt_text = "\n\n".join(prompt_parts)
         if needs_seed:
             logger.info(
                 "decomposer.prompt_seeded",
@@ -621,33 +635,18 @@ class DecomposerActor(AgenticActorMixin, xo.Actor):
         unit_id = request.unit_id
         reason = request.reason
 
+        guidance_parts: list[str] = []
         if tool_name == "submit_details" and unit_id:
-            prompt_text = (
-                f"Your last response was not registered because you did not "
-                f"call the `submit_details` tool for unit `{unit_id}`. "
-                f"Please call `submit_details` now with a complete entry "
-                f"for `{unit_id}`."
-            )
+            guidance_parts.append(f"Provide a complete entry for `{unit_id}`.")
         else:
-            prompt_text = (
-                f"Your response was not registered because you did not "
-                f"call the `{tool_name}` tool. Please call "
-                f"`{tool_name}` now with your results."
-            )
+            guidance_parts.append("Submit even partial results rather than refusing.")
         if reason:
-            prompt_text += f" (reason: {reason})"
+            guidance_parts.append(f"Reason: {reason}")
 
-        # Quote the agent's previous text so the LLM is forced to convert
-        # it into a tool call rather than repeating the same refusal.
-        previous = self._get_last_response()
-        if previous:
-            preview = previous if len(previous) <= 1500 else previous[:1500] + "…"
-            prompt_text += (
-                f"\n\nYour previous turn produced this text instead of a "
-                f"tool call:\n\n---\n{preview}\n---\n\n"
-                f"Convert that work into a single `{tool_name}` tool call. "
-                "Do NOT refuse — even partial results should be submitted "
-                "via the tool."
-            )
+        prompt_text = build_tool_required_nudge_prompt(
+            expected_tool=tool_name,
+            previous_response=self._get_last_response(),
+            empty_result_guidance=" ".join(guidance_parts),
+        )
 
         await self._prompt(prompt_text, f"decompose_nudge_{tool_name}")

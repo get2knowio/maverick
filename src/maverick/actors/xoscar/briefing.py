@@ -23,8 +23,14 @@ from maverick.actors.step_config import (
     step_allowed_tools,
     step_config_with_timeout,
 )
-from maverick.actors.xoscar._agentic import AgenticActorMixin
-from maverick.actors.xoscar._agentic import extract_text_output as _extract_text_output
+from maverick.actors.xoscar._agentic import (
+    AgenticActorMixin,
+    build_tool_required_nudge_prompt,
+    build_tool_required_prompt,
+)
+from maverick.actors.xoscar._agentic import (
+    extract_text_output as _extract_text_output,
+)
 from maverick.actors.xoscar.messages import BriefingRequest, PromptError
 from maverick.logging import get_logger
 from maverick.tools.agent_inbox.models import (
@@ -229,17 +235,19 @@ class BriefingActor(AgenticActorMixin, xo.Actor):
         if not self._session_id:
             await self._new_session()
 
-        prompt_text = request.prompt
-        prompt_text += (
-            f"\n\n## REQUIRED: Submit via tool call\n"
-            f"You MUST call the `{self._mcp_tool}` tool with your "
-            f"results. Do NOT put results in a text response — the "
-            f"supervisor can only receive your work via the "
-            f"{self._mcp_tool} tool call.\n"
-            "If your analysis surfaced no findings (e.g. greenfield "
-            "project with no existing code), still call the tool with "
-            "empty arrays / minimal fields. Do NOT respond with text "
-            "saying 'nothing to report' — that is dropped."
+        prompt_text = build_tool_required_prompt(
+            expected_tool=self._mcp_tool,
+            user_content=request.prompt,
+            user_content_label="Briefing input",
+            role_intro=(
+                f"You are the {self._agent_name} briefing agent."
+            ),
+            empty_result_guidance=(
+                "If your analysis surfaces no findings (e.g. greenfield "
+                "project with no existing code), call the tool with "
+                "empty arrays / minimal required fields. Do NOT refuse "
+                "and do NOT respond with text — that is dropped."
+            ),
         )
 
         result = await self._executor.prompt_session(
@@ -266,24 +274,13 @@ class BriefingActor(AgenticActorMixin, xo.Actor):
             # Should not happen — _send_prompt would have created one.
             await self._new_session()
 
-        previous = self._get_last_response()
-        if previous:
-            preview = previous if len(previous) <= 1500 else previous[:1500] + "…"
-            quoted = (
-                f"\n\nYour previous turn produced this text instead of a "
-                f"tool call:\n\n---\n{preview}\n---\n\n"
-                f"Convert that work into a single `{self._mcp_tool}` "
-                "tool call. If the analysis is 'nothing to report' (e.g. "
-                "greenfield project), call the tool with empty arrays — "
-                "do NOT refuse."
-            )
-        else:
-            quoted = ""
-
-        prompt_text = (
-            f"Your previous turn finished without calling `{self._mcp_tool}`. "
-            "You MUST submit your result via that MCP tool — text-only "
-            f"responses are dropped by the supervisor.{quoted}"
+        prompt_text = build_tool_required_nudge_prompt(
+            expected_tool=self._mcp_tool,
+            previous_response=self._get_last_response(),
+            empty_result_guidance=(
+                "If the analysis is 'nothing to report' (e.g. greenfield "
+                "project), call the tool with empty arrays."
+            ),
         )
 
         result = await self._executor.prompt_session(
