@@ -365,6 +365,65 @@ Relevant code:
 - [src/maverick/actors/xoscar/reviewer.py](src/maverick/actors/xoscar/reviewer.py) (`_end_turn`)
 - [src/maverick/actors/xoscar/generator.py](src/maverick/actors/xoscar/generator.py) (`_end_turn`)
 
+### 2.9 Move Tool-Required Framework Wrapper To System Prompt
+
+**Status:** Active (per-turn token-overhead reduction)
+
+Commit `3d1303f` introduced `build_tool_required_prompt()` /
+`build_tool_required_nudge_prompt()` in [src/maverick/actors/xoscar/_agentic.py](src/maverick/actors/xoscar/_agentic.py) to fix
+a real prompt-injection-style refusal we hit on the earlybird PRD: the
+codebase analyst was treating maverick's appended `## REQUIRED: Submit
+via tool call` instruction as if the user-supplied document was telling
+it what to do. The fix wraps every user prompt with framework-attributed
+headers and `<<<BEGIN/END USER CONTENT>>>` markers that the model can
+syntactically distinguish from the document.
+
+The wrapper text is *identical* across turns within the same session
+because `expected_tool` and `role_intro` don't vary turn-to-turn for a
+given actor. So we send the same ~250 tokens of framework boilerplate
+inside *every* user message in a session — for the decomposer detail
+phase that's 5×, for the reviewer fix loop it can be more.
+
+Anthropic prompt caching keys on contiguous *prefixes* of the full
+message list, so the repeated wrappers don't hit cache (each new user
+message is uncached at the byte level even when its prefix matches a
+prior message's prefix). Within-session caching of prior turns still
+works fine — there's no regression — but the per-turn input cost grows
+linearly in the wrapper size.
+
+Two approaches, in order of payoff:
+
+1. **Move the framework instruction into the ACP session's system
+   prompt** so it's sent once per session and the per-turn user message
+   only carries the BEGIN/END user content block. The system prompt is
+   also more authoritative in the model's training, which strengthens
+   the prompt-injection defense as a side effect. This needs the ACP
+   executor's `create_session(...)` path to expose a `system_prompt`
+   parameter and thread it through `claude-agent-acp` (current call
+   sites in the five actors all pass the wrapper inside `prompt_text`
+   only).
+
+2. **Drop the wrapper on follow-up turns within a session.** The agent
+   already saw the framework framing on turn 1; turns 2..N could send
+   bare `<<<BEGIN/END>>>` content. Smaller code change, smaller win
+   (only saves the wrapper text on N-1 turns out of N), but no API
+   change required.
+
+Option (1) is the architecturally right move; option (2) is a band-aid
+that's worth doing if the executor refactor is non-trivial. Defer until
+prompt-cache cost is a measurable problem — the wrapper is ~250 tokens
+on a typical 14k-token prompt (~1.8% overhead), and the
+prompt-injection refusal it prevents costs ~50k tokens *and* a
+user-visible failure.
+
+Relevant code:
+
+- [src/maverick/actors/xoscar/_agentic.py](src/maverick/actors/xoscar/_agentic.py) (`build_tool_required_prompt`,
+  `build_tool_required_nudge_prompt`)
+- [src/maverick/executor/acp.py](src/maverick/executor/acp.py) (`create_session` — would need a
+  `system_prompt` parameter for option 1)
+- All five actor `_send_*` methods.
+
 ## 3. Learning, Feedback, And Telemetry
 
 ### 3.1 Observational Memory For Runway
