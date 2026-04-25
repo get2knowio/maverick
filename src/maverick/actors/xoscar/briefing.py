@@ -5,25 +5,25 @@ Used by both refuel (navigator/structuralist/recon/contrarian) and plan
 MCP tool and forwards the parsed payload to a single typed method on
 the supervisor (``forward_method`` passed at construction).
 
-Per Design Decision #3, the MCP subprocess targets this actor's own uid
-rather than a shared supervisor-inbox uid.
+Tool transport: shared :class:`AgentToolGateway` HTTP server (one per
+workflow run, owned by the actor pool). The actor still owns its schemas,
+handler, session state, and ACP executor — only MCP transport lives in
+shared infrastructure.
 """
 
 from __future__ import annotations
 
-import shutil
-import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import xoscar as xo
-from acp.schema import McpServerStdio
 
 from maverick.actors.step_config import (
     load_step_config,
     step_allowed_tools,
     step_config_with_timeout,
 )
+from maverick.actors.xoscar._agentic import AgenticActorMixin
 from maverick.actors.xoscar.messages import BriefingRequest, PromptError
 from maverick.logging import get_logger
 from maverick.tools.agent_inbox.models import (
@@ -39,8 +39,8 @@ logger = get_logger(__name__)
 BRIEFING_TIMEOUT_SECONDS = 1200
 
 
-class BriefingActor(xo.Actor):
-    """One briefing agent with its own ACP session and MCP inbox.
+class BriefingActor(AgenticActorMixin, xo.Actor):
+    """One briefing agent with its own ACP session and inbox registration.
 
     Constructor params:
 
@@ -80,12 +80,17 @@ class BriefingActor(xo.Actor):
         self._cwd = cwd
         self._step_config = load_step_config(config)
 
+    def _mcp_tools(self) -> tuple[str, ...]:
+        return (self._mcp_tool,)
+
     async def __post_create__(self) -> None:
         self._actor_tag = f"briefing[{self._agent_name}:{self.uid.decode()}]"
         self._executor: Any = None
         self._session_id: str | None = None
+        await self._register_with_gateway()
 
     async def __pre_destroy__(self) -> None:
+        await self._unregister_from_gateway()
         if self._executor is None:
             return
         try:
@@ -138,7 +143,7 @@ class BriefingActor(xo.Actor):
             )
 
     # ------------------------------------------------------------------
-    # MCP subprocess → agent inbox
+    # MCP gateway → agent inbox
     # ------------------------------------------------------------------
 
     @xo.no_lock
@@ -197,22 +202,6 @@ class BriefingActor(xo.Actor):
     async def _new_session(self) -> None:
         await self._ensure_executor()
 
-        maverick_bin = shutil.which("maverick") or str(Path(sys.executable).parent / "maverick")
-        mcp_config = McpServerStdio(
-            name="agent-inbox",
-            command=maverick_bin,
-            args=[
-                "serve-inbox",
-                "--tools",
-                self._mcp_tool,
-                "--inbox-address",
-                self.address,
-                "--inbox-uid",
-                self.uid.decode(),
-            ],
-            env=[],
-        )
-
         cwd = Path(self._cwd)
         self._session_id = await self._executor.create_session(
             provider=self._step_config.provider if self._step_config else None,
@@ -221,7 +210,7 @@ class BriefingActor(xo.Actor):
             agent_name=self._agent_name,
             cwd=cwd,
             allowed_tools=step_allowed_tools(self._step_config),
-            mcp_servers=[mcp_config],
+            mcp_servers=[self.mcp_server_config()],
         )
 
     async def _send_prompt(self, request: BriefingRequest) -> None:

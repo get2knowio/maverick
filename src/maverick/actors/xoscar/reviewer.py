@@ -1,4 +1,4 @@
-"""xoscar ReviewerActor — agent actor with its own MCP inbox.
+"""xoscar ReviewerActor — agent actor with its own MCP inbox registration.
 
 Owns one MCP tool:
 
@@ -9,23 +9,26 @@ Owns one MCP tool:
 On follow-up reviews within the same bead, the ACP session preserves
 conversation history; ``new_bead`` rotates the session so the next
 bead starts clean.
+
+Tool transport: shared :class:`AgentToolGateway` HTTP server (one per
+workflow run, owned by the actor pool). The actor still owns its schemas,
+handler, session state, and ACP executor — only MCP transport lives in
+shared infrastructure.
 """
 
 from __future__ import annotations
 
-import shutil
-import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import xoscar as xo
-from acp.schema import McpServerStdio
 
 from maverick.actors.step_config import (
     load_step_config,
     step_allowed_tools,
     step_config_with_timeout,
 )
+from maverick.actors.xoscar._agentic import AgenticActorMixin
 from maverick.actors.xoscar.messages import (
     AggregateReviewRequest,
     NewBeadRequest,
@@ -49,8 +52,10 @@ REVIEW_PROMPT_TIMEOUT_SECONDS = 600
 AGGREGATE_REVIEW_TIMEOUT_SECONDS = 600
 
 
-class ReviewerActor(xo.Actor):
+class ReviewerActor(AgenticActorMixin, xo.Actor):
     """Reviews code and delivers findings via MCP tool calls."""
+
+    mcp_tools: ClassVar[tuple[str, ...]] = (REVIEWER_MCP_TOOL,)
 
     def __init__(
         self,
@@ -72,8 +77,10 @@ class ReviewerActor(xo.Actor):
         self._session_id: str | None = None
         self._review_count = 0
         self._in_aggregate = False
+        await self._register_with_gateway()
 
     async def __pre_destroy__(self) -> None:
+        await self._unregister_from_gateway()
         if self._executor is None:
             return
         try:
@@ -191,22 +198,6 @@ class ReviewerActor(xo.Actor):
     async def _new_session(self) -> None:
         await self._ensure_executor()
 
-        maverick_bin = shutil.which("maverick") or str(Path(sys.executable).parent / "maverick")
-        mcp_config = McpServerStdio(
-            name="agent-inbox",
-            command=maverick_bin,
-            args=[
-                "serve-inbox",
-                "--tools",
-                REVIEWER_MCP_TOOL,
-                "--inbox-address",
-                self.address,
-                "--inbox-uid",
-                self.uid.decode(),
-            ],
-            env=[],
-        )
-
         cwd = Path(self._cwd)
         self._session_id = await self._executor.create_session(
             provider=self._step_config.provider if self._step_config else None,
@@ -215,7 +206,7 @@ class ReviewerActor(xo.Actor):
             agent_name="reviewer",
             cwd=cwd,
             allowed_tools=step_allowed_tools(self._step_config),
-            mcp_servers=[mcp_config],
+            mcp_servers=[self.mcp_server_config()],
         )
 
     async def _send_review_prompt(self, request: ReviewRequest) -> None:

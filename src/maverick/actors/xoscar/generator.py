@@ -4,23 +4,27 @@ Owns one MCP tool: ``submit_flight_plan``. The supervisor passes the
 composite PRD + briefing prompt via ``send_generate``; the agent
 submits the structured plan via ``submit_flight_plan`` → supervisor's
 ``flight_plan_ready`` method.
+
+Tool transport: this actor uses the shared :class:`AgentToolGateway`
+HTTP server (one per workflow run, owned by the actor pool). The actor
+itself still owns its schema list, on_tool_call handler, ACP session
+state, and ACP executor — only the MCP transport lives in shared
+infrastructure.
 """
 
 from __future__ import annotations
 
-import shutil
-import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import xoscar as xo
-from acp.schema import McpServerStdio
 
 from maverick.actors.step_config import (
     load_step_config,
     step_allowed_tools,
     step_config_with_timeout,
 )
+from maverick.actors.xoscar._agentic import AgenticActorMixin
 from maverick.actors.xoscar.messages import GenerateRequest, PromptError
 from maverick.logging import get_logger
 from maverick.tools.agent_inbox.models import (
@@ -38,8 +42,10 @@ GENERATOR_MCP_TOOL = "submit_flight_plan"
 GENERATOR_PROMPT_TIMEOUT_SECONDS = 1200
 
 
-class GeneratorActor(xo.Actor):
+class GeneratorActor(AgenticActorMixin, xo.Actor):
     """Generates flight plan from PRD + briefing context."""
+
+    mcp_tools: ClassVar[tuple[str, ...]] = (GENERATOR_MCP_TOOL,)
 
     def __init__(
         self,
@@ -59,8 +65,10 @@ class GeneratorActor(xo.Actor):
         self._actor_tag = f"generator[{self.uid.decode()}]"
         self._executor: Any = None
         self._session_id: str | None = None
+        await self._register_with_gateway()
 
     async def __pre_destroy__(self) -> None:
+        await self._unregister_from_gateway()
         if self._executor is None:
             return
         try:
@@ -95,7 +103,7 @@ class GeneratorActor(xo.Actor):
             )
 
     # ------------------------------------------------------------------
-    # MCP subprocess → agent inbox
+    # MCP gateway → agent inbox
     # ------------------------------------------------------------------
 
     @xo.no_lock
@@ -145,22 +153,6 @@ class GeneratorActor(xo.Actor):
     async def _new_session(self) -> None:
         await self._ensure_executor()
 
-        maverick_bin = shutil.which("maverick") or str(Path(sys.executable).parent / "maverick")
-        mcp_config = McpServerStdio(
-            name="agent-inbox",
-            command=maverick_bin,
-            args=[
-                "serve-inbox",
-                "--tools",
-                GENERATOR_MCP_TOOL,
-                "--inbox-address",
-                self.address,
-                "--inbox-uid",
-                self.uid.decode(),
-            ],
-            env=[],
-        )
-
         cwd = Path(self._cwd)
         self._session_id = await self._executor.create_session(
             provider=self._step_config.provider if self._step_config else None,
@@ -169,7 +161,7 @@ class GeneratorActor(xo.Actor):
             agent_name="flight_plan_generator",
             cwd=cwd,
             allowed_tools=step_allowed_tools(self._step_config),
-            mcp_servers=[mcp_config],
+            mcp_servers=[self.mcp_server_config()],
         )
 
     async def _send_prompt(self, raw_prompt: str) -> None:

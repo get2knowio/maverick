@@ -10,23 +10,26 @@ Owns two MCP tools:
 Supervisor calls ``new_bead`` between beads to rotate the ACP session,
 then ``send_implement`` / ``send_fix`` to drive ACP prompts. Per-phase
 errors surface via ``prompt_error`` on the supervisor.
+
+Tool transport: shared :class:`AgentToolGateway` HTTP server (one per
+workflow run, owned by the actor pool). The actor still owns its schemas,
+handler, session state, and ACP executor — only MCP transport lives in
+shared infrastructure.
 """
 
 from __future__ import annotations
 
-import shutil
-import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import xoscar as xo
-from acp.schema import McpServerStdio
 
 from maverick.actors.step_config import (
     load_step_config,
     step_allowed_tools,
     step_config_with_timeout,
 )
+from maverick.actors.xoscar._agentic import AgenticActorMixin
 from maverick.actors.xoscar.messages import (
     FlyFixRequest,
     ImplementRequest,
@@ -50,8 +53,10 @@ IMPLEMENTER_MCP_TOOLS: tuple[str, ...] = ("submit_implementation", "submit_fix_r
 IMPLEMENTER_PROMPT_TIMEOUT_SECONDS = 1800
 
 
-class ImplementerActor(xo.Actor):
+class ImplementerActor(AgenticActorMixin, xo.Actor):
     """Implements bead work and addresses fix requests."""
+
+    mcp_tools: ClassVar[tuple[str, ...]] = IMPLEMENTER_MCP_TOOLS
 
     def __init__(
         self,
@@ -66,14 +71,15 @@ class ImplementerActor(xo.Actor):
         self._supervisor_ref = supervisor_ref
         self._cwd = cwd
         self._step_config = load_step_config(config)
-        self._mcp_tools_csv = ",".join(IMPLEMENTER_MCP_TOOLS)
 
     async def __post_create__(self) -> None:
         self._actor_tag = f"implementer[{self.uid.decode()}]"
         self._executor: Any = None
         self._session_id: str | None = None
+        await self._register_with_gateway()
 
     async def __pre_destroy__(self) -> None:
+        await self._unregister_from_gateway()
         if self._executor is None:
             return
         try:
@@ -151,7 +157,7 @@ class ImplementerActor(xo.Actor):
             )
 
     # ------------------------------------------------------------------
-    # MCP subprocess → agent inbox
+    # MCP gateway → agent inbox
     # ------------------------------------------------------------------
 
     @xo.no_lock
@@ -199,22 +205,6 @@ class ImplementerActor(xo.Actor):
     async def _new_session(self) -> None:
         await self._ensure_executor()
 
-        maverick_bin = shutil.which("maverick") or str(Path(sys.executable).parent / "maverick")
-        mcp_config = McpServerStdio(
-            name="agent-inbox",
-            command=maverick_bin,
-            args=[
-                "serve-inbox",
-                "--tools",
-                self._mcp_tools_csv,
-                "--inbox-address",
-                self.address,
-                "--inbox-uid",
-                self.uid.decode(),
-            ],
-            env=[],
-        )
-
         cwd = Path(self._cwd)
         self._session_id = await self._executor.create_session(
             provider=self._step_config.provider if self._step_config else None,
@@ -223,7 +213,7 @@ class ImplementerActor(xo.Actor):
             agent_name="implementer",
             cwd=cwd,
             allowed_tools=step_allowed_tools(self._step_config),
-            mcp_servers=[mcp_config],
+            mcp_servers=[self.mcp_server_config()],
         )
 
     async def _send_prompt(self, prompt_text: str, *, phase: str, tool_name: str) -> None:

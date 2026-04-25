@@ -77,8 +77,8 @@ def test_actor_module_calls_self_ref_as_method(path: Path) -> None:
 @pytest.mark.parametrize("path", _actor_files(), ids=lambda p: p.name)
 def test_on_tool_call_is_no_lock(path: Path) -> None:
     """Actor methods run under ``self._lock`` by default, which serialises
-    every incoming message. ``on_tool_call`` is invoked by the
-    ``serve-inbox`` subprocess while the agent actor is still blocked
+    every incoming message. ``on_tool_call`` is dispatched by the shared
+    :class:`AgentToolGateway` while the agent actor is still blocked
     inside its own ``send_*`` method awaiting the ACP ``prompt_session``
     response — which cannot complete until the MCP tool call the agent
     just issued returns. Without ``@xo.no_lock`` this is a hard deadlock:

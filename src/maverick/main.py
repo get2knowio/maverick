@@ -73,10 +73,6 @@ _LAZY_COMMANDS: dict[str, tuple[str, str]] = {
         "maverick.cli.commands.runway:runway",
         "Manage the runway knowledge store.",
     ),
-    "serve-inbox": (
-        "maverick.cli.commands.serve_inbox:serve_inbox",
-        "Start the MCP supervisor inbox server (internal).",
-    ),
     "uninstall": (
         "maverick.cli.commands.uninstall:uninstall",
         "Remove Maverick-installed skills and optionally the config file.",

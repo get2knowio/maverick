@@ -161,9 +161,10 @@ src/maverick/
 │   ├── fly.py           # FlyWorkflow - full spec-based workflow
 │   └── refuel.py        # RefuelWorkflow - tech-debt resolution
 ├── tools/               # MCP tool servers
-│   └── supervisor_inbox/    # Generic MCP server for actor communication
-│       ├── server.py        # MCP server (maverick serve-inbox)
-│       └── schemas.py       # Tool schemas (full inbox vocabulary)
+│   └── agent_inbox/         # Shared HTTP MCP gateway for actor communication
+│       ├── gateway.py       # AgentToolGateway (uvicorn ASGI app, per-actor /mcp/<uid>)
+│       ├── schemas.py       # Tool schemas (full inbox vocabulary)
+│       └── models.py        # Pydantic intake models for tool payloads
 ├── hooks/               # Safety and logging hooks
 └── utils/               # Shared utilities
 ```
@@ -250,20 +251,35 @@ A single session can receive multiple prompts with full conversation history pre
 This is used by the actor-mailbox architecture to keep implementer and reviewer context
 across fix rounds.
 
-### MCP Tool-Based Agent Output (Supervisor Inbox)
+### MCP Tool-Based Agent Output (Shared HTTP Gateway)
 
-Agents communicate structured results to the supervisor via MCP tool calls, not JSON in
-text responses. The orchestrator runs an MCP server (`maverick serve-inbox`) whose tools
-are the message types the supervisor accepts. The MCP protocol provides schema guidance;
-the server validates via `jsonschema.validate()` and returns errors for self-correction.
+Agents communicate structured results to the supervisor via MCP tool calls, not JSON
+in text responses. A single in-process :class:`AgentToolGateway` (`maverick.tools.agent_inbox.gateway`)
+hosts an HTTP MCP server bound to `127.0.0.1:0` per actor pool. Each agentic actor
+registers its tool subset under `/mcp/<actor-uid>` in `__post_create__`; the gateway
+routes each incoming tool call to the right actor's ``on_tool_call`` handler. The MCP
+protocol provides schema guidance; the gateway validates via ``jsonschema.validate()``
+and returns errors for self-correction.
 
-**Do**: Define agent output as MCP tool schemas in `maverick.tools.supervisor_inbox.schemas`
+Encapsulation contract — every agentic actor still owns:
+1. **Schemas** — declared via the ``mcp_tools: ClassVar[tuple[str, ...]]`` attribute
+   (or returned from ``_mcp_tools()`` for instance-variant declarations).
+2. **Handler** — ``on_tool_call(name, args) -> str``; receives parsed tool arguments
+   and forwards a typed payload to the supervisor.
+3. **Session/turn state** — ACP session ID, mode rotation, turn count.
+4. **The ACP executor** — the bridge subprocess that hosts the LLM.
+
+Only the MCP transport (subprocess + routing) lives in the shared gateway. Subclasses
+inherit :class:`AgenticActorMixin`, which handles inbox registration in
+``__post_create__`` and unregistration in ``__pre_destroy__``.
+
+**Do**: Define agent output as MCP tool schemas in `maverick.tools.agent_inbox.schemas`.
 **Don't**: Use `output_schema` (Pydantic model validation) for mailbox/MCP-tool agent
-responses. This pattern
-appends a JSON schema to the prompt and validates the response against a Pydantic model —
-but agents frequently return slightly different field names or structures, causing
-`OutputSchemaValidationError` at runtime. The MCP tool schemas are the single source of
-truth for structured output; Pydantic models add a second, conflicting contract.
+responses. That pattern appends a JSON schema to the prompt and validates the response
+against a Pydantic model — but agents frequently return slightly different field names
+or structures, causing `OutputSchemaValidationError` at runtime with no recovery loop.
+The MCP tool schemas are the single source of truth for structured output; Pydantic
+models add a second, conflicting contract.
 
 `output_schema` remains valid for non-mailbox, plain text-response steps that intentionally
 return structured JSON in text.
@@ -272,11 +288,16 @@ Built-in tools (Read, Write, Edit, Bash, Glob, Grep) are for doing work in the w
 MCP tools (submit_outline, submit_review, etc.) are for sending results to the supervisor.
 
 **Every agent actor MUST use an MCP tool to deliver results.** When adding a new agent:
-1. Define an MCP tool schema in `maverick.tools.supervisor_inbox.schemas`
+1. Define an MCP tool schema in `maverick.tools.agent_inbox.schemas`
 2. Register it in `ALL_TOOL_SCHEMAS`
-3. Initialize the BriefingActor with `mcp_tool=<tool_name>` and `admin_port=<port>`
-4. The agent's prompt instructs it to call the tool (appended automatically)
-5. The supervisor routes the tool call in `_handle_tool_call()`
+3. Subclass ``AgenticActorMixin`` and declare ``mcp_tools: ClassVar[tuple[str, ...]]``
+   (or override ``_mcp_tools()``)
+4. Call ``await self._register_with_gateway()`` from ``__post_create__`` and
+   ``await self._unregister_from_gateway()`` from ``__pre_destroy__``
+5. Pass ``self.mcp_server_config()`` to ``executor.create_session(mcp_servers=[...])``
+6. Implement ``on_tool_call(name, args)`` decorated ``@xo.no_lock`` (subclass override
+   must keep the decorator — otherwise the ACP turn deadlocks against the actor's own
+   send_* method)
 
 **Provider compatibility**: Claude reliably calls MCP tools. Copilot agents currently do not
 call MCP tools in ACP sessions — use the text fallback path for Copilot-routed steps.
@@ -287,11 +308,13 @@ All three workflows (plan, refuel, fly) use a supervisor that orchestrates typed
 calls between actors:
 
 - **Agent actors** (implementer, reviewer, decomposer, briefing, generator): Persistent
-  ACP sessions; own their MCP inbox (``on_tool_call``) and forward typed results to the
-  supervisor via in-pool RPC (e.g. ``await self._supervisor_ref.outline_ready(payload)``)
+  ACP sessions; register their tool handler with the shared :class:`AgentToolGateway`
+  via :class:`AgenticActorMixin`. Their ``on_tool_call`` handler parses the tool
+  payload and forwards typed results to the supervisor via in-pool RPC
+  (e.g. ``await self._supervisor_ref.outline_ready(payload)``).
 - **Deterministic actors** (gate, validator, bead creator, committer, ac_check,
   spec_check, plan_validator, plan_writer): Pure async Python, no ACP session, no
-  MCP inbox — the supervisor calls a typed method and awaits the typed result
+  inbox registration — the supervisor calls a typed method and awaits the typed result
 - **Supervisor**: ``xo.Actor`` with an ``@xo.generator run()`` method that yields
   ``ProgressEvent``s to the workflow, and typed domain methods (``outline_ready``,
   ``review_ready``, etc.) that child actors invoke
@@ -315,15 +338,19 @@ and drained via ``self._drain_xoscar_supervisor(supervisor)`` on
 destroyed in ``__pre_destroy__`` (which reaps each agent actor's ACP
 subprocess).
 
-**MCP inbox (Design Decision #3)**: every agent actor owns its own
-MCP inbox. The ``maverick serve-inbox`` subprocess is spawned by
-``McpServerStdio`` with ``--inbox-address <pool>`` and
-``--inbox-uid <agent_uid>`` flags pointing at the specific agent
-actor. Incoming tool calls land on that actor's ``on_tool_call`` method,
-which parses the payload and forwards a typed call to the supervisor
-(``await self._supervisor_ref.outline_ready(payload)``). The supervisor
-exposes only typed domain methods — **no** ``on_tool_call`` — so its
-surface stays dict-free.
+**Shared HTTP MCP gateway**: the actor pool owns one in-process
+:class:`AgentToolGateway` (``maverick.tools.agent_inbox.gateway``) bound to
+``127.0.0.1:0``. Each agent actor registers its tool subset under
+``/mcp/<agent_uid>`` via :class:`AgenticActorMixin` in
+``__post_create__`` and unregisters in ``__pre_destroy__``. The
+gateway routes incoming tool calls back to that actor's
+``on_tool_call`` method, which parses the payload and forwards a typed
+call to the supervisor (``await self._supervisor_ref.outline_ready(payload)``).
+The supervisor exposes only typed domain methods — **no**
+``on_tool_call`` — so its surface stays dict-free. The actor still
+owns its schemas, handler, session state, and ACP executor; only the
+MCP transport lives in shared infrastructure (replaces the legacy
+per-actor ``maverick serve-inbox`` stdio subprocess model).
 
 **Cancellation and timeouts**: wrap any long-running child call in
 ``xo.wait_for`` (not ``asyncio.wait_for`` — xoscar has a documented
@@ -347,14 +374,14 @@ before removing the actor. ``await pool.stop()`` alone does NOT invoke
 explicitly on completion so each agent's ACP subprocess is reaped
 cleanly.
 
-**Cross-process MCP constraint**: the parent process hosting the pool
-must keep its asyncio loop running while any MCP subprocess is live.
-``subprocess.Popen.communicate()`` blocks the loop and starves the
-pool's accept loop — the subprocess's ``xo.actor_ref`` lookup hangs.
-The ACP executor already spawns MCP servers via
-``asyncio.create_subprocess_exec`` (through ``McpServerStdio``), so
-production is safe. Tests that spawn MCP subprocesses must do the
-same.
+**Cross-process / async-loop constraint**: the parent process hosting
+the pool must keep its asyncio loop running. The shared
+:class:`AgentToolGateway` runs an in-process uvicorn server, and the
+``claude-agent-acp`` Node bridge subprocess connects back to it over
+loopback HTTP — both depend on the parent's loop being responsive.
+``subprocess.Popen.communicate()`` blocks the loop and starves both;
+use ``asyncio.create_subprocess_exec`` instead. The ACP executor and
+the gateway already follow this rule.
 
 Standard agent actor lifecycle:
 
@@ -621,7 +648,6 @@ Maverick uses a beads-only workflow model. All development is driven by beads (u
 | `maverick refuel <plan-name>` | Decompose flight plan into beads |
 | `maverick fly --epic <id>` | Implement beads (actor-mailbox supervisor) |
 | `maverick land [--eject\|--finalize]` | Curate history and merge |
-| `maverick serve-inbox --tools <list>` | MCP supervisor inbox server (internal) |
 | `maverick workspace status\|clean` | Manage hidden workspace |
 | `maverick init` | Initialize a new Maverick project |
 | `maverick brief [--watch]` | Review bead status |
