@@ -1,4 +1,4 @@
-"""xoscar DecomposerActor — agent actor with its own MCP inbox.
+"""xoscar DecomposerActor — agent actor with shared-gateway inbox registration.
 
 Two method groups, matching Design Decision #3 in the migration plan:
 
@@ -8,7 +8,7 @@ Two method groups, matching Design Decision #3 in the migration plan:
   to the supervisor via this actor's own MCP inbox — **not** via the
   return value of these methods.
 
-* **MCP subprocess → agent (this actor's inbox):** ``on_tool_call``
+* **MCP gateway → agent (this actor's inbox):** ``on_tool_call``
   parses the tools this actor owns (``submit_outline``, ``submit_details``,
   ``submit_fix``) into ``SupervisorInboxPayload`` objects and forwards
   them to the supervisor via typed in-pool RPC
@@ -18,19 +18,22 @@ Two roles:
 
 * ``primary`` — outline + detail + fix; owns all three tools.
 * ``pool`` — detail-only worker; owns ``submit_details`` only.
+
+Tool transport: shared :class:`AgentToolGateway` HTTP server (one per
+workflow run, owned by the actor pool). The actor still owns its schemas,
+handler, session state, and ACP executor — only MCP transport lives in
+shared infrastructure.
 """
 
 from __future__ import annotations
 
-import shutil
-import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import xoscar as xo
-from acp.schema import McpServerStdio
 
 from maverick.actors.step_config import load_step_config, step_config_with_timeout
+from maverick.actors.xoscar._agentic import AgenticActorMixin
 from maverick.actors.xoscar.messages import (
     DecomposerContext,
     DetailRequest,
@@ -66,8 +69,8 @@ DETAIL_TIMEOUT_SECONDS = 1200
 DEFAULT_PROMPT_TIMEOUT_SECONDS = 1800
 
 
-class DecomposerActor(xo.Actor):
-    """Sends ACP prompts for decomposition phases and owns its MCP inbox."""
+class DecomposerActor(AgenticActorMixin, xo.Actor):
+    """Sends ACP prompts for decomposition phases and owns its inbox registration."""
 
     def __init__(
         self,
@@ -93,7 +96,9 @@ class DecomposerActor(xo.Actor):
             self._mcp_tool_names = POOL_DECOMPOSER_MCP_TOOLS
         else:
             self._mcp_tool_names = PRIMARY_DECOMPOSER_MCP_TOOLS
-        self._mcp_tools_csv = ",".join(self._mcp_tool_names)
+
+    def _mcp_tools(self) -> tuple[str, ...]:
+        return self._mcp_tool_names
 
     async def __post_create__(self) -> None:
         self._actor_tag = f"decomposer[{self._role}:{self.uid.decode()}]"
@@ -101,6 +106,13 @@ class DecomposerActor(xo.Actor):
         self._session_id: str | None = None
         self._session_mode: str | None = None
         self._session_turns_in_mode = 0
+
+        # Per-prompt tool-delivery tracking. Reset by _run_prompt before each
+        # turn; flipped to True by on_tool_call when the matching tool fires.
+        # Lets the actor self-nudge instead of leaking turn state to the
+        # supervisor (the actor owns the session, so the actor decides
+        # whether the turn delivered).
+        self._tool_delivered: dict[str, bool] = {}
 
         # Bulk context broadcast once per detail phase — keeps per-unit
         # detail_request messages tiny.
@@ -114,13 +126,15 @@ class DecomposerActor(xo.Actor):
         self._fix_verification: str = ""
         self._fix_seed_stale = True
 
-    async def __pre_destroy__(self) -> None:
-        """Kill the ACP subprocess on teardown.
+        await self._register_with_gateway()
 
-        Matches the ``_cleanup_executor`` call that the Thespian actor
-        performed on shutdown messages. Best-effort: log and swallow.
+    async def __pre_destroy__(self) -> None:
+        """Unregister inbox routing and kill the ACP subprocess on teardown.
+
+        Best-effort: log and swallow.
         """
 
+        await self._unregister_from_gateway()
         if self._executor is None:
             return
         try:
@@ -144,12 +158,26 @@ class DecomposerActor(xo.Actor):
         self._detail_seed_stale = True
 
     async def send_outline(self, request: OutlineRequest) -> None:
-        """Send the outline prompt. Result arrives via on_tool_call."""
-        await self._run_prompt(self._send_outline_prompt(request), phase="outline")
+        """Send the outline prompt. Result arrives via on_tool_call.
+
+        Returns once ``submit_outline`` has been delivered to the supervisor.
+        Self-nudges once if the agent finishes its turn without calling the
+        tool. Raises (via the supervisor's prompt_error path) if both
+        attempts come up empty.
+        """
+        await self._run_prompt(
+            self._send_outline_prompt(request),
+            phase="outline",
+            expected_tool="submit_outline",
+        )
 
     async def send_detail(self, request: DetailRequest) -> None:
         """Send a detail prompt for one work unit. Result arrives via
-        on_tool_call."""
+        on_tool_call.
+
+        The detail phase already has a fan-out retry loop in the supervisor,
+        so missing-tool here is left to that path — no self-nudge.
+        """
         unit_id = request.unit_ids[0] if request.unit_ids else None
         await self._run_prompt(
             self._send_detail_prompt(request),
@@ -158,15 +186,27 @@ class DecomposerActor(xo.Actor):
         )
 
     async def send_fix(self, request: FixRequest) -> None:
-        """Send a fix prompt with updated coverage gaps / overloaded units."""
+        """Send a fix prompt with updated coverage gaps / overloaded units.
+
+        Same self-nudge guarantee as ``send_outline``.
+        """
         self._fix_outline_json = request.outline_json or self._fix_outline_json
         self._fix_details_json = request.details_json or self._fix_details_json
         self._fix_verification = request.verification_properties or self._fix_verification
         self._fix_seed_stale = True
-        await self._run_prompt(self._send_fix_prompt(request), phase="fix")
+        await self._run_prompt(
+            self._send_fix_prompt(request),
+            phase="fix",
+            expected_tool="submit_fix",
+        )
 
     async def send_nudge(self, request: NudgeRequest) -> None:
-        """Re-prompt when a previous turn didn't call the expected tool."""
+        """Re-prompt when a previous turn didn't call the expected tool.
+
+        Used by the supervisor when payload validation rejects a submission.
+        Distinct from the actor-internal self-nudge used by send_outline /
+        send_fix, which fires when the tool was never called at all.
+        """
         await self._run_prompt(
             self._send_nudge_prompt(request),
             phase="nudge",
@@ -179,38 +219,122 @@ class DecomposerActor(xo.Actor):
         *,
         phase: str,
         unit_id: str | None = None,
+        expected_tool: str | None = None,
     ) -> None:
-        """Run an ACP-driving coroutine and translate exceptions into
-        ``PromptError`` messages on the supervisor's ref.
+        """Run an ACP-driving coroutine, translate exceptions into
+        ``PromptError`` messages on the supervisor's ref, and (when
+        ``expected_tool`` is set) self-nudge once if the agent finishes its
+        turn without calling that tool.
 
         The supervisor fans these out concurrently via ``asyncio.gather``
         or a task pool. This method blocks only until the underlying
         ``prompt_session`` call completes — the structured result lands
         on the supervisor through the MCP inbox path during that time.
+
+        Encapsulation: the actor owns its session and its
+        ``on_tool_call`` handler, so it's the only one that can know
+        whether the matching tool fired during the turn. The supervisor
+        sees a successful return iff the payload was actually delivered
+        (or a ``prompt_error`` if the nudge also failed).
         """
         from maverick.exceptions.quota import is_quota_error
+
+        if expected_tool is not None:
+            self._tool_delivered[expected_tool] = False
 
         logger.debug("decomposer.phase_starting", phase=phase, unit_id=unit_id)
         try:
             await coro
-            logger.debug("decomposer.phase_completed", phase=phase, unit_id=unit_id)
         except Exception as exc:  # noqa: BLE001 — route all errors to the supervisor
-            error_str = str(exc)
-            quota = is_quota_error(error_str)
-            logger.debug(
-                "decomposer.phase_failed",
+            await self._report_prompt_failure(exc, phase=phase, unit_id=unit_id)
+            return
+
+        if expected_tool is None or self._tool_delivered.get(expected_tool):
+            logger.debug("decomposer.phase_completed", phase=phase, unit_id=unit_id)
+            return
+
+        # Tool wasn't called. Nudge once and re-await delivery.
+        logger.info(
+            "decomposer.tool_missing_nudging",
+            actor=self._actor_tag,
+            phase=phase,
+            unit_id=unit_id,
+            expected_tool=expected_tool,
+        )
+        nudge_request = NudgeRequest(
+            expected_tool=expected_tool,
+            reason=(
+                f"Your previous turn finished without calling `{expected_tool}`. "
+                "You MUST submit your result via that MCP tool — text-only "
+                "responses are dropped."
+            ),
+            unit_id=unit_id,
+        )
+        try:
+            await self._send_nudge_prompt(nudge_request)
+        except Exception as exc:  # noqa: BLE001
+            await self._report_prompt_failure(exc, phase=phase, unit_id=unit_id)
+            return
+
+        if self._tool_delivered.get(expected_tool):
+            logger.info(
+                "decomposer.tool_delivered_after_nudge",
+                actor=self._actor_tag,
                 phase=phase,
                 unit_id=unit_id,
+                expected_tool=expected_tool,
+            )
+            return
+
+        # Still nothing — give up and report.
+        error_str = (
+            f"Agent finished two turns without calling `{expected_tool}` "
+            f"during {phase} phase"
+        )
+        logger.warning(
+            "decomposer.tool_missing_after_nudge",
+            actor=self._actor_tag,
+            phase=phase,
+            unit_id=unit_id,
+            expected_tool=expected_tool,
+        )
+        # Wrap the no-tool-call into the existing PromptError contract so the
+        # supervisor handles it the same way as any other prompt failure.
+        await self._supervisor_ref.prompt_error(
+            PromptError(
+                phase=phase,
                 error=error_str,
+                quota_exhausted=is_quota_error(error_str),
+                unit_id=unit_id,
             )
-            await self._supervisor_ref.prompt_error(
-                PromptError(
-                    phase=phase,
-                    error=error_str,
-                    quota_exhausted=quota,
-                    unit_id=unit_id,
-                )
+        )
+
+    async def _report_prompt_failure(
+        self,
+        exc: Exception,
+        *,
+        phase: str,
+        unit_id: str | None,
+    ) -> None:
+        """Forward an exception during a prompt to the supervisor."""
+        from maverick.exceptions.quota import is_quota_error
+
+        error_str = str(exc)
+        quota = is_quota_error(error_str)
+        logger.debug(
+            "decomposer.phase_failed",
+            phase=phase,
+            unit_id=unit_id,
+            error=error_str,
+        )
+        await self._supervisor_ref.prompt_error(
+            PromptError(
+                phase=phase,
+                error=error_str,
+                quota_exhausted=quota,
+                unit_id=unit_id,
             )
+        )
 
     # ------------------------------------------------------------------
     # MCP subprocess → agent inbox
@@ -245,6 +369,9 @@ class DecomposerActor(xo.Actor):
                 tool, f"Decomposer has no handler for tool {tool!r}"
             )
             return "error"
+        # Mark this tool as delivered so the actor's _run_prompt loop knows
+        # the prompt produced a real submission and doesn't self-nudge.
+        self._tool_delivered[tool] = True
         # Payload forwarded to supervisor; end the ACP turn so the
         # agent does not keep generating wrap-up text. The session
         # stays alive for the next mode/turn.
@@ -282,22 +409,6 @@ class DecomposerActor(xo.Actor):
     async def _create_session(self) -> None:
         await self._ensure_executor()
 
-        maverick_bin = shutil.which("maverick") or str(Path(sys.executable).parent / "maverick")
-        mcp_config = McpServerStdio(
-            name="agent-inbox",
-            command=maverick_bin,
-            args=[
-                "serve-inbox",
-                "--tools",
-                self._mcp_tools_csv,
-                "--inbox-address",
-                self.address,
-                "--inbox-uid",
-                self.uid.decode(),
-            ],
-            env=[],
-        )
-
         cwd = Path(self._cwd)
         allowed_tools = [*READ_ONLY_DECOMPOSER_TOOLS, *self._mcp_tool_names]
 
@@ -308,7 +419,7 @@ class DecomposerActor(xo.Actor):
             agent_name="decomposer",
             cwd=cwd,
             allowed_tools=allowed_tools,
-            mcp_servers=[mcp_config],
+            mcp_servers=[self.mcp_server_config()],
         )
 
     async def _ensure_mode_session(

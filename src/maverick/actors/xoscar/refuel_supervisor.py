@@ -392,7 +392,12 @@ class RefuelSupervisor(xo.Actor):
         await self._emit_phase_started("decompose", "Decomposing")
         decompose_start = _time.monotonic()
 
-        # Outline
+        # Outline. The actor self-nudges if the agent skips the tool call;
+        # send_outline only returns once submit_outline has been delivered
+        # to outline_ready (or routes a prompt_error to mark the workflow
+        # done, in which case _check_done_or_quota_error below trips). The
+        # ``self._outline is None`` assertion is a defensive guard against
+        # a contract regression in the actor.
         if self._outline is None:
             await self._emit_output("refuel", "Requesting outline from decomposer")
             await self._decomposer.send_outline(
@@ -406,7 +411,18 @@ class RefuelSupervisor(xo.Actor):
                 )
             )
             if self._outline is None:
-                raise RuntimeError("Decomposer did not submit an outline")
+                if self._done:
+                    # Normal failure path: decomposer already routed a
+                    # prompt_error (via the actor's self-nudge exhaustion or
+                    # any other prompt failure) and _mark_done flipped
+                    # _done. The driver catches the early return and the
+                    # workflow surfaces the recorded error.
+                    return
+                raise RuntimeError(
+                    "Decomposer returned without delivering an outline "
+                    "and without reporting a prompt_error — actor contract "
+                    "violation"
+                )
         else:
             unit_ids_seed = [wu.id for wu in self._outline.work_units if wu.id]
             await self._emit_output(
@@ -416,7 +432,10 @@ class RefuelSupervisor(xo.Actor):
                 metadata={"unit_count": len(unit_ids_seed)},
             )
 
-        # Details
+        # Details — by the time we get here the outline is non-None (the
+        # only way past the block above with self._outline still None is
+        # the early return on self._done).
+        assert self._outline is not None
         unit_ids = [wu.id for wu in self._outline.work_units if wu.id]
         await self._run_detail_fan_out(unit_ids)
 
