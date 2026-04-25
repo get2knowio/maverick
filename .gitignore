@@ -47,4 +47,5 @@ Thumbs.db
 .beads/
 test_bd.sh
 .claude/worktrees/
+.claude/scheduled_tasks.lock
 /.maverick/runs
