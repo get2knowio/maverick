@@ -424,6 +424,167 @@ Relevant code:
   `system_prompt` parameter for option 1)
 - All five actor `_send_*` methods.
 
+### 2.10 Per-Bead Complexity-Based Model Routing
+
+**Status:** Phase 1 implemented, Phases 2 + 3 active
+
+**Background.** Bead workloads vary wildly inside a single epic — "create
+LICENSE file" and "implement complete tax engine" are both single beads
+under maverick's current model. They go through the same implementer
+with the same model, which means we either pay frontier prices for
+trivial work or accept weaker output on hard work. With opencode +
+OpenRouter giving us cheap access to the full open-weight catalog
+(GPT-OSS-20B at $0.13/Mtok up through Kimi K2.6 at ~$1.70/Mtok), it's
+finally cheap to route by need.
+
+**Phase 1 (implemented).** The decomposer classifies each bead at
+outline time into one of `trivial | simple | moderate | complex`.
+Schema additions span:
+
+- [src/maverick/tools/agent_inbox/models.py](src/maverick/tools/agent_inbox/models.py)
+  (`WorkUnitOutlinePayload.complexity`, `WorkUnitComplexity` Literal)
+- [src/maverick/tools/agent_inbox/schemas.py](src/maverick/tools/agent_inbox/schemas.py)
+  (`SUBMIT_OUTLINE` JSONSchema enum + classification rubric in the
+  property description)
+- [src/maverick/library/actions/decompose.py](src/maverick/library/actions/decompose.py)
+  (`build_outline_prompt` — the decomposer's instruction set teaches
+  the rubric and asks for honest classification)
+- [src/maverick/workflows/refuel_maverick/models.py](src/maverick/workflows/refuel_maverick/models.py)
+  (`WorkUnitSpec.complexity`)
+- [src/maverick/flight/models.py](src/maverick/flight/models.py)
+  (`WorkUnit.complexity`)
+- [src/maverick/flight/serializer.py](src/maverick/flight/serializer.py)
+  + [src/maverick/flight/loader.py](src/maverick/flight/loader.py)
+  (markdown frontmatter round-trip; unknown enum values silently
+  load as None for forward compat)
+- [src/maverick/workflows/refuel_maverick/workflow.py](src/maverick/workflows/refuel_maverick/workflow.py)
+  (write_work_units now logs the complexity distribution after refuel
+  so users can see what the decomposer produced before trusting Phase 2
+  routing with money)
+
+Nothing routes on `complexity` yet — it's hint-only. This phase exists
+so we can observe whether the decomposer's classifications match human
+intuition over a few real refuels before wiring routing.
+
+**Phase 2 (active): Tier routing for `implement` + escalation on
+fix-loop overflow.**
+
+Configuration shape:
+
+```yaml
+steps:
+  implement:
+    tiers:
+      trivial:    { provider: opencode, model_id: openai/gpt-oss-20b }
+      simple:     { provider: opencode, model_id: openai/gpt-oss-120b }
+      moderate:   { provider: opencode, model_id: moonshot/kimi-k2-6 }
+      complex:    { provider: claude,   model_id: opus }
+    # Backward-compat: when `tiers` is omitted, fall back to the
+    # current top-level `provider` / `model_id`.
+    provider: opencode
+    model_id: openai/gpt-oss-120b
+```
+
+Code-side changes:
+
+1. Extend `StepConfig` (or a sibling) to carry an optional `tiers`
+   mapping: `dict[Literal["trivial", "simple", "moderate", "complex"],
+   StepConfig]`.
+2. Thread the bead's `complexity` field through `ImplementRequest` so
+   the implementer can resolve the right tier. The implementer already
+   rotates its ACP session per bead via `new_bead(request)`, so per-bead
+   model switching is feasible — `_executor.create_session` takes a
+   config and we can build a different one per session.
+3. **Escalation on fix-loop overflow.** When the supervisor's
+   per-bead fix-loop count exceeds a configurable threshold (default 2),
+   automatically promote the bead one tier and retry once. This is the
+   safety net for misclassification: if the decomposer marks a bead as
+   "simple" and the cheap model can't actually deliver, we burn a retry
+   on the next tier up rather than spinning indefinitely on a model
+   that's out of its depth. Recorded in the runway as a
+   `complexity_escalated` event so the decomposer's classification
+   accuracy can be measured over time.
+
+Risks worth flagging in the implementation:
+
+- **Misclassification under-shoots.** Decomposer marks complex bead
+  as "simple" → cheap model fails review → fix-loop retries on the
+  same model → eventually escalates. Net cost: extra round-trips before
+  the retry. Mitigated by the fix-loop-overflow escalation above.
+- **Misclassification over-shoots.** Decomposer marks LICENSE file as
+  "complex" → wasted money but no broken work. Lower-stakes than
+  under-shooting.
+- **Operational burden.** Users now maintain a `tiers` map. Mitigated
+  by sensible shipped defaults.
+
+Relevant code:
+
+- [src/maverick/executor/config.py](src/maverick/executor/config.py)
+  (StepConfig — the place to add optional `tiers`)
+- [src/maverick/actors/xoscar/messages.py](src/maverick/actors/xoscar/messages.py)
+  (`ImplementRequest` — needs a `complexity` field)
+- [src/maverick/actors/xoscar/implementer.py](src/maverick/actors/xoscar/implementer.py)
+  (`send_implement` / `new_bead` — pick tier, build per-bead config)
+- [src/maverick/actors/xoscar/fly_supervisor.py](src/maverick/actors/xoscar/fly_supervisor.py)
+  (read bead complexity from the work-unit markdown / spec, pass in
+  ImplementRequest, drive escalation when fix-loop count exceeds
+  threshold)
+
+**Phase 3 (active, after Phase 2 settles): Extend tier routing to
+`review`, `fix`, `decompose_detail`.**
+
+Each of these has the same per-unit invocation pattern as `implement`
+and benefits from the same complexity gating. Suggested defaults:
+
+```yaml
+steps:
+  review:
+    tiers:
+      trivial:    { provider: opencode, model_id: openai/gpt-oss-20b }
+      simple:     { provider: opencode, model_id: openai/gpt-oss-120b }
+      moderate:   { provider: opencode, model_id: zai/glm-5-1 }
+      complex:    { provider: claude,   model_id: sonnet }
+  fix:
+    tiers:
+      trivial:    { provider: opencode, model_id: openai/gpt-oss-20b }
+      simple:     { provider: opencode, model_id: openai/gpt-oss-120b }
+      moderate:   { provider: opencode, model_id: openai/gpt-oss-120b }
+      complex:    { provider: opencode, model_id: moonshot/kimi-k2-6 }
+  decompose_detail:
+    tiers:
+      trivial:    { provider: opencode, model_id: openai/gpt-oss-120b }
+      simple:     { provider: opencode, model_id: openai/gpt-oss-120b }
+      moderate:   { provider: opencode, model_id: openai/gpt-oss-120b }
+      complex:    { provider: opencode, model_id: moonshot/kimi-k2-6 }
+```
+
+`decompose_detail` is mostly mechanical "fill in instructions for this
+work unit" — the primary outline pass already did the architectural
+work. Most beads can use a single mid-tier model regardless of
+complexity; only `complex` beads benefit from extra reasoning capacity
+during detail generation.
+
+Aggregate review (the final cross-bead check) should *not* tier — it
+sees diff across the whole epic and can't be classified per-bead. Keep
+it on a fixed frontier model.
+
+**Other axes worth considering, but not for v1**
+
+Complexity is the right *first* axis because it's the cleanest signal
+of "how much intelligence is needed." Other axes that may matter
+eventually:
+
+- **Domain** — writing tests vs business logic. A "moderate" test bead
+  probably wants a different model than a "moderate" engine bead.
+- **Risk** — security-critical vs UI tweak. Lets you keep frontier
+  review on auth code regardless of complexity.
+- **File language** — TypeScript-heavy beads vs Python-heavy.
+  Specialists differ.
+
+These are refinements over per-bead-complexity, not replacements. Land
+Phase 2 + Phase 3 first, see how often the misclassification cases
+cluster on a particular dimension, then add the next axis if they do.
+
 ## 3. Learning, Feedback, And Telemetry
 
 ### 3.1 Observational Memory For Runway

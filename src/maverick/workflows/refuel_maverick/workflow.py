@@ -494,11 +494,35 @@ class RefuelMaverickWorkflow(PythonWorkflow):
             WRITE_WORK_UNITS,
             f"Wrote {written} work unit files to {work_units_dir}",
         )
+
+        # Phase 1 observability: surface the complexity distribution so users
+        # can see what the decomposer produced before deciding whether to
+        # trust per-tier model routing in Phase 2. Counts are advisory only —
+        # ``complexity`` is not yet wired into model selection.
+        from collections import Counter
+
+        complexity_counts: Counter[str] = Counter(
+            str(wu.complexity or "unclassified") for wu in work_units
+        )
+        # Stable display order: trivial → simple → moderate → complex → unclassified.
+        _order = ["trivial", "simple", "moderate", "complex", "unclassified"]
+        breakdown = ", ".join(
+            f"{complexity_counts[k]} {k}"
+            for k in _order
+            if complexity_counts.get(k, 0) > 0
+        )
+        if breakdown:
+            await self.emit_output(
+                WRITE_WORK_UNITS,
+                f"Complexity distribution: {breakdown}",
+            )
+
         await self.emit_step_completed(
             WRITE_WORK_UNITS,
             output={
                 "written": written,
                 "directory": str(work_units_dir),
+                "complexity_distribution": dict(complexity_counts),
             },
         )
 

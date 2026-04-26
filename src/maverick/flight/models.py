@@ -17,7 +17,7 @@ from __future__ import annotations
 import re
 from datetime import date
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -311,6 +311,17 @@ class WorkUnit(BaseModel):
         default=None, description="Optional hints for the implementation agent"
     )
     source_path: Path | None = Field(default=None, description="Source file path")
+    # Decomposer-assigned tier hint for downstream model routing.
+    # ``None`` = decomposer did not classify (older runs / fallback).
+    # Phase 1: persisted in the work-unit markdown frontmatter only.
+    # Phase 2: ``steps.implement.tiers`` will route per complexity.
+    complexity: Literal["trivial", "simple", "moderate", "complex"] | None = Field(
+        default=None,
+        description=(
+            "How much model intelligence this bead needs. trivial / simple / "
+            "moderate / complex. None = unclassified."
+        ),
+    )
 
     @field_validator("id")
     @classmethod

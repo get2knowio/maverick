@@ -479,6 +479,31 @@ def build_outline_prompt(
             " `.maverick/context/{bead-id}.md`. Mark these with"
             " 'research-only' in the task description. Dependent beads"
             " should reference the output file in their instructions.",
+            "- COMPLEXITY CLASSIFICATION: For each work unit, set"
+            " `complexity` to one of: `trivial`, `simple`, `moderate`,"
+            " `complex`. Use this rubric:",
+            "    * `trivial` — boilerplate / config / single-file"
+            " scaffolding. Examples: LICENSE file, .gitignore, a data"
+            " constant table. Output volume small. A small open-weight"
+            " model can do this with no risk.",
+            "    * `simple` — mechanical, well-specified, single-file or"
+            " single-function changes. Acceptance criteria are unambiguous"
+            " and the implementation steps are nearly procedural."
+            " Examples: `wrap_in_box(text) -> str` with a clear contract;"
+            " adding a new CLI flag whose effect is one bool branch.",
+            "    * `moderate` — typical implementation work: a couple of"
+            " files, non-trivial logic, but the design decisions are made."
+            " Examples: implementing a function whose signature is given"
+            " but whose body involves several decisions; per-renderer"
+            " modules with cross-cutting style choices.",
+            "    * `complex` — architecturally meaningful, cross-cutting,"
+            " or reasoning-heavy. Hard to verify mechanically; review-fix"
+            " loops are likely. Examples: an engine module that touches"
+            " every other module, a tax calculation engine where the"
+            " correctness depends on careful interpretation of rules.",
+            "  Honest classification is more valuable than optimistic"
+            " classification — under-classifying causes wasted review-fix"
+            " cycles; over-classifying just costs a few cents.",
             "",
             "## CRITICAL: Output Format",
             "This is the OUTLINE pass. Output ONLY structural information — NO"
@@ -489,7 +514,8 @@ def build_outline_prompt(
             '{"work_units": [{"id": "kebab-id", "sequence": 1,'
             ' "parallel_group": null, "depends_on": [],'
             ' "task": "short description",'
-            ' "file_scope": {"create": [], "modify": [], "protect": []}}],'
+            ' "file_scope": {"create": [], "modify": [], "protect": []},'
+            ' "complexity": "moderate"}],'
             ' "rationale": "brief explanation"}',
         ]
     )
@@ -827,6 +853,8 @@ def merge_outline_and_details(
                 test_specification=detail.test_specification,
                 acceptance_criteria=detail.acceptance_criteria,
                 verification=detail.verification,
+                # Decomposer-assigned tier hint (None when not classified).
+                complexity=getattr(wu, "complexity", None),
             )
         )
 
@@ -877,6 +905,7 @@ def convert_specs_to_work_units(
             test_specification=spec.test_specification,
             verification=tuple(spec.verification),
             source_path=source_path,
+            complexity=spec.complexity,
         )
         units.append(unit)
     return units

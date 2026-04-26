@@ -76,6 +76,25 @@ class AcceptanceCriterionPayload(SupervisorInboxPayload):
     trace_ref: str | None = None
 
 
+#: Allowed values for ``WorkUnitOutlinePayload.complexity``. Treat as a
+#: hint about how much model intelligence the bead needs:
+#:
+#: * ``trivial``  — boilerplate / config / one-file scaffolding (LICENSE,
+#:   .gitignore, single-purpose data files). Output volume small.
+#: * ``simple``   — mechanical, well-specified, single-file or single-
+#:   function changes. Acceptance criteria are unambiguous.
+#: * ``moderate`` — typical implementation work: a couple of files,
+#:   non-trivial logic, but the design decisions are made.
+#: * ``complex`` — architecturally meaningful, cross-cutting, or
+#:   reasoning-heavy. Hard to verify mechanically; review-fix loops are
+#:   more likely.
+#:
+#: ``None`` means the decomposer didn't classify (older runs, fallback,
+#: or non-decomposer-sourced beads). Phase 1 only displays this; later
+#: phases will route models per tier.
+WorkUnitComplexity = Literal["trivial", "simple", "moderate", "complex"]
+
+
 class WorkUnitOutlinePayload(SupervisorInboxPayload):
     """Mailbox payload for outline work units."""
 
@@ -85,6 +104,7 @@ class WorkUnitOutlinePayload(SupervisorInboxPayload):
     parallel_group: str | None = None
     depends_on: tuple[str, ...] = Field(default_factory=tuple)
     file_scope: FileScopePayload = Field(default_factory=FileScopePayload)
+    complexity: WorkUnitComplexity | None = None
 
 
 class WorkUnitDetailPayload(SupervisorInboxPayload):

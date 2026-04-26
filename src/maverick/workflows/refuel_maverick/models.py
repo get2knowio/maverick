@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -49,6 +49,17 @@ class WorkUnitSpec(BaseModel):
     instructions: str = Field(default="")
     test_specification: str = Field(default="")
     verification: list[str] = Field(default_factory=list)
+    # Decomposer-assigned hint for tier routing (Phase 2 will use this).
+    # ``None`` = decomposer did not classify (older runs / fallback).
+    complexity: Literal["trivial", "simple", "moderate", "complex"] | None = Field(
+        default=None,
+        description=(
+            "How much model intelligence this bead needs. Set by the "
+            "decomposer at outline time. Phase 1: displayed only, no "
+            "routing impact. Phase 2: maps to a model tier in "
+            "steps.implement.tiers."
+        ),
+    )
 
     @field_validator("id")
     @classmethod

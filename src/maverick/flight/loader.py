@@ -260,6 +260,17 @@ class WorkUnitFile:
         raw_depends_on = fm.get("depends-on") or []
         depends_on = tuple(str(d) for d in raw_depends_on)
 
+        # Complexity is optional and only present on outlines produced by
+        # post-2026-04 decomposers. Older units silently load with None.
+        complexity = fm.get("complexity")
+        if complexity is not None and complexity not in (
+            "trivial",
+            "simple",
+            "moderate",
+            "complex",
+        ):
+            complexity = None
+
         try:
             wu = WorkUnit(
                 id=fm.get("work-unit", ""),
@@ -275,6 +286,7 @@ class WorkUnitFile:
                 verification=tuple(sections["verification"]),
                 provider_hints=sections["provider_hints"],
                 source_path=path,
+                complexity=complexity,
             )
         except ValidationError as exc:
             raise WorkUnitValidationError(

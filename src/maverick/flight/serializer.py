@@ -163,6 +163,8 @@ def serialize_work_unit(unit: WorkUnit) -> str:
     }
     if unit.parallel_group is not None:
         frontmatter["parallel-group"] = unit.parallel_group
+    if unit.complexity is not None:
+        frontmatter["complexity"] = unit.complexity
 
     fm_yaml = yaml.dump(
         frontmatter,

@@ -75,6 +75,21 @@ SUBMIT_OUTLINE = _tool(
                                 },
                             },
                         },
+                        "complexity": {
+                            "type": "string",
+                            "enum": ["trivial", "simple", "moderate", "complex"],
+                            "description": (
+                                "How much model intelligence this bead "
+                                "needs. trivial = boilerplate / config / "
+                                "single-file scaffolding. simple = "
+                                "mechanical, well-specified, single-file. "
+                                "moderate = typical implementation work, "
+                                "design decisions made. complex = "
+                                "architecturally meaningful, cross-cutting, "
+                                "or reasoning-heavy. Used to route beads "
+                                "to appropriately-sized models."
+                            ),
+                        },
                     },
                     "required": ["id", "task"],
                 },

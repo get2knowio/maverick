@@ -941,6 +941,8 @@ class RefuelSupervisor(xo.Actor):
                 ),
                 "verification": list(detail.verification) if detail else [],
                 "test_specification": detail.test_specification if detail else "",
+                # Decomposer-assigned tier hint (None when not classified).
+                "complexity": getattr(wu, "complexity", None),
             }
             try:
                 specs.append(WorkUnitSpec.model_validate(merged))
