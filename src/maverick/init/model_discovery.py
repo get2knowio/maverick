@@ -13,7 +13,13 @@ from maverick.logging import get_logger
 
 logger = get_logger(__name__)
 
-#: Default models when probing fails or provider doesn't support it
+#: Default models when probing fails or provider doesn't support it.
+#:
+#: ``opencode`` is intentionally an empty list: ``opencode acp`` doesn't
+#: document model selection over ACP — model choice comes from the
+#: user's OpenCode config — so we have nothing to advertise here. Users
+#: who want named models for opencode can list them explicitly via
+#: ``--models opencode:<id1>,<id2>`` at init time.
 DEFAULT_MODELS: dict[str, list[str]] = {
     "claude": ["sonnet", "opus", "haiku"],
     "copilot": [
@@ -24,6 +30,7 @@ DEFAULT_MODELS: dict[str, list[str]] = {
         "gpt-4.1",
     ],
     "gemini": ["gemini-3.1-pro-preview"],
+    "opencode": [],
 }
 
 
@@ -90,7 +97,7 @@ async def probe_provider_models(
     for Copilot/Gemini where ACP probing is unreliable.
 
     Args:
-        provider: Provider name (claude, copilot, gemini).
+        provider: Provider name (claude, copilot, gemini, opencode).
 
     Returns:
         ProviderModels with discovered or default models.

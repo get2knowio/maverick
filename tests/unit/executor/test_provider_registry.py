@@ -141,6 +141,35 @@ class TestBuiltinProviderResolution:
         assert "gemini" in cfg.command
         assert "--experimental-acp" in cfg.command
 
+    def test_opencode_resolves_command_automatically(self) -> None:
+        providers = {
+            "opencode": AgentProviderConfig(default=True),
+        }
+        registry = AgentProviderRegistry.from_config(providers)
+        cfg = registry.get("opencode")
+        assert cfg.command is not None
+        # opencode acp is the documented invocation:
+        # https://opencode.ai/docs/acp/
+        assert cfg.command[0] == "opencode"
+        assert "acp" in cfg.command
+
+    def test_opencode_does_not_inject_model_flag(self) -> None:
+        """opencode acp does not document a launch-time --model flag.
+
+        Model selection comes from the user's OpenCode config; default_model
+        is informational only at the registry level.
+        """
+        providers = {
+            "opencode": AgentProviderConfig(
+                default=True, default_model="some-model-id"
+            ),
+        }
+        registry = AgentProviderRegistry.from_config(providers)
+        cfg = registry.get("opencode")
+        assert cfg.command is not None
+        assert "--model" not in cfg.command
+        assert "some-model-id" not in cfg.command
+
     def test_gemini_includes_model_flag_when_default_model_set(self) -> None:
         providers = {
             "gemini": AgentProviderConfig(default=True, default_model="gemini-3.1-pro-preview"),

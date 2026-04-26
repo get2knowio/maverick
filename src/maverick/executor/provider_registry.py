@@ -33,6 +33,21 @@ _DEFAULT_GEMINI_COMMAND: list[str] = [
     "--experimental-acp",
 ]
 
+#: Default OpenCode provider command.
+#: Uses the OpenCode CLI's ACP subcommand (stdio JSON-RPC). Per the
+#: OpenCode docs, ``opencode acp`` exposes built-in tools, MCP servers,
+#: AGENTS.md project rules, and the OpenCode permissions/agent system.
+#: Model selection is taken from the user's OpenCode config — there is
+#: no ``--model`` launch flag and no documented session/set_model
+#: support, so default_model on the provider config is informational
+#: only (used by Maverick for assignment / discovery, not for the spawn
+#: command).
+#: See https://opencode.ai/docs/acp/
+_DEFAULT_OPENCODE_COMMAND: list[str] = [
+    "opencode",
+    "acp",
+]
+
 #: Name used for the synthesized default provider
 _DEFAULT_PROVIDER_NAME: str = "claude"
 
@@ -41,6 +56,7 @@ _BUILTIN_PROVIDERS: dict[str, list[str]] = {
     "claude": _DEFAULT_CLAUDE_COMMAND,
     "copilot": _DEFAULT_COPILOT_COMMAND,
     "gemini": _DEFAULT_GEMINI_COMMAND,
+    "opencode": _DEFAULT_OPENCODE_COMMAND,
 }
 
 

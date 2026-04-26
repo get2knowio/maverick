@@ -109,7 +109,7 @@ class TestDiscoverProviders:
         with patch("maverick.init.provider_discovery.shutil.which", return_value="/usr/bin/x"):
             result = await discover_providers()
 
-        assert len(result.providers) == 3
+        assert len(result.providers) == len(PROVIDER_PREFERENCE_ORDER)
         assert all(p.found for p in result.providers)
         assert result.default_provider == "claude"
 
@@ -118,7 +118,7 @@ class TestDiscoverProviders:
         with patch("maverick.init.provider_discovery.shutil.which", return_value=None):
             result = await discover_providers()
 
-        assert len(result.providers) == 3
+        assert len(result.providers) == len(PROVIDER_PREFERENCE_ORDER)
         assert not any(p.found for p in result.providers)
         assert result.default_provider is None
         assert result.found_providers == ()
@@ -209,6 +209,7 @@ class TestDiscoverProviders:
         assert binaries["claude"] == "claude-agent-acp"
         assert binaries["copilot"] == "copilot"
         assert binaries["gemini"] == "gemini"
+        assert binaries["opencode"] == "opencode"
 
     @pytest.mark.asyncio
     async def test_display_names(self) -> None:
@@ -219,3 +220,40 @@ class TestDiscoverProviders:
         assert names["claude"] == "Claude"
         assert names["copilot"] == "GitHub Copilot"
         assert names["gemini"] == "Gemini"
+        assert names["opencode"] == "OpenCode"
+
+    @pytest.mark.asyncio
+    async def test_opencode_does_not_displace_claude_as_default(self) -> None:
+        """When both claude and opencode are installed, claude wins.
+
+        opencode is appended last in PROVIDER_PREFERENCE_ORDER so existing
+        users who add the opencode binary don't suddenly find their default
+        provider switched out from under them.
+        """
+
+        def _which(binary: str) -> str | None:
+            return f"/usr/local/bin/{binary}" if binary in {
+                "claude-agent-acp",
+                "opencode",
+            } else None
+
+        with patch(
+            "maverick.init.provider_discovery.shutil.which",
+            side_effect=_which,
+        ):
+            result = await discover_providers()
+        assert result.default_provider == "claude"
+
+    @pytest.mark.asyncio
+    async def test_opencode_becomes_default_when_alone(self) -> None:
+        """If opencode is the only installed provider, it becomes default."""
+
+        def _which(binary: str) -> str | None:
+            return f"/usr/local/bin/{binary}" if binary == "opencode" else None
+
+        with patch(
+            "maverick.init.provider_discovery.shutil.which",
+            side_effect=_which,
+        ):
+            result = await discover_providers()
+        assert result.default_provider == "opencode"

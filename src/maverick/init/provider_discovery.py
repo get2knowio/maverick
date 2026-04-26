@@ -25,13 +25,17 @@ __all__ = [
 logger = get_logger(__name__)
 
 #: Preference order for auto-selecting the default provider.
-PROVIDER_PREFERENCE_ORDER: tuple[str, ...] = ("claude", "copilot", "gemini")
+#: ``opencode`` is appended last so it never displaces an installed
+#: claude/copilot/gemini as the auto-selected default — pre-existing
+#: maverick.yaml files keep their current behaviour.
+PROVIDER_PREFERENCE_ORDER: tuple[str, ...] = ("claude", "copilot", "gemini", "opencode")
 
 #: Human-readable display names for built-in providers.
 _DISPLAY_NAMES: dict[str, str] = {
     "claude": "Claude",
     "copilot": "GitHub Copilot",
     "gemini": "Gemini",
+    "opencode": "OpenCode",
 }
 
 

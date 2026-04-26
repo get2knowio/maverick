@@ -201,7 +201,7 @@ PROJECT_TYPE_CHOICES = [
     "--providers",
     type=str,
     default=None,
-    help="Comma-separated list of ACP providers (e.g., claude,copilot,gemini).",
+    help="Comma-separated list of ACP providers (e.g., claude,copilot,gemini,opencode).",
 )
 @click.option(
     "--models",
