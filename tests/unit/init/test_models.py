@@ -1082,7 +1082,13 @@ class TestInitConfig:
         assert isinstance(config.validation, InitValidationConfig)
         assert isinstance(config.model, InitModelConfig)
         assert config.notifications == {"enabled": False}
-        assert config.parallel == {"max_agents": 3, "max_tasks": 5}
+        assert config.parallel == {
+            "max_agents": 3,
+            "max_tasks": 5,
+            "decomposer_pool_size": 3,
+            "max_briefing_agents": 3,
+            "max_parallel_reviewers": 2,
+        }
         assert config.verbosity == "warning"
 
     def test_create_with_custom_values(self) -> None:

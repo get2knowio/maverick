@@ -106,6 +106,11 @@ class RefuelInputs:
     provider_labels: dict[str, str] = field(default_factory=dict)
     detail_session_max_turns: int = 5
     fix_session_max_turns: int = 1
+    # Cap on how many briefing agents may be in-flight concurrently.
+    # Default 3 matches legacy behaviour (navigator/structuralist/recon all
+    # run via asyncio.gather). Setting this lower (e.g. 1) makes them run
+    # sequentially — useful on resource-constrained hosts.
+    max_briefing_agents: int = 3
     # Cache paths — when set, the supervisor writes briefing / outline /
     # per-unit detail JSON back so a resumed run short-circuits each
     # phase. Empty strings disable caching.
@@ -327,11 +332,20 @@ class RefuelSupervisor(xo.Actor):
 
         briefing_start = _time.monotonic()
 
-        await asyncio.gather(
-            *[
-                self._briefing_actors[name].send_briefing(
+        # Cap concurrent briefings at parallel.max_briefing_agents (default 3
+        # = legacy fan-out). Each briefing is its own claude-agent-acp
+        # subprocess, so this is the lever for resource-constrained hosts.
+        sem = asyncio.Semaphore(max(1, self._inputs.max_briefing_agents))
+
+        async def _bounded_send(name: str) -> None:
+            async with sem:
+                await self._briefing_actors[name].send_briefing(
                     BriefingRequest(agent_name=name, prompt=prompt)
                 )
+
+        await asyncio.gather(
+            *[
+                _bounded_send(name)
                 for name in PARALLEL_BRIEFING_NAMES
                 if name in self._briefing_actors
             ]

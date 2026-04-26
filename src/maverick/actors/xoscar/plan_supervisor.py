@@ -82,6 +82,10 @@ class PlanInputs:
     config: Any = None
     skip_briefing: bool = False
     provider_labels: dict[str, str] = field(default_factory=dict)
+    # Cap on how many briefing agents may be in-flight concurrently
+    # (scopist/analyst/criteria during the parallel phase). Default 3
+    # matches legacy behaviour. Setting to 1 runs them sequentially.
+    max_briefing_agents: int = 3
 
 
 class PlanSupervisor(xo.Actor):
@@ -228,11 +232,20 @@ class PlanSupervisor(xo.Actor):
             self._briefing_start_times[label] = _time.monotonic()
             _ = agent_name
 
-        await asyncio.gather(
-            *[
-                self._briefing_actors[name].send_briefing(
+        # Cap concurrent briefings at parallel.max_briefing_agents (default
+        # 3 = legacy fan-out). Each briefing is its own claude-agent-acp
+        # subprocess; lower this on resource-constrained hosts.
+        sem = asyncio.Semaphore(max(1, self._inputs.max_briefing_agents))
+
+        async def _bounded_send(name: str) -> None:
+            async with sem:
+                await self._briefing_actors[name].send_briefing(
                     BriefingRequest(agent_name=name, prompt=prompt)
                 )
+
+        await asyncio.gather(
+            *[
+                _bounded_send(name)
                 for name in PARALLEL_PLAN_BRIEFING_NAMES
                 if name in self._briefing_actors
             ]

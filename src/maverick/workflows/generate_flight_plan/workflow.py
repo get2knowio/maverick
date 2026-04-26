@@ -261,6 +261,7 @@ class GenerateFlightPlanWorkflow(PythonWorkflow):
             config=gen_config,
             skip_briefing=skip_briefing,
             provider_labels=provider_labels,
+            max_briefing_agents=self._config.parallel.max_briefing_agents,
         )
 
         async with actor_pool() as (_pool, address):

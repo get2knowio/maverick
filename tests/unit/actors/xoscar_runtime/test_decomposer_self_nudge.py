@@ -24,7 +24,6 @@ from maverick.actors.xoscar.decomposer import DecomposerActor
 from maverick.actors.xoscar.messages import OutlineRequest, PromptError
 from maverick.tools.agent_inbox.models import SubmitOutlinePayload
 
-
 _VALID_OUTLINE_ARGS: dict[str, Any] = {
     "work_units": [
         {"id": "wu-1", "task": "do the thing"},

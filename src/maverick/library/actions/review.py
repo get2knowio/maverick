@@ -806,27 +806,47 @@ async def _run_dual_review(
         corr_context["findings_output_path"] = str(corr_path)
 
         try:
+            # parallel.max_parallel_reviewers caps the two-reviewer fan-out.
+            # Default 2 (legacy behaviour). Setting to 1 runs the reviewers
+            # sequentially — useful on resource-constrained hosts.
+            from maverick.config import load_config
+
+            try:
+                _max_parallel = load_config().parallel.max_parallel_reviewers
+            except Exception:  # noqa: BLE001 — fall back if config unavailable
+                _max_parallel = 2
+
             # Don't pass output_schema — the reviewers write JSON to
             # findings_output_path via the Write tool.  The file is the
             # output contract.  Passing output_schema causes the executor
             # to try extracting JSON from the agent's conversational text,
             # which fails across models and triggers unnecessary retries.
-            completeness_task = _executor.execute(
-                step_name="completeness_review",
-                agent_name=completeness.name,
-                prompt=comp_context,
-                output_schema=None,
-                config=_configs.get("completeness_review"),
-            )
-            correctness_task = _executor.execute(
-                step_name="correctness_review",
-                agent_name=correctness.name,
-                prompt=corr_context,
-                output_schema=None,
-                config=_configs.get("correctness_review"),
-            )
+            sem = asyncio.Semaphore(max(1, _max_parallel))
+
+            async def _bounded_completeness() -> Any:
+                async with sem:
+                    return await _executor.execute(
+                        step_name="completeness_review",
+                        agent_name=completeness.name,
+                        prompt=comp_context,
+                        output_schema=None,
+                        config=_configs.get("completeness_review"),
+                    )
+
+            async def _bounded_correctness() -> Any:
+                async with sem:
+                    return await _executor.execute(
+                        step_name="correctness_review",
+                        agent_name=correctness.name,
+                        prompt=corr_context,
+                        output_schema=None,
+                        config=_configs.get("correctness_review"),
+                    )
+
             _gathered = await asyncio.gather(
-                completeness_task, correctness_task, return_exceptions=True
+                _bounded_completeness(),
+                _bounded_correctness(),
+                return_exceptions=True,
             )
             completeness_result: Any = _gathered[0]
             correctness_result: Any = _gathered[1]

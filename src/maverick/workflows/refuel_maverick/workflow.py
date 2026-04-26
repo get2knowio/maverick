@@ -945,18 +945,24 @@ class RefuelMaverickWorkflow(PythonWorkflow):
             RefuelSupervisor,
         )
 
-        DECOMPOSER_POOL_SIZE = 4
+        # parallel.decomposer_pool_size is the number of pool workers
+        # (the primary decomposer is always present in addition). Default
+        # of 3 in ParallelConfig matches the historical hardcoded value
+        # (legacy DECOMPOSER_POOL_SIZE = 4 minus the one primary).
+        decomposer_pool_size = self._config.parallel.decomposer_pool_size
+        max_briefing_agents = self._config.parallel.max_briefing_agents
 
         supervisor_inputs = RefuelInputs(
             cwd=str(Path.cwd()),
             flight_plan=flight_plan,
             initial_payload=initial_payload,
             config=decompose_config,
-            decomposer_pool_size=DECOMPOSER_POOL_SIZE - 1,
+            decomposer_pool_size=decomposer_pool_size,
             skip_briefing=skip_briefing,
             provider_labels=provider_labels,
             detail_session_max_turns=DETAIL_SESSION_MAX_TURNS,
             fix_session_max_turns=FIX_SESSION_MAX_TURNS,
+            max_briefing_agents=max_briefing_agents,
             briefing_cache_path=str(briefing_cache_path),
             outline_cache_path=str(outline_cache_path),
             detail_cache_dir=str(detail_cache_dir),

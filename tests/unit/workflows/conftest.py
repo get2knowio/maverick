@@ -45,13 +45,16 @@ def _make_concrete_workflow_class() -> type:
 
 @pytest.fixture
 def mock_config() -> MagicMock:
-    """Return a MagicMock with spec=MaverickConfig providing steps/model."""
-    from maverick.config import MaverickConfig, ModelConfig
+    """Return a MagicMock with spec=MaverickConfig providing steps/model/parallel."""
+    from maverick.config import MaverickConfig, ModelConfig, ParallelConfig
 
     cfg = MagicMock(spec=MaverickConfig)
     cfg.steps = {}
     cfg.agents = {}
     cfg.model = ModelConfig()
+    # Real ParallelConfig — workflows now read parallel.* knobs at runtime
+    # (decomposer_pool_size, max_briefing_agents, max_parallel_reviewers).
+    cfg.parallel = ParallelConfig()
     return cfg
 
 

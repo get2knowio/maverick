@@ -176,10 +176,39 @@ class ModelConfig(BaseModel):
 
 
 class ParallelConfig(BaseModel):
-    """Settings for concurrency limits."""
+    """Settings for concurrency limits.
+
+    Attributes:
+        max_agents: Reserved global LLM-call concurrency cap. Currently
+            advisory only — the per-phase knobs below (``decomposer_pool_size``,
+            ``max_briefing_agents``, ``max_parallel_reviewers``) are what the
+            workflows actually consult. Will become a global ceiling once the
+            per-phase knobs aren't enough.
+        max_tasks: Reserved task fan-out cap. Currently advisory.
+        decomposer_pool_size: Number of pool workers for the refuel
+            detail phase. Default ``3`` matches the legacy hardcoded value
+            (``DECOMPOSER_POOL_SIZE = 4`` minus the one primary decomposer).
+            Each pool worker holds its own long-lived ``claude-agent-acp``
+            subprocess. Lower this on resource-constrained hosts (e.g. dev
+            containers): ``decomposer_pool_size: 1`` runs one pool worker
+            plus one primary, capping live ACP subprocesses at 2 during the
+            detail phase.
+        max_briefing_agents: Cap on briefing agents running in parallel
+            during refuel and plan generation. Default ``3`` matches the
+            current behaviour (navigator/structuralist/recon — or
+            scopist/analyst/criteria — all in flight via ``asyncio.gather``).
+            Setting to ``1`` runs them sequentially. The contrarian agent
+            always runs after the parallel fan-out completes.
+        max_parallel_reviewers: Cap on parallel review agents
+            (completeness + correctness). Default ``2`` matches the current
+            behaviour. Setting to ``1`` runs them sequentially.
+    """
 
     max_agents: int = Field(default=3, gt=0, le=10)
     max_tasks: int = Field(default=5, gt=0, le=20)
+    decomposer_pool_size: int = Field(default=3, ge=0, le=10)
+    max_briefing_agents: int = Field(default=3, ge=1, le=10)
+    max_parallel_reviewers: int = Field(default=2, ge=1, le=4)
 
 
 class TuiMetricsConfig(BaseModel):
