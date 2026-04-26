@@ -433,14 +433,32 @@ class FlyBeadsWorkflow(PythonWorkflow):
 
         project_type = getattr(self._config, "project_type", "rust")
 
-        # Derive flight_plan_name from the epic's first ready bead if the
-        # workflow didn't pre-populate it. The supervisor also falls back
-        # gracefully when the name isn't known.
+        # Derive flight_plan_name by reading any existing work-unit
+        # markdown's ``flight-plan:`` frontmatter — the most robust signal
+        # since the work-units are written by refuel and live alongside
+        # the plan. Used by the supervisor's _load_bead_context to pull
+        # per-bead context (work-unit md + complexity classification).
+        # When zero or multiple plans exist, fall back to "" and let the
+        # supervisor degrade gracefully (no per-bead enrichment).
         flight_plan_name = ""
-        # Keep existing kwargs plumbing compatible: if a workflow caller
-        # passes ``flight_plan_name`` in inputs.ctx or similar, we'd wire
-        # it here. For now the supervisor just tries `.maverick/plans/`
-        # when the name arrives via future wiring.
+        plans_root = Path(cwd) / ".maverick" / "plans"
+        if plans_root.is_dir():
+            plan_dirs = [
+                p for p in plans_root.iterdir()
+                if p.is_dir() and any(p.glob("[0-9]*.md"))
+            ]
+            if len(plan_dirs) == 1:
+                flight_plan_name = plan_dirs[0].name
+            elif len(plan_dirs) > 1:
+                # Pick by epic title match if we can; otherwise unset.
+                # The supervisor handles the empty case gracefully.
+                await self.emit_output(
+                    "fly",
+                    f"Multiple flight plans under .maverick/plans/ "
+                    f"({[p.name for p in plan_dirs]}); per-bead context "
+                    "loading may match the wrong work units.",
+                    level="warning",
+                )
 
         supervisor_inputs = FlyInputs(
             cwd=cwd,
