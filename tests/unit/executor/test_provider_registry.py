@@ -154,21 +154,28 @@ class TestBuiltinProviderResolution:
         assert "acp" in cfg.command
 
     def test_opencode_does_not_inject_model_flag(self) -> None:
-        """opencode acp does not document a launch-time --model flag.
+        """opencode acp does not accept a launch-time --model flag.
 
-        Model selection comes from the user's OpenCode config; default_model
-        is informational only at the registry level.
+        Per opencode CLI docs, the acp subcommand accepts only --cwd,
+        --port, --hostname. Per-session model switching goes through
+        the standard ACP session/set_model RPC instead (verified live:
+        opencode dispatches that method, returning -32602 with
+        "Session not found" for a bogus session id rather than -32601
+        "Method not found").
         """
         providers = {
             "opencode": AgentProviderConfig(
-                default=True, default_model="some-model-id"
+                default=True, default_model="anthropic/claude-sonnet-4"
             ),
         }
         registry = AgentProviderRegistry.from_config(providers)
         cfg = registry.get("opencode")
         assert cfg.command is not None
         assert "--model" not in cfg.command
-        assert "some-model-id" not in cfg.command
+        assert "anthropic/claude-sonnet-4" not in cfg.command
+        # default_model itself is preserved on the provider config so the
+        # executor can pass it to session/set_model after session/new.
+        assert cfg.default_model == "anthropic/claude-sonnet-4"
 
     def test_gemini_includes_model_flag_when_default_model_set(self) -> None:
         providers = {

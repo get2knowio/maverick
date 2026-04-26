@@ -37,11 +37,17 @@ _DEFAULT_GEMINI_COMMAND: list[str] = [
 #: Uses the OpenCode CLI's ACP subcommand (stdio JSON-RPC). Per the
 #: OpenCode docs, ``opencode acp`` exposes built-in tools, MCP servers,
 #: AGENTS.md project rules, and the OpenCode permissions/agent system.
-#: Model selection is taken from the user's OpenCode config — there is
-#: no ``--model`` launch flag and no documented session/set_model
-#: support, so default_model on the provider config is informational
-#: only (used by Maverick for assignment / discovery, not for the spawn
-#: command).
+#:
+#: Model selection works the same way it does for Claude: maverick
+#: calls the standard ACP ``session/set_model`` RPC after each
+#: ``session/new``, and OpenCode honours it. There is no ``--model``
+#: launch flag for ``opencode acp`` (the opencode acp subcommand only
+#: accepts ``--cwd``, ``--port``, ``--hostname``) and no ``/model``
+#: slash command, so per-session switching goes through the standard
+#: ACP path. Use opencode's provider/model identifier format in
+#: ``default_model`` (e.g. ``anthropic/claude-sonnet-4``,
+#: ``openrouter/qwen/qwen-3-coder``).
+#:
 #: See https://opencode.ai/docs/acp/
 _DEFAULT_OPENCODE_COMMAND: list[str] = [
     "opencode",
