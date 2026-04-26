@@ -397,6 +397,31 @@ class FlyBeadsWorkflow(PythonWorkflow):
             agent_name="implementer",
         )
 
+        # Per-bead complexity tier routing (FUTURE.md §2.10 Phase 2). When
+        # ``actors.fly.implementer.tiers`` is set, the supervisor spins up
+        # one implementer actor per defined tier, each with its own
+        # provider/model. Bead routing happens in the supervisor based on
+        # the decomposer-assigned ``complexity`` field. When the section is
+        # absent, behaviour is unchanged (single actor).
+        from maverick.config import ImplementerTiersConfig
+
+        implementer_tiers: ImplementerTiersConfig | None = None
+        try:
+            tiers_raw = (
+                self._config.actors.get("fly", {})
+                .get("implementer", {})
+                .get("tiers")
+            )
+            if tiers_raw:
+                implementer_tiers = ImplementerTiersConfig.model_validate(tiers_raw)
+        except Exception as exc:  # noqa: BLE001 — invalid tiers is non-fatal
+            await self.emit_output(
+                "fly",
+                f"Warning: actors.fly.implementer.tiers parse failed "
+                f"({exc!s}); falling back to single implementer.",
+                level="warning",
+            )
+
         # Resolve validation config, matching the legacy path.
         validation_commands: dict[str, tuple[str, ...]] | None = None
         try:
@@ -428,6 +453,7 @@ class FlyBeadsWorkflow(PythonWorkflow):
             flight_plan_name=flight_plan_name,
             watch=watch,
             watch_interval=watch_interval,
+            implementer_tiers=implementer_tiers,
         )
 
         await self.emit_output(

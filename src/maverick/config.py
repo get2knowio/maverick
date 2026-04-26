@@ -175,6 +175,59 @@ class ModelConfig(BaseModel):
     temperature: float = Field(default=0.0, ge=0.0, le=1.0)
 
 
+class ImplementerTierConfig(BaseModel):
+    """Per-tier override for the implementer step.
+
+    A subset of ``StepConfig`` fields that are meaningful per-tier.
+    Each tier maps a bead's ``complexity`` (set by the decomposer at
+    refuel time) to a specific provider/model so trivial work doesn't
+    pay frontier prices and complex work doesn't suffer weak models.
+
+    Tier configs override the implementer's top-level config when
+    selected; any field left ``None`` falls back to the implementer's
+    base ``StepConfig``.
+    """
+
+    provider: str | None = None
+    model_id: str | None = None
+    timeout: int | None = Field(default=None, gt=0)
+    max_tokens: int | None = Field(default=None, gt=0, le=200000)
+    temperature: float | None = Field(default=None, ge=0.0, le=1.0)
+
+
+class ImplementerTiersConfig(BaseModel):
+    """Tier routing for the implementer step (FUTURE.md §2.10 Phase 2).
+
+    When set, the fly supervisor spawns one ``ImplementerActor`` per
+    defined tier, each with its tier's StepConfig (and therefore its own
+    ACP subprocess). Beads are dispatched to the actor matching their
+    decomposer-assigned ``complexity``.
+
+    A bead with no complexity (older runs, or decomposer didn't classify)
+    routes to ``moderate`` by default.
+
+    On fix-loop overflow at a tier, the supervisor promotes the bead
+    one tier upward (where one is defined) and routes the next attempt
+    to the higher-tier actor. Recorded as ``fly.complexity_escalated``
+    in the runway so classification accuracy can be measured.
+
+    Attributes:
+        trivial / simple / moderate / complex: Per-tier overrides.
+            Omit a tier to disable it (the supervisor will fall back to
+            the next tier up, or to the implementer's base config when
+            no tiers above are defined).
+        escalation_threshold: Number of fix rounds with findings at the
+            current tier before automatically promoting one tier up.
+            Default 2. Set to 0 to disable escalation.
+    """
+
+    trivial: ImplementerTierConfig | None = None
+    simple: ImplementerTierConfig | None = None
+    moderate: ImplementerTierConfig | None = None
+    complex: ImplementerTierConfig | None = None
+    escalation_threshold: int = Field(default=2, ge=0, le=5)
+
+
 class ParallelConfig(BaseModel):
     """Settings for concurrency limits.
 

@@ -426,7 +426,7 @@ Relevant code:
 
 ### 2.10 Per-Bead Complexity-Based Model Routing
 
-**Status:** Phase 1 implemented, Phases 2 + 3 active
+**Status:** Phases 1 + 2 implemented, Phase 2b + Phase 3 active
 
 **Background.** Bead workloads vary wildly inside a single epic — "create
 LICENSE file" and "implement complete tax engine" are both single beads
@@ -466,7 +466,7 @@ Nothing routes on `complexity` yet — it's hint-only. This phase exists
 so we can observe whether the decomposer's classifications match human
 intuition over a few real refuels before wiring routing.
 
-**Phase 2 (active): Tier routing for `implement` + escalation on
+**Phase 2 (implemented): Tier routing for `implement` + escalation on
 fix-loop overflow.**
 
 Configuration shape:
@@ -505,6 +505,27 @@ Code-side changes:
    `complexity_escalated` event so the decomposer's classification
    accuracy can be measured over time.
 
+**As shipped** (commit pending push):
+
+- `ImplementerTierConfig` and `ImplementerTiersConfig` Pydantic models
+  in [src/maverick/config.py](src/maverick/config.py).
+- `FlyInputs.implementer_tiers` carries the parsed tiers config from
+  the workflow into the supervisor.
+- `FlySupervisor.__post_create__` spawns one `ImplementerActor` per
+  defined tier (with merged StepConfig) when tiers are configured;
+  legacy single-actor behaviour preserved when omitted.
+- `_resolve_implementer_tier(complexity, escalation_level)` picks the
+  tier name. Unrecognised/None complexity defaults to `moderate`.
+  Sparse tier configs round DOWN to the nearest cheaper defined tier
+  (and round UP only when nothing at-or-below exists).
+- `_load_bead_context` extracts `complexity` from the work-unit md
+  YAML frontmatter and stores it on the bead dict.
+- `_send_fix` checks fix-round count against the configured
+  `escalation_threshold` (default 2). When exceeded and a higher
+  defined tier exists, promotes the bead one tier up, rotates the
+  higher-tier actor's session, and emits a structured
+  `fly.complexity_escalated`-style warning.
+
 Risks worth flagging in the implementation:
 
 - **Misclassification under-shoots.** Decomposer marks complex bead
@@ -529,6 +550,52 @@ Relevant code:
   (read bead complexity from the work-unit markdown / spec, pass in
   ImplementRequest, drive escalation when fix-loop count exceeds
   threshold)
+
+**Phase 2b (active): Global ACP-subprocess cap with LRU eviction.**
+
+Today the only knob bounding live `claude-agent-acp` / `opencode acp`
+subprocesses is *per-phase* (e.g. `parallel.max_briefing_agents`,
+`parallel.decomposer_pool_size`). With Phase 2 tier actors live, a
+mixed-complexity epic spawns up to N implementer subprocesses (one per
+tier actually used in the epic), all alive until fly ends. On a small
+host that can be too many.
+
+The right shape is a single global ceiling: `parallel.max_agents = N`
+caps total live ACP subprocesses across the whole workflow run. Per-
+phase knobs become *soft ideals* (how much fan-out the phase wants);
+the global cap is the hard ceiling.
+
+Implementation sketch:
+
+- **Pool-scoped semaphore on `AgentToolGateway`** (already exists per
+  workflow run). Each actor's executor `acquire()`s before
+  `spawn_agent_process` and `release()`s in cleanup. The slot is held
+  for the *lifetime of the subprocess*, not just per-prompt.
+- **LRU eviction when the cap fills.** If `acquire()` would block,
+  the gateway picks the LRU *idle* actor (one not currently
+  mid-prompt) and asks it to release its subprocess. The evicted
+  actor re-spawns next time it needs to prompt — costs ~200ms
+  handshake. Keeps sequential workloads (fly) deadlock-free.
+- **Wire `parallel.max_agents`** (currently advisory-only; documented
+  as such in `ParallelConfig`) into the gateway as the semaphore size.
+
+Per-phase knobs (`max_briefing_agents`, `decomposer_pool_size`,
+`max_parallel_reviewers`) keep their existing semantics — they bound
+*how much parallelism a phase wants*. Result with `max_agents=2` and
+`max_briefing_agents=3`: 2 briefings concurrent, 3rd queues until
+the gateway sem releases.
+
+Relevant code:
+
+- [src/maverick/tools/agent_inbox/gateway.py](src/maverick/tools/agent_inbox/gateway.py)
+  (`AgentToolGateway` — natural home for the global semaphore)
+- [src/maverick/executor/_connection_pool.py](src/maverick/executor/_connection_pool.py)
+  (`get_or_create` / `close_all` — acquire/release call sites)
+- [src/maverick/actors/xoscar/_agentic.py](src/maverick/actors/xoscar/_agentic.py)
+  (mixin would expose `release_idle_subprocess()` for LRU eviction
+  callbacks)
+- [src/maverick/config.py](src/maverick/config.py) (`ParallelConfig.max_agents`
+  flips from advisory-only to enforced)
 
 **Phase 3 (active, after Phase 2 settles): Extend tier routing to
 `review`, `fix`, `decompose_detail`.**

@@ -61,6 +61,39 @@ MAX_SPEC_FIX_ATTEMPTS = 2
 AGGREGATE_REVIEW_THRESHOLD = 2  # run aggregate review when ≥ this many beads done
 _SOURCE = "fly-supervisor"
 
+#: Ordered tier names (low → high intelligence). Matches WorkUnitComplexity.
+TIER_ORDER: tuple[str, ...] = ("trivial", "simple", "moderate", "complex")
+#: Sentinel name for the single-actor fallback when no tiers are configured.
+_DEFAULT_TIER = "_default"
+#: Where unclassified beads (decomposer didn't classify, or older runs) route.
+_FALLBACK_COMPLEXITY = "moderate"
+
+
+def _extract_complexity_from_md(work_unit_md: str) -> str | None:
+    """Read ``complexity:`` from a work-unit markdown's YAML frontmatter.
+
+    Returns the value when it parses as a known tier name, else ``None``.
+    Robust against missing frontmatter, missing key, or unknown values —
+    callers treat ``None`` as "unclassified" and fall back to the default
+    tier in :meth:`_resolve_implementer_tier`.
+    """
+    if not work_unit_md or not work_unit_md.lstrip().startswith("---"):
+        return None
+    # Split on the second `---` to bound the frontmatter scan.
+    body = work_unit_md.lstrip()
+    parts = body.split("---", 2)
+    if len(parts) < 3:
+        return None
+    fm_block = parts[1]
+    for line in fm_block.split("\n"):
+        stripped = line.strip()
+        if stripped.startswith("complexity:"):
+            value = stripped.split(":", 1)[1].strip().strip("\"'")
+            if value in TIER_ORDER:
+                return value
+            return None
+    return None
+
 
 @dataclass(frozen=True)
 class FlyInputs:
@@ -68,7 +101,7 @@ class FlyInputs:
 
     cwd: str
     epic_id: str = ""
-    config: Any = None  # StepConfig for agent sessions
+    config: Any = None  # Base StepConfig for the implementer/reviewer.
     max_beads: int = 30
     validation_commands: dict[str, tuple[str, ...]] | None = None
     project_type: str = "rust"
@@ -81,6 +114,12 @@ class FlyInputs:
     watch: bool = False
     watch_interval: int = 30
     max_idle_polls: int = 60
+    # Per-bead complexity tier routing. When set, the supervisor spawns
+    # one ImplementerActor per defined tier (each with its own ACP
+    # subprocess) and dispatches each bead to the actor matching the
+    # decomposer-assigned ``complexity``. None = single-actor fallback
+    # (the legacy behaviour).
+    implementer_tiers: Any = None  # ImplementerTiersConfig | None
 
 
 class FlySupervisor(xo.Actor):
@@ -115,6 +154,9 @@ class FlySupervisor(xo.Actor):
         self._completed_beads: list[str] = list(self._inputs.completed_bead_ids)
         self._completed_titles: list[str] = []
         self._current_bead_id: str | None = None
+        # Reference to the in-flight bead dict (with ``complexity``,
+        # ``work_unit_md``, etc.) for tier routing during fix loops.
+        self._current_bead: dict[str, Any] | None = None
         self._review_findings_for_bead: list[SubmitReviewPayload] = []
         self._last_review_findings: tuple[ReviewFindingPayload, ...] = ()
 
@@ -124,14 +166,57 @@ class FlySupervisor(xo.Actor):
 
         self_ref = self.ref()
 
-        self._implementer = await xo.create_actor(
-            ImplementerActor,
-            self_ref,
-            cwd=self._inputs.cwd,
-            config=self._inputs.config,
-            address=self.address,
-            uid=f"{self.uid.decode()}:implementer",
-        )
+        # Implementer wiring — either single actor (legacy) or per-tier
+        # actors when complexity routing is configured. ``self._implementers``
+        # is a tier-name → ActorRef map either way; legacy mode uses the
+        # ``_DEFAULT_TIER`` sentinel.
+        self._implementers: dict[str, xo.ActorRef] = {}
+        if self._inputs.implementer_tiers is None:
+            self._implementers[_DEFAULT_TIER] = await xo.create_actor(
+                ImplementerActor,
+                self_ref,
+                cwd=self._inputs.cwd,
+                config=self._inputs.config,
+                address=self.address,
+                uid=f"{self.uid.decode()}:implementer",
+            )
+        else:
+            tiers = self._inputs.implementer_tiers
+            for tier_name in TIER_ORDER:
+                tier_override = getattr(tiers, tier_name, None)
+                if tier_override is None:
+                    continue
+                tier_config = self._merge_tier_config(
+                    base=self._inputs.config,
+                    override=tier_override,
+                )
+                self._implementers[tier_name] = await xo.create_actor(
+                    ImplementerActor,
+                    self_ref,
+                    cwd=self._inputs.cwd,
+                    config=tier_config,
+                    address=self.address,
+                    uid=f"{self.uid.decode()}:implementer:{tier_name}",
+                )
+            if not self._implementers:
+                # Safety: empty tiers config is treated as "no tiers".
+                self._implementers[_DEFAULT_TIER] = await xo.create_actor(
+                    ImplementerActor,
+                    self_ref,
+                    cwd=self._inputs.cwd,
+                    config=self._inputs.config,
+                    address=self.address,
+                    uid=f"{self.uid.decode()}:implementer",
+                )
+
+        # Backward-compat alias used by code paths that don't care about
+        # tier routing (e.g. fix loops with no escalation pending).
+        self._implementer = next(iter(self._implementers.values()))
+
+        # Per-bead escalation tracking: how many fix rounds have run at
+        # the bead's current tier. Reset when a new bead starts. Read by
+        # _resolve_implementer_tier when escalation_threshold is reached.
+        self._bead_escalation_level: int = 0
         self._reviewer = await xo.create_actor(
             ReviewerActor,
             self_ref,
@@ -165,7 +250,7 @@ class FlySupervisor(xo.Actor):
 
     async def __pre_destroy__(self) -> None:
         for ref in (
-            self._implementer,
+            *self._implementers.values(),
             self._reviewer,
             self._gate,
             self._ac,
@@ -180,6 +265,110 @@ class FlySupervisor(xo.Actor):
                     uid=getattr(ref, "uid", "?"),
                     error=str(exc),
                 )
+
+    # ------------------------------------------------------------------
+    # Tier routing (FUTURE.md §2.10 Phase 2)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _merge_tier_config(base: Any, override: Any) -> Any:
+        """Merge an ImplementerTierConfig override over a base StepConfig.
+
+        Each field set on the override replaces the base. Fields left as
+        None on the override fall through to base. Returns a new StepConfig
+        (StepConfig is frozen, so this is a model_copy).
+        """
+        if base is None:
+            # No base — synthesize a minimal StepConfig from the override.
+            from maverick.executor.config import StepConfig
+
+            return StepConfig(
+                provider=override.provider,
+                model_id=override.model_id,
+                timeout=override.timeout,
+                max_tokens=override.max_tokens,
+                temperature=override.temperature,
+            )
+        updates: dict[str, Any] = {}
+        for field_name in (
+            "provider",
+            "model_id",
+            "timeout",
+            "max_tokens",
+            "temperature",
+        ):
+            value = getattr(override, field_name, None)
+            if value is not None:
+                updates[field_name] = value
+        if not updates:
+            return base
+        return base.model_copy(update=updates)
+
+    def _resolve_implementer_tier(
+        self,
+        complexity: str | None,
+        escalation_level: int = 0,
+    ) -> str:
+        """Pick the tier name for a bead, applying any escalation level.
+
+        Two-step resolution:
+
+        1. **Base tier from complexity.** ``trivial / simple / moderate /
+           complex`` map to their like-named tier when defined; missing
+           tiers round DOWN to the nearest cheaper defined tier (and
+           round UP only when nothing at-or-below exists). Unrecognised
+           or ``None`` complexity defaults to ``moderate``.
+        2. **Escalation walks defined tiers upward.** Each escalation
+           step jumps to the *next-defined* tier above the current one,
+           skipping any undefined gaps (so ``simple → complex`` is one
+           step when ``moderate`` is undefined). Caps at the highest
+           defined tier.
+
+        Returns ``_DEFAULT_TIER`` when no tiers are configured (legacy
+        single-actor mode).
+        """
+        if _DEFAULT_TIER in self._implementers:
+            return _DEFAULT_TIER
+
+        base = complexity if complexity in TIER_ORDER else _FALLBACK_COMPLEXITY
+        base_idx = TIER_ORDER.index(base)
+
+        # Step 1: round-down to nearest defined tier at-or-below base.
+        current_idx: int | None = None
+        for idx in range(base_idx, -1, -1):
+            if TIER_ORDER[idx] in self._implementers:
+                current_idx = idx
+                break
+        if current_idx is None:
+            # Nothing at-or-below; round UP to first defined tier above.
+            for idx in range(base_idx + 1, len(TIER_ORDER)):
+                if TIER_ORDER[idx] in self._implementers:
+                    current_idx = idx
+                    break
+        if current_idx is None:
+            # Defensive — __post_create__ guarantees at least one tier.
+            return next(iter(self._implementers))
+
+        # Step 2: apply escalation_level by walking defined tiers up.
+        for _ in range(max(0, escalation_level)):
+            next_idx: int | None = None
+            for idx in range(current_idx + 1, len(TIER_ORDER)):
+                if TIER_ORDER[idx] in self._implementers:
+                    next_idx = idx
+                    break
+            if next_idx is None:
+                break  # already at top defined tier
+            current_idx = next_idx
+        return TIER_ORDER[current_idx]
+
+    def _implementer_for(
+        self,
+        complexity: str | None,
+        escalation_level: int = 0,
+    ) -> tuple[str, xo.ActorRef]:
+        """Return ``(tier_name, actor_ref)`` for routing a bead's prompt."""
+        tier_name = self._resolve_implementer_tier(complexity, escalation_level)
+        return tier_name, self._implementers[tier_name]
 
     # ------------------------------------------------------------------
     # Workflow entry point
@@ -283,6 +472,7 @@ class FlySupervisor(xo.Actor):
         bead_id = bead["bead_id"]
         title = bead.get("title", "")
         self._current_bead_id = bead_id
+        self._current_bead = bead
         self._last_implementation = None
         self._last_review = None
         self._review_findings_for_bead = []
@@ -295,15 +485,43 @@ class FlySupervisor(xo.Actor):
         )
 
         # Enrich bead with work-unit markdown + briefing (best-effort).
+        # Sets bead["complexity"] from the work-unit YAML frontmatter when
+        # the decomposer classified it (Phase 1 always does, older beads
+        # may not).
         await self._load_bead_context(bead)
 
-        # Rotate sessions for the new bead.
-        await self._implementer.new_bead(NewBeadRequest(bead_id=bead_id))
+        # Reset per-bead escalation tracker for tier routing.
+        self._bead_escalation_level = 0
+
+        # Pick the implementer tier based on bead complexity. In legacy
+        # (no-tiers) mode this always returns the single fallback actor;
+        # in tier mode it picks the matching tier actor.
+        tier_name, implementer = self._implementer_for(
+            bead.get("complexity"),
+            escalation_level=0,
+        )
+        if tier_name != _DEFAULT_TIER:
+            await self._emit_output(
+                "fly",
+                f"Routing bead {bead_id} (complexity={bead.get('complexity') or 'unclassified'}) "
+                f"to implementer tier '{tier_name}'",
+                metadata={
+                    "bead_id": bead_id,
+                    "complexity": bead.get("complexity"),
+                    "implementer_tier": tier_name,
+                    "escalation_level": 0,
+                },
+            )
+
+        # Rotate sessions for the new bead. Only the *selected* implementer
+        # tier actor needs a session rotation — the others are idle until a
+        # bead routes to them.
+        await implementer.new_bead(NewBeadRequest(bead_id=bead_id))
         await self._reviewer.new_bead(NewBeadRequest(bead_id=bead_id))
 
         # ---- Implement ----
         prompt = self._build_implement_prompt(bead)
-        await self._implementer.send_implement(ImplementRequest(bead_id=bead_id, prompt=prompt))
+        await implementer.send_implement(ImplementRequest(bead_id=bead_id, prompt=prompt))
         if self._last_implementation is None:
             await self._escalate(bead, "Implementer did not submit results")
             return False
@@ -507,16 +725,96 @@ class FlySupervisor(xo.Actor):
             f"{context}\n\n"
             "Address each issue and re-verify your changes."
         )
+
+        # Tier escalation (FUTURE.md §2.10 Phase 2). When tiers are
+        # configured and the bead has burned through `escalation_threshold`
+        # fix rounds at its current tier with findings still pending,
+        # promote one tier up. Re-rotate the higher-tier actor's session
+        # for this bead so it starts fresh with the failing context.
+        bead = self._current_bead_for_fix(bead_id)
+        complexity = bead.get("complexity") if bead else None
+        tier_name = _DEFAULT_TIER
+        implementer = self._implementer
+        if self._inputs.implementer_tiers is not None:
+            threshold = getattr(
+                self._inputs.implementer_tiers, "escalation_threshold", 0
+            )
+            if (
+                threshold > 0
+                and round > threshold
+                and self._can_escalate(complexity, self._bead_escalation_level)
+            ):
+                self._bead_escalation_level += 1
+                new_tier, new_implementer = self._implementer_for(
+                    complexity, self._bead_escalation_level
+                )
+                old_tier, _ = self._implementer_for(
+                    complexity, self._bead_escalation_level - 1
+                )
+                if new_tier != old_tier:
+                    await self._emit_output(
+                        "fly",
+                        f"Escalating bead {bead_id} from tier '{old_tier}' "
+                        f"to '{new_tier}' after {round - 1} fix rounds with "
+                        "findings",
+                        level="warning",
+                        metadata={
+                            "bead_id": bead_id,
+                            "complexity": complexity,
+                            "from_tier": old_tier,
+                            "to_tier": new_tier,
+                            "fix_round": round,
+                        },
+                    )
+                    # Rotate the higher-tier actor's session for this
+                    # bead so it starts with a clean context.
+                    await new_implementer.new_bead(NewBeadRequest(bead_id=bead_id))
+                    tier_name, implementer = new_tier, new_implementer
+                else:
+                    # Couldn't actually escalate (already at top tier or
+                    # no higher tier defined). Fall through with current.
+                    tier_name, implementer = self._implementer_for(
+                        complexity, self._bead_escalation_level
+                    )
+            else:
+                tier_name, implementer = self._implementer_for(
+                    complexity, self._bead_escalation_level
+                )
+
         self._last_fix_result = None
-        await self._implementer.send_fix(FlyFixRequest(bead_id=bead_id, prompt=prompt))
+        await implementer.send_fix(FlyFixRequest(bead_id=bead_id, prompt=prompt))
         if self._last_fix_result is None:
             await self._emit_output(
                 "fly",
-                f"Implementer did not submit fix for {bead_id} ({phase})",
+                f"Implementer did not submit fix for {bead_id} "
+                f"({phase}, tier={tier_name})",
                 level="error",
             )
             return False
         return True
+
+    def _can_escalate(self, complexity: str | None, current_level: int) -> bool:
+        """True when escalating one more level reaches a higher defined tier."""
+        if _DEFAULT_TIER in self._implementers:
+            return False  # legacy mode has no tiers
+        next_tier = self._resolve_implementer_tier(complexity, current_level + 1)
+        cur_tier = self._resolve_implementer_tier(complexity, current_level)
+        if next_tier == cur_tier:
+            return False
+        # Only "true" escalation when next is strictly higher.
+        return TIER_ORDER.index(next_tier) > TIER_ORDER.index(cur_tier)
+
+    def _current_bead_for_fix(self, bead_id: str) -> dict[str, Any] | None:
+        """Best-effort lookup of the current bead dict by id.
+
+        Used by ``_send_fix`` to read the bead's complexity for tier
+        routing without changing the existing call signature. Returns
+        ``None`` when the bead context isn't available — callers fall
+        back to legacy single-tier behaviour.
+        """
+        if self._current_bead_id == bead_id:
+            return self._current_bead
+        return None
 
     # ------------------------------------------------------------------
     # Aggregate review
@@ -615,6 +913,7 @@ class FlySupervisor(xo.Actor):
             # Fallback: concatenate so the agent can pick the right one.
             work_unit_md = "\n\n---\n\n".join(work_units.values())
         bead["work_unit_md"] = work_unit_md
+        bead["complexity"] = _extract_complexity_from_md(work_unit_md)
 
         # Briefing context — loaded once per run.
         if not self._briefing_context:
@@ -896,3 +1195,29 @@ class FlySupervisor(xo.Actor):
     @xo.no_lock
     async def get_terminal_result(self) -> dict[str, Any] | None:
         return self._terminal_result
+
+    # ------------------------------------------------------------------
+    # Test-only inspection surface (FUTURE.md §2.10 Phase 2 verification)
+    # ------------------------------------------------------------------
+    #
+    # xoscar actors don't expose direct attribute access from refs, so
+    # these tiny wrappers let tier-routing tests poke at the internals
+    # without spinning up a full bead loop. They're prefixed with
+    # ``_test_`` so it's obvious from a call site that they're not part
+    # of the supervisor's public contract.
+
+    @xo.no_lock
+    async def t_peek_implementers(self) -> dict[str, Any]:
+        return dict(self._implementers)
+
+    @xo.no_lock
+    async def t_resolve_tier(
+        self, complexity: str | None, escalation_level: int
+    ) -> str:
+        return self._resolve_implementer_tier(complexity, escalation_level)
+
+    @xo.no_lock
+    async def t_can_escalate(
+        self, complexity: str | None, current_level: int
+    ) -> bool:
+        return self._can_escalate(complexity, current_level)
