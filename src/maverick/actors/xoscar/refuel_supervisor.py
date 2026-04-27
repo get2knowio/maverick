@@ -1202,13 +1202,35 @@ class RefuelSupervisor(xo.Actor):
     async def _request_fix(self, validation: ValidationResult) -> None:
         self._fix_rounds += 1
         gaps = self._enrich_gaps(list(validation.gaps))
-        await self._emit_output(
-            "refuel",
-            f"Validation found {len(gaps)} gap(s); "
-            f"requesting fix (round {self._fix_rounds}/{MAX_FIX_ROUNDS})",
-            level="warning",
-            metadata={"gap_count": len(gaps), "fix_round": self._fix_rounds},
-        )
+        # Distinguish "coverage gaps the fixer can address" from "the
+        # validator raised an unexpected error" (error_type="other").
+        # The latter is the cascade that bit us before — silently fixing
+        # what the agent never produced, then crashing later. Surface
+        # the real error so the user can spot the problem.
+        if validation.error_type == "other":
+            await self._emit_output(
+                "refuel",
+                (
+                    f"Validation raised an error (round "
+                    f"{self._fix_rounds}/{MAX_FIX_ROUNDS}): "
+                    f"{validation.message or 'unknown error'} — fixer is "
+                    f"unlikely to address this; consider re-running "
+                    f"decompose."
+                ),
+                level="error",
+                metadata={
+                    "fix_round": self._fix_rounds,
+                    "error_type": validation.error_type,
+                },
+            )
+        else:
+            await self._emit_output(
+                "refuel",
+                f"Validation found {len(gaps)} gap(s); "
+                f"requesting fix (round {self._fix_rounds}/{MAX_FIX_ROUNDS})",
+                level="warning",
+                metadata={"gap_count": len(gaps), "fix_round": self._fix_rounds},
+            )
         self._awaiting_fix = True
         await self._decomposer.send_fix(
             FixRequest(

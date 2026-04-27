@@ -455,6 +455,32 @@ class TestAcceptanceCriterion:
         with pytest.raises(ValidationError):
             AcceptanceCriterion(text="", trace_ref=None)
 
+    def test_empty_string_trace_ref_normalises_to_none(self) -> None:
+        """Empty string ``trace_ref`` (which some agents emit instead
+        of omitting the field) normalises to ``None`` rather than
+        crashing the SC-format validator. Was the cause of a silent
+        ``error_type="other"`` cascade through the refuel validator."""
+        from maverick.flight.models import AcceptanceCriterion
+
+        ac = AcceptanceCriterion(text="some criterion", trace_ref="")
+        assert ac.trace_ref is None
+
+    def test_whitespace_trace_ref_normalises_to_none(self) -> None:
+        """Whitespace-only ``trace_ref`` likewise normalises to None."""
+        from maverick.flight.models import AcceptanceCriterion
+
+        ac = AcceptanceCriterion(text="some criterion", trace_ref="   ")
+        assert ac.trace_ref is None
+
+    def test_invalid_trace_ref_still_raises(self) -> None:
+        """A non-empty ``trace_ref`` that doesn't match the SC pattern
+        is still a hard error — only empty/whitespace gets the lenient
+        coercion."""
+        from maverick.flight.models import AcceptanceCriterion
+
+        with pytest.raises(ValidationError):
+            AcceptanceCriterion(text="t", trace_ref="not-a-trace-ref")
+
 
 class TestFileScope:
     """Tests for FileScope model."""

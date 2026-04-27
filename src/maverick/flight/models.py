@@ -247,9 +247,19 @@ class AcceptanceCriterion(BaseModel):
     @field_validator("trace_ref")
     @classmethod
     def trace_ref_must_match_format(cls, v: str | None) -> str | None:
-        """Validate that trace_ref matches SC-\\d+ format when set."""
+        """Validate that trace_ref matches SC-\\d+ format when set.
+
+        Empty string and whitespace-only string normalise to ``None``
+        (i.e. "no trace ref"). Some agents emit ``""`` for "I have
+        nothing to trace this to" instead of omitting the field; treating
+        that as ``None`` lets the model accept the payload instead of
+        crashing the validator (which used to surface only as a generic
+        ``error_type="other"`` and burn fix rounds).
+        """
         if v is None:
-            return v
+            return None
+        if not v.strip():
+            return None
         v = _normalize_trace_ref(v)
         if not _TRACE_REF_RE.match(v):
             raise ValueError(f"trace_ref must match SC-<id> format, got: {v!r}")
