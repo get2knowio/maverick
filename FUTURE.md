@@ -52,7 +52,7 @@ It reconciles those documents against the current codebase as of 2026-04-19 and 
 | Consolidate agent `_end_turn` helpers | Active | Five xoscar agents duplicate a ~10-line cancel-after-forward helper. Minor refactor opportunity — extract to mixin or module helper when a sixth agent-with-inbox appears. |
 | Fly checkpoint resume ignores `--max-beads` | Implemented | Reporting fix: `beads_completed` now counts new-this-run, not cumulative. The cap was always enforced; the inflated count made it look ignored. |
 | Review prompts don't emit `prompt_usage` | Implemented | `prompt_session` now logs `prompt_usage` from a `finally` block with an `exit_path` field. The log fires unconditionally across success, timeout, AcpRequestError, and circuit-breaker paths — no prompt return path can bypass it. |
-| Commit provenance for evals | Active | New 2026-04-27. Curator strips bead IDs from public git history; restore the commit→bead link via a conventional Refs: trailer plus runway as system of record for provider/model/prompt. |
+| Commit provenance for evals | Partial | Layer 1 shipped: curator now appends a `Refs:` trailer naming source bead IDs, with a deterministic safety-net post-processor. Layer 2 (per-attempt runway capture of provider/model/prompt) still active. |
 
 ## 1. Orchestration And Human Review
 
@@ -988,23 +988,26 @@ Reflection: the original framing assumed the bug was a missing branch in the exe
 
 ### 3.9 Commit Provenance For Evals
 
-**Status:** Active (surfaced in 2026-04-27 design discussion)
+**Status:** Partial — Layer 1 (Refs: trailer) implemented; Layer 2 (per-attempt runway capture) still active.
 
-The CuratorAgent system prompt at [src/maverick/agents/curator.py](src/maverick/agents/curator.py) (lines 42-48) deliberately strips bead IDs and pipeline mechanics from commit messages so the public git history reads as human-authored. That is correct for the public history, but it severs the link between any landed commit and the bead that produced it — so there is no path from a landed commit back to the provider, model, prompt, or fix-loop history that created it. For eval work (§3.4), commit-level traceability is one of the two natural query axes (the other being bead-level via runway).
+The CuratorAgent system prompt deliberately strips bead IDs and pipeline mechanics from commit messages so public git history reads as human-authored. Pre-`land`, the bead linkage exists ([src/maverick/workflows/fly_beads/_commit.py](src/maverick/workflows/fly_beads/_commit.py) writes ``bead({id}): {title}``), but the curator's squash + describe pass erased it by design. For eval work (§3.4), commit-level traceability is one of the two natural query axes.
 
-Pre-`land`, the data exists: [src/maverick/workflows/fly_beads/_commit.py](src/maverick/workflows/fly_beads/_commit.py) writes ``bead({id}): {title}`` as the per-bead commit subject. The curator's squash + describe pass then erases it by design.
+**Layer 1 — `Refs:` trailer in landed commits (Implemented):**
 
-**Proposal.** Two layers:
+CuratorAgent's [SYSTEM_PROMPT](src/maverick/agents/curator.py) now keeps stripping bead IDs from the subject but instructs the model to extract every ``bead(id):`` source prefix and emit a single ``Refs: <id>, <id>`` trailer at the bottom of every rewritten message — squashes plural, snapshots empty.
 
-1. **Conventional `Refs:` trailer in landed commits.** Update the curator system prompt to keep stripping bead IDs from the *subject* but append a ``Refs: bd-NNN[, bd-MMM]`` trailer at the bottom of the message — plural because curator squash collapses many beads into one commit. This matches existing git trailer conventions (``Signed-off-by:``, ``Co-Authored-By:``) and reads as human-authored, satisfying the curator's "no pipeline output" rule. Cost: one prompt edit plus a regression test that asserts the trailer survives squash and reorder.
+Two new helpers in the same module:
 
-2. **Runway as system of record for full provenance.** Provider, model, prompt hash, response, fix-loop history, complexity tier — all keyed by bead ID. Some of this already lands via ``record_bead_outcome`` / ``record_review_findings``; what is missing is per-attempt ``(provider, model, prompt_hash)`` capture on the implementer and reviewer paths. With the trailer in place, any ``commit → bead → runway`` lookup works; without runway behind it, the trailer alone is just a foreign key pointing at nothing.
+- ``extract_bead_ids(description)`` — pulls IDs from any ``bead(<id>):`` prefixes in a commit description. Anchors at line start so casual mentions inside body text don't generate false positives.
+- ``ensure_refs_trailers(plan, commits)`` — safety-net post-processor. For each ``describe`` step, if the new message lacks a ``Refs:`` trailer, append one derived from the *target change_id*'s own bead IDs. No-op when the trailer is already present (curator followed the prompt) or when the source is a snapshot. The land command in [src/maverick/cli/commands/land.py](src/maverick/cli/commands/land.py) calls it after ``parse_plan``.
 
-**Why now:**
+Caveat documented in the helper: post-processing only knows the describe target's bead IDs, not commits that were *squashed into* the target before the describe. Squash-merge attribution still relies on the LLM following the prompt — the safety net guarantees a trailer exists, the prompt is responsible for cross-commit completeness.
 
-- Cheapest possible step toward §3.4 — a stable join key from public history into runway, with no new infrastructure.
-- Combines naturally with §3.6 (unified trace envelope) — ``Refs:`` is the trace-id projection into git.
-- The curator change is additive (keep stripping subject IDs, also append a trailer), so regression risk is small.
+Tests in ``TestExtractBeadIds`` and ``TestEnsureRefsTrailers`` ([tests/unit/agents/test_curator.py](tests/unit/agents/test_curator.py)) cover: single bead, multiple beads in a squash, snapshot (no trailer), pre-existing trailer (preserved), unknown change_id (left alone), multi-paragraph body (blank-line separator preserved), non-describe commands (untouched).
+
+**Layer 2 — Runway as system of record for full provenance (Active):**
+
+The trailer is the join key from public git history into runway. Without runway behind it as the system of record for *(provider, model, prompt_hash, fix-loop history)*, ``Refs:`` is a foreign key pointing at nothing. Some of this already lands via ``record_bead_outcome`` / ``record_review_findings``; what's missing is per-attempt ``(provider, model, prompt_hash)`` capture on the implementer and reviewer paths.
 
 **Out of scope for v1:**
 
@@ -1014,9 +1017,10 @@ Pre-`land`, the data exists: [src/maverick/workflows/fly_beads/_commit.py](src/m
 
 **Relevant code:**
 
-- [src/maverick/agents/curator.py](src/maverick/agents/curator.py) (system prompt — the rule that strips bead IDs is the same rule that needs to append the trailer)
+- [src/maverick/agents/curator.py](src/maverick/agents/curator.py) (SYSTEM_PROMPT, ``extract_bead_ids``, ``ensure_refs_trailers``)
+- [src/maverick/cli/commands/land.py](src/maverick/cli/commands/land.py) (calls ``ensure_refs_trailers`` after ``parse_plan``)
 - [src/maverick/workflows/fly_beads/_commit.py](src/maverick/workflows/fly_beads/_commit.py) (existing ``bead({id}): {title}`` source)
-- [src/maverick/runway/](src/maverick/runway/) (per-attempt ``(provider, model, prompt_hash)`` capture)
+- [src/maverick/runway/](src/maverick/runway/) (Layer 2 — per-attempt ``(provider, model, prompt_hash)`` capture, still pending)
 
 ## 4. Developer Experience And Platform
 

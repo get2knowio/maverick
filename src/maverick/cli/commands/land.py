@@ -563,7 +563,7 @@ async def _agent_curate(
     console.print("Analyzing commits with curator agent...")
 
     try:
-        from maverick.agents.curator import CuratorAgent
+        from maverick.agents.curator import CuratorAgent, ensure_refs_trailers
         from maverick.executor import create_default_executor
 
         agent = CuratorAgent()
@@ -582,6 +582,11 @@ async def _agent_curate(
         finally:
             await _executor.cleanup()
         plan = agent.parse_plan(raw_output)
+        # Safety net: guarantee every ``describe`` carries a ``Refs:``
+        # trailer so eval tooling can join landed commits to runway
+        # state even if the curator skipped the prompt instruction
+        # (FUTURE.md §3.9).
+        plan = ensure_refs_trailers(plan, curation_ctx["commits"])
     except SystemExit:
         raise
     except Exception as e:
