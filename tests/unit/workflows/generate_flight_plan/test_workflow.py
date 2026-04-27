@@ -475,3 +475,102 @@ class TestGenerateFlightPlanWorkflowXoscarConfig:
         assert inputs.config.provider == "claude"
         assert inputs.config.model_id == "opus"
         assert inputs.provider_labels["Scopist"] == "gemini/gemini-3.1-pro-preview"
+        # Per-agent briefing config carries scopist's resolved StepConfig.
+        assert "scopist" in inputs.briefing_configs
+        assert inputs.briefing_configs["scopist"].provider == "gemini"
+        assert inputs.briefing_configs["scopist"].model_id == "gemini-3.1-pro-preview"
+
+    async def test_briefing_configs_resolve_per_agent_from_actors_block(
+        self,
+        mock_config: MagicMock,
+        mock_registry: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """Each briefing agent gets its own StepConfig resolved through the
+        actors.plan.<agent_name> path — the user's symptom of all briefings
+        sharing claude/sonnet was caused by a single shared config."""
+        from maverick.config import AgentProviderConfig
+
+        mock_config.steps = {}
+        mock_config.agents = {}
+        mock_config.actors = {
+            "plan": {
+                "scopist": {
+                    "provider": "gemini",
+                    "model_id": "gemini-3.1-pro-preview",
+                },
+                "codebase_analyst": {
+                    "provider": "opencode",
+                    "model_id": "opencode/nemotron-3-super-free",
+                },
+                "criteria_writer": {
+                    "provider": "copilot",
+                    "model_id": "gpt-5.4",
+                },
+                "contrarian": {"provider": "claude", "model_id": "opus"},
+                "flight_plan_generator": {"provider": "claude", "model_id": "sonnet"},
+            }
+        }
+        mock_config.agent_providers = {
+            "claude": AgentProviderConfig(
+                command=["claude-agent"], default=True, default_model="sonnet"
+            ),
+            "copilot": AgentProviderConfig(
+                command=["copilot-agent"], default_model="gpt-5-mini"
+            ),
+            "gemini": AgentProviderConfig(
+                command=["gemini-agent"], default_model="gemini-default"
+            ),
+            "opencode": AgentProviderConfig(
+                command=["opencode-agent"], default_model="opencode/default"
+            ),
+        }
+
+        workflow = _make_workflow(mock_config, mock_registry)
+        captured_inputs: dict[str, Any] = {}
+
+        async def _fake_create_actor(_cls, *args: Any, **kwargs: Any) -> AsyncMock:
+            if args and not captured_inputs:
+                captured_inputs["value"] = args[0]
+            return AsyncMock()
+
+        async def _fake_destroy_actor(_ref: Any) -> None:
+            return None
+
+        with (
+            patch("xoscar.create_actor", new=_fake_create_actor),
+            patch("xoscar.destroy_actor", new=_fake_destroy_actor),
+            patch.object(workflow, "emit_output", new=AsyncMock()),
+            patch.object(
+                workflow,
+                "_drain_xoscar_supervisor",
+                new=AsyncMock(
+                    return_value={
+                        "success": True,
+                        "success_criteria_count": 1,
+                        "validation_passed": True,
+                        "briefing_path": None,
+                        "flight_plan_path": str(tmp_path / "p" / "flight-plan.md"),
+                    }
+                ),
+            ),
+        ):
+            await workflow._generate_with_xoscar(
+                prd_content="x",
+                name="p",
+                plan_dir=tmp_path / "p",
+                skip_briefing=False,
+            )
+
+        inputs = captured_inputs["value"]
+        bc = inputs.briefing_configs
+        # Each briefing agent has the right provider + model_id —
+        # actors.plan.<agent_name> beats the global default.
+        assert bc["scopist"].provider == "gemini"
+        assert bc["scopist"].model_id == "gemini-3.1-pro-preview"
+        assert bc["codebase_analyst"].provider == "opencode"
+        assert bc["codebase_analyst"].model_id == "opencode/nemotron-3-super-free"
+        assert bc["criteria_writer"].provider == "copilot"
+        assert bc["criteria_writer"].model_id == "gpt-5.4"
+        assert bc["contrarian"].provider == "claude"
+        assert bc["contrarian"].model_id == "opus"

@@ -101,7 +101,13 @@ class FlyInputs:
 
     cwd: str
     epic_id: str = ""
-    config: Any = None  # Base StepConfig for the implementer/reviewer.
+    config: Any = None  # Base StepConfig — implementer when reviewer_config is set.
+    # Reviewer's own resolved StepConfig (from actors.fly.reviewer / steps.review
+    # / agents.reviewer). When set, the no-tiers ReviewerActor uses this instead
+    # of falling back to ``config`` (which is the implementer's config). When
+    # tiers are configured, this is the per-tier base before override merging.
+    # ``None`` preserves the legacy single-config behaviour for older callers.
+    reviewer_config: Any = None
     max_beads: int = 30
     validation_commands: dict[str, tuple[str, ...]] | None = None
     project_type: str = "rust"
@@ -231,13 +237,22 @@ class FlySupervisor(xo.Actor):
         # Reviewer wiring — mirrors the implementer tier pattern. When
         # ``reviewer_tiers`` is None, one ReviewerActor under the
         # _DEFAULT_TIER sentinel; when set, one per defined tier.
+        # Reviewer base config defaults to its own resolved StepConfig
+        # (``inputs.reviewer_config``) so it doesn't inherit the
+        # implementer's provider/model. Older callers that only populate
+        # ``inputs.config`` keep the legacy shared-config behaviour.
+        reviewer_base = (
+            self._inputs.reviewer_config
+            if self._inputs.reviewer_config is not None
+            else self._inputs.config
+        )
         self._reviewers: dict[str, xo.ActorRef] = {}
         if self._inputs.reviewer_tiers is None:
             self._reviewers[_DEFAULT_TIER] = await xo.create_actor(
                 ReviewerActor,
                 self_ref,
                 cwd=self._inputs.cwd,
-                config=self._inputs.config,
+                config=reviewer_base,
                 address=self.address,
                 uid=f"{self.uid.decode()}:reviewer",
             )
@@ -248,7 +263,7 @@ class FlySupervisor(xo.Actor):
                 if tier_override is None:
                     continue
                 tier_config = self._merge_tier_config(
-                    base=self._inputs.config,
+                    base=reviewer_base,
                     override=tier_override,
                 )
                 self._reviewers[tier_name] = await xo.create_actor(
@@ -265,7 +280,7 @@ class FlySupervisor(xo.Actor):
                     ReviewerActor,
                     self_ref,
                     cwd=self._inputs.cwd,
-                    config=self._inputs.config,
+                    config=reviewer_base,
                     address=self.address,
                     uid=f"{self.uid.decode()}:reviewer",
                 )

@@ -223,9 +223,12 @@ class GenerateFlightPlanWorkflow(PythonWorkflow):
 
         cwd = str(Path.cwd())
 
-        # Resolve provider labels so the Rich Live briefing table shows
-        # the right provider/model per agent.
+        # Resolve provider labels AND per-agent StepConfigs so each
+        # briefing actor runs on its own provider/model. The agent_name
+        # used here matches what PLAN_BRIEFING_CONFIG declares so the
+        # supervisor's ``briefing_configs.get(agent_name)`` lookup hits.
         provider_labels: dict[str, str] = {}
+        briefing_configs: dict[str, Any] = {}
         if not skip_briefing:
             for step_name, agent_name, label in (
                 ("briefing_scopist", "scopist", "Scopist"),
@@ -245,6 +248,7 @@ class GenerateFlightPlanWorkflow(PythonWorkflow):
                     step_name, _StepType.PYTHON, agent_name=agent_name
                 )
                 provider_labels[label] = self._resolve_display_label_for_config(config)
+                briefing_configs[agent_name] = config
 
         # Generator config drives the agent session used for plan generation.
         gen_config = self.resolve_step_config(
@@ -261,6 +265,7 @@ class GenerateFlightPlanWorkflow(PythonWorkflow):
             config=gen_config,
             skip_briefing=skip_briefing,
             provider_labels=provider_labels,
+            briefing_configs=briefing_configs,
             max_briefing_agents=self._config.parallel.max_briefing_agents,
         )
 

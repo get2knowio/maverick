@@ -249,6 +249,105 @@ class TestRefuelMaverickWorkflowHappyPath:
         assert inputs.config.provider == "claude"
         assert inputs.config.model_id == "opus"
 
+    async def test_refuel_briefing_configs_resolve_per_agent_from_actors_block(
+        self,
+        mock_config: MagicMock,
+        mock_registry: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """Each refuel briefing agent (navigator/structuralist/recon/contrarian)
+        gets its own StepConfig — fixes the symptom of all briefings sharing
+        the decomposer's config."""
+        from maverick.config import AgentProviderConfig
+
+        mock_config.steps = {}
+        mock_config.agents = {}
+        mock_config.actors = {
+            "refuel": {
+                "navigator": {"provider": "gemini", "model_id": "gemini-3.1-pro-preview"},
+                "structuralist": {
+                    "provider": "opencode",
+                    "model_id": "opencode/nemotron-3-super-free",
+                },
+                "recon": {"provider": "copilot", "model_id": "gpt-5.4"},
+                "contrarian": {"provider": "claude", "model_id": "opus"},
+                "decomposer": {"provider": "claude", "model_id": "sonnet"},
+            }
+        }
+        mock_config.agent_providers = {
+            "claude": AgentProviderConfig(
+                command=["claude-agent"], default=True, default_model="sonnet"
+            ),
+            "copilot": AgentProviderConfig(
+                command=["copilot-agent"], default_model="gpt-5-mini"
+            ),
+            "gemini": AgentProviderConfig(
+                command=["gemini-agent"], default_model="gemini-default"
+            ),
+            "opencode": AgentProviderConfig(
+                command=["opencode-agent"], default_model="opencode/default"
+            ),
+        }
+
+        fp = make_simple_flight_plan(tmp_path)
+        workflow = make_workflow(mock_config, mock_registry)
+        flight_plan = await __import__(
+            "maverick.flight.loader",
+            fromlist=["FlightPlanFile"],
+        ).FlightPlanFile.aload(fp)
+
+        captured_inputs: dict[str, Any] = {}
+
+        async def _fake_create_actor(_cls, *args: Any, **kwargs: Any) -> AsyncMock:
+            if args and not captured_inputs:
+                captured_inputs["value"] = args[0]
+            return AsyncMock()
+
+        async def _fake_destroy_actor(_ref: Any) -> None:
+            return None
+
+        with (
+            patch_cwd(tmp_path),
+            patch(
+                "maverick.agents.briefing.prompts.build_briefing_prompt",
+                return_value="briefing prompt",
+            ),
+            patch("xoscar.create_actor", new=_fake_create_actor),
+            patch("xoscar.destroy_actor", new=_fake_destroy_actor),
+            patch.object(workflow, "emit_output", new=AsyncMock()),
+            patch.object(workflow, "emit_step_completed", new=AsyncMock()),
+            patch.object(
+                workflow,
+                "_drain_xoscar_supervisor",
+                new=AsyncMock(
+                    return_value={
+                        "success": True,
+                        "specs": make_simple_decomposition_output().work_units,
+                    }
+                ),
+            ),
+        ):
+            await workflow._run_with_xoscar(
+                flight_plan=flight_plan,
+                raw_content=fp.read_text(encoding="utf-8"),
+                codebase_context=_EMPTY_CONTEXT,
+                open_bead_result=None,
+                runway_context_text=None,
+                run_dir=None,
+                skip_briefing=False,
+            )
+
+        inputs = captured_inputs["value"]
+        bc = inputs.briefing_configs
+        assert bc["navigator"].provider == "gemini"
+        assert bc["navigator"].model_id == "gemini-3.1-pro-preview"
+        assert bc["structuralist"].provider == "opencode"
+        assert bc["structuralist"].model_id == "opencode/nemotron-3-super-free"
+        assert bc["recon"].provider == "copilot"
+        assert bc["recon"].model_id == "gpt-5.4"
+        assert bc["contrarian"].provider == "claude"
+        assert bc["contrarian"].model_id == "opus"
+
     async def test_work_unit_files_written_with_correct_naming(
         self,
         mock_config: MagicMock,

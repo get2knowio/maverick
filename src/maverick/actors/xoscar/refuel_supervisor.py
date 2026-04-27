@@ -108,6 +108,12 @@ class RefuelInputs:
     decomposer_pool_size: int = 3
     skip_briefing: bool = False
     provider_labels: dict[str, str] = field(default_factory=dict)
+    # Per-agent ACP StepConfig keyed by briefing agent_name (e.g.
+    # "navigator", "structuralist", "recon", "contrarian"). Resolved via
+    # ``actors.refuel.<agent_name>`` / legacy steps:/agents: surfaces.
+    # Missing entries fall back to ``config`` (the decomposer's
+    # StepConfig) so older callers remain compatible.
+    briefing_configs: dict[str, Any] = field(default_factory=dict)
     detail_session_max_turns: int = 5
     fix_session_max_turns: int = 1
     # Cap on how many briefing agents may be in-flight concurrently.
@@ -287,9 +293,15 @@ class RefuelSupervisor(xo.Actor):
         )
 
         # --- Briefing actors ---
+        # Per-agent StepConfig from ``inputs.briefing_configs`` lets each
+        # briefing actor run on its own provider/model. Missing entries
+        # fall back to ``inputs.config`` (the decomposer's config).
         self._briefing_actors: dict[str, xo.ActorRef] = {}
         if not self._inputs.skip_briefing:
             for name, tool, method in REFUEL_BRIEFING_CONFIG:
+                actor_config = self._inputs.briefing_configs.get(
+                    name, self._inputs.config
+                )
                 self._briefing_actors[name] = await xo.create_actor(
                     BriefingActor,
                     self_ref,
@@ -297,7 +309,7 @@ class RefuelSupervisor(xo.Actor):
                     mcp_tool=tool,
                     forward_method=method,
                     cwd=self._inputs.cwd,
-                    config=self._inputs.config,
+                    config=actor_config,
                     address=self.address,
                     uid=f"{self.uid.decode()}:briefing-{name}",
                 )

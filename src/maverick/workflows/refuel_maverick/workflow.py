@@ -939,10 +939,13 @@ class RefuelMaverickWorkflow(PythonWorkflow):
             "cached_details": cached_details,  # keyed by unit_id; empty dict if none
         }
 
-        # Provider labels for briefing agents are still useful for the
-        # Rich Live display the supervisor emits; compute them here so
-        # the supervisor doesn't need access to ``resolve_step_config``.
+        # Resolve provider labels AND per-agent StepConfigs so each
+        # briefing actor runs on its own provider/model rather than
+        # sharing the decomposer's config. agent_name matches what
+        # REFUEL_BRIEFING_CONFIG declares so the supervisor's
+        # ``briefing_configs.get(agent_name)`` lookup hits.
         provider_labels: dict[str, str] = {}
+        briefing_configs: dict[str, Any] = {}
         if not skip_briefing:
             for agent_name in ("navigator", "structuralist", "recon", "contrarian"):
                 config = self.resolve_step_config(
@@ -952,6 +955,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
                 )
                 label = agent_name.replace("_", " ").title()
                 provider_labels[label] = self._resolve_display_label_for_config(config)
+                briefing_configs[agent_name] = config
 
         decompose_config = self.resolve_step_config(
             DECOMPOSE,
@@ -1000,6 +1004,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
             decomposer_pool_size=decomposer_pool_size,
             skip_briefing=skip_briefing,
             provider_labels=provider_labels,
+            briefing_configs=briefing_configs,
             detail_session_max_turns=DETAIL_SESSION_MAX_TURNS,
             fix_session_max_turns=FIX_SESSION_MAX_TURNS,
             max_briefing_agents=max_briefing_agents,

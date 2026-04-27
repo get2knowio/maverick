@@ -62,13 +62,21 @@ logger = get_logger(__name__)
 _SOURCE = "plan-supervisor"
 
 # (agent_name, display_label, mcp_tool, supervisor_forward_method)
+#
+# Agent names match the long-form keys used in maverick.yaml (under
+# ``actors.plan.<name>`` / ``agents.<name>``) so per-agent provider/model
+# overrides resolve correctly. The display labels remain human-readable.
 PLAN_BRIEFING_CONFIG: tuple[tuple[str, str, str, str], ...] = (
     ("scopist", "Scopist", "submit_scope", "scope_ready"),
-    ("analyst", "Codebase Analyst", "submit_analysis", "analysis_ready"),
-    ("criteria", "Criteria Writer", "submit_criteria", "criteria_ready"),
+    ("codebase_analyst", "Codebase Analyst", "submit_analysis", "analysis_ready"),
+    ("criteria_writer", "Criteria Writer", "submit_criteria", "criteria_ready"),
     ("contrarian", "Contrarian", "submit_challenge", "challenge_ready"),
 )
-PARALLEL_PLAN_BRIEFING_NAMES: tuple[str, ...] = ("scopist", "analyst", "criteria")
+PARALLEL_PLAN_BRIEFING_NAMES: tuple[str, ...] = (
+    "scopist",
+    "codebase_analyst",
+    "criteria_writer",
+)
 
 
 @dataclass(frozen=True)
@@ -82,9 +90,17 @@ class PlanInputs:
     config: Any = None
     skip_briefing: bool = False
     provider_labels: dict[str, str] = field(default_factory=dict)
+    # Per-agent ACP StepConfig keyed by agent_name (e.g. "scopist",
+    # "codebase_analyst", "criteria_writer", "contrarian"). The workflow
+    # resolves these via ``actors.plan.<agent_name>`` /
+    # ``steps.briefing_<name>`` / ``agents.<name>``. Missing entries fall
+    # back to ``config`` (the generator's StepConfig) so older callers
+    # remain compatible.
+    briefing_configs: dict[str, Any] = field(default_factory=dict)
     # Cap on how many briefing agents may be in-flight concurrently
-    # (scopist/analyst/criteria during the parallel phase). Default 3
-    # matches legacy behaviour. Setting to 1 runs them sequentially.
+    # (scopist/codebase_analyst/criteria_writer during the parallel
+    # phase). Default 3 matches legacy behaviour. Setting to 1 runs them
+    # sequentially.
     max_briefing_agents: int = 3
 
 
@@ -119,9 +135,17 @@ class PlanSupervisor(xo.Actor):
         self_ref = self.ref()
 
         # --- Briefing actors ---
+        # Per-agent StepConfig from ``inputs.briefing_configs`` lets each
+        # briefing actor run on its own provider/model (e.g. scopist on
+        # gemini, codebase_analyst on opencode). When a config is missing
+        # for an agent, fall back to ``inputs.config`` (the generator's
+        # config) — same shape as before this field was added.
         self._briefing_actors: dict[str, xo.ActorRef] = {}
         if not self._inputs.skip_briefing:
             for agent_name, _label, mcp_tool, forward_method in PLAN_BRIEFING_CONFIG:
+                actor_config = self._inputs.briefing_configs.get(
+                    agent_name, self._inputs.config
+                )
                 self._briefing_actors[agent_name] = await xo.create_actor(
                     BriefingActor,
                     self_ref,
@@ -129,7 +153,7 @@ class PlanSupervisor(xo.Actor):
                     mcp_tool=mcp_tool,
                     forward_method=forward_method,
                     cwd=self._inputs.cwd,
-                    config=self._inputs.config,
+                    config=actor_config,
                     address=self.address,
                     uid=f"{self.uid.decode()}:briefing-{agent_name}",
                 )

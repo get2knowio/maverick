@@ -397,6 +397,14 @@ class FlyBeadsWorkflow(PythonWorkflow):
             agent_name="implementer",
         )
 
+        # Reviewer gets its own resolved StepConfig — without this, the
+        # ReviewerActor would inherit the implementer's provider/model.
+        review_config = self.resolve_step_config(
+            "review",
+            StepType.PYTHON,
+            agent_name="reviewer",
+        )
+
         # Per-bead complexity tier routing (FUTURE.md §2.10 Phase 2). When
         # ``actors.fly.implementer.tiers`` is set, the supervisor spins up
         # one implementer actor per defined tier, each with its own
@@ -473,6 +481,7 @@ class FlyBeadsWorkflow(PythonWorkflow):
             cwd=cwd,
             epic_id=epic_id,
             config=impl_config,
+            reviewer_config=review_config,
             max_beads=max_beads,
             validation_commands=validation_commands,
             project_type=project_type,
