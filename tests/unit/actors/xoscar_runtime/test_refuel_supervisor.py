@@ -213,6 +213,48 @@ async def test_detail_ready_no_double_emit_for_unknown_unit(pool_address: str) -
         await xo.destroy_actor(sup)
 
 
+@pytest.mark.asyncio
+async def test_tier_mode_spawns_pool_per_tier(pool_address: str) -> None:
+    """In tier mode each defined tier gets a pool of ``decomposer_pool_size``
+    workers — concurrency is a system-resource budget, allocated across the
+    classifications in the workload, not 1-actor-per-tier."""
+    from maverick.config import (
+        DecomposerTiersConfig,
+        ImplementerTierConfig,
+    )
+
+    inputs = RefuelInputs(
+        cwd="/tmp",
+        flight_plan=_flight_plan(),
+        initial_payload={"flight_plan_content": "plan"},
+        decomposer_pool_size=3,  # 3 workers per defined tier
+        skip_briefing=True,
+        decomposer_tiers=DecomposerTiersConfig(
+            simple=ImplementerTierConfig(provider="opencode", model_id="x"),
+            moderate=ImplementerTierConfig(provider="claude", model_id="sonnet"),
+            complex=ImplementerTierConfig(provider="claude", model_id="opus"),
+        ),
+    )
+    sup = await xo.create_actor(
+        RefuelSupervisor,
+        inputs,
+        address=pool_address,
+        uid="ref-sup-tier-pools",
+    )
+    try:
+        snapshot = await sup.t_peek_decomposers()
+        assert snapshot["mode"] == "tiered"
+        # Three tiers defined, each with pool_size=3 workers.
+        assert set(snapshot["tier_names"]) == {"simple", "moderate", "complex"}
+        assert snapshot["tier_pool_sizes"] == {
+            "simple": 3,
+            "moderate": 3,
+            "complex": 3,
+        }
+    finally:
+        await xo.destroy_actor(sup)
+
+
 def test_format_provider_label_handles_partial_configs() -> None:
     """The label helper produces ``provider/model`` even when fields are
     missing — defensive against partial StepConfigs from sparse YAML."""

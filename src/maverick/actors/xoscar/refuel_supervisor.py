@@ -227,7 +227,15 @@ class RefuelSupervisor(xo.Actor):
         #     that ignore tier mode see no workers and gracefully fall
         #     back to the primary decomposer.
         self._decomposer_pool: list[xo.ActorRef] = []
+        # Tier mode runs a *pool* of workers per tier (previously: one worker
+        # per tier, which meant a uniform-tier workload serialised on a single
+        # actor). ``_decomposer_tier_pools`` holds the full pools;
+        # ``_decomposer_tiers`` keeps the first ref per tier for the resolver
+        # call sites (which only need the tier-name keys, not every worker).
+        self._decomposer_tier_pools: dict[str, list[xo.ActorRef]] = {}
         self._decomposer_tiers: dict[str, xo.ActorRef] = {}
+        # Round-robin index per tier — picks the next worker on each dispatch.
+        self._tier_round_robin: dict[str, int] = {}
         if self._inputs.decomposer_tiers is None:
             for i in range(self._inputs.decomposer_pool_size):
                 pool_ref = await xo.create_actor(
@@ -243,6 +251,13 @@ class RefuelSupervisor(xo.Actor):
                 )
                 self._decomposer_pool.append(pool_ref)
         else:
+            # Per-tier pool size matches ``parallel.decomposer_pool_size`` —
+            # the existing concurrency knob. Total live actor objects =
+            # pool_size × number-of-defined-tiers, but ACP subprocesses
+            # spawn lazily on first prompt, so unused-tier workers cost
+            # ~nothing. SubprocessQuota at ``parallel.max_agents`` bounds
+            # concurrent subprocesses across the run.
+            pool_size = max(1, self._inputs.decomposer_pool_size)
             d_tiers = self._inputs.decomposer_tiers
             for tier_name in TIER_ORDER:
                 tier_override = getattr(d_tiers, tier_name, None)
@@ -252,18 +267,24 @@ class RefuelSupervisor(xo.Actor):
                     base=self._inputs.config,
                     override=tier_override,
                 )
-                self._decomposer_tiers[tier_name] = await xo.create_actor(
-                    DecomposerActor,
-                    self_ref,
-                    cwd=self._inputs.cwd,
-                    config=tier_config,
-                    role="pool",
-                    detail_session_max_turns=self._inputs.detail_session_max_turns,
-                    fix_session_max_turns=self._inputs.fix_session_max_turns,
-                    address=self.address,
-                    uid=f"{self.uid.decode()}:decomposer-tier-{tier_name}",
-                )
-            if not self._decomposer_tiers:
+                pool: list[xo.ActorRef] = []
+                for i in range(pool_size):
+                    pool.append(
+                        await xo.create_actor(
+                            DecomposerActor,
+                            self_ref,
+                            cwd=self._inputs.cwd,
+                            config=tier_config,
+                            role="pool",
+                            detail_session_max_turns=self._inputs.detail_session_max_turns,
+                            fix_session_max_turns=self._inputs.fix_session_max_turns,
+                            address=self.address,
+                            uid=f"{self.uid.decode()}:decomposer-tier-{tier_name}-{i}",
+                        )
+                    )
+                self._decomposer_tier_pools[tier_name] = pool
+                self._decomposer_tiers[tier_name] = pool[0]  # resolver compat
+            if not self._decomposer_tier_pools:
                 # Empty tiers config — fall back to legacy default of 1 worker.
                 self._decomposer_pool.append(
                     await xo.create_actor(
@@ -342,7 +363,7 @@ class RefuelSupervisor(xo.Actor):
         refs: list[xo.ActorRef] = [
             self._decomposer,
             *self._decomposer_pool,
-            *self._decomposer_tiers.values(),
+            *(ref for pool in self._decomposer_tier_pools.values() for ref in pool),
             self._validator,
             self._bead_creator,
             *self._briefing_actors.values(),
@@ -643,14 +664,23 @@ class RefuelSupervisor(xo.Actor):
             return
 
         # Two dispatch modes — keep the routing logic in one place.
-        #   * Tier mode: ``_decomposer_tiers`` populated; each unit
-        #     dispatches to the worker matching its outline complexity.
+        #   * Tier mode: ``_decomposer_tier_pools`` populated; each unit
+        #     dispatches to the next round-robin worker in its tier's pool.
         #   * Legacy round-robin: ``_decomposer_pool`` (or fallback to the
         #     primary) handles units by index modulo pool size.
-        in_tier_mode = bool(self._decomposer_tiers)
+        in_tier_mode = bool(self._decomposer_tier_pools)
         if in_tier_mode:
-            workers = list(self._decomposer_tiers.values())
-            tier_summary = ",".join(self._decomposer_tiers)
+            # Flat list of all workers across all tier pools — used for
+            # broadcast context and for sizing the in-flight semaphore.
+            workers = [
+                ref
+                for pool in self._decomposer_tier_pools.values()
+                for ref in pool
+            ]
+            tier_summary = ",".join(
+                f"{tier}×{len(pool)}"
+                for tier, pool in self._decomposer_tier_pools.items()
+            )
         else:
             workers = self._decomposer_pool or [self._decomposer]
             tier_summary = f"{len(workers)} round-robin"
@@ -672,8 +702,14 @@ class RefuelSupervisor(xo.Actor):
             f"Detailing {len(unit_ids)} unit(s) across {tier_summary} worker(s)",
         )
 
-        # Bound concurrency at pool_size * 2 in-flight requests.
-        semaphore = asyncio.Semaphore(max(1, pool_size * 2))
+        # Bound concurrency at the total worker count — concurrency is a
+        # system-resources knob, not a per-tier knob, so a workload that
+        # all classifies as ``moderate`` runs across ALL moderate workers
+        # in parallel rather than serialising on one. SubprocessQuota at
+        # ``parallel.max_agents`` is the actual hard ceiling on live ACP
+        # subprocesses; this semaphore just bounds queued send_detail
+        # tasks so we don't pile up arbitrarily.
+        semaphore = asyncio.Semaphore(max(1, pool_size))
 
         # Build a unit_id → outline-complexity index for tier dispatch.
         # Outline carries the decomposer-assigned complexity per work
@@ -690,7 +726,10 @@ class RefuelSupervisor(xo.Actor):
             tier_name = FlySupervisor._resolve_tier_in(
                 self._decomposer_tiers, complexity_by_unit.get(unit_id), 0
             )
-            return self._decomposer_tiers[tier_name]
+            tier_pool = self._decomposer_tier_pools[tier_name]
+            rr = self._tier_round_robin.get(tier_name, 0)
+            self._tier_round_robin[tier_name] = (rr + 1) % len(tier_pool)
+            return tier_pool[rr]
 
         def _label_for(unit_id: str) -> str:
             """Return "tier · provider/model" (or "provider/model" in
@@ -1325,13 +1364,17 @@ class RefuelSupervisor(xo.Actor):
     async def t_peek_decomposers(self) -> dict[str, Any]:
         """Snapshot of decomposer-pool state for tests.
 
-        Returns a dict with three keys:
+        Returns a dict with four keys:
           * ``mode``: ``"legacy"`` (round-robin pool) or ``"tiered"``
           * ``pool_size``: count of legacy round-robin workers
-          * ``tier_names``: list of tier names with a dedicated worker
+          * ``tier_names``: list of tier names with a dedicated pool
+          * ``tier_pool_sizes``: ``{tier_name: pool_size}`` per tier
         """
         return {
-            "mode": "tiered" if self._decomposer_tiers else "legacy",
+            "mode": "tiered" if self._decomposer_tier_pools else "legacy",
             "pool_size": len(self._decomposer_pool),
-            "tier_names": list(self._decomposer_tiers),
+            "tier_names": list(self._decomposer_tier_pools),
+            "tier_pool_sizes": {
+                tier: len(pool) for tier, pool in self._decomposer_tier_pools.items()
+            },
         }
