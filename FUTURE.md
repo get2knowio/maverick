@@ -1060,46 +1060,35 @@ Relevant code:
 
 ### 4.4 `maverick land` Fails On `.beads/issues.jsonl` Merge Conflict
 
-**Status:** Active (real bug, hit during 2026-04-27 Phase 3 live validation)
+**Status:** Implemented
 
-When a fly run ends with the workspace's `.beads/issues.jsonl` deleted
-(bd's dolt backend regenerates it on demand) and the source repo has
-modified the same file, `maverick land` blows up:
+Originally hit during 2026-04-27 Phase 3 live validation. When a fly run ends with the workspace's `.beads/issues.jsonl` deleted (bd's dolt backend regenerates it on demand) and the source repo has modified the same file, `maverick land` was failing with:
 
 ```
 CONFLICT (modify/delete): .beads/issues.jsonl deleted in
 maverick/sample-maverick-project and modified in HEAD.
 ```
 
-Both `--no-curate` and `--finalize` modes hit it. There's no clean
-recovery path inside the land command — users are reduced to manual
-`git checkout FETCH_HEAD -- src tests pyproject.toml` and skipping
-the merge entirely.
+Both `--no-curate` and `--finalize` modes hit it. The diff was spurious — `.beads/` is a dolt-managed working area whose files represent the *current shared dolt state* (same on both branches; bd writes back to the shared DB), so the JSONL view's content can diverge across snapshots without the underlying state actually changing.
 
-The root cause: `.beads/` is a dolt-managed working area, not source
-the merge driver should be touching. Files inside it represent the
-*current shared dolt state*, which is the same state on both branches
-(since dolt writes back to the shared DB), so the diff is spurious.
+**Fix shipped** in [src/maverick/library/actions/git.py](src/maverick/library/actions/git.py): `git_merge` now has a third recovery branch (alongside the existing `already up to date` and `untracked working tree files would be overwritten` cases) that triggers on `CONFLICT (modify/delete)` output. The branch:
 
-Fixes to consider:
+1. Calls `git status --porcelain=v1` to enumerate unmerged paths and their codes.
+2. Splits them into dolt-managed `.beads/*` modify/delete entries (UD or DU codes) and everything else.
+3. If *any* non-dolt unmerged path remains, runs `git merge --abort` to restore a clean working tree and bubbles the original error — we never silently drop a real conflict.
+4. Otherwise, runs `git rm -f <path>` for each dolt path (accepting deletion; bd will regenerate on next access) and completes the merge with `git commit --no-edit` using the auto-generated MERGE_MSG.
 
-- **Add `.beads/` to a default `.gitattributes` merge=ours strategy**
-  during `maverick init` so dolt-managed files always take the local
-  version on merge.
-- **Pre-merge filter in `maverick land`**: explicitly stash or reset
-  any `.beads/`-only diffs in the workspace branch before invoking
-  `git merge`.
-- **Track the failure mode in preflight**: detect a known-bad merge
-  state and emit a clear "this is a known land bug, here's the
-  workaround" message rather than the raw git error.
+**Tests added** in `TestGitMerge` ([tests/unit/library/actions/test_git_actions.py](tests/unit/library/actions/test_git_actions.py)):
 
-Relevant code:
+- `test_resolves_dolt_modify_delete_by_accepting_deletion` — UD direction (FUTURE.md case).
+- `test_resolves_dolt_modify_delete_in_either_direction` — DU direction (HEAD deleted, theirs modified).
+- `test_aborts_when_non_dolt_path_also_conflicts` — guard against silently dropping real conflicts.
 
-- [src/maverick/cli/commands/land.py](src/maverick/cli/commands/land.py)
-- [src/maverick/library/actions/jj.py](src/maverick/library/actions/jj.py)
-  (the merge invocation)
-- [src/maverick/init/](src/maverick/init/) (where `.gitattributes` setup
-  could go)
+Reflection: the `.gitattributes merge=ours` approach considered earlier needs a custom merge driver registered in `.git/config`, which is per-clone and not committed — so it doesn't help shared / cloned repos. The runtime recovery in `git_merge` works for both new and existing projects with no init migration.
+
+**Out of scope (separate ergonomic improvements):**
+- `.gitattributes` setup at `maverick init` for explicit declaration (still useful as documentation, but the runtime fix already handles the conflict).
+- Auto-adding `.beads/issues.jsonl` to `.gitignore` so it's never tracked. Existing repos with the file already committed make this a breaking change; revisit if the file becomes universally regenerable.
 
 ## 5. Reusable Workflow Building Blocks
 

@@ -724,6 +724,111 @@ class TestGitMerge:
             rm_call = mock_exec.call_args_list[1]
             assert rm_call[0] == ("rm", "-f", ".beads/issues.jsonl")
 
+    @pytest.mark.asyncio
+    async def test_resolves_dolt_modify_delete_by_accepting_deletion(self) -> None:
+        """``.beads/*`` modify/delete conflicts are auto-resolved by ``git rm``
+        because bd regenerates the JSONL view from the shared dolt DB
+        (FUTURE.md §4.4). The merge then completes via ``git commit
+        --no-edit`` using the auto-generated MERGE_MSG.
+        """
+        branch = "maverick/sample-project"
+        modify_delete_error = (
+            "CONFLICT (modify/delete): .beads/issues.jsonl deleted in "
+            f"{branch} and modified in HEAD. Version HEAD of "
+            ".beads/issues.jsonl left in tree.\n"
+            "Automatic merge failed; fix conflicts and then commit the result.\n"
+        )
+        # ``git status --porcelain=v1`` reports UD = modified by us,
+        # deleted by them.
+        unmerged_status = "UD .beads/issues.jsonl\n"
+
+        with patch("maverick.library.actions.git.asyncio.create_subprocess_exec") as mock_exec:
+            mock_exec.side_effect = [
+                create_mock_process(1, stderr=modify_delete_error),  # merge fails
+                create_mock_process(0, stdout=unmerged_status),  # git status
+                create_mock_process(0),  # git rm -f .beads/issues.jsonl
+                create_mock_process(0, stdout="Merge made\n"),  # git commit --no-edit
+                create_mock_process(0, stdout="abc123\n"),  # git rev-parse HEAD
+            ]
+
+            result = await git_merge(branch)
+
+            assert result.success is True
+            assert result.merge_commit == "abc123"
+
+            # status, rm, commit all happened in order.
+            status_call = mock_exec.call_args_list[1]
+            assert status_call[0] == ("git", "status", "--porcelain=v1")
+            rm_call = mock_exec.call_args_list[2]
+            assert rm_call[0] == ("git", "rm", "-f", ".beads/issues.jsonl")
+            commit_call = mock_exec.call_args_list[3]
+            assert commit_call[0] == ("git", "commit", "--no-edit")
+
+    @pytest.mark.asyncio
+    async def test_aborts_when_non_dolt_path_also_conflicts(self) -> None:
+        """If a real source-tree conflict accompanies the spurious
+        ``.beads/*`` one, the merge is aborted (so the working tree is
+        clean) and the original error is surfaced — we never silently
+        drop a real conflict.
+        """
+        branch = "maverick/sample-project"
+        modify_delete_error = (
+            "CONFLICT (modify/delete): .beads/issues.jsonl deleted in "
+            f"{branch} and modified in HEAD.\n"
+            "CONFLICT (content): Merge conflict in src/main.py\n"
+        )
+        # Two unmerged paths: dolt UD + a real content conflict UU.
+        unmerged_status = "UD .beads/issues.jsonl\nUU src/main.py\n"
+
+        with patch("maverick.library.actions.git.asyncio.create_subprocess_exec") as mock_exec:
+            mock_exec.side_effect = [
+                create_mock_process(1, stderr=modify_delete_error),  # merge fails
+                create_mock_process(0, stdout=unmerged_status),  # git status
+                create_mock_process(0),  # git merge --abort
+            ]
+
+            result = await git_merge(branch)
+
+            assert result.success is False
+            assert result.error is not None
+            assert "src/main.py" in result.error
+
+            # The abort runs after status, before any rm.
+            abort_call = mock_exec.call_args_list[2]
+            assert abort_call[0] == ("git", "merge", "--abort")
+            # No git rm or git commit was attempted.
+            assert all(
+                call[0][0:2] != ("git", "rm") and call[0][0:2] != ("git", "commit")
+                for call in mock_exec.call_args_list
+            )
+
+    @pytest.mark.asyncio
+    async def test_resolves_dolt_modify_delete_in_either_direction(self) -> None:
+        """Whether ours or theirs deleted the dolt file, the resolution
+        is the same: accept deletion. Tests the DU code path (deleted
+        by us, modified by them) — the inverse of the FUTURE.md case.
+        """
+        branch = "maverick/other-project"
+        modify_delete_error = (
+            "CONFLICT (modify/delete): .beads/issues.jsonl deleted in "
+            f"HEAD and modified in {branch}.\n"
+        )
+        unmerged_status = "DU .beads/issues.jsonl\n"
+
+        with patch("maverick.library.actions.git.asyncio.create_subprocess_exec") as mock_exec:
+            mock_exec.side_effect = [
+                create_mock_process(1, stderr=modify_delete_error),
+                create_mock_process(0, stdout=unmerged_status),
+                create_mock_process(0),  # git rm -f
+                create_mock_process(0, stdout="Merge made\n"),  # git commit
+                create_mock_process(0, stdout="def456\n"),  # rev-parse
+            ]
+
+            result = await git_merge(branch)
+
+            assert result.success is True
+            assert result.merge_commit == "def456"
+
 
 class TestParseUntrackedConflicts:
     """Tests for _parse_untracked_conflicts helper."""

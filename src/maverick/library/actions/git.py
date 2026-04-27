@@ -27,6 +27,16 @@ logger = get_logger(__name__)
 
 _UNTRACKED_CONFLICT_RE = re.compile(r"^\t(.+)$", re.MULTILINE)
 
+# Files matching this prefix are managed by bd's dolt backend, which
+# regenerates them on demand from the shared dolt database. Modify/delete
+# merge conflicts on these paths are spurious — both branches share the
+# same dolt state, only the JSONL projection diverged. ``git_merge``
+# resolves them by accepting deletion (bd will regenerate). FUTURE.md §4.4.
+_DOLT_MANAGED_PREFIX = ".beads/"
+
+# git status --porcelain=v1 codes for unmerged entries.
+_UNMERGED_STATUS_CODES = frozenset({"DU", "UD", "AA", "DD", "AU", "UA", "UU"})
+
 
 def _resolve_cwd(cwd: str | Path | None) -> str | None:
     """Convert *cwd* to a string path for subprocess, or None for default."""
@@ -63,6 +73,59 @@ def _parse_untracked_conflicts(git_output: str) -> list[str]:
         return []
     section = git_output[start:end]
     return [m.group(1).strip() for m in _UNTRACKED_CONFLICT_RE.finditer(section)]
+
+
+async def _git_unmerged_paths(cwd: str | None) -> list[tuple[str, str]]:
+    """Return ``(status_code, path)`` for every unmerged path.
+
+    Used to triage merge conflicts after ``git merge`` has left the
+    working tree in a partially-merged state. Status codes follow
+    ``git status --porcelain=v1``: e.g. ``UD`` is "modified by us,
+    deleted by them".
+    """
+    proc = await asyncio.create_subprocess_exec(
+        "git",
+        "status",
+        "--porcelain=v1",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        cwd=cwd,
+        start_new_session=True,
+    )
+    try:
+        stdout, _ = await proc.communicate()
+    finally:
+        _reap_if_running(proc)
+    result: list[tuple[str, str]] = []
+    for line in stdout.decode(errors="replace").splitlines():
+        if len(line) < 4:
+            continue
+        code = line[:2]
+        path = line[3:]
+        if code in _UNMERGED_STATUS_CODES:
+            result.append((code, path))
+    return result
+
+
+async def _abort_merge(cwd: str | None) -> None:
+    """Run ``git merge --abort`` to restore a clean working tree.
+
+    Best-effort: if the abort itself fails, log and continue so the
+    caller can still surface the original failure.
+    """
+    proc = await asyncio.create_subprocess_exec(
+        "git",
+        "merge",
+        "--abort",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        cwd=cwd,
+        start_new_session=True,
+    )
+    try:
+        await proc.communicate()
+    finally:
+        _reap_if_running(proc)
 
 
 async def git_has_changes(
@@ -515,6 +578,74 @@ async def git_merge(
                     retry_combined = (stdout + stderr).decode(errors="replace")
                     raise RuntimeError(
                         f"git merge failed after removing untracked conflicts: {retry_combined}"
+                    )
+            elif "CONFLICT (modify/delete)" in combined:
+                # ``.beads/`` is a dolt-managed working area: bd
+                # regenerates files (notably ``issues.jsonl``) on demand
+                # from the shared dolt DB. When the workspace branch has
+                # the JSONL view deleted while the user's HEAD has it
+                # modified (or vice versa), git can't tell that both
+                # sides actually share the same dolt state — it stops
+                # the merge with a "modify/delete" conflict that's
+                # spurious. (FUTURE.md §4.4)
+                #
+                # If ALL unmerged paths are dolt-managed modify/delete
+                # conflicts, resolve by accepting deletion (bd will
+                # regenerate). Real conflicts on other paths still fail
+                # loudly so the caller can address them.
+                unmerged = await _git_unmerged_paths(resolved)
+                dolt_paths: list[str] = []
+                non_dolt_unmerged: list[str] = []
+                for code, path in unmerged:
+                    if code in ("UD", "DU") and path.startswith(_DOLT_MANAGED_PREFIX):
+                        dolt_paths.append(path)
+                    else:
+                        non_dolt_unmerged.append(f"{code} {path}")
+
+                if non_dolt_unmerged or not dolt_paths:
+                    # Either there are real conflicts we can't resolve,
+                    # or this isn't actually a dolt-only modify/delete
+                    # case. Abort to restore a clean working tree, then
+                    # bubble the original failure.
+                    await _abort_merge(resolved)
+                    raise RuntimeError(f"git merge failed: {combined}")
+
+                for path in dolt_paths:
+                    logger.info(
+                        "Resolving dolt-managed modify/delete by accepting deletion",
+                        path=path,
+                    )
+                    rm_proc = await asyncio.create_subprocess_exec(
+                        "git",
+                        "rm",
+                        "-f",
+                        path,
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE,
+                        cwd=resolved,
+                        start_new_session=True,
+                    )
+                    await rm_proc.wait()
+                    rm_proc = None
+
+                # Complete the merge with the auto-generated MERGE_MSG
+                # that git already prepared. ``--no-edit`` skips the
+                # commit-message editor.
+                proc = await asyncio.create_subprocess_exec(
+                    "git",
+                    "commit",
+                    "--no-edit",
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                    cwd=resolved,
+                    start_new_session=True,
+                )
+                stdout, stderr = await proc.communicate()
+                if proc.returncode != 0:
+                    retry_combined = (stdout + stderr).decode(errors="replace")
+                    raise RuntimeError(
+                        "git merge failed to complete after resolving dolt-managed "
+                        f"conflicts: {retry_combined}"
                     )
             else:
                 raise RuntimeError(f"git merge failed: {combined}")
