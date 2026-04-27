@@ -127,7 +127,17 @@ class _AgentTracker:
                 table.add_row(f"  [green]∟[/] {label}{provider_dim}", timing, "[green]✓[/]")
             elif info["status"] == "failed":
                 timing = f"[dim]{info['timing']}[/]"
-                table.add_row(f"  [red]∟[/] {label}{provider_dim}", timing, "[red]✗[/]")
+                # Surface the failure cause when present (e.g. "quota",
+                # "timed out", "no tool call") so the user can tell
+                # provider-quota failures from prompt-format failures
+                # at a glance.
+                err = info.get("error") or ""
+                err_suffix = f" [red dim]({err})[/]" if err else ""
+                table.add_row(
+                    f"  [red]∟[/] {label}{provider_dim}{err_suffix}",
+                    timing,
+                    "[red]✗[/]",
+                )
             else:
                 table.add_row(
                     f"  [cyan]∟[/] {label}{provider_dim}", "", Spinner("dots", style="cyan")

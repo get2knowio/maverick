@@ -371,6 +371,13 @@ class RefuelSupervisor(xo.Actor):
         # (we can't ship a partial decomposition).
         self._detail_total_count: int = 0
         self._abandoned_unit_ids: set[str] = set()
+        # Per-unit quota signal — populated by ``prompt_error`` when an
+        # agent reports ``quota_exhausted=True`` during detail phase.
+        # Keyed by unit_id, value is the upstream error string. Read by
+        # ``_one`` to skip the remaining retry attempts (retrying against
+        # an exhausted provider is wasted budget) and surfaced in the
+        # abandon-step error so the user knows quota was the cause.
+        self._detail_quota_errors: dict[str, str] = {}
 
         # Briefing state
         self._briefing_results: dict[str, SupervisorInboxPayload] = {}
@@ -762,31 +769,56 @@ class RefuelSupervisor(xo.Actor):
         # feedback instead of three doomed fix rounds + a Pydantic error.
         if self._abandoned_unit_ids:
             abandoned_count = len(self._abandoned_unit_ids)
+            quota_count = sum(
+                1 for uid in self._abandoned_unit_ids
+                if uid in self._detail_quota_errors
+            )
             elapsed_ms = int((_time.monotonic() - decompose_start) * 1000)
-            await self._emit_output(
-                "refuel",
-                (
+            if quota_count:
+                # Pull a sample reset-time hint from one of the quota
+                # error messages — helps the user know when to retry.
+                sample = next(iter(self._detail_quota_errors.values()), "")
+                from maverick.exceptions.quota import parse_quota_reset
+
+                reset_hint = parse_quota_reset(sample)
+                reset_suffix = (
+                    f" (resets {reset_hint})" if reset_hint else ""
+                )
+                msg = (
+                    f"{abandoned_count}/{self._detail_total_count} unit(s) "
+                    f"abandoned — {quota_count} due to provider quota "
+                    f"exhaustion{reset_suffix}. The successful units are "
+                    f"cached on disk, so re-running after capacity returns "
+                    f"will only re-process the failures. Consider switching "
+                    f"the affected tier to a different provider in your "
+                    f"actors.refuel.decomposer.tiers config."
+                )
+            else:
+                msg = (
                     f"{abandoned_count}/{self._detail_total_count} unit(s) "
                     f"abandoned during decompose — the worker model didn't "
                     f"submit details. Likely cause: an unreliable MCP-tool "
                     f"caller in the affected tier. Check the per-unit "
                     f"table above for the failed model; consider switching "
                     f"to claude/sonnet for that tier."
-                ),
-                level="error",
-            )
+                )
+            await self._emit_output("refuel", msg, level="error")
             await self._emit_phase_completed(
                 "decompose",
                 "Decomposing",
                 elapsed_ms,
                 success=False,
-                error=f"{abandoned_count} unit(s) abandoned",
+                error=f"{abandoned_count} unit(s) abandoned"
+                + (f" ({quota_count} quota)" if quota_count else ""),
             )
             self._mark_done(
                 {
                     "success": False,
                     "error": f"{abandoned_count} unit(s) abandoned",
                     "abandoned_unit_ids": sorted(self._abandoned_unit_ids),
+                    "quota_abandoned_unit_ids": sorted(
+                        self._detail_quota_errors.keys()
+                    ),
                     "specs": [],
                     "fix_rounds": 0,
                 }
@@ -904,14 +936,42 @@ class RefuelSupervisor(xo.Actor):
             tier_summary = f"{len(workers)} round-robin"
             pool_size = len(workers)
 
-        self._pending_detail_ids = set(unit_ids)
-        # Stable denominator + abandon tracking for the run.
+        # Seed _accumulated_details from the on-disk cache so a resumed
+        # run skips units that already succeeded.
+        cached_unit_ids = self._seed_cached_details(unit_ids)
+        unit_ids_to_dispatch = [
+            uid for uid in unit_ids if uid not in cached_unit_ids
+        ]
+
+        self._pending_detail_ids = set(unit_ids_to_dispatch)
+        # Stable denominator + abandon / quota tracking for the run.
         self._detail_total_count = len(unit_ids)
         self._abandoned_unit_ids = set()
-        await self._emit_output(
-            "refuel",
-            f"Detailing {len(unit_ids)} unit(s) across {tier_summary} worker(s)",
-        )
+        self._detail_quota_errors = {}
+        if cached_unit_ids:
+            await self._emit_output(
+                "refuel",
+                (
+                    f"Reusing {len(cached_unit_ids)} cached detail(s); "
+                    f"detailing {len(unit_ids_to_dispatch)} unit(s) across "
+                    f"{tier_summary} worker(s)"
+                ),
+            )
+        else:
+            await self._emit_output(
+                "refuel",
+                f"Detailing {len(unit_ids)} unit(s) across {tier_summary} worker(s)",
+            )
+
+        # Switch the working list to the not-cached subset so the rest
+        # of the function (semaphore sizing, complexity index, fan-out)
+        # operates on units that actually need a worker.
+        unit_ids = unit_ids_to_dispatch
+        if not unit_ids:
+            # Everything was cached — short-circuit before the (empty)
+            # asyncio.gather so we don't emit a misleading "demand pool"
+            # summary for a no-op fan-out.
+            return
 
         # Bound concurrency at the budget. In tier mode this matches the
         # demand pool's cap, so we never spawn more dispatch tasks than
@@ -1017,8 +1077,26 @@ class RefuelSupervisor(xo.Actor):
                             )
                 # send_detail returned. If the tool call landed, unit has been
                 # removed from pending_detail_ids by detail_ready. Otherwise,
-                # the agent skipped its tool call; retry once.
+                # the agent skipped its tool call; retry once — UNLESS the
+                # actor reported a quota error during this attempt, in
+                # which case retrying against the same exhausted provider
+                # is doomed and would just burn another timeout window.
                 if unit_id not in self._pending_detail_ids:
+                    return
+                if unit_id in self._detail_quota_errors:
+                    logger.warning(
+                        "refuel.detail.abandoned_quota",
+                        unit_id=unit_id,
+                        attempt=attempt + 1,
+                        provider=label,
+                    )
+                    self._pending_detail_ids.discard(unit_id)
+                    self._abandoned_unit_ids.add(unit_id)
+                    await self._emit_unit_completed(
+                        unit_id,
+                        success=False,
+                        error=f"quota: {self._detail_quota_errors[unit_id][:80]}",
+                    )
                     return
                 if attempt < MAX_DETAIL_RETRIES:
                     # Intra-actor retry — debug-only.
@@ -1160,7 +1238,9 @@ class RefuelSupervisor(xo.Actor):
 
         Outline/fix/briefing phase errors are fatal (they abort the
         driver). Detail-phase errors are handled by the fan-out retry
-        loop — this callback only logs them at debug.
+        loop — this callback logs at debug AND records quota signals so
+        the dispatcher can short-circuit doomed retries against an
+        exhausted provider.
         """
         if error.phase == "detail":
             logger.debug(
@@ -1169,6 +1249,14 @@ class RefuelSupervisor(xo.Actor):
                 error=error.error,
                 quota=error.quota_exhausted,
             )
+            # Record quota signal so the fan-out retry loop can abandon
+            # immediately rather than burning more retries against the
+            # same exhausted provider. The unit_id may be None for
+            # global errors not tied to a specific dispatch — in that
+            # case there's nothing to record (the per-unit error path
+            # doesn't apply).
+            if error.quota_exhausted and error.unit_id:
+                self._detail_quota_errors[error.unit_id] = error.error or "quota exhausted"
             return
         await self._emit_output(
             "refuel",
@@ -1341,6 +1429,9 @@ class RefuelSupervisor(xo.Actor):
             if evt is not None:
                 events.append(evt)
         return events
+
+    async def t_peek_detail_quota_errors(self) -> dict[str, str]:
+        return dict(self._detail_quota_errors)
 
     @staticmethod
     def _format_provider_label(config: Any) -> str:
@@ -1561,6 +1652,52 @@ class RefuelSupervisor(xo.Actor):
                 path=cache_path,
                 error=str(exc),
             )
+
+    def _seed_cached_details(self, outline_unit_ids: list[str]) -> set[str]:
+        """Seed ``_accumulated_details`` from the on-disk detail cache.
+
+        The workflow loads ``.maverick/plans/<plan>/refuel-details/*.json``
+        into ``initial_payload["cached_details"]`` (dict keyed by unit
+        id). Each entry parses back to a ``WorkUnitDetailPayload``;
+        malformed entries are logged and skipped so a partially-corrupt
+        cache doesn't take the whole run down. Stale entries — units no
+        longer in the outline — are dropped silently (outline
+        regeneration is the canonical signal for "re-do everything").
+
+        Args:
+            outline_unit_ids: Unit ids from the current outline. Cache
+                entries outside this set are stale and ignored.
+
+        Returns:
+            Set of unit ids successfully seeded from the cache.
+        """
+        cached_raw = self._inputs.initial_payload.get("cached_details") or {}
+        if not isinstance(cached_raw, dict) or not cached_raw:
+            return set()
+
+        outline_ids = set(outline_unit_ids)
+        seeded: set[str] = set()
+        for uid, detail_dict in cached_raw.items():
+            if uid not in outline_ids:
+                continue
+            if not isinstance(detail_dict, dict):
+                continue
+            try:
+                detail = WorkUnitDetailPayload.model_validate(detail_dict)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "refuel.detail_cache_parse_failed",
+                    unit_id=uid,
+                    error=str(exc),
+                )
+                continue
+            # Replace any earlier instance of this uid (defensive).
+            self._accumulated_details = [
+                d for d in self._accumulated_details if d.id != uid
+            ]
+            self._accumulated_details.append(detail)
+            seeded.add(uid)
+        return seeded
 
     def _cache_detail(self, unit_id: str, detail: WorkUnitDetailPayload) -> None:
         """Persist a single unit's detail JSON."""

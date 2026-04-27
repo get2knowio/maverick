@@ -214,6 +214,119 @@ async def test_detail_ready_no_double_emit_for_unknown_unit(pool_address: str) -
         await xo.destroy_actor(sup)
 
 
+def test_seed_cached_details_loads_into_accumulator() -> None:
+    """``_seed_cached_details`` parses the workflow-supplied cache and
+    seeds ``_accumulated_details`` so the detail fan-out can skip those
+    units. Bug fix: previously this code was missing entirely — every
+    resumed run re-processed every unit even when detail JSON files
+    existed on disk."""
+    from types import SimpleNamespace
+
+    from maverick.actors.xoscar.refuel_supervisor import RefuelSupervisor
+
+    cached_details = {
+        "wu-1": {
+            "id": "wu-1",
+            "instructions": "do it",
+            "acceptance_criteria": [{"text": "passes", "trace_ref": "SC-001"}],
+            "verification": ["npm test"],
+            "test_specification": "tests pass",
+        },
+        "wu-3": {
+            "id": "wu-3",
+            "instructions": "ok",
+            "acceptance_criteria": [{"text": "ok", "trace_ref": "SC-003"}],
+            "verification": ["npm test"],
+            "test_specification": "ok",
+        },
+        # Stale entry — wu-99 not in the current outline.
+        "wu-99": {
+            "id": "wu-99",
+            "instructions": "stale",
+            "verification": ["x"],
+        },
+        # Malformed entry — fails Pydantic validation.
+        "wu-bad": "not a mapping",
+    }
+    sup = RefuelSupervisor(
+        RefuelInputs(
+            cwd="/tmp",
+            flight_plan=SimpleNamespace(
+                name="plan", objective="x", success_criteria=[]
+            ),
+            initial_payload={"cached_details": cached_details},
+            skip_briefing=True,
+        )
+    )
+    sup._accumulated_details = []  # __post_create__ usually does this
+
+    seeded = sup._seed_cached_details(["wu-1", "wu-2", "wu-3"])
+    assert seeded == {"wu-1", "wu-3"}
+    accumulator_ids = {d.id for d in sup._accumulated_details}
+    assert accumulator_ids == {"wu-1", "wu-3"}
+    # Stale entry never made it into the accumulator.
+    assert all(d.id != "wu-99" for d in sup._accumulated_details)
+
+
+@pytest.mark.asyncio
+async def test_prompt_error_detail_records_quota_signal(pool_address: str) -> None:
+    """``prompt_error`` for the detail phase records ``quota_exhausted``
+    signals into ``_detail_quota_errors`` so the dispatcher can skip
+    doomed retries against the same exhausted provider."""
+    sup = await _build_supervisor(pool_address, uid="ref-sup-quota-record")
+    try:
+        await sup.prompt_error(
+            PromptError(
+                phase="detail",
+                error="You've hit your usage limit; resets 6am UTC",
+                unit_id="wu-1",
+                quota_exhausted=True,
+            )
+        )
+        # Non-quota detail errors must NOT be recorded — only quota.
+        await sup.prompt_error(
+            PromptError(
+                phase="detail",
+                error="some random transient",
+                unit_id="wu-2",
+                quota_exhausted=False,
+            )
+        )
+
+        async def _peek_quota(s: RefuelSupervisor) -> dict[str, str]:
+            return dict(s._detail_quota_errors)
+
+        # Use a thin t_ probe (added below) so we can read the dict
+        # across the actor boundary without hand-rolling RPC plumbing.
+        snapshot = await sup.t_peek_detail_quota_errors()
+        assert "wu-1" in snapshot
+        assert "wu-2" not in snapshot
+        assert "limit" in snapshot["wu-1"].lower()
+    finally:
+        await xo.destroy_actor(sup)
+
+
+def test_seed_cached_details_no_op_when_no_cache() -> None:
+    """Empty cache → no-op, returns empty set, accumulator unchanged."""
+    from types import SimpleNamespace
+
+    from maverick.actors.xoscar.refuel_supervisor import RefuelSupervisor
+
+    sup = RefuelSupervisor(
+        RefuelInputs(
+            cwd="/tmp",
+            flight_plan=SimpleNamespace(
+                name="plan", objective="x", success_criteria=[]
+            ),
+            initial_payload={},
+            skip_briefing=True,
+        )
+    )
+    sup._accumulated_details = []
+    assert sup._seed_cached_details(["wu-1", "wu-2"]) == set()
+    assert sup._accumulated_details == []
+
+
 def test_merge_to_specs_skips_unparseable_specs() -> None:
     """A unit whose merged dict fails ``WorkUnitSpec.model_validate``
     (e.g., empty verification) is logged + dropped — never appended as a

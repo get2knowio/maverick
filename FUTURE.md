@@ -38,7 +38,7 @@ It reconciles those documents against the current codebase as of 2026-04-19 and 
 | Supervisor agent for adaptive orchestration | Active | Still missing. |
 | Supervisor-driven resource tuning | Active | Still missing and depends on better telemetry. |
 | Asynchronous human review queue | Partial | Human-review beads and CLI exist; question queue and mid-flight answering do not. |
-| Provider quota detection and automatic failover | Partial | Tier 1 exists; wait-and-resume and automatic failover do not. |
+| Provider quota detection and automatic failover | Partial | Tier 1 (detection) + Tier 1.5 (detail-phase surfacing + retry short-circuit) exist. Tier 2 (wait-and-resume) and Tier 3 (automatic failover) are not yet built — see §6.2. |
 | Step-level evals and prompt testing | Active | Still missing. |
 | Idempotent `maverick init` | Implemented | Re-running on a project with an existing `maverick.yaml` now succeeds, re-runs only the idempotent steps (prereqs, beads, runway), and leaves config untouched. `--force` still regenerates. |
 | Route tool calls through owning actor | Active | MCP inbox still bypasses the owning actor and talks straight to the supervisor. |
@@ -1140,21 +1140,120 @@ These should not be treated as primary future work anymore.
 
 The current seed path is exercised by [tests/unit/runway/test_seed.py](tests/unit/runway/test_seed.py) and backed by [src/maverick/runway/seed.py](src/maverick/runway/seed.py). Keep regression coverage, but retire the old "seed is broken" framing.
 
-### 6.2 Provider Quota Detection Tier 1
+### 6.2 Provider Quota Detection And Recovery
 
-**Status:** Partial
+**Status:** Partial — Tier 1 + Tier 1.5 implemented; Tier 2 + Tier 3 still open.
 
-The clean-failure baseline is in place. The remaining future work is:
+#### Tier 1 — Detection (implemented)
 
-- wait and resume after reset;
-- automatic provider failover;
-- maybe usage tracking that makes those decisions easier later.
+- :func:`maverick.exceptions.quota.is_quota_error` regex-detects quota
+  exhaustion in upstream error strings.
+- Every agent actor (decomposer, implementer, reviewer, briefing,
+  generator) sets ``quota_exhausted=True`` on the
+  :class:`PromptError` it sends the supervisor.
+- :class:`PlanSupervisor` and :class:`RefuelSupervisor` surface the
+  flag for outline / fix / briefing phases (top-level abort with the
+  flag in the result).
+
+#### Tier 1.5 — Detail-Phase Surfacing And Retry Short-Circuit (implemented)
+
+The detail phase used to silently swallow ``quota_exhausted`` to a
+``logger.debug`` and burn the full retry budget against the exhausted
+provider. As shipped:
+
+- :class:`RefuelSupervisor` records ``unit_id → error_str`` on the
+  ``_detail_quota_errors`` map when ``prompt_error`` reports a
+  quota signal during detail phase.
+- ``_run_detail_fan_out._one`` consults that map after each
+  ``send_detail`` returns. If quota was reported, it abandons the unit
+  immediately (skipping the remaining retries — they would all fail
+  the same way) and emits ``AgentCompleted`` with
+  ``error="quota: <truncated message>"``.
+- The abandon-step error message breaks out the quota-driven count
+  separately (``"X/Y unit(s) abandoned — N due to provider quota
+  exhaustion (resets 6am UTC). Successful units are cached on disk
+  ..."``), guiding the user to either wait or switch tier.
+- The CLI agent-table renderer shows the ``error`` suffix on failed
+  rows (``∟ unit-id (provider/model) (quota) ✗``).
+
+#### Tier 2 — Wait-And-Resume (open)
+
+When a tier hits quota mid-run, pause new dispatch for that tier and
+resume automatically when capacity returns. The hard parts:
+
+- **What's the wait signal?** ``parse_quota_reset`` already pulls
+  reset-time hints from common error strings (``"resets 6am UTC"``).
+  When parseable, sleep until then plus a small jitter; otherwise
+  fall back to exponential backoff with a sane cap (e.g. 5 / 15 /
+  60 minutes).
+- **Per-tier pause, not global.** The demand pool's tier
+  identity already gives us this: a quota event on the ``moderate``
+  tier should not block ``simple`` or ``complex`` workers from
+  picking up their own units.
+- **Live-table feedback.** Currently a paused tier looks identical
+  to a stuck one. Need a "paused — resumes in 17 min" status row so
+  the user knows the run is alive.
+- **How do we know capacity returned?** Either the user-supplied
+  reset time or a probe: dispatch a single tiny prompt periodically
+  and resume the full pool when it succeeds.
+
+Sketch:
+
+```python
+class _DecomposerPool:
+    # New state:
+    _tier_paused_until: dict[str, float]  # tier → monotonic deadline
+
+    async def acquire(self, tier):
+        # ... existing reuse / spawn / evict logic ...
+        # Before spawning OR busy-wait, honor a paused tier.
+        deadline = self._tier_paused_until.get(tier)
+        if deadline and time.monotonic() < deadline:
+            await sleep_until(deadline)
+            self._tier_paused_until.pop(tier, None)
+        # ... continue ...
+```
+
+Plus supervisor-side: when ``prompt_error`` records a quota event,
+call ``pool.pause_tier(tier_name, until=parse_quota_reset(err) or
+default_backoff)``. The pool refuses new work for that tier until the
+deadline.
+
+This is not landed because the design needs care around three things:
+
+1. **Don't leak unit-tier mapping back into prompt_error.** Today the
+   supervisor doesn't know which tier a quota-erroring unit was
+   running against — that lives in the dispatch-side closure in
+   ``_one``. We'd thread tier_name into ``PromptError`` or maintain a
+   ``unit_id → tier_name`` map populated at acquire-time.
+2. **Don't pause a tier indefinitely.** If the reset string is
+   unparseable AND the probe never succeeds (network down? wrong
+   error?), we need a bound on how long we'll wait before giving up
+   and abandoning.
+3. **Caching aligns with this.** Per-unit detail caching (already
+   implemented) means a paused-then-resumed run only re-processes
+   the units that hadn't completed before the pause, so the wait
+   isn't an obvious throughput hit.
+
+#### Tier 3 — Automatic Failover (open)
+
+When a tier hits quota and the user has configured a fallback model
+for that tier, switch to the fallback for the duration of the
+quota-reset window. Requires a per-tier ``fallback`` field on
+``ImplementerTierConfig`` / ``DecomposerTierConfig``. Failover is
+strictly opt-in; without an explicit fallback, Tier 2 wait-and-resume
+is the only remediation.
+
+This is the right shape only after Tier 2 ships — Tier 2 establishes
+the per-tier pause primitive, and Tier 3 is just "instead of pause,
+re-route." Don't build them in the other order.
 
 Relevant code:
 
 - [src/maverick/exceptions/quota.py](src/maverick/exceptions/quota.py)
-- [src/maverick/actors/plan_supervisor.py](src/maverick/actors/plan_supervisor.py)
-- [src/maverick/actors/refuel_supervisor.py](src/maverick/actors/refuel_supervisor.py)
+- [src/maverick/actors/xoscar/plan_supervisor.py](src/maverick/actors/xoscar/plan_supervisor.py)
+- [src/maverick/actors/xoscar/refuel_supervisor.py](src/maverick/actors/xoscar/refuel_supervisor.py)
+- [src/maverick/actors/xoscar/decomposer.py](src/maverick/actors/xoscar/decomposer.py) (and peers)
 
 ### 6.3 Review Retry Caps
 
