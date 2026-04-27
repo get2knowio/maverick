@@ -269,6 +269,33 @@ def test_seed_cached_details_loads_into_accumulator() -> None:
 
 
 @pytest.mark.asyncio
+async def test_decomposer_escalation_threshold_default_is_one(
+    pool_address: str,
+) -> None:
+    """``DecomposerTiersConfig.escalation_threshold`` defaults to 1 so the
+    common case (one moderate tier failure escalates to complex) is the
+    out-of-the-box behaviour. ``ImplementerTiersConfig`` defaults to 2;
+    decomposer detail is mechanical enough that 1 is the right default."""
+    from maverick.config import DecomposerTiersConfig, ImplementerTierConfig
+
+    cfg = DecomposerTiersConfig(
+        moderate=ImplementerTierConfig(provider="copilot", model_id="gpt-5.4"),
+        complex=ImplementerTierConfig(
+            provider="copilot", model_id="gpt-5.3-codex"
+        ),
+    )
+    assert cfg.escalation_threshold == 1
+
+    # Threshold 0 (disable) is legal.
+    disabled = DecomposerTiersConfig(escalation_threshold=0)
+    assert disabled.escalation_threshold == 0
+
+    # Threshold > 5 is rejected by the Pydantic validator.
+    with pytest.raises(Exception):  # noqa: PT011 — pydantic ValidationError shape varies
+        DecomposerTiersConfig(escalation_threshold=99)
+
+
+@pytest.mark.asyncio
 async def test_prompt_error_detail_records_quota_signal(pool_address: str) -> None:
     """``prompt_error`` for the detail phase records ``quota_exhausted``
     signals into ``_detail_quota_errors`` so the dispatcher can skip

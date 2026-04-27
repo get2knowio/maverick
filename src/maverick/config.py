@@ -280,12 +280,21 @@ class DecomposerTiersConfig(BaseModel):
     Attributes:
         trivial / simple / moderate / complex: Per-tier overrides.
             Reuses :class:`ImplementerTierConfig`.
+        escalation_threshold: Number of *escalation steps* allowed per unit
+            after the same-tier retry budget is exhausted. Default ``1``
+            allows one escalation: a unit that fails on its assigned tier
+            (timeout, no-tool-call, or quota) gets one re-attempt at the
+            next-defined-higher tier. ``0`` disables escalation. Mirrors
+            :class:`ImplementerTiersConfig.escalation_threshold` but with
+            a default of 1 — detail generation is mechanical enough that
+            escalating once on failure is almost always the right call.
     """
 
     trivial: ImplementerTierConfig | None = None
     simple: ImplementerTierConfig | None = None
     moderate: ImplementerTierConfig | None = None
     complex: ImplementerTierConfig | None = None
+    escalation_threshold: int = Field(default=1, ge=0, le=5)
 
 
 class ParallelConfig(BaseModel):

@@ -378,6 +378,17 @@ class RefuelSupervisor(xo.Actor):
         # an exhausted provider is wasted budget) and surfaced in the
         # abandon-step error so the user knows quota was the cause.
         self._detail_quota_errors: dict[str, str] = {}
+        # Per-unit escalation state. ``_unit_escalation_levels[uid]`` is
+        # the current escalation level (0 = base tier, 1 = one tier up,
+        # etc.). ``_unit_current_display_name[uid]`` is the agent_name
+        # used for AgentStarted/AgentCompleted events at the unit's
+        # CURRENT tier attempt — same as ``uid`` initially, with a "↑"
+        # suffix per escalation step (so the CLI shows each tier attempt
+        # as its own row). ``detail_ready`` reads this map to emit the
+        # success ✓ against the right row.
+        self._unit_escalation_levels: dict[str, int] = {}
+        self._unit_current_display_name: dict[str, str] = {}
+        self._unit_escalated_count: int = 0
 
         # Briefing state
         self._briefing_results: dict[str, SupervisorInboxPayload] = {}
@@ -944,10 +955,13 @@ class RefuelSupervisor(xo.Actor):
         ]
 
         self._pending_detail_ids = set(unit_ids_to_dispatch)
-        # Stable denominator + abandon / quota tracking for the run.
+        # Stable denominator + abandon / quota / escalation tracking for the run.
         self._detail_total_count = len(unit_ids)
         self._abandoned_unit_ids = set()
         self._detail_quota_errors = {}
+        self._unit_escalation_levels = {}
+        self._unit_current_display_name = {}
+        self._unit_escalated_count = 0
         if cached_unit_ids:
             await self._emit_output(
                 "refuel",
@@ -988,19 +1002,30 @@ class RefuelSupervisor(xo.Actor):
             for wu in self._outline.work_units:
                 complexity_by_unit[wu.id] = getattr(wu, "complexity", None)
 
-        def _tier_for(unit_id: str) -> str:
-            """Resolve the tier name for ``unit_id``. In tier mode the
-            demand pool's tier set drives this; in legacy mode there's
-            only one tier (the default)."""
+        def _tier_for_level(unit_id: str, escalation_level: int) -> str:
+            """Resolve the tier name for ``unit_id`` at a given escalation
+            level. ``escalation_level=0`` is the unit's natural tier;
+            higher levels walk up to the next-defined tier (skipping
+            undefined gaps). Mirrors :meth:`FlySupervisor._resolve_tier_in`
+            usage in the implementer-tier path."""
             assert self._decomposer_pool_dynamic is not None
-            # Build the tier-keys map on the fly from the configured tiers.
             d_tiers = self._inputs.decomposer_tiers
             tier_keys = {
                 t: True for t in TIER_ORDER if getattr(d_tiers, t, None) is not None
             }
             return FlySupervisor._resolve_tier_in(
-                tier_keys, complexity_by_unit.get(unit_id), 0
+                tier_keys, complexity_by_unit.get(unit_id), escalation_level
             )
+
+        def _can_escalate(unit_id: str, current_level: int) -> bool:
+            """True iff escalating ``unit_id`` from ``current_level`` would
+            land on a different (higher-defined) tier. False when the
+            current tier is already the highest defined."""
+            if not in_tier_mode:
+                return False
+            current_tier = _tier_for_level(unit_id, current_level)
+            next_tier = _tier_for_level(unit_id, current_level + 1)
+            return current_tier != next_tier
 
         def _legacy_worker_for(fallback_index: int) -> Any:
             return workers[fallback_index % pool_size]
@@ -1010,18 +1035,39 @@ class RefuelSupervisor(xo.Actor):
             assert self._decomposer_pool_dynamic is not None
             return f"{tier} · {self._decomposer_pool_dynamic.tier_label(tier)}"
 
-        async def _one(index: int, unit_id: str) -> None:
-            # Determine the tier and (for tier mode) acquire from the
-            # demand pool — which spawns / reuses / evicts as needed.
-            # AgentStarted fires only after we hold both the semaphore
-            # AND a worker, so queued units don't show a misleading
-            # spinner while actually waiting on the budget.
+        # Escalation budget for this run. ``threshold`` is the maximum
+        # number of escalation steps any unit may take; ``0`` means the
+        # legacy "abandon after same-tier retries" behaviour.
+        escalation_threshold = 0
+        if in_tier_mode and self._inputs.decomposer_tiers is not None:
+            escalation_threshold = getattr(
+                self._inputs.decomposer_tiers, "escalation_threshold", 0
+            )
+
+        async def _try_one_tier(
+            index: int, unit_id: str, escalation_level: int
+        ) -> tuple[str, str]:
+            """Run the same-tier retry loop for one tier attempt.
+
+            Returns ``(outcome, error_message)`` where ``outcome`` is one
+            of ``"success"`` / ``"timeout"`` / ``"no_tool_call"`` /
+            ``"quota"``. The caller decides whether to escalate or
+            abandon based on the outcome.
+
+            Emits AgentStarted on first attempt and AgentCompleted on
+            any non-success outcome (success is emitted by ``detail_ready``
+            via ``_emit_unit_completed``). The unit's display name is
+            updated before this is called so AgentStarted/Completed land
+            on the right CLI row.
+            """
+            tier_name = ""  # populated inside the loop in tier mode
+            label = self._default_decomposer_label
             started = False
             for attempt in range(MAX_DETAIL_RETRIES + 1):
                 async with semaphore:
                     if in_tier_mode:
                         assert self._decomposer_pool_dynamic is not None
-                        tier_name = _tier_for(unit_id)
+                        tier_name = _tier_for_level(unit_id, escalation_level)
                         assigned = await self._decomposer_pool_dynamic.acquire(
                             tier_name
                         )
@@ -1034,7 +1080,11 @@ class RefuelSupervisor(xo.Actor):
                         if not started:
                             self._unit_start_times[unit_id] = _time.monotonic()
                             await self._emit_agent_started(
-                                "decompose", unit_id, label
+                                "decompose",
+                                self._unit_current_display_name.get(
+                                    unit_id, unit_id
+                                ),
+                                label,
                             )
                             started = True
                         try:
@@ -1044,77 +1094,105 @@ class RefuelSupervisor(xo.Actor):
                             )
                         except TimeoutError:
                             if attempt < MAX_DETAIL_RETRIES:
-                                # Intra-actor retry — debug-only.
                                 logger.debug(
                                     "refuel.detail.timeout_retry",
                                     unit_id=unit_id,
                                     attempt=attempt + 1,
+                                    escalation_level=escalation_level,
                                 )
                                 continue
-                            # Abandon. The ✗ in the per-unit table (via
-                            # AgentCompleted with success=False) is the
-                            # user-visible signal — no need for a
-                            # duplicate scrolling line. Failure surfaces
-                            # at step level via abandoned_unit_ids.
                             logger.warning(
-                                "refuel.detail.abandoned_timeout",
+                                "refuel.detail.tier_failed_timeout",
                                 unit_id=unit_id,
+                                escalation_level=escalation_level,
                             )
-                            self._pending_detail_ids.discard(unit_id)
-                            self._abandoned_unit_ids.add(unit_id)
                             await self._emit_unit_completed(
                                 unit_id, success=False, error="timed out"
                             )
-                            return
+                            return ("timeout", "timed out")
                     finally:
-                        # Always return the actor to the pool — both on
-                        # success (detail_ready already cleared pending)
-                        # and on retry/timeout/abandon.
                         if in_tier_mode:
                             assert self._decomposer_pool_dynamic is not None
                             await self._decomposer_pool_dynamic.release(
                                 assigned, tier_name
                             )
-                # send_detail returned. If the tool call landed, unit has been
-                # removed from pending_detail_ids by detail_ready. Otherwise,
-                # the agent skipped its tool call; retry once — UNLESS the
-                # actor reported a quota error during this attempt, in
-                # which case retrying against the same exhausted provider
-                # is doomed and would just burn another timeout window.
+                # send_detail returned. If detail_ready cleared pending,
+                # we succeeded.
                 if unit_id not in self._pending_detail_ids:
-                    return
+                    return ("success", "")
                 if unit_id in self._detail_quota_errors:
+                    err = self._detail_quota_errors[unit_id]
                     logger.warning(
-                        "refuel.detail.abandoned_quota",
+                        "refuel.detail.tier_failed_quota",
                         unit_id=unit_id,
                         attempt=attempt + 1,
                         provider=label,
+                        escalation_level=escalation_level,
                     )
-                    self._pending_detail_ids.discard(unit_id)
-                    self._abandoned_unit_ids.add(unit_id)
                     await self._emit_unit_completed(
                         unit_id,
                         success=False,
-                        error=f"quota: {self._detail_quota_errors[unit_id][:80]}",
+                        error=f"quota: {err[:80]}",
                     )
-                    return
+                    return ("quota", err)
                 if attempt < MAX_DETAIL_RETRIES:
-                    # Intra-actor retry — debug-only.
                     logger.debug(
                         "refuel.detail.no_tool_call_retry",
                         unit_id=unit_id,
                         attempt=attempt + 1,
+                        escalation_level=escalation_level,
                     )
                     continue
-                # Abandon — see comment above for why we don't emit_output.
                 logger.warning(
-                    "refuel.detail.abandoned_no_tool_call", unit_id=unit_id
+                    "refuel.detail.tier_failed_no_tool_call",
+                    unit_id=unit_id,
+                    escalation_level=escalation_level,
                 )
-                self._pending_detail_ids.discard(unit_id)
-                self._abandoned_unit_ids.add(unit_id)
                 await self._emit_unit_completed(
                     unit_id, success=False, error="no tool call"
                 )
+                return ("no_tool_call", "no tool call")
+            # Defensive fallthrough — should be unreachable.
+            return ("no_tool_call", "no tool call")
+
+        async def _one(index: int, unit_id: str) -> None:
+            # AgentStarted fires only after we hold both the semaphore
+            # AND a worker (inside _try_one_tier), so queued units don't
+            # show a misleading spinner while waiting on the budget.
+            self._unit_current_display_name[unit_id] = unit_id
+            self._unit_escalation_levels[unit_id] = 0
+            for level in range(escalation_threshold + 1):
+                if level > 0:
+                    # Update display name so the new tier attempt shows
+                    # as a fresh CLI row. ``↑`` per escalation step.
+                    self._unit_current_display_name[unit_id] = (
+                        f"{unit_id}" + " ↑" * level
+                    )
+                    self._unit_escalation_levels[unit_id] = level
+                    # Clear any quota signal recorded against the previous
+                    # tier; we may now be on a different provider.
+                    self._detail_quota_errors.pop(unit_id, None)
+                outcome, err_msg = await _try_one_tier(index, unit_id, level)
+                if outcome == "success":
+                    return
+                # Failure on this tier. Escalate if budget allows AND a
+                # higher tier exists.
+                if level < escalation_threshold and _can_escalate(unit_id, level):
+                    from_tier = _tier_for_level(unit_id, level)
+                    to_tier = _tier_for_level(unit_id, level + 1)
+                    self._unit_escalated_count += 1
+                    await self._emit_output(
+                        "refuel",
+                        (
+                            f"Escalating {unit_id!r}: {from_tier} "
+                            f"→ {to_tier} ({err_msg})"
+                        ),
+                        level="info",
+                    )
+                    continue
+                # No more escalation possible — final abandon.
+                self._pending_detail_ids.discard(unit_id)
+                self._abandoned_unit_ids.add(unit_id)
                 return
 
         await asyncio.gather(*[_one(i, uid) for i, uid in enumerate(unit_ids)])
@@ -1449,14 +1527,18 @@ class RefuelSupervisor(xo.Actor):
 
         Wall-clock duration is computed from ``_unit_start_times``,
         seeded by the dispatch in ``_run_detail_fan_out``. A missing
-        start time (defensive) yields 0.0s.
+        start time (defensive) yields 0.0s. The agent_name used in the
+        event is the unit's current display name (``unit_id`` for the
+        base tier attempt, ``"unit_id ↑"`` after one escalation, etc.)
+        so the right CLI row gets the ✓/✗.
         """
         import time as _time
 
         start = self._unit_start_times.pop(unit_id, _time.monotonic())
         elapsed = _time.monotonic() - start
+        display_name = self._unit_current_display_name.get(unit_id, unit_id)
         await self._emit_agent_completed(
-            "decompose", unit_id, elapsed, success=success, error=error
+            "decompose", display_name, elapsed, success=success, error=error
         )
 
     def _mark_done(self, result: dict[str, Any] | None) -> None:

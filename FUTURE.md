@@ -38,7 +38,7 @@ It reconciles those documents against the current codebase as of 2026-04-19 and 
 | Supervisor agent for adaptive orchestration | Active | Still missing. |
 | Supervisor-driven resource tuning | Active | Still missing and depends on better telemetry. |
 | Asynchronous human review queue | Partial | Human-review beads and CLI exist; question queue and mid-flight answering do not. |
-| Provider quota detection and automatic failover | Partial | Tier 1 (detection) + Tier 1.5 (detail-phase surfacing + retry short-circuit) exist. Tier 2 (wait-and-resume) and Tier 3 (automatic failover) are not yet built — see §6.2. |
+| Provider quota detection and automatic failover | Partial | Tier 1 (detection) + Tier 1.5 (detail-phase surfacing + retry short-circuit) + Tier 1.6 (decomposer escalation on any abandon) exist. Tier 2 (wait-and-resume) and Tier 3 (automatic failover) are not yet built — see §6.2. |
 | Step-level evals and prompt testing | Active | Still missing. |
 | Idempotent `maverick init` | Implemented | Re-running on a project with an existing `maverick.yaml` now succeeds, re-runs only the idempotent steps (prereqs, beads, runway), and leaves config untouched. `--force` still regenerates. |
 | Route tool calls through owning actor | Active | MCP inbox still bypasses the owning actor and talks straight to the supervisor. |
@@ -828,6 +828,9 @@ What we'd want:
   (similar to the implementer fix-loop escalation in §2.10 Phase 2)
   rather than just failing the bead. The runway already records
   per-bead outcomes — this would be observable.
+  *Status note*: implemented for the **decomposer detail** path in §6.2
+  Tier 1.6. Still open for briefing / generator / reviewer mailbox
+  paths.
 - **Prefer copilot or claude for tool-required actors**: the four
   agentic actor types (briefing, decomposer, implementer, reviewer,
   generator) all *require* MCP tool calls. The non-agentic `steps`
@@ -1175,6 +1178,43 @@ provider. As shipped:
   ..."``), guiding the user to either wait or switch tier.
 - The CLI agent-table renderer shows the ``error`` suffix on failed
   rows (``∟ unit-id (provider/model) (quota) ✗``).
+
+#### Tier 1.6 — Decomposer Detail-Phase Escalation (implemented)
+
+The implementer already escalates beads to a higher tier on fix-loop
+overflow (§2.10 Phase 2). The decomposer detail phase now does the same
+on any unit abandon — timeout, no-tool-call, or quota.
+
+As shipped:
+
+- New ``DecomposerTiersConfig.escalation_threshold`` (default ``1``,
+  range 0–5). ``1`` allows one escalation: a unit that fails on its
+  natural tier gets one re-attempt at the next-defined-higher tier.
+  ``0`` disables escalation entirely.
+- :meth:`RefuelSupervisor._run_detail_fan_out` now wraps the existing
+  same-tier retry loop in an outer escalation loop. After the inner
+  loop returns ``"timeout" | "no_tool_call" | "quota"``, the outer
+  loop checks if a higher tier exists (via
+  :meth:`FlySupervisor._resolve_tier_in` with ``escalation_level + 1``)
+  and re-dispatches once at that tier. The inner ``_try_one_tier``
+  helper emits its own AgentStarted/AgentCompleted pair per attempt.
+- Per-unit display name carries a ``↑`` suffix per escalation step
+  (``unit-id`` → ``unit-id ↑`` → ``unit-id ↑↑``) so the CLI shows each
+  tier attempt as a separate row. Reading the table top-to-bottom, the
+  user can see exactly which tier won.
+- Quota signals from the previous tier are cleared before the
+  escalation attempt (different tier may be a different provider with
+  no quota issue). If both tiers share a provider, the same-tier quota
+  short-circuit fires again on the new attempt and the unit abandons
+  in seconds — no wasted retry budget.
+- ``_unit_escalated_count`` tracks how many escalations happened in
+  the run for telemetry.
+
+Why default ``1`` instead of the implementer's ``2``: detail generation
+is mostly mechanical, and a single escalation step from moderate→complex
+captures essentially all "this tier is too weak for this unit" cases.
+A second escalation step rarely adds value because the highest-defined
+tier is the strongest option available.
 
 #### Tier 2 — Wait-And-Resume (open)
 
