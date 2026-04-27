@@ -214,6 +214,130 @@ async def test_detail_ready_no_double_emit_for_unknown_unit(pool_address: str) -
         await xo.destroy_actor(sup)
 
 
+def test_merge_to_specs_skips_unparseable_specs() -> None:
+    """A unit whose merged dict fails ``WorkUnitSpec.model_validate``
+    (e.g., empty verification) is logged + dropped — never appended as a
+    raw dict. Was the silent fallback that hid the upstream abandon."""
+    from types import SimpleNamespace
+
+    from maverick.actors.xoscar.refuel_supervisor import RefuelSupervisor
+    from maverick.tools.agent_inbox.models import (
+        AcceptanceCriterionPayload,
+        SubmitDetailsPayload,
+        SubmitOutlinePayload,
+        WorkUnitDetailPayload,
+        WorkUnitOutlinePayload,
+    )
+    from maverick.workflows.refuel_maverick.models import WorkUnitSpec
+
+    sup = RefuelSupervisor(
+        RefuelInputs(
+            cwd="/tmp",
+            flight_plan=SimpleNamespace(
+                name="plan", objective="x", success_criteria=[]
+            ),
+            initial_payload={},
+            skip_briefing=True,
+        )
+    )
+    sup._outline = SubmitOutlinePayload(
+        work_units=(
+            WorkUnitOutlinePayload(id="wu-good", task="t1", sequence=1),
+            WorkUnitOutlinePayload(id="wu-bad", task="t2", sequence=2),
+        )
+    )
+    # wu-bad: empty verification → WorkUnitSpec rejects it.
+    sup._details = SubmitDetailsPayload(
+        details=(
+            WorkUnitDetailPayload(
+                id="wu-good",
+                instructions="ok",
+                acceptance_criteria=(
+                    AcceptanceCriterionPayload(text="t", trace_ref="SC-1"),
+                ),
+                verification=("npm test",),
+            ),
+            WorkUnitDetailPayload(
+                id="wu-bad",
+                instructions="ok",
+                acceptance_criteria=(
+                    AcceptanceCriterionPayload(text="t", trace_ref="SC-2"),
+                ),
+                verification=(),  # empty → validation fails
+            ),
+        )
+    )
+    specs = sup._merge_to_specs()
+    assert len(specs) == 1
+    assert isinstance(specs[0], WorkUnitSpec)
+    assert specs[0].id == "wu-good"
+
+
+def test_merge_to_specs_skips_units_without_detail() -> None:
+    """``_merge_to_specs`` drops units missing detail entirely instead of
+    falling back to a raw dict — preventing the cascading
+    `'dict' object has no attribute 'id'` validator crash."""
+    from types import SimpleNamespace
+
+    from maverick.actors.xoscar.refuel_supervisor import RefuelSupervisor
+    from maverick.tools.agent_inbox.models import (
+        AcceptanceCriterionPayload,
+        SubmitDetailsPayload,
+        SubmitOutlinePayload,
+        WorkUnitDetailPayload,
+        WorkUnitOutlinePayload,
+    )
+    from maverick.workflows.refuel_maverick.models import WorkUnitSpec
+
+    sup = RefuelSupervisor(
+        RefuelInputs(
+            cwd="/tmp",
+            flight_plan=SimpleNamespace(
+                name="plan", objective="x", success_criteria=[]
+            ),
+            initial_payload={},
+            skip_briefing=True,
+        )
+    )
+    # Outline has 3 units; details have only 2 — wu-2 was abandoned.
+    sup._outline = SubmitOutlinePayload(
+        work_units=(
+            WorkUnitOutlinePayload(id="wu-1", task="t1", sequence=1),
+            WorkUnitOutlinePayload(id="wu-2", task="t2", sequence=2),
+            WorkUnitOutlinePayload(id="wu-3", task="t3", sequence=3),
+        )
+    )
+    sup._details = SubmitDetailsPayload(
+        details=(
+            WorkUnitDetailPayload(
+                id="wu-1",
+                instructions="do it",
+                acceptance_criteria=(
+                    AcceptanceCriterionPayload(text="passes", trace_ref="SC-001"),
+                ),
+                verification=("npm test",),
+                test_specification="t",
+            ),
+            WorkUnitDetailPayload(
+                id="wu-3",
+                instructions="do it 3",
+                acceptance_criteria=(
+                    AcceptanceCriterionPayload(text="passes", trace_ref="SC-002"),
+                ),
+                verification=("npm test",),
+                test_specification="t3",
+            ),
+        )
+    )
+    specs = sup._merge_to_specs()
+    # Only wu-1 and wu-3 — wu-2 (no detail) is silently dropped.
+    assert len(specs) == 2
+    assert all(isinstance(s, WorkUnitSpec) for s in specs), (
+        "no raw dicts should leak into the spec list"
+    )
+    assert {s.id for s in specs} == {"wu-1", "wu-3"}
+
+
 @pytest.mark.asyncio
 async def test_tier_mode_demand_pool_starts_empty(pool_address: str) -> None:
     """Tier mode uses a demand-driven pool — actors are spawned when work

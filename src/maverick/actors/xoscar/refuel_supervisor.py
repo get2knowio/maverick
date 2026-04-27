@@ -365,6 +365,12 @@ class RefuelSupervisor(xo.Actor):
         # events that surface "which model is working on which unit" in the
         # Rich Live decompose table. Populated in `_run_detail_fan_out`.
         self._unit_start_times: dict[str, float] = {}
+        # Total unit count + abandoned set, set at the start of the detail
+        # fan-out. Used for the X/Y progress denominator (so it stays
+        # stable when units are abandoned) and for fail-the-step logic
+        # (we can't ship a partial decomposition).
+        self._detail_total_count: int = 0
+        self._abandoned_unit_ids: set[str] = set()
 
         # Briefing state
         self._briefing_results: dict[str, SupervisorInboxPayload] = {}
@@ -747,6 +753,46 @@ class RefuelSupervisor(xo.Actor):
         unit_ids = [wu.id for wu in self._outline.work_units if wu.id]
         await self._run_detail_fan_out(unit_ids)
 
+        # Abandons short-circuit the rest of the pipeline. The fix loop
+        # can address SC-coverage gaps and similar issues the LLM can
+        # re-reason about, but it cannot recover units the worker model
+        # never produced details for — that would require re-running
+        # decompose with a different (more reliable) tier model. Emit a
+        # clear error and fail the step so the user gets actionable
+        # feedback instead of three doomed fix rounds + a Pydantic error.
+        if self._abandoned_unit_ids:
+            abandoned_count = len(self._abandoned_unit_ids)
+            elapsed_ms = int((_time.monotonic() - decompose_start) * 1000)
+            await self._emit_output(
+                "refuel",
+                (
+                    f"{abandoned_count}/{self._detail_total_count} unit(s) "
+                    f"abandoned during decompose — the worker model didn't "
+                    f"submit details. Likely cause: an unreliable MCP-tool "
+                    f"caller in the affected tier. Check the per-unit "
+                    f"table above for the failed model; consider switching "
+                    f"to claude/sonnet for that tier."
+                ),
+                level="error",
+            )
+            await self._emit_phase_completed(
+                "decompose",
+                "Decomposing",
+                elapsed_ms,
+                success=False,
+                error=f"{abandoned_count} unit(s) abandoned",
+            )
+            self._mark_done(
+                {
+                    "success": False,
+                    "error": f"{abandoned_count} unit(s) abandoned",
+                    "abandoned_unit_ids": sorted(self._abandoned_unit_ids),
+                    "specs": [],
+                    "fix_rounds": 0,
+                }
+            )
+            return
+
         # Validate (with fix loop)
         self._details = SubmitDetailsPayload(details=tuple(self._accumulated_details))
         self._specs = self._merge_to_specs()
@@ -859,6 +905,9 @@ class RefuelSupervisor(xo.Actor):
             pool_size = len(workers)
 
         self._pending_detail_ids = set(unit_ids)
+        # Stable denominator + abandon tracking for the run.
+        self._detail_total_count = len(unit_ids)
+        self._abandoned_unit_ids = set()
         await self._emit_output(
             "refuel",
             f"Detailing {len(unit_ids)} unit(s) across {tier_summary} worker(s)",
@@ -942,12 +991,17 @@ class RefuelSupervisor(xo.Actor):
                                     attempt=attempt + 1,
                                 )
                                 continue
-                            await self._emit_output(
-                                "refuel",
-                                f"Unit {unit_id!r} timed out after retries — abandoning",
-                                level="error",
+                            # Abandon. The ✗ in the per-unit table (via
+                            # AgentCompleted with success=False) is the
+                            # user-visible signal — no need for a
+                            # duplicate scrolling line. Failure surfaces
+                            # at step level via abandoned_unit_ids.
+                            logger.warning(
+                                "refuel.detail.abandoned_timeout",
+                                unit_id=unit_id,
                             )
                             self._pending_detail_ids.discard(unit_id)
+                            self._abandoned_unit_ids.add(unit_id)
                             await self._emit_unit_completed(
                                 unit_id, success=False, error="timed out"
                             )
@@ -974,12 +1028,12 @@ class RefuelSupervisor(xo.Actor):
                         attempt=attempt + 1,
                     )
                     continue
-                await self._emit_output(
-                    "refuel",
-                    f"Unit {unit_id!r} abandoned after retries",
-                    level="error",
+                # Abandon — see comment above for why we don't emit_output.
+                logger.warning(
+                    "refuel.detail.abandoned_no_tool_call", unit_id=unit_id
                 )
                 self._pending_detail_ids.discard(unit_id)
+                self._abandoned_unit_ids.add(unit_id)
                 await self._emit_unit_completed(
                     unit_id, success=False, error="no tool call"
                 )
@@ -1056,13 +1110,9 @@ class RefuelSupervisor(xo.Actor):
         # each row done as soon as its worker submits.
         for uid in completed_uids:
             await self._emit_unit_completed(uid, success=True)
-        remaining = len(self._pending_detail_ids)
-        done = len(self._accumulated_details)
-        if remaining > 0:
-            await self._emit_output(
-                "refuel",
-                f"Detail {done}/{done + remaining} complete",
-            )
+        # No aggregate "Detail X/Y complete" emit — the per-unit table
+        # already shows progress with ✓/✗ per row, so the counter would
+        # be redundant noise in the buffered post-table output.
 
     @xo.no_lock
     async def fix_ready(self, payload: SubmitFixPayload) -> None:
@@ -1355,6 +1405,20 @@ class RefuelSupervisor(xo.Actor):
         return dump_supervisor_payload(self._details)
 
     def _merge_to_specs(self) -> list[Any]:
+        """Merge outline + details into typed ``WorkUnitSpec`` instances.
+
+        Units missing a detail (because the worker model never submitted
+        for them) are skipped — the abandon short-circuit before this
+        method runs ensures we never reach here with abandoned units in
+        the happy path, but the guard stays for defense-in-depth.
+
+        Units that fail ``WorkUnitSpec.model_validate`` are logged and
+        skipped rather than appended as raw dicts. Mixing dicts into the
+        spec list breaks every downstream consumer that calls ``.id`` or
+        similar on the items, and burying the parse error as a silent
+        fallback was the root cause of the 'dict' object has no
+        attribute 'id' validator crashes that ate three fix rounds.
+        """
         from maverick.workflows.refuel_maverick.models import WorkUnitSpec
 
         work_units = self._outline.work_units if self._outline else ()
@@ -1364,6 +1428,9 @@ class RefuelSupervisor(xo.Actor):
         specs: list[Any] = []
         for wu in work_units:
             detail = detail_map.get(wu.id)
+            if detail is None:
+                logger.warning("refuel.merge.skipping_no_detail", unit_id=wu.id)
+                continue
             merged = {
                 "id": wu.id,
                 "task": wu.task,
@@ -1371,21 +1438,25 @@ class RefuelSupervisor(xo.Actor):
                 "parallel_group": wu.parallel_group,
                 "depends_on": list(wu.depends_on),
                 "file_scope": dump_supervisor_payload(wu.file_scope),
-                "instructions": detail.instructions if detail else "",
-                "acceptance_criteria": (
-                    [dump_supervisor_payload(ac) for ac in detail.acceptance_criteria]
-                    if detail
-                    else []
-                ),
-                "verification": list(detail.verification) if detail else [],
-                "test_specification": detail.test_specification if detail else "",
+                "instructions": detail.instructions,
+                "acceptance_criteria": [
+                    dump_supervisor_payload(ac) for ac in detail.acceptance_criteria
+                ],
+                "verification": list(detail.verification),
+                "test_specification": detail.test_specification,
                 # Decomposer-assigned tier hint (None when not classified).
                 "complexity": getattr(wu, "complexity", None),
             }
             try:
                 specs.append(WorkUnitSpec.model_validate(merged))
-            except Exception:  # noqa: BLE001 — fall back to raw dict on parse failure
-                specs.append(merged)
+            except Exception as exc:  # noqa: BLE001
+                logger.error(
+                    "refuel.merge.spec_validation_failed",
+                    unit_id=wu.id,
+                    error=str(exc),
+                )
+                # Skip rather than appending raw dict — see docstring.
+                continue
         return specs
 
     def _extract_deps(self) -> list[list[str]]:
