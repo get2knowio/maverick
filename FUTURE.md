@@ -803,6 +803,57 @@ in the default config.
   (precedent for how the legacy review path handles this — worth
   reading before implementing for consistency)
 
+### 2.12 Free OpenRouter Models Often Skip MCP Tool Calls
+
+**Status:** Active (known limitation, hit during 2026-04-27 Phase 3
+validation)
+
+When `qwen3-coder:free` was wired into the moderate implementer tier
+via opencode/OpenRouter, the agent returned empty responses on both
+the initial prompt and the self-nudge — the model finished its turn
+without calling `submit_implementation` at all, and our `_run_with_self_nudge`
+helper correctly routed a `PromptError`. We've also seen similar
+patterns with other `:free`-suffixed OpenRouter models in earlier
+sessions.
+
+The hypothesis: free-tier OpenRouter routing tends to land on smaller
+or more aggressively rate-limited variants that either (a) don't
+reliably parse and emit MCP tool-call structure, or (b) are throttled
+hard enough that the response never lands within the prompt timeout.
+Either way, the mailbox-pattern actors (which require an MCP tool
+call to produce any useful output) silently fail.
+
+What we'd want:
+
+- **Detect the failure mode at config-load time**: when a tier is
+  configured with `provider: opencode` + `model_id: *:free`, emit a
+  warning that MCP-tool reliability is not guaranteed and recommend a
+  fallback tier or a paid alternative.
+- **Optionally auto-fallback on consecutive empty turns**: if an actor
+  produces N empty turns in a row, escalate the bead one tier up
+  (similar to the implementer fix-loop escalation in §2.10 Phase 2)
+  rather than just failing the bead. The runway already records
+  per-bead outcomes — this would be observable.
+- **Prefer copilot or claude for tool-required actors**: the four
+  agentic actor types (briefing, decomposer, implementer, reviewer,
+  generator) all *require* MCP tool calls. The non-agentic `steps`
+  paths (navigator, structuralist, recon, etc. when not using the
+  mailbox pattern) tolerate text-only responses fine. Document this
+  distinction in the config schema so users don't accidentally wire
+  a free-tier model into a mailbox actor.
+
+Workaround in the meantime: **use copilot's free tier (gpt-5-mini) or
+gemini's free tier instead of OpenRouter `:free` models** for any
+tier that powers a mailbox actor. Both reliably call MCP tools.
+
+Relevant code:
+
+- [src/maverick/actors/xoscar/_agentic.py](src/maverick/actors/xoscar/_agentic.py)
+  (`_run_with_self_nudge` — natural place to count consecutive empty
+  turns and trigger escalation)
+- [src/maverick/config.py](src/maverick/config.py) (warn on
+  `:free`-model + mailbox-actor config combos)
+
 ## 3. Learning, Feedback, And Telemetry
 
 ### 3.1 Observational Memory For Runway
@@ -984,6 +1035,49 @@ Relevant code:
 - [src/maverick/init/config_generator.py](src/maverick/init/config_generator.py)
 - [src/maverick/cli/commands/init.py](src/maverick/cli/commands/init.py)
 - [src/maverick/init/mcp_config.py](src/maverick/init/mcp_config.py)
+
+### 4.4 `maverick land` Fails On `.beads/issues.jsonl` Merge Conflict
+
+**Status:** Active (real bug, hit during 2026-04-27 Phase 3 live validation)
+
+When a fly run ends with the workspace's `.beads/issues.jsonl` deleted
+(bd's dolt backend regenerates it on demand) and the source repo has
+modified the same file, `maverick land` blows up:
+
+```
+CONFLICT (modify/delete): .beads/issues.jsonl deleted in
+maverick/sample-maverick-project and modified in HEAD.
+```
+
+Both `--no-curate` and `--finalize` modes hit it. There's no clean
+recovery path inside the land command — users are reduced to manual
+`git checkout FETCH_HEAD -- src tests pyproject.toml` and skipping
+the merge entirely.
+
+The root cause: `.beads/` is a dolt-managed working area, not source
+the merge driver should be touching. Files inside it represent the
+*current shared dolt state*, which is the same state on both branches
+(since dolt writes back to the shared DB), so the diff is spurious.
+
+Fixes to consider:
+
+- **Add `.beads/` to a default `.gitattributes` merge=ours strategy**
+  during `maverick init` so dolt-managed files always take the local
+  version on merge.
+- **Pre-merge filter in `maverick land`**: explicitly stash or reset
+  any `.beads/`-only diffs in the workspace branch before invoking
+  `git merge`.
+- **Track the failure mode in preflight**: detect a known-bad merge
+  state and emit a clear "this is a known land bug, here's the
+  workaround" message rather than the raw git error.
+
+Relevant code:
+
+- [src/maverick/cli/commands/land.py](src/maverick/cli/commands/land.py)
+- [src/maverick/library/actions/jj.py](src/maverick/library/actions/jj.py)
+  (the merge invocation)
+- [src/maverick/init/](src/maverick/init/) (where `.gitattributes` setup
+  could go)
 
 ## 5. Reusable Workflow Building Blocks
 
