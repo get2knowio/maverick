@@ -177,6 +177,10 @@ class RefuelSupervisor(xo.Actor):
         self._accumulated_details: list[WorkUnitDetailPayload] = []
         self._pending_detail_ids: set[str] = set()
         self._detail_retries: dict[str, int] = {}
+        # Per-unit dispatch tracking — drives the AgentStarted/AgentCompleted
+        # events that surface "which model is working on which unit" in the
+        # Rich Live decompose table. Populated in `_run_detail_fan_out`.
+        self._unit_start_times: dict[str, float] = {}
 
         # Briefing state
         self._briefing_results: dict[str, SupervisorInboxPayload] = {}
@@ -274,6 +278,25 @@ class RefuelSupervisor(xo.Actor):
                         uid=f"{self.uid.decode()}:decomposer-pool-0",
                     )
                 )
+
+        # Provider/model labels per tier — surfaced in AgentStarted events
+        # so the CLI's Live decompose table shows "wu-1 (gemini/gemini-3.1-pro)"
+        # instead of an opaque spinner. Mirrors the merge done above.
+        self._tier_label_by_name: dict[str, str] = {}
+        if self._inputs.decomposer_tiers is not None:
+            d_tiers = self._inputs.decomposer_tiers
+            for tier_name in TIER_ORDER:
+                tier_override = getattr(d_tiers, tier_name, None)
+                if tier_override is None:
+                    continue
+                merged = FlySupervisor._merge_tier_config(
+                    base=self._inputs.config, override=tier_override
+                )
+                self._tier_label_by_name[tier_name] = self._format_provider_label(merged)
+        # Round-robin / single-actor fallback label.
+        self._default_decomposer_label: str = self._format_provider_label(
+            self._inputs.config
+        )
 
         # --- Validator + BeadCreator ---
         self._validator = await xo.create_actor(
@@ -610,6 +633,8 @@ class RefuelSupervisor(xo.Actor):
         )
 
     async def _run_detail_fan_out(self, unit_ids: list[str]) -> None:
+        import time as _time
+
         if not unit_ids:
             await self._emit_output(
                 "refuel",
@@ -667,8 +692,27 @@ class RefuelSupervisor(xo.Actor):
             )
             return self._decomposer_tiers[tier_name]
 
+        def _label_for(unit_id: str) -> str:
+            """Return "tier · provider/model" (or "provider/model" in
+            non-tier mode) for the AgentStarted display."""
+            if not in_tier_mode:
+                return self._default_decomposer_label
+            tier_name = FlySupervisor._resolve_tier_in(
+                self._decomposer_tiers, complexity_by_unit.get(unit_id), 0
+            )
+            provider_label = self._tier_label_by_name.get(
+                tier_name, self._default_decomposer_label
+            )
+            return f"{tier_name} · {provider_label}"
+
         async def _one(index: int, unit_id: str) -> None:
             assigned = _worker_for(unit_id, index)
+            # Emit AgentStarted so the CLI's Live decompose table shows
+            # which model is processing this unit. Matched by an
+            # AgentCompleted from detail_ready (success path) or from
+            # the abandon/timeout branches below.
+            self._unit_start_times[unit_id] = _time.monotonic()
+            await self._emit_agent_started("decompose", unit_id, _label_for(unit_id))
             for attempt in range(MAX_DETAIL_RETRIES + 1):
                 async with semaphore:
                     try:
@@ -678,10 +722,11 @@ class RefuelSupervisor(xo.Actor):
                         )
                     except TimeoutError:
                         if attempt < MAX_DETAIL_RETRIES:
-                            await self._emit_output(
-                                "refuel",
-                                f"Unit {unit_id!r} timed out (attempt {attempt + 1}), retrying",
-                                level="warning",
+                            # Intra-actor retry — debug-only, not user-facing.
+                            logger.debug(
+                                "refuel.detail.timeout_retry",
+                                unit_id=unit_id,
+                                attempt=attempt + 1,
                             )
                             continue
                         await self._emit_output(
@@ -690,6 +735,9 @@ class RefuelSupervisor(xo.Actor):
                             level="error",
                         )
                         self._pending_detail_ids.discard(unit_id)
+                        await self._emit_unit_completed(
+                            unit_id, success=False, error="timed out"
+                        )
                         return
                 # send_detail returned. If the tool call landed, unit has been
                 # removed from pending_detail_ids by detail_ready. Otherwise,
@@ -697,10 +745,12 @@ class RefuelSupervisor(xo.Actor):
                 if unit_id not in self._pending_detail_ids:
                     return
                 if attempt < MAX_DETAIL_RETRIES:
-                    await self._emit_output(
-                        "refuel",
-                        f"Unit {unit_id!r} prompt completed without tool call, retrying",
-                        level="warning",
+                    # Intra-actor retry — debug-only. The user only needs
+                    # to know about the final outcome (success or abandon).
+                    logger.debug(
+                        "refuel.detail.no_tool_call_retry",
+                        unit_id=unit_id,
+                        attempt=attempt + 1,
                     )
                     continue
                 await self._emit_output(
@@ -709,6 +759,9 @@ class RefuelSupervisor(xo.Actor):
                     level="error",
                 )
                 self._pending_detail_ids.discard(unit_id)
+                await self._emit_unit_completed(
+                    unit_id, success=False, error="no tool call"
+                )
                 return
 
         await asyncio.gather(*[_one(i, uid) for i, uid in enumerate(unit_ids)])
@@ -766,13 +819,22 @@ class RefuelSupervisor(xo.Actor):
 
     @xo.no_lock
     async def detail_ready(self, payload: SubmitDetailsPayload) -> None:
+        completed_uids: list[str] = []
         for detail in payload.details:
             uid = detail.id
             self._accumulated_details = [d for d in self._accumulated_details if d.id != uid]
             self._accumulated_details.append(detail)
+            # Only emit completion for units we were waiting on — guards
+            # against double-emit when a worker re-submits a unit's detail.
+            if uid in self._pending_detail_ids:
+                completed_uids.append(uid)
             self._pending_detail_ids.discard(uid)
             # Per-unit cache write so a killed run resumes at N-of-M.
             self._cache_detail(uid, detail)
+        # Emit per-unit AgentCompleted so the Live decompose table marks
+        # each row done as soon as its worker submits.
+        for uid in completed_uids:
+            await self._emit_unit_completed(uid, success=True)
         remaining = len(self._pending_detail_ids)
         done = len(self._accumulated_details)
         if remaining > 0:
@@ -966,14 +1028,73 @@ class RefuelSupervisor(xo.Actor):
         )
 
     async def _emit_agent_completed(
-        self, step_name: str, agent_name: str, duration_seconds: float
+        self,
+        step_name: str,
+        agent_name: str,
+        duration_seconds: float,
+        *,
+        success: bool = True,
+        error: str | None = None,
     ) -> None:
         await self._emit(
             AgentCompleted(
                 step_name=step_name,
                 agent_name=agent_name,
                 duration_seconds=duration_seconds,
+                success=success,
+                error=error,
             )
+        )
+
+    # ------------------------------------------------------------------
+    # Test inspection hooks (public methods so xoscar dispatches; tests
+    # use these to seed/drain private state without reaching across the
+    # actor boundary). Prefixed ``t_`` per the fly_supervisor convention.
+    # ------------------------------------------------------------------
+
+    async def t_seed_detail_state(
+        self, pending: list[str], start_times: dict[str, float] | None = None
+    ) -> None:
+        import time as _time
+
+        self._pending_detail_ids = set(pending)
+        seed = start_times or {}
+        self._unit_start_times = {
+            uid: seed.get(uid, _time.monotonic()) for uid in pending
+        }
+
+    async def t_drain_events(self) -> list[Any]:
+        events: list[Any] = []
+        while not self._event_queue.empty():
+            evt = self._event_queue.get_nowait()
+            if evt is not None:
+                events.append(evt)
+        return events
+
+    @staticmethod
+    def _format_provider_label(config: Any) -> str:
+        """Build a "provider/model" label from a StepConfig (or None)."""
+        if config is None:
+            return ""
+        provider = getattr(config, "provider", None) or "default"
+        model_id = getattr(config, "model_id", None) or "default"
+        return f"{provider}/{model_id}"
+
+    async def _emit_unit_completed(
+        self, unit_id: str, *, success: bool = True, error: str | None = None
+    ) -> None:
+        """Emit AgentCompleted for a single detail-phase unit.
+
+        Wall-clock duration is computed from ``_unit_start_times``,
+        seeded by the dispatch in ``_run_detail_fan_out``. A missing
+        start time (defensive) yields 0.0s.
+        """
+        import time as _time
+
+        start = self._unit_start_times.pop(unit_id, _time.monotonic())
+        elapsed = _time.monotonic() - start
+        await self._emit_agent_completed(
+            "decompose", unit_id, elapsed, success=success, error=error
         )
 
     def _mark_done(self, result: dict[str, Any] | None) -> None:

@@ -156,3 +156,73 @@ async def test_payload_parse_error_detail_is_warned_only(pool_address: str) -> N
         await sup.payload_parse_error("submit_details", "bad shape")
     finally:
         await xo.destroy_actor(sup)
+
+
+@pytest.mark.asyncio
+async def test_detail_ready_emits_per_unit_agent_completed(pool_address: str) -> None:
+    """Each unit in a SubmitDetailsPayload triggers an AgentCompleted so
+    the CLI's Live decompose table can mark its row done. Drives the
+    "which model worked on which unit" visibility surface."""
+    from maverick.events import AgentCompleted
+
+    sup = await _build_supervisor(pool_address, uid="ref-sup-emit-completed")
+    try:
+        await sup.t_seed_detail_state(["wu-1", "wu-2"])
+        # Discard any startup events so we measure just detail_ready's emissions.
+        await sup.t_drain_events()
+
+        await sup.detail_ready(
+            SubmitDetailsPayload(
+                details=(
+                    WorkUnitDetailPayload(id="wu-1", instructions="x"),
+                    WorkUnitDetailPayload(id="wu-2", instructions="y"),
+                )
+            )
+        )
+        events = await sup.t_drain_events()
+        completed = [e for e in events if isinstance(e, AgentCompleted)]
+        completed_unit_ids = {e.agent_name for e in completed}
+        assert completed_unit_ids == {"wu-1", "wu-2"}
+        assert all(e.step_name == "decompose" for e in completed)
+        assert all(e.success for e in completed)
+    finally:
+        await xo.destroy_actor(sup)
+
+
+@pytest.mark.asyncio
+async def test_detail_ready_no_double_emit_for_unknown_unit(pool_address: str) -> None:
+    """A worker re-submitting an already-done unit's detail must not
+    emit a second AgentCompleted — the empty pending set means "no longer
+    waiting on this unit", so the row is already marked done."""
+    from maverick.events import AgentCompleted
+
+    sup = await _build_supervisor(pool_address, uid="ref-sup-no-double-emit")
+    try:
+        await sup.t_seed_detail_state([])  # empty pending — already-done case
+        await sup.t_drain_events()
+
+        await sup.detail_ready(
+            SubmitDetailsPayload(
+                details=(WorkUnitDetailPayload(id="wu-stale", instructions="x"),)
+            )
+        )
+        events = await sup.t_drain_events()
+        completed = [e for e in events if isinstance(e, AgentCompleted)]
+        assert completed == [], "should not re-emit AgentCompleted for stale unit"
+    finally:
+        await xo.destroy_actor(sup)
+
+
+def test_format_provider_label_handles_partial_configs() -> None:
+    """The label helper produces ``provider/model`` even when fields are
+    missing — defensive against partial StepConfigs from sparse YAML."""
+    from types import SimpleNamespace
+
+    full = SimpleNamespace(provider="gemini", model_id="gemini-3.1-pro-preview")
+    partial = SimpleNamespace(provider="gemini", model_id=None)
+    none_config = None
+
+    fmt = RefuelSupervisor._format_provider_label
+    assert fmt(full) == "gemini/gemini-3.1-pro-preview"
+    assert fmt(partial) == "gemini/default"
+    assert fmt(none_config) == ""
