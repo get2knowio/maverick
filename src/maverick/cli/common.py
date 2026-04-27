@@ -92,13 +92,16 @@ def verify_bd_ready(cwd: Path | None = None) -> None:
     client = BeadClient(cwd=target)
     if not client.is_initialized():
         console.print(
-            f"[red]Error:[/red] [bold]bd[/bold] is not initialized in "
-            f"[cyan]{target}[/cyan].\n"
-            "Run [cyan]bd bootstrap[/cyan] (adopt an existing remote's Dolt "
-            "history) or [cyan]maverick init[/cyan] (fresh project).\n"
-            "[dim]Tip: cached briefing / outline / details from a previous "
-            "run are preserved across re-runs, so this is a one-time "
-            "setup.[/]"
+            f"[red]Error:[/red] this project hasn't been initialized for "
+            f"Maverick yet.\n"
+            f"Run [cyan]maverick init[/cyan] in [cyan]{target}[/cyan] — "
+            f"it's safe to re-run on an existing project (it won't "
+            f"overwrite [bold]maverick.yaml[/bold]) and handles both "
+            f"fresh setups and joining a project where a teammate has "
+            f"already done the initial work.\n"
+            f"[dim]Tip: any cached briefing / outline / details from a "
+            f"previous run will be picked up automatically, so re-running "
+            f"the workflow after init is a fast cache-hit pass.[/]"
         )
         raise SystemExit(ExitCode.FAILURE)
 
