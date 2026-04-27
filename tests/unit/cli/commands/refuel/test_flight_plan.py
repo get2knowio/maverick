@@ -42,8 +42,16 @@ class TestRefuelFromPlan:
 
     @pytest.fixture(autouse=True)
     def _mock_bd_available(self):
-        """Mock bd availability — CI doesn't have bd installed."""
-        with patch("shutil.which", return_value="/usr/bin/bd"):
+        """Mock bd availability + initialised state — CI doesn't have
+        bd installed AND test cwd has no ``.beads/`` directory, so the
+        ``verify_bd_ready`` preflight would otherwise reject every test."""
+        with (
+            patch("shutil.which", return_value="/usr/bin/bd"),
+            patch(
+                "maverick.beads.client.BeadClient.is_initialized",
+                return_value=True,
+            ),
+        ):
             yield
 
     def test_list_steps_prints_step_names_and_exits(

@@ -62,15 +62,13 @@ async def refuel(
 
         maverick refuel my-feature --skip-briefing
     """
-    import shutil
+    # Preflight: bd installed AND .beads initialized. Catches missing
+    # setup in seconds rather than after the full briefing+decompose
+    # burn (which we just spent ~13 minutes learning to fail at the
+    # bead-creation step).
+    from maverick.cli.common import verify_bd_ready
 
-    if shutil.which("bd") is None:
-        console.print(
-            "[red]Error:[/red] The [bold]bd[/bold] CLI is required but not found on PATH.\n"
-            "Install it with: [cyan]cargo install bd-cli[/cyan] "
-            "(or see https://github.com/get2knowio/bd)"
-        )
-        raise SystemExit(ExitCode.FAILURE)
+    verify_bd_ready()
 
     from maverick.cli.workflow_executor import (
         PythonWorkflowRunConfig,

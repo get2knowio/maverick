@@ -129,6 +129,14 @@ async def fly(
         console.print()
         raise SystemExit(ExitCode.SUCCESS)
 
+    # Preflight: bd installed AND .beads initialized. Fly closes beads
+    # at the end of every successful round, so a missing bd setup would
+    # only surface mid-workflow (after expensive implementer + reviewer
+    # work) without this check.
+    from maverick.cli.common import verify_bd_ready
+
+    verify_bd_ready()
+
     await execute_python_workflow(
         ctx,
         PythonWorkflowRunConfig(

@@ -83,6 +83,19 @@ class TestFlyCommand:
 class TestFlyCommandDelegation:
     """Tests that fly CLI delegates to the correct Python workflow."""
 
+    @pytest.fixture(autouse=True)
+    def _mock_bd_ready(self):
+        """Skip the bd-on-PATH + .beads-initialized preflight — these
+        tests verify the CLI's delegation surface, not its preflight."""
+        with (
+            patch("shutil.which", return_value="/usr/bin/bd"),
+            patch(
+                "maverick.beads.client.BeadClient.is_initialized",
+                return_value=True,
+            ),
+        ):
+            yield
+
     @patch(_PATCH_EXECUTE, new_callable=AsyncMock)
     def test_delegates_to_python_workflow(
         self,
