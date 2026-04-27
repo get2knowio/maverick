@@ -707,14 +707,19 @@ class RefuelSupervisor(xo.Actor):
 
         async def _one(index: int, unit_id: str) -> None:
             assigned = _worker_for(unit_id, index)
-            # Emit AgentStarted so the CLI's Live decompose table shows
-            # which model is processing this unit. Matched by an
-            # AgentCompleted from detail_ready (success path) or from
-            # the abandon/timeout branches below.
-            self._unit_start_times[unit_id] = _time.monotonic()
-            await self._emit_agent_started("decompose", unit_id, _label_for(unit_id))
+            # AgentStarted fires only after the semaphore admits the unit
+            # — otherwise queued units would all show running spinners
+            # while actually waiting for an in-flight slot. Emitted once;
+            # the inner retry loop holds the row in "running" state.
+            started = False
             for attempt in range(MAX_DETAIL_RETRIES + 1):
                 async with semaphore:
+                    if not started:
+                        self._unit_start_times[unit_id] = _time.monotonic()
+                        await self._emit_agent_started(
+                            "decompose", unit_id, _label_for(unit_id)
+                        )
+                        started = True
                     try:
                         await xo.wait_for(
                             assigned.send_detail(DetailRequest.for_unit(unit_id)),
