@@ -1135,14 +1135,16 @@ class RefuelSupervisor(xo.Actor):
                         error=f"quota: {err[:80]}",
                     )
                     return ("quota", err)
-                if attempt < MAX_DETAIL_RETRIES:
-                    logger.debug(
-                        "refuel.detail.no_tool_call_retry",
-                        unit_id=unit_id,
-                        attempt=attempt + 1,
-                        escalation_level=escalation_level,
-                    )
-                    continue
+                # No-tool-call failure: the actor already did prompt +
+                # nudge inside its turn (via
+                # ``_agentic._run_with_self_nudge``), so by the time we
+                # see pending still set the model has had two chances to
+                # call the tool and refused. A third same-model attempt
+                # is overwhelmingly likely to refuse again — escalation
+                # to a more capable tier is the right next move, not
+                # another same-tier retry. (Timeouts above DO retry —
+                # they're often transient and a same-model second try
+                # frequently succeeds.)
                 logger.warning(
                     "refuel.detail.tier_failed_no_tool_call",
                     unit_id=unit_id,
