@@ -407,11 +407,7 @@ class FlyBeadsWorkflow(PythonWorkflow):
 
         implementer_tiers: ImplementerTiersConfig | None = None
         try:
-            tiers_raw = (
-                self._config.actors.get("fly", {})
-                .get("implementer", {})
-                .get("tiers")
-            )
+            tiers_raw = self._config.actors.get("fly", {}).get("implementer", {}).get("tiers")
             if tiers_raw:
                 implementer_tiers = ImplementerTiersConfig.model_validate(tiers_raw)
         except Exception as exc:  # noqa: BLE001 — invalid tiers is non-fatal
@@ -444,8 +440,7 @@ class FlyBeadsWorkflow(PythonWorkflow):
         plans_root = Path(cwd) / ".maverick" / "plans"
         if plans_root.is_dir():
             plan_dirs = [
-                p for p in plans_root.iterdir()
-                if p.is_dir() and any(p.glob("[0-9]*.md"))
+                p for p in plans_root.iterdir() if p.is_dir() and any(p.glob("[0-9]*.md"))
             ]
             if len(plan_dirs) == 1:
                 flight_plan_name = plan_dirs[0].name
@@ -480,7 +475,9 @@ class FlyBeadsWorkflow(PythonWorkflow):
             level="info",
         )
 
-        async with actor_pool() as (_pool, address):
+        async with actor_pool(
+            max_subprocesses=self._config.parallel.max_agents,
+        ) as (_pool, address):
             supervisor = await xo.create_actor(
                 FlySupervisor,
                 supervisor_inputs,

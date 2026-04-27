@@ -45,6 +45,7 @@ from starlette.types import Receive, Scope, Send
 
 from maverick.logging import get_logger
 from maverick.tools.agent_inbox.schemas import ALL_TOOL_SCHEMAS
+from maverick.tools.agent_inbox.subprocess_quota import SubprocessQuota
 
 __all__ = [
     "AgentToolGateway",
@@ -80,9 +81,7 @@ def agent_tool_gateway_for(pool_address: str) -> AgentToolGateway:
         ) from exc
 
 
-def register_agent_tool_gateway(
-    pool_address: str, gateway: AgentToolGateway
-) -> None:
+def register_agent_tool_gateway(pool_address: str, gateway: AgentToolGateway) -> None:
     """Bind a gateway to a pool address. Overwrites any existing binding."""
     _gateway_by_pool[pool_address] = gateway
 
@@ -126,9 +125,7 @@ class _ActorRoute:
             return list(self.tools.values())
 
         @self._mcp_server.call_tool()
-        async def _call_tool(
-            name: str, arguments: dict[str, Any] | None
-        ) -> list[TextContent]:
+        async def _call_tool(name: str, arguments: dict[str, Any] | None) -> list[TextContent]:
             return await self._handle_call(name, arguments or {})
 
         self._session_manager = StreamableHTTPSessionManager(
@@ -139,9 +136,7 @@ class _ActorRoute:
         self._task: asyncio.Task[None] | None = None
         self._ready = asyncio.Event()
 
-    async def _handle_call(
-        self, name: str, arguments: dict[str, Any]
-    ) -> list[TextContent]:
+    async def _handle_call(self, name: str, arguments: dict[str, Any]) -> list[TextContent]:
         if name not in self.tools:
             available = ", ".join(sorted(self.tools)) or "(none)"
             raise ValueError(
@@ -196,9 +191,7 @@ class _ActorRoute:
                 with contextlib.suppress(asyncio.CancelledError):
                     await asyncio.Event().wait()
 
-        self._task = asyncio.create_task(
-            _runner(), name=f"agent-tool-route[{self.uid}]"
-        )
+        self._task = asyncio.create_task(_runner(), name=f"agent-tool-route[{self.uid}]")
         await self._ready.wait()
 
     async def stop(self) -> None:
@@ -222,11 +215,30 @@ class AgentToolGateway:
     after the pool is up; stopped before the pool is torn down.
     """
 
-    def __init__(self, host: str = "127.0.0.1", port: int = 0) -> None:
+    def __init__(
+        self,
+        host: str = "127.0.0.1",
+        port: int = 0,
+        *,
+        max_subprocesses: int | None = None,
+    ) -> None:
+        """
+        Args:
+            host, port: Bind address. ``port=0`` picks an ephemeral port.
+            max_subprocesses: Optional global cap on live ACP subprocesses
+                across all actors registered with this gateway. When set,
+                executors call into :attr:`subprocess_quota` to acquire/release
+                a slot per subprocess, with LRU eviction of idle actors when
+                the cap fills. ``None`` (the default) disables quota
+                enforcement — every executor spawns freely.
+        """
         self._host = host
         self._requested_port = port
         self._port: int | None = None
         self._routes: dict[str, _ActorRoute] = {}
+        self._subprocess_quota: SubprocessQuota | None = (
+            SubprocessQuota(max_subprocesses) if max_subprocesses is not None else None
+        )
         self._uvicorn_config = uvicorn.Config(
             self,  # AgentToolGateway is itself an ASGI callable (see __call__)
             host=self._host,
@@ -237,6 +249,11 @@ class AgentToolGateway:
         )
         self._uvicorn_server: uvicorn.Server | None = None
         self._serve_task: asyncio.Task[None] | None = None
+
+    @property
+    def subprocess_quota(self) -> SubprocessQuota | None:
+        """The pool-scoped subprocess quota, or ``None`` when disabled."""
+        return self._subprocess_quota
 
     @property
     def host(self) -> str:
@@ -263,9 +280,7 @@ class AgentToolGateway:
 
         server = uvicorn.Server(self._uvicorn_config)
         self._uvicorn_server = server
-        self._serve_task = asyncio.create_task(
-            server.serve(), name="agent-tool-gateway-uvicorn"
-        )
+        self._serve_task = asyncio.create_task(server.serve(), name="agent-tool-gateway-uvicorn")
 
         # Wait until uvicorn has finished startup and bound a real port.
         for _ in range(500):  # up to ~5s
@@ -286,9 +301,7 @@ class AgentToolGateway:
         if self._port is None:  # pragma: no cover — defensive
             raise RuntimeError("AgentToolGateway: could not discover bound port")
 
-        logger.debug(
-            "agent_tool_gateway.started", host=self._host, port=self._port
-        )
+        logger.debug("agent_tool_gateway.started", host=self._host, port=self._port)
 
     async def stop(self) -> None:
         """Stop all per-actor routes and shut the HTTP server down cleanly."""

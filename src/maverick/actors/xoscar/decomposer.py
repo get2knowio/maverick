@@ -358,14 +358,12 @@ class DecomposerActor(AgenticActorMixin, xo.Actor):
     async def _ensure_executor(self) -> None:
         if self._executor is not None:
             return
-        from maverick.executor import create_default_executor
-
         logger.info(
             "decomposer.acp_connection_new",
             actor=self._actor_tag,
             role=self._role,
         )
-        self._executor = create_default_executor()
+        self._executor = await self._build_quota_aware_executor()
 
     async def _create_session(self) -> None:
         await self._ensure_executor()
@@ -601,8 +599,7 @@ class DecomposerActor(AgenticActorMixin, xo.Actor):
             user_content_label="Decomposition input (fix turn)",
             role_intro="You are the decomposer's fix pass.",
             empty_result_guidance=(
-                "Submit the COMPLETE updated work_units and details, not just "
-                "the changes."
+                "Submit the COMPLETE updated work_units and details, not just the changes."
             ),
         )
         if needs_seed:

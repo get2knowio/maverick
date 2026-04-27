@@ -227,9 +227,7 @@ class ReviewerActor(AgenticActorMixin, xo.Actor):
 
     async def _ensure_executor(self) -> None:
         if self._executor is None:
-            from maverick.executor import create_default_executor
-
-            self._executor = create_default_executor()
+            self._executor = await self._build_quota_aware_executor()
 
     async def _new_session(self) -> None:
         await self._ensure_executor()

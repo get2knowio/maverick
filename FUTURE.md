@@ -426,7 +426,7 @@ Relevant code:
 
 ### 2.10 Per-Bead Complexity-Based Model Routing
 
-**Status:** Phases 1 + 2 implemented, Phase 2b + Phase 3 active
+**Status:** Phases 1 + 2 + 2b implemented, Phase 3 active
 
 **Background.** Bead workloads vary wildly inside a single epic — "create
 LICENSE file" and "implement complete tax engine" are both single beads
@@ -551,51 +551,53 @@ Relevant code:
   ImplementRequest, drive escalation when fix-loop count exceeds
   threshold)
 
-**Phase 2b (active): Global ACP-subprocess cap with LRU eviction.**
+**Phase 2b (implemented): Global ACP-subprocess cap with LRU eviction.**
 
-Today the only knob bounding live `claude-agent-acp` / `opencode acp`
-subprocesses is *per-phase* (e.g. `parallel.max_briefing_agents`,
-`parallel.decomposer_pool_size`). With Phase 2 tier actors live, a
-mixed-complexity epic spawns up to N implementer subprocesses (one per
-tier actually used in the epic), all alive until fly ends. On a small
-host that can be too many.
+Before Phase 2b, the only knob bounding live `claude-agent-acp` /
+`opencode acp` subprocesses was *per-phase* (e.g.
+`parallel.max_briefing_agents`, `parallel.decomposer_pool_size`). With
+Phase 2 tier actors live, a mixed-complexity epic could spawn up to N
+implementer subprocesses (one per tier actually used in the epic), all
+alive until fly ended. On a small host that was too many.
 
 The right shape is a single global ceiling: `parallel.max_agents = N`
 caps total live ACP subprocesses across the whole workflow run. Per-
-phase knobs become *soft ideals* (how much fan-out the phase wants);
-the global cap is the hard ceiling.
+phase knobs are *soft ideals* (how much fan-out the phase wants); the
+global cap is the hard ceiling.
 
-Implementation sketch:
+**As shipped:**
 
-- **Pool-scoped semaphore on `AgentToolGateway`** (already exists per
-  workflow run). Each actor's executor `acquire()`s before
-  `spawn_agent_process` and `release()`s in cleanup. The slot is held
-  for the *lifetime of the subprocess*, not just per-prompt.
-- **LRU eviction when the cap fills.** If `acquire()` would block,
-  the gateway picks the LRU *idle* actor (one not currently
-  mid-prompt) and asks it to release its subprocess. The evicted
-  actor re-spawns next time it needs to prompt — costs ~200ms
-  handshake. Keeps sequential workloads (fly) deadlock-free.
-- **Wire `parallel.max_agents`** (currently advisory-only; documented
-  as such in `ParallelConfig`) into the gateway as the semaphore size.
+- New :class:`SubprocessQuota`
+  ([src/maverick/tools/agent_inbox/subprocess_quota.py](src/maverick/tools/agent_inbox/subprocess_quota.py)):
+  pool-scoped acquire/release with LRU eviction of idle leases. The
+  slot is held for the lifetime of the executor's subprocess pool, not
+  per-prompt. Reentrant (a re-acquire by the same uid bumps activity).
+- :class:`AgentToolGateway` accepts `max_subprocesses` and exposes
+  `subprocess_quota`. Workflows pass `parallel.max_agents` through
+  `actor_pool(max_subprocesses=...)`.
+- :class:`AcpStepExecutor` accepts `subprocess_quota` + `actor_uid`;
+  threads them into :class:`ConnectionPool.get_or_create` (acquire
+  before first spawn) and `cleanup()` (release).
+  `prompt_session` brackets each prompt with `mark_busy`/`mark_idle`
+  so mid-prompt actors are shielded from eviction.
+- New `cleanup_for_eviction()` on the executor: closes subprocesses
+  *without* re-releasing the quota slot (the quota already popped the
+  lease). Invoked via the `_on_evicted` bridge wired into the
+  connection pool.
+- :class:`AgenticActorMixin` exposes a `_build_quota_aware_executor()`
+  helper used by every actor's `_ensure_executor()` and an
+  `_invalidate_sessions_for_eviction()` hook (default: clears
+  `self._session_id`) wired in via `set_session_invalidator`.
+- `ParallelConfig.max_agents` flipped from advisory-only to the hard
+  ceiling. Default stays at 3; tune up on richer hosts. Eviction cost
+  is documented (~200ms handshake + ACP-session conversation context
+  loss).
 
 Per-phase knobs (`max_briefing_agents`, `decomposer_pool_size`,
 `max_parallel_reviewers`) keep their existing semantics — they bound
-*how much parallelism a phase wants*. Result with `max_agents=2` and
-`max_briefing_agents=3`: 2 briefings concurrent, 3rd queues until
-the gateway sem releases.
-
-Relevant code:
-
-- [src/maverick/tools/agent_inbox/gateway.py](src/maverick/tools/agent_inbox/gateway.py)
-  (`AgentToolGateway` — natural home for the global semaphore)
-- [src/maverick/executor/_connection_pool.py](src/maverick/executor/_connection_pool.py)
-  (`get_or_create` / `close_all` — acquire/release call sites)
-- [src/maverick/actors/xoscar/_agentic.py](src/maverick/actors/xoscar/_agentic.py)
-  (mixin would expose `release_idle_subprocess()` for LRU eviction
-  callbacks)
-- [src/maverick/config.py](src/maverick/config.py) (`ParallelConfig.max_agents`
-  flips from advisory-only to enforced)
+*how much parallelism a phase wants*. With `max_agents=2` and
+`max_briefing_agents=3`: 2 briefings concurrent, 3rd waits for an
+eviction or release.
 
 **Phase 3 (active, after Phase 2 settles): Extend tier routing to
 `review`, `fix`, `decompose_detail`.**

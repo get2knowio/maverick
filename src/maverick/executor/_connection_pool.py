@@ -28,6 +28,10 @@ from maverick.executor._subprocess import kill_process_group
 from maverick.executor._subprocess import spawn_agent_process_pg as spawn_agent_process
 from maverick.executor.acp_client import MaverickAcpClient
 from maverick.logging import get_logger
+from maverick.tools.agent_inbox.subprocess_quota import (
+    EvictCallback,
+    SubprocessQuota,
+)
 
 _default_logger = get_logger(__name__)
 
@@ -57,6 +61,7 @@ def format_acp_error(exc: AcpRequestError) -> str:
     elif data is not None:
         parts.append(f"data={data!r}")
     return " ".join(parts)
+
 
 #: ACP client info — sent during connection initialization
 _CLIENT_INFO = Implementation(
@@ -115,9 +120,37 @@ class ConnectionPool:
     (``len``, ``__contains__``, ``__getitem__``).
     """
 
-    def __init__(self, logger: Any = None) -> None:
+    def __init__(
+        self,
+        logger: Any = None,
+        *,
+        subprocess_quota: SubprocessQuota | None = None,
+        actor_uid: str | None = None,
+        evict_cb: EvictCallback | None = None,
+    ) -> None:
+        """
+        Args:
+            logger: Optional structlog logger. Defaults to module logger.
+            subprocess_quota: Optional pool-scoped quota that bounds total
+                live ACP subprocesses. When set, ``actor_uid`` and
+                ``evict_cb`` MUST also be set so the pool can acquire a
+                slot before its first spawn and free it on close.
+            actor_uid: The owning actor's uid (used as the quota lease key).
+            evict_cb: Callback the quota invokes when this pool is the
+                LRU eviction victim. The callback is responsible for
+                tearing down the subprocess (e.g., calling
+                :meth:`AcpStepExecutor.cleanup_for_eviction`).
+        """
         self.cache: dict[str, CachedConnection] = {}
         self._logger = logger if logger is not None else _default_logger
+        self._quota = subprocess_quota
+        self._actor_uid = actor_uid
+        self._evict_cb = evict_cb
+        # True once we've successfully acquired a quota slot. Multiple
+        # provider subprocesses live under one slot — see the design
+        # note in ``subprocess_quota.py``: one slot per executor, not
+        # per provider.
+        self._slot_held = False
 
     async def get_or_create(
         self,
@@ -143,6 +176,13 @@ class ConnectionPool:
         """
         if provider_name in self.cache:
             return self.cache[provider_name]
+
+        # Acquire a global quota slot before spawning. Multiple provider
+        # subprocesses inside one pool share a single slot — the slot
+        # represents "this executor has live subprocesses," not "one per
+        # provider." Idempotent: re-acquire by the same uid bumps activity
+        # but doesn't double-count.
+        await self._ensure_slot()
 
         command_args = provider_config.command
         if not command_args:
@@ -231,6 +271,28 @@ class ConnectionPool:
         )
         return cached
 
+    async def _ensure_slot(self) -> None:
+        """Acquire the executor's global quota slot if not already held."""
+        if (
+            self._quota is None
+            or self._actor_uid is None
+            or self._evict_cb is None
+            or self._slot_held
+        ):
+            return
+        await self._quota.acquire(self._actor_uid, self._evict_cb)
+        self._slot_held = True
+
+    async def mark_busy(self) -> None:
+        """Mark the executor's slot mid-prompt (shielded from eviction)."""
+        if self._quota is not None and self._actor_uid is not None and self._slot_held:
+            await self._quota.mark_busy(self._actor_uid)
+
+    async def mark_idle(self) -> None:
+        """Mark the executor's slot between prompts (eligible for eviction)."""
+        if self._quota is not None and self._actor_uid is not None and self._slot_held:
+            await self._quota.mark_idle(self._actor_uid)
+
     async def reconnect(
         self,
         provider_name: str,
@@ -272,7 +334,7 @@ class ConnectionPool:
         )
         return new_cached
 
-    async def close_all(self) -> None:
+    async def close_all(self, *, release_quota_slot: bool = True) -> None:
         """Close all cached ACP connections and terminate subprocesses.
 
         Safe to call multiple times. Logs at INFO level for each connection
@@ -283,6 +345,13 @@ class ConnectionPool:
         the whole group, not just the direct child — otherwise the
         ``claude-agent-acp`` node process leaves its spawned ``claude`` CLI
         and MCP server children running as orphans.
+
+        Args:
+            release_quota_slot: When True (the default), also release the
+                pool's global subprocess-quota slot. Set to False when the
+                quota itself is invoking eviction — it has already popped
+                the lease and a release would be a no-op (and worse,
+                wakes a waiter twice).
         """
         for provider_name, cached in list(self.cache.items()):
             self._logger.info(
@@ -319,6 +388,14 @@ class ConnectionPool:
             if pid:
                 kill_process_group(pid)
         self.cache.clear()
+        if release_quota_slot and self._slot_held:
+            self._slot_held = False
+            if self._quota is not None and self._actor_uid is not None:
+                await self._quota.release(self._actor_uid)
+        elif not release_quota_slot:
+            # Eviction path: quota popped the lease before calling our
+            # evict_cb, so just clear our local flag.
+            self._slot_held = False
 
     def __contains__(self, provider_name: object) -> bool:
         return provider_name in self.cache

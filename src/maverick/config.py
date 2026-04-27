@@ -232,11 +232,17 @@ class ParallelConfig(BaseModel):
     """Settings for concurrency limits.
 
     Attributes:
-        max_agents: Reserved global LLM-call concurrency cap. Currently
-            advisory only — the per-phase knobs below (``decomposer_pool_size``,
-            ``max_briefing_agents``, ``max_parallel_reviewers``) are what the
-            workflows actually consult. Will become a global ceiling once the
-            per-phase knobs aren't enough.
+        max_agents: Hard cap on simultaneously live ACP agent subprocesses
+            across the workflow run. Enforced by the
+            :class:`SubprocessQuota` on the pool-scoped
+            :class:`AgentToolGateway`: when the cap is reached, fresh
+            spawns wait for a slot. Idle actors (not mid-prompt) get
+            evicted LRU to free a slot, costing them a ~200ms ACP
+            handshake and any conversation context held in their ACP
+            session. Per-phase knobs below remain *soft ideals* — they
+            describe how much fan-out a phase wants; this is the hard
+            ceiling. Tune up on richer hosts (more RAM, more CPU);
+            keep low on dev containers.
         max_tasks: Reserved task fan-out cap. Currently advisory.
         decomposer_pool_size: Number of pool workers for the refuel
             detail phase. Default ``3`` matches the legacy hardcoded value

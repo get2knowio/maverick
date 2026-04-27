@@ -41,9 +41,7 @@ def _minimal_work_unit(complexity: str | None) -> WorkUnit:
     )
 
 
-@pytest.mark.parametrize(
-    "value", ["trivial", "simple", "moderate", "complex", None]
-)
+@pytest.mark.parametrize("value", ["trivial", "simple", "moderate", "complex", None])
 def test_work_unit_accepts_all_complexity_values(value: str | None) -> None:
     wu = _minimal_work_unit(value)
     assert wu.complexity == value
@@ -56,12 +54,8 @@ def test_work_unit_rejects_invalid_complexity() -> None:
         _minimal_work_unit("medium")  # type: ignore[arg-type]
 
 
-@pytest.mark.parametrize(
-    "value", ["trivial", "simple", "moderate", "complex"]
-)
-def test_serializer_round_trip_preserves_complexity(
-    value: str, tmp_path: object
-) -> None:
+@pytest.mark.parametrize("value", ["trivial", "simple", "moderate", "complex"])
+def test_serializer_round_trip_preserves_complexity(value: str, tmp_path: object) -> None:
     wu = _minimal_work_unit(value)
     serialized = serialize_work_unit(wu)
     # complexity is in the YAML frontmatter
@@ -115,9 +109,7 @@ def test_loader_silently_ignores_unknown_complexity_value(
 
 
 def test_outline_payload_carries_complexity() -> None:
-    p = WorkUnitOutlinePayload(
-        id="wu-1", task="do it", complexity="complex"
-    )
+    p = WorkUnitOutlinePayload(id="wu-1", task="do it", complexity="complex")
     assert p.complexity == "complex"
 
 

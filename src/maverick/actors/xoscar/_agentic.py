@@ -147,9 +147,7 @@ def build_tool_required_nudge_prompt(
             to call the tool with empty/minimal data.
     """
     preview = (
-        previous_response
-        if len(previous_response) <= 1500
-        else previous_response[:1500] + "…"
+        previous_response if len(previous_response) <= 1500 else previous_response[:1500] + "…"
     )
     quoted = (
         f"\n\nYour previous turn produced this text instead of a tool "
@@ -221,6 +219,11 @@ class AgenticActorMixin:
     _gateway: AgentToolGateway | None = None
     _registered_uid: str | None = None
 
+    # Owned by subclasses but declared here so the mixin can clear it
+    # during eviction without mypy complaining about narrower subclass
+    # types. Every agentic actor in the codebase follows this convention.
+    _session_id: str | None = None
+
     # ------------------------------------------------------------------
     # Subclass-overridable hooks
     # ------------------------------------------------------------------
@@ -286,6 +289,69 @@ class AgenticActorMixin:
             url=url,
             tools=tools,
         )
+
+    # ------------------------------------------------------------------
+    # Subprocess-quota eviction support
+    # ------------------------------------------------------------------
+    #
+    # When the gateway is configured with a ``max_subprocesses`` cap and
+    # this actor's ACP subprocess is the LRU idle eviction victim, the
+    # quota invokes the eviction callback registered by the executor's
+    # connection pool (which forwards to ``AcpStepExecutor.cleanup_for_eviction``).
+    # That call needs to:
+    #
+    # 1. Clear actor-side ``session_id`` state — the about-to-die
+    #    subprocess won't recognize stale session IDs after re-spawn.
+    # 2. Tear down the subprocess pool (without re-releasing the quota
+    #    slot, which the quota already popped before invoking us).
+    #
+    # The mixin handles step 2 via the executor itself; subclasses that
+    # cache session_id MUST override :meth:`_invalidate_sessions_for_eviction`
+    # to clear it. Subclasses also wire the executor's session-invalidation
+    # hook in ``_ensure_executor`` via :meth:`_attach_eviction_hook`.
+
+    async def _invalidate_sessions_for_eviction(self) -> None:
+        """Subclass hook — clear session_id and any other state bound to
+        the about-to-die ACP subprocess(es).
+
+        Called immediately before the quota tears down this actor's
+        subprocess pool. Default implementation clears the standard
+        ``self._session_id`` attribute (declared on the mixin and
+        overridden by every agentic actor). Subclasses with additional
+        session-bound state should override this and call ``super()``.
+        """
+        self._session_id = None
+
+    def _attach_eviction_hook(self, executor: Any) -> None:
+        """Wire this actor's session-invalidation hook into ``executor``.
+
+        Call this from ``_ensure_executor`` immediately after creating
+        the executor. The hook fires from inside
+        :meth:`AcpStepExecutor.cleanup_for_eviction`, before the
+        subprocess is killed.
+        """
+        if hasattr(executor, "set_session_invalidator"):
+            executor.set_session_invalidator(self._invalidate_sessions_for_eviction)
+
+    async def _build_quota_aware_executor(self) -> Any:
+        """Create an :class:`AcpStepExecutor` wired into this actor's
+        gateway-scoped subprocess quota and eviction hook.
+
+        Subclasses use this from ``_ensure_executor`` instead of calling
+        ``create_default_executor()`` directly. When the gateway has no
+        quota configured (``max_subprocesses=None``), the returned
+        executor behaves identically to the default — every subprocess
+        spawn proceeds, no eviction is possible.
+        """
+        from maverick.executor import create_default_executor
+
+        quota = self._gateway.subprocess_quota if self._gateway is not None else None
+        executor = create_default_executor(
+            subprocess_quota=quota,
+            actor_uid=self._registered_uid,
+        )
+        self._attach_eviction_hook(executor)
+        return executor
 
     async def _unregister_from_gateway(self) -> None:
         """Remove this actor's gateway registration. Best-effort, no-op when missing."""

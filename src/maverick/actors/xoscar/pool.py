@@ -88,6 +88,8 @@ async def teardown_pool(
 @asynccontextmanager
 async def actor_pool(
     address: str = DEFAULT_POOL_ADDRESS,
+    *,
+    max_subprocesses: int | None = None,
 ) -> AsyncIterator[tuple[MainActorPoolType, str]]:
     """Context manager for a short-lived actor pool with shared MCP gateway.
 
@@ -104,6 +106,15 @@ async def actor_pool(
     subset on creation. The gateway is shut down after the body, after
     the pool has stopped.
 
+    Args:
+        address: xoscar pool bind address. Default picks an ephemeral
+            port on loopback.
+        max_subprocesses: Optional global cap on live ACP agent
+            subprocesses across the pool. When set, the gateway's
+            :class:`SubprocessQuota` enforces it via LRU eviction of
+            idle actors. ``None`` disables enforcement (legacy
+            behaviour — each actor spawns freely).
+
     Typical use::
 
         async with actor_pool() as (pool, address):
@@ -116,7 +127,7 @@ async def actor_pool(
     """
     pool, external_address = await create_pool(address)
 
-    gateway = AgentToolGateway()
+    gateway = AgentToolGateway(max_subprocesses=max_subprocesses)
     try:
         await gateway.start()
     except Exception:  # noqa: BLE001 — surface gateway failures to the caller
@@ -126,9 +137,7 @@ async def actor_pool(
             logger.debug("xoscar.pool_stop_failed_during_unwind", error=str(stop_exc))
         raise
     register_agent_tool_gateway(external_address, gateway)
-    logger.debug(
-        "xoscar.gateway_bound", pool=external_address, gateway=gateway.base_url
-    )
+    logger.debug("xoscar.gateway_bound", pool=external_address, gateway=gateway.base_url)
 
     try:
         yield pool, external_address

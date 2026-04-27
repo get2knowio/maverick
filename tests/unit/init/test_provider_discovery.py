@@ -232,10 +232,15 @@ class TestDiscoverProviders:
         """
 
         def _which(binary: str) -> str | None:
-            return f"/usr/local/bin/{binary}" if binary in {
-                "claude-agent-acp",
-                "opencode",
-            } else None
+            return (
+                f"/usr/local/bin/{binary}"
+                if binary
+                in {
+                    "claude-agent-acp",
+                    "opencode",
+                }
+                else None
+            )
 
         with patch(
             "maverick.init.provider_discovery.shutil.which",

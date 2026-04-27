@@ -51,6 +51,7 @@ from maverick.executor.provider_registry import AgentProviderRegistry
 from maverick.executor.result import ExecutorResult, UsageMetadata
 from maverick.logging import get_logger
 from maverick.registry import ComponentRegistry
+from maverick.tools.agent_inbox.subprocess_quota import SubprocessQuota
 
 __all__ = ["AcpStepExecutor"]
 
@@ -83,14 +84,42 @@ class AcpStepExecutor:
         provider_registry: AgentProviderRegistry,
         agent_registry: ComponentRegistry,
         global_max_tokens: int | None = None,
+        *,
+        subprocess_quota: SubprocessQuota | None = None,
+        actor_uid: str | None = None,
     ) -> None:
+        """
+        Args:
+            provider_registry: Resolves provider names → AgentProviderConfig.
+            agent_registry: ComponentRegistry for agent class lookup and prompt building.
+            global_max_tokens: Optional default token cap threaded through to subprocesses.
+            subprocess_quota: Optional pool-wide cap on live ACP subprocesses.
+                When set, ``actor_uid`` MUST also be set: the executor's
+                connection pool acquires a slot before its first spawn and
+                releases it on ``cleanup()``. When the quota is full, the
+                executor whose actor is LRU idle is evicted via
+                :meth:`cleanup_for_eviction` and re-spawns lazily.
+            actor_uid: The owning actor's uid (lease key for the quota).
+        """
         self._provider_registry = provider_registry
         self._agent_registry = agent_registry
         self._global_max_tokens = global_max_tokens
         self._logger = get_logger(__name__)
-        self._pool = ConnectionPool(logger=self._logger)
+        self._actor_uid = actor_uid
+        self._subprocess_quota = subprocess_quota
+        self._pool = ConnectionPool(
+            logger=self._logger,
+            subprocess_quota=subprocess_quota,
+            actor_uid=actor_uid,
+            evict_cb=self._on_evicted if subprocess_quota is not None else None,
+        )
         self._session_uses_tool_output_contract: dict[str, bool] = {}
         self._session_provider_keys: dict[str, str] = {}
+        # Set when the owning actor (via :class:`AgenticActorMixin`)
+        # provides a session-invalidation hook to be invoked before
+        # the eviction tears down the subprocess. The hook is best-
+        # effort: missing-attr is fine, exceptions are swallowed.
+        self._on_session_invalidate: Any = None
 
     async def execute(
         self,
@@ -301,10 +330,63 @@ class AcpStepExecutor:
         )
 
     async def cleanup(self) -> None:
-        """Close all cached ACP connections and terminate subprocesses."""
-        await self._pool.close_all()
+        """Close all cached ACP connections and terminate subprocesses.
+
+        Releases this executor's slot from the global subprocess quota
+        (when one is configured). Safe to call multiple times.
+        """
+        await self._pool.close_all(release_quota_slot=True)
         self._session_uses_tool_output_contract.clear()
         self._session_provider_keys.clear()
+
+    async def cleanup_for_eviction(self) -> None:
+        """Tear down subprocesses without releasing the quota slot.
+
+        Called by :class:`AgenticActorMixin._evict_subprocess` when this
+        executor's actor is the LRU eviction victim. The quota has
+        already popped this actor's lease before invoking the eviction
+        callback chain — releasing again would wake a second waiter and
+        over-fire. This method:
+
+        1. Invokes the actor-supplied session-invalidation hook (if
+           registered) so the actor can clear stale ``session_id`` state
+           bound to the about-to-die subprocesses.
+        2. Closes the ACP subprocess pool with ``release_quota_slot=False``.
+        3. Clears the executor's session bookkeeping.
+
+        After this returns, the next ``create_session``/``execute`` call
+        will spawn a fresh subprocess via :meth:`ConnectionPool.get_or_create`,
+        which will go through the quota again to re-acquire a slot.
+        """
+        if self._on_session_invalidate is not None:
+            try:
+                await self._on_session_invalidate()
+            except Exception as exc:  # noqa: BLE001 — eviction must not raise
+                self._logger.debug(
+                    "acp_executor.evict_invalidate_failed",
+                    actor_uid=self._actor_uid,
+                    error=str(exc),
+                )
+        await self._pool.close_all(release_quota_slot=False)
+        self._session_uses_tool_output_contract.clear()
+        self._session_provider_keys.clear()
+
+    def set_session_invalidator(self, callback: Any) -> None:
+        """Register a coroutine called before eviction tears down subprocesses.
+
+        Owning actors use this to clear ``session_id`` attributes that
+        won't be valid against a freshly spawned subprocess. The callback
+        signature is ``async () -> None``. Pass ``None`` to clear.
+        """
+        self._on_session_invalidate = callback
+
+    async def _on_evicted(self) -> None:
+        """Eviction callback wired into the connection pool.
+
+        Bridges the quota's ``EvictCallback`` into our typed
+        :meth:`cleanup_for_eviction` flow.
+        """
+        await self.cleanup_for_eviction()
 
     async def cancel_session(
         self,
@@ -413,13 +495,10 @@ class AcpStepExecutor:
         )
 
         try:
-            session = await cached.conn.new_session(
-                cwd=cwd_str, mcp_servers=mcp_servers or []
-            )
+            session = await cached.conn.new_session(cwd=cwd_str, mcp_servers=mcp_servers or [])
         except AcpRequestError as exc:
             raise AgentError(
-                f"ACP new_session failed for provider '{provider_name}': "
-                f"{format_acp_error(exc)}"
+                f"ACP new_session failed for provider '{provider_name}': {format_acp_error(exc)}"
             ) from exc
         session_id = session.session_id
         self._session_uses_tool_output_contract[session_id] = _uses_tool_output_contract(
@@ -527,115 +606,125 @@ class AcpStepExecutor:
             prompt_len=len(prompt_text),
         )
 
+        # Shield this executor's quota slot from eviction for the
+        # duration of the prompt. ``mark_busy``/``mark_idle`` are no-ops
+        # when the executor wasn't constructed with a quota. The
+        # mark_idle call lives in the outer try/finally below so it
+        # fires on every return path.
+        await self._pool.mark_busy()
         start_time = time.monotonic()
         try:
-            coro = cached.conn.prompt(
-                prompt=[text_block(prompt_text)],
-                session_id=session_id,
-            )
-            if effective_config.timeout is not None:
-                response = await asyncio.wait_for(coro, timeout=float(effective_config.timeout))
-            else:
-                response = await coro
-        except TimeoutError as exc:
-            # Send an ACP CancelNotification so the agent stops the
-            # stalled turn instead of leaving the session half-alive.
-            # Cap the cancel at 5s: if the subprocess/socket is already
-            # dead, the cancel itself will hang, and we'd have no way
-            # out. A hung cancel is the strongest signal we can get that
-            # the connection is unusable, so we drop it from the pool —
-            # the next prompt_session call for this provider will spawn
-            # a fresh subprocess via get_or_create.
-            cancel_failed = False
             try:
-                await asyncio.wait_for(cached.conn.cancel(session_id), timeout=5.0)
-            except TimeoutError:
-                cancel_failed = True
-                self._logger.warning(
-                    "acp_executor.cancel_timeout_connection_dead",
+                coro = cached.conn.prompt(
+                    prompt=[text_block(prompt_text)],
                     session_id=session_id,
-                    provider=provider_key,
                 )
-            except Exception as cancel_exc:
-                cancel_failed = True
-                self._logger.debug(
-                    "acp_executor.cancel_after_timeout_failed",
-                    session_id=session_id,
-                    error=str(cancel_exc),
+                if effective_config.timeout is not None:
+                    response = await asyncio.wait_for(
+                        coro, timeout=float(effective_config.timeout)
+                    )
+                else:
+                    response = await coro
+            except TimeoutError as exc:
+                # Send an ACP CancelNotification so the agent stops the
+                # stalled turn instead of leaving the session half-alive.
+                # Cap the cancel at 5s: if the subprocess/socket is already
+                # dead, the cancel itself will hang, and we'd have no way
+                # out. A hung cancel is the strongest signal we can get that
+                # the connection is unusable, so we drop it from the pool —
+                # the next prompt_session call for this provider will spawn
+                # a fresh subprocess via get_or_create.
+                cancel_failed = False
+                try:
+                    await asyncio.wait_for(cached.conn.cancel(session_id), timeout=5.0)
+                except TimeoutError:
+                    cancel_failed = True
+                    self._logger.warning(
+                        "acp_executor.cancel_timeout_connection_dead",
+                        session_id=session_id,
+                        provider=provider_key,
+                    )
+                except Exception as cancel_exc:
+                    cancel_failed = True
+                    self._logger.debug(
+                        "acp_executor.cancel_after_timeout_failed",
+                        session_id=session_id,
+                        error=str(cancel_exc),
+                    )
+                if cancel_failed:
+                    # Invalidate the cached connection so the next caller
+                    # doesn't inherit the hung socket. We don't close it
+                    # here — close would also hang — just evict from the
+                    # cache. close_all() at shutdown will still try to
+                    # reap the subprocess via kill_process_group.
+                    self._pool.cache.pop(provider_key, None)
+                    self._session_provider_keys.pop(session_id, None)
+                    self._session_uses_tool_output_contract.pop(session_id, None)
+                raise MaverickTimeoutError(
+                    f"ACP prompt on session '{session_id}' timed out after "
+                    f"{effective_config.timeout}s",
+                    timeout_seconds=float(effective_config.timeout or 0),
+                ) from exc
+            except AcpRequestError as exc:
+                raise NetworkError(
+                    f"ACP prompt failed on session '{session_id}': {format_acp_error(exc)}",
+                ) from exc
+
+            # Check circuit breaker
+            if cached.client.aborted:
+                most_called_tool = _find_most_called_tool(cached.client)
+                raise CircuitBreakerError(
+                    tool_name=most_called_tool,
+                    call_count=MAX_SAME_TOOL_CALLS,
+                    max_calls=MAX_SAME_TOOL_CALLS,
+                    agent_name=agent_name,
                 )
-            if cancel_failed:
-                # Invalidate the cached connection so the next caller
-                # doesn't inherit the hung socket. We don't close it
-                # here — close would also hang — just evict from the
-                # cache. close_all() at shutdown will still try to
-                # reap the subprocess via kill_process_group.
-                self._pool.cache.pop(provider_key, None)
-                self._session_provider_keys.pop(session_id, None)
-                self._session_uses_tool_output_contract.pop(session_id, None)
-            raise MaverickTimeoutError(
-                f"ACP prompt on session '{session_id}' timed out after "
-                f"{effective_config.timeout}s",
-                timeout_seconds=float(effective_config.timeout or 0),
-            ) from exc
-        except AcpRequestError as exc:
-            raise NetworkError(
-                f"ACP prompt failed on session '{session_id}': "
-                f"{format_acp_error(exc)}",
-            ) from exc
 
-        # Check circuit breaker
-        if cached.client.aborted:
-            most_called_tool = _find_most_called_tool(cached.client)
-            raise CircuitBreakerError(
-                tool_name=most_called_tool,
-                call_count=MAX_SAME_TOOL_CALLS,
-                max_calls=MAX_SAME_TOOL_CALLS,
-                agent_name=agent_name,
-            )
+            accumulated_text = cached.client.get_accumulated_text()
+            duration_ms = int((time.monotonic() - start_time) * 1000)
 
-        accumulated_text = cached.client.get_accumulated_text()
-        duration_ms = int((time.monotonic() - start_time) * 1000)
+            usage = _usage_from_acp(getattr(response, "usage", None))
 
-        usage = _usage_from_acp(getattr(response, "usage", None))
-
-        self._logger.debug(
-            "acp_executor.prompt_session_complete",
-            session_id=session_id,
-            step_name=step_name,
-            response_len=len(accumulated_text),
-            duration_ms=duration_ms,
-        )
-        self._logger.info(
-            "acp_executor.prompt_usage",
-            step_name=step_name,
-            agent_name=agent_name,
-            session_id=session_id,
-            provider=provider_key,
-            input_tokens=usage.input_tokens if usage else None,
-            output_tokens=usage.output_tokens if usage else None,
-            cache_read_tokens=usage.cache_read_tokens if usage else None,
-            cache_write_tokens=usage.cache_write_tokens if usage else None,
-            usage_reported=usage is not None,
-            session_kind="multi_turn",
-        )
-
-        # Extract and validate output
-        output: BaseModel | str
-        if output_schema is not None:
-            output = extract_json_output(
-                text=accumulated_text,
-                output_schema=output_schema,
+            self._logger.debug(
+                "acp_executor.prompt_session_complete",
+                session_id=session_id,
                 step_name=step_name,
+                response_len=len(accumulated_text),
+                duration_ms=duration_ms,
             )
-        else:
-            output = accumulated_text
+            self._logger.info(
+                "acp_executor.prompt_usage",
+                step_name=step_name,
+                agent_name=agent_name,
+                session_id=session_id,
+                provider=provider_key,
+                input_tokens=usage.input_tokens if usage else None,
+                output_tokens=usage.output_tokens if usage else None,
+                cache_read_tokens=usage.cache_read_tokens if usage else None,
+                cache_write_tokens=usage.cache_write_tokens if usage else None,
+                usage_reported=usage is not None,
+                session_kind="multi_turn",
+            )
 
-        return ExecutorResult(
-            output=output,
-            success=True,
-            usage=usage,
-            events=(),
-        )
+            # Extract and validate output
+            output: BaseModel | str
+            if output_schema is not None:
+                output = extract_json_output(
+                    text=accumulated_text,
+                    output_schema=output_schema,
+                    step_name=step_name,
+                )
+            else:
+                output = accumulated_text
+
+            return ExecutorResult(
+                output=output,
+                success=True,
+                usage=usage,
+                events=(),
+            )
+        finally:
+            await self._pool.mark_idle()
 
     async def _execute_with_retry(
         self,

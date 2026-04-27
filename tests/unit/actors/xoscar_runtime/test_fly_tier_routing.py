@@ -29,26 +29,14 @@ from maverick.config import ImplementerTierConfig, ImplementerTiersConfig
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    "value", ["trivial", "simple", "moderate", "complex"]
-)
+@pytest.mark.parametrize("value", ["trivial", "simple", "moderate", "complex"])
 def test_extract_complexity_reads_frontmatter(value: str) -> None:
-    md = (
-        "---\n"
-        "work-unit: wu-1\n"
-        f"complexity: {value}\n"
-        "---\n\n## Task\n\nfoo\n"
-    )
+    md = f"---\nwork-unit: wu-1\ncomplexity: {value}\n---\n\n## Task\n\nfoo\n"
     assert _extract_complexity_from_md(md) == value
 
 
 def test_extract_complexity_returns_none_when_field_missing() -> None:
-    md = (
-        "---\n"
-        "work-unit: wu-1\n"
-        "sequence: 1\n"
-        "---\n\n## Task\n\nfoo\n"
-    )
+    md = "---\nwork-unit: wu-1\nsequence: 1\n---\n\n## Task\n\nfoo\n"
     assert _extract_complexity_from_md(md) is None
 
 
@@ -56,19 +44,14 @@ def test_extract_complexity_returns_none_for_unknown_value() -> None:
     md = (
         "---\n"
         "work-unit: wu-1\n"
-        "complexity: epic\n"   # not in TIER_ORDER
+        "complexity: epic\n"  # not in TIER_ORDER
         "---\n\n## Task\n\nfoo\n"
     )
     assert _extract_complexity_from_md(md) is None
 
 
 def test_extract_complexity_handles_quoted_value() -> None:
-    md = (
-        "---\n"
-        "work-unit: wu-1\n"
-        'complexity: "moderate"\n'
-        "---\n\n## Task\n\nfoo\n"
-    )
+    md = '---\nwork-unit: wu-1\ncomplexity: "moderate"\n---\n\n## Task\n\nfoo\n'
     assert _extract_complexity_from_md(md) == "moderate"
 
 
@@ -319,13 +302,9 @@ async def _peek_implementers(sup: xo.ActorRef) -> dict[str, xo.ActorRef]:
     return await sup.t_peek_implementers()
 
 
-async def _resolve_tier(
-    sup: xo.ActorRef, complexity: str | None, level: int
-) -> str:
+async def _resolve_tier(sup: xo.ActorRef, complexity: str | None, level: int) -> str:
     return await sup.t_resolve_tier(complexity, level)
 
 
-async def _can_escalate(
-    sup: xo.ActorRef, complexity: str | None, level: int
-) -> bool:
+async def _can_escalate(sup: xo.ActorRef, complexity: str | None, level: int) -> bool:
     return await sup.t_can_escalate(complexity, level)

@@ -213,9 +213,7 @@ async def test_unknown_uid_returns_404(gateway: AgentToolGateway):
 @pytest.mark.asyncio
 async def test_unregister_then_call_returns_404(gateway: AgentToolGateway):
     received: list[tuple[str, dict[str, Any]]] = []
-    url = await gateway.register(
-        "ephemeral", ["submit_implementation"], _record_handler(received)
-    )
+    url = await gateway.register("ephemeral", ["submit_implementation"], _record_handler(received))
     await gateway.unregister("ephemeral")
     async with httpx.AsyncClient() as client:
         resp = await client.post(
@@ -279,3 +277,32 @@ async def test_concurrent_tool_calls_dispatch_correctly(gateway: AgentToolGatewa
         name, args = sink[0]
         assert name == "submit_implementation"
         assert args["summary"] == f"payload-{uid}"
+
+
+# ---------------------------------------------------------------------------
+# SubprocessQuota wiring
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_gateway_without_max_subprocesses_has_no_quota():
+    """Default construction (no cap) leaves ``subprocess_quota = None``."""
+    gateway = AgentToolGateway()
+    try:
+        assert gateway.subprocess_quota is None
+    finally:
+        await gateway.stop()
+
+
+@pytest.mark.asyncio
+async def test_gateway_with_max_subprocesses_exposes_quota():
+    """When ``max_subprocesses`` is set, the gateway exposes a quota
+    sized to that cap. Executors look up this quota via
+    ``agent_tool_gateway_for(pool_address).subprocess_quota``."""
+    gateway = AgentToolGateway(max_subprocesses=4)
+    try:
+        quota = gateway.subprocess_quota
+        assert quota is not None
+        assert quota.max_subprocesses == 4
+    finally:
+        await gateway.stop()

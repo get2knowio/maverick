@@ -165,9 +165,7 @@ class GeneratorActor(AgenticActorMixin, xo.Actor):
 
     async def _ensure_executor(self) -> None:
         if self._executor is None:
-            from maverick.executor import create_default_executor
-
-            self._executor = create_default_executor()
+            self._executor = await self._build_quota_aware_executor()
 
     async def _new_session(self) -> None:
         await self._ensure_executor()
@@ -236,9 +234,7 @@ class GeneratorActor(AgenticActorMixin, xo.Actor):
         prompt_text = build_tool_required_nudge_prompt(
             expected_tool=GENERATOR_MCP_TOOL,
             previous_response=self._get_last_response(),
-            empty_result_guidance=(
-                "Submit even a partial plan rather than refusing."
-            ),
+            empty_result_guidance=("Submit even a partial plan rather than refusing."),
         )
 
         result = await self._executor.prompt_session(

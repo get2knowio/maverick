@@ -102,9 +102,7 @@ def test_clear_invalid_bd_state_handles_corrupt_metadata(tmp_path: Path) -> None
 def test_clear_invalid_bd_state_removes_stale_server_artifacts(tmp_path: Path) -> None:
     beads = tmp_path / ".beads"
     beads.mkdir()
-    (beads / "metadata.json").write_text(
-        json.dumps({"dolt_database": "sample_maverick_project"})
-    )
+    (beads / "metadata.json").write_text(json.dumps({"dolt_database": "sample_maverick_project"}))
     server_dir = beads / "dolt"
     server_dir.mkdir()
     (server_dir / "data").write_text("x")

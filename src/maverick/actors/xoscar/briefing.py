@@ -212,9 +212,7 @@ class BriefingActor(AgenticActorMixin, xo.Actor):
 
     async def _ensure_executor(self) -> None:
         if self._executor is None:
-            from maverick.executor import create_default_executor
-
-            self._executor = create_default_executor()
+            self._executor = await self._build_quota_aware_executor()
 
     async def _new_session(self) -> None:
         await self._ensure_executor()
@@ -239,9 +237,7 @@ class BriefingActor(AgenticActorMixin, xo.Actor):
             expected_tool=self._mcp_tool,
             user_content=request.prompt,
             user_content_label="Briefing input",
-            role_intro=(
-                f"You are the {self._agent_name} briefing agent."
-            ),
+            role_intro=(f"You are the {self._agent_name} briefing agent."),
             empty_result_guidance=(
                 "If your analysis surfaces no findings (e.g. greenfield "
                 "project with no existing code), call the tool with "

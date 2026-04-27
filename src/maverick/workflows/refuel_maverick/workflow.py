@@ -507,9 +507,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
         # Stable display order: trivial → simple → moderate → complex → unclassified.
         _order = ["trivial", "simple", "moderate", "complex", "unclassified"]
         breakdown = ", ".join(
-            f"{complexity_counts[k]} {k}"
-            for k in _order
-            if complexity_counts.get(k, 0) > 0
+            f"{complexity_counts[k]} {k}" for k in _order if complexity_counts.get(k, 0) > 0
         )
         if breakdown:
             await self.emit_output(
@@ -999,7 +997,9 @@ class RefuelMaverickWorkflow(PythonWorkflow):
             outline_cache_schema_version=OUTLINE_CACHE_SCHEMA_VERSION,
         )
 
-        async with actor_pool() as (_pool, address):
+        async with actor_pool(
+            max_subprocesses=self._config.parallel.max_agents,
+        ) as (_pool, address):
             supervisor = await xo.create_actor(
                 RefuelSupervisor,
                 supervisor_inputs,

@@ -146,15 +146,11 @@ class ImplementerActor(AgenticActorMixin, xo.Actor):
         logger.debug("implementer.phase_starting", phase=phase, bead_id=bead_id)
 
         async def _failure(error_str: str) -> None:
-            await self._report_implementer_failure(
-                error_str, phase=phase, bead_id=bead_id
-            )
+            await self._report_implementer_failure(error_str, phase=phase, bead_id=bead_id)
 
         await self._run_with_self_nudge(
             expected_tool=tool_name,
-            run_prompt=lambda: self._send_prompt(
-                prompt_text, phase=phase, tool_name=tool_name
-            ),
+            run_prompt=lambda: self._send_prompt(prompt_text, phase=phase, tool_name=tool_name),
             run_nudge=lambda: self._send_nudge_prompt(tool_name, phase=phase),
             on_failure=_failure,
             log_prefix="implementer",
@@ -224,9 +220,7 @@ class ImplementerActor(AgenticActorMixin, xo.Actor):
 
     async def _ensure_executor(self) -> None:
         if self._executor is None:
-            from maverick.executor import create_default_executor
-
-            self._executor = create_default_executor()
+            self._executor = await self._build_quota_aware_executor()
 
     async def _new_session(self) -> None:
         await self._ensure_executor()
@@ -251,9 +245,7 @@ class ImplementerActor(AgenticActorMixin, xo.Actor):
             expected_tool=tool_name,
             user_content=prompt_text,
             user_content_label="Bead specification",
-            role_intro=(
-                f"You are the implementer for the {phase} phase."
-            ),
+            role_intro=(f"You are the implementer for the {phase} phase."),
         )
 
         result = await self._executor.prompt_session(
@@ -280,9 +272,7 @@ class ImplementerActor(AgenticActorMixin, xo.Actor):
         prompt_text = build_tool_required_nudge_prompt(
             expected_tool=expected_tool,
             previous_response=self._get_last_response(),
-            empty_result_guidance=(
-                "Submit a partial result rather than refusing."
-            ),
+            empty_result_guidance=("Submit a partial result rather than refusing."),
         )
 
         result = await self._executor.prompt_session(

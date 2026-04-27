@@ -38,6 +38,7 @@ def _make_workflow() -> FlyBeadsWorkflow:
         ),
     }
     config.validation = MagicMock(timeout_seconds=300)
+    config.parallel = MagicMock(max_agents=3)
     config.project_type = "python"
     registry = MagicMock(spec=ComponentRegistry)
     return FlyBeadsWorkflow(

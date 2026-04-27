@@ -1912,9 +1912,7 @@ class TestResolveModelForProvider:
         assert _resolve_model_for_provider("sonnet", session) == "sonnet"
         assert _resolve_model_for_provider("haiku", session) == "haiku"
         # Full id forms also resolve through description.
-        assert (
-            _resolve_model_for_provider("claude-opus-4-7", session) == "default"
-        )
+        assert _resolve_model_for_provider("claude-opus-4-7", session) == "default"
 
     def test_description_match_when_name_is_missing(self) -> None:
         """Models that omit `name` entirely still resolve via description."""

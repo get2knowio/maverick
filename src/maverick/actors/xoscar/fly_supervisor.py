@@ -736,9 +736,7 @@ class FlySupervisor(xo.Actor):
         tier_name = _DEFAULT_TIER
         implementer = self._implementer
         if self._inputs.implementer_tiers is not None:
-            threshold = getattr(
-                self._inputs.implementer_tiers, "escalation_threshold", 0
-            )
+            threshold = getattr(self._inputs.implementer_tiers, "escalation_threshold", 0)
             if (
                 threshold > 0
                 and round > threshold
@@ -748,9 +746,7 @@ class FlySupervisor(xo.Actor):
                 new_tier, new_implementer = self._implementer_for(
                     complexity, self._bead_escalation_level
                 )
-                old_tier, _ = self._implementer_for(
-                    complexity, self._bead_escalation_level - 1
-                )
+                old_tier, _ = self._implementer_for(complexity, self._bead_escalation_level - 1)
                 if new_tier != old_tier:
                     await self._emit_output(
                         "fly",
@@ -786,8 +782,7 @@ class FlySupervisor(xo.Actor):
         if self._last_fix_result is None:
             await self._emit_output(
                 "fly",
-                f"Implementer did not submit fix for {bead_id} "
-                f"({phase}, tier={tier_name})",
+                f"Implementer did not submit fix for {bead_id} ({phase}, tier={tier_name})",
                 level="error",
             )
             return False
@@ -1211,13 +1206,9 @@ class FlySupervisor(xo.Actor):
         return dict(self._implementers)
 
     @xo.no_lock
-    async def t_resolve_tier(
-        self, complexity: str | None, escalation_level: int
-    ) -> str:
+    async def t_resolve_tier(self, complexity: str | None, escalation_level: int) -> str:
         return self._resolve_implementer_tier(complexity, escalation_level)
 
     @xo.no_lock
-    async def t_can_escalate(
-        self, complexity: str | None, current_level: int
-    ) -> bool:
+    async def t_can_escalate(self, complexity: str | None, current_level: int) -> bool:
         return self._can_escalate(complexity, current_level)

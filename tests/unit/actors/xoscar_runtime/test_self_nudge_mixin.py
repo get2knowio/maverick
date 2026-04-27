@@ -389,9 +389,7 @@ async def test_implementer_actor_self_nudges(pool_address: str) -> None:
     async def _silent(self: ImplementerActor, *args: Any, **_: Any) -> None:
         return None
 
-    async def _nudge_calls_tool(
-        self: ImplementerActor, expected_tool: str, *, phase: str
-    ) -> None:
+    async def _nudge_calls_tool(self: ImplementerActor, expected_tool: str, *, phase: str) -> None:
         await self.on_tool_call(expected_tool, _VALID_IMPLEMENTATION)
 
     try:
@@ -400,9 +398,7 @@ async def test_implementer_actor_self_nudges(pool_address: str) -> None:
             patch.object(ImplementerActor, "_send_nudge_prompt", new=_nudge_calls_tool),
             patch.object(ImplementerActor, "_end_turn", new=_noop_end_turn_one_arg),
         ):
-            await actor.send_implement(
-                ImplementRequest(prompt="implement", bead_id="bd-1")
-            )
+            await actor.send_implement(ImplementRequest(prompt="implement", bead_id="bd-1"))
 
         payloads = await sup.payloads()
         errors = await sup.errors()
