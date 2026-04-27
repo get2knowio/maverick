@@ -333,6 +333,80 @@ async def test_prompt_error_detail_records_quota_signal(pool_address: str) -> No
         await xo.destroy_actor(sup)
 
 
+@pytest.mark.asyncio
+async def test_fix_ready_writes_outline_and_details_to_cache(
+    pool_address: str, tmp_path: Path
+) -> None:
+    """fix_ready must persist the corrected outline and details so a
+    re-run picks up the post-fix state instead of re-loading the
+    pre-fix version and burning the fix loop again."""
+    from maverick.tools.agent_inbox.models import (
+        AcceptanceCriterionPayload,
+        SubmitFixPayload,
+        WorkUnitDetailPayload,
+        WorkUnitOutlinePayload,
+    )
+
+    detail_cache_dir = tmp_path / "details"
+    outline_cache_path = tmp_path / "outline.json"
+
+    sup = await xo.create_actor(
+        RefuelSupervisor,
+        RefuelInputs(
+            cwd=str(tmp_path),
+            flight_plan=_flight_plan(),
+            initial_payload={"flight_plan_content": "plan"},
+            skip_briefing=True,
+            outline_cache_path=str(outline_cache_path),
+            detail_cache_dir=str(detail_cache_dir),
+        ),
+        address=pool_address,
+        uid="ref-sup-fix-cache",
+    )
+    try:
+        # Send a fix payload mirroring what the agent's submit_fix
+        # MCP tool would deliver.
+        await sup.fix_ready(
+            SubmitFixPayload(
+                work_units=(
+                    WorkUnitOutlinePayload(
+                        id="wu-1", task="t1", sequence=1, complexity="moderate"
+                    ),
+                ),
+                details=(
+                    WorkUnitDetailPayload(
+                        id="wu-1",
+                        instructions="updated by fix",
+                        acceptance_criteria=(
+                            AcceptanceCriterionPayload(
+                                text="now traces SC-009", trace_ref="SC-009"
+                            ),
+                        ),
+                        verification=("npm test",),
+                    ),
+                ),
+            )
+        )
+
+        assert outline_cache_path.is_file(), (
+            "fix_ready must persist the corrected outline"
+        )
+        detail_path = detail_cache_dir / "wu-1.json"
+        assert detail_path.is_file(), (
+            "fix_ready must persist each corrected detail per-unit"
+        )
+        import json as _json
+
+        cached_detail = _json.loads(detail_path.read_text(encoding="utf-8"))
+        assert cached_detail["id"] == "wu-1"
+        assert cached_detail["instructions"] == "updated by fix"
+        # Verify the fixed trace_ref made it through.
+        ac = cached_detail["acceptance_criteria"][0]
+        assert ac["trace_ref"] == "SC-009"
+    finally:
+        await xo.destroy_actor(sup)
+
+
 def test_seed_cached_details_no_op_when_no_cache() -> None:
     """Empty cache → no-op, returns empty set, accumulator unchanged."""
     from types import SimpleNamespace

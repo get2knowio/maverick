@@ -1341,9 +1341,20 @@ class RefuelSupervisor(xo.Actor):
     async def fix_ready(self, payload: SubmitFixPayload) -> None:
         if payload.work_units:
             self._outline = SubmitOutlinePayload(work_units=payload.work_units)
+            # Persist the fixed outline so a re-run picks up the
+            # corrections instead of re-loading the pre-fix version
+            # and burning through the fix loop again.
+            self._cache_outline()
         if payload.details:
             self._details = SubmitDetailsPayload(details=payload.details)
             self._accumulated_details = list(payload.details)
+            # Persist each fixed detail per-unit so a re-run resumes at
+            # the post-fix state. The cache writer overwrites the
+            # existing JSON, so units the fix didn't touch are
+            # unaffected and fixed units pick up their new
+            # acceptance_criteria / verification / etc.
+            for detail in payload.details:
+                self._cache_detail(detail.id, detail)
         self._awaiting_fix = False
         await self._emit_output(
             "refuel",
