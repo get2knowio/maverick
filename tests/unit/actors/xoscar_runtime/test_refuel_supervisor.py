@@ -8,6 +8,7 @@ expected, and its event queue / generator wiring is correct.
 
 from __future__ import annotations
 
+import asyncio
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, patch
@@ -214,10 +215,10 @@ async def test_detail_ready_no_double_emit_for_unknown_unit(pool_address: str) -
 
 
 @pytest.mark.asyncio
-async def test_tier_mode_spawns_pool_per_tier(pool_address: str) -> None:
-    """In tier mode each defined tier gets a pool of ``decomposer_pool_size``
-    workers — concurrency is a system-resource budget, allocated across the
-    classifications in the workload, not 1-actor-per-tier."""
+async def test_tier_mode_demand_pool_starts_empty(pool_address: str) -> None:
+    """Tier mode uses a demand-driven pool — actors are spawned when work
+    arrives, not pre-allocated at supervisor construction. The cap is the
+    system-resource budget; the pool fills as the workload demands."""
     from maverick.config import (
         DecomposerTiersConfig,
         ImplementerTierConfig,
@@ -227,7 +228,7 @@ async def test_tier_mode_spawns_pool_per_tier(pool_address: str) -> None:
         cwd="/tmp",
         flight_plan=_flight_plan(),
         initial_payload={"flight_plan_content": "plan"},
-        decomposer_pool_size=3,  # 3 workers per defined tier
+        decomposer_pool_size=3,  # cap on total live decomposers in tier mode
         skip_briefing=True,
         decomposer_tiers=DecomposerTiersConfig(
             simple=ImplementerTierConfig(provider="opencode", model_id="x"),
@@ -239,20 +240,203 @@ async def test_tier_mode_spawns_pool_per_tier(pool_address: str) -> None:
         RefuelSupervisor,
         inputs,
         address=pool_address,
-        uid="ref-sup-tier-pools",
+        uid="ref-sup-tier-demand",
     )
     try:
         snapshot = await sup.t_peek_decomposers()
         assert snapshot["mode"] == "tiered"
-        # Three tiers defined, each with pool_size=3 workers.
-        assert set(snapshot["tier_names"]) == {"simple", "moderate", "complex"}
-        assert snapshot["tier_pool_sizes"] == {
-            "simple": 3,
-            "moderate": 3,
-            "complex": 3,
-        }
+        # Pool is empty at start — no actors of any tier exist until the
+        # detail fan-out asks for one.
+        assert snapshot["demand_pool"]["cap"] == 3
+        assert snapshot["demand_pool"]["total"] == 0
+        assert snapshot["demand_pool"]["actors_by_tier"] == {}
     finally:
         await xo.destroy_actor(sup)
+
+
+# ---------------------------------------------------------------------------
+# Demand-pool internals — tested in isolation against a fake supervisor so
+# we don't need the full supervisor + xoscar create_actor stack here.
+# ---------------------------------------------------------------------------
+
+
+class _FakeRef:
+    """Stand-in for an xoscar ActorRef. Identity-distinct, no behaviour."""
+
+    def __init__(self, label: str) -> None:
+        self.label = label
+
+    def __repr__(self) -> str:
+        return f"<FakeRef {self.label}>"
+
+
+# Imported lazily to keep the top of the file dependency-light.
+from maverick.executor.config import StepConfig as _StepConfig  # noqa: E402
+
+
+@pytest.mark.asyncio
+async def test_decomposer_pool_reuse_spawn_evict() -> None:
+    """The demand pool follows the spec: reuse idle of-tier first, spawn
+    under cap, evict LRU idle of any other tier when at cap."""
+    from unittest.mock import AsyncMock, patch
+
+    from maverick.actors.xoscar.refuel_supervisor import _DecomposerPool
+
+    spawn_log: list[str] = []
+    destroy_log: list[str] = []
+
+    fake_actor_count = [0]
+
+    async def fake_create_actor(*_args: Any, **_kwargs: Any) -> _FakeRef:
+        fake_actor_count[0] += 1
+        ref = _FakeRef(f"actor-{fake_actor_count[0]}")
+        spawn_log.append(_kwargs.get("uid", ref.label))
+        return ref
+
+    async def fake_destroy_actor(ref: _FakeRef) -> None:
+        destroy_log.append(ref.label)
+
+    # The pool reaches into ``supervisor.ref()``, ``supervisor.address``,
+    # ``supervisor.uid``, ``supervisor._inputs.cwd``. Stub all four.
+    supervisor = SimpleNamespace(
+        ref=lambda: SimpleNamespace(),
+        address="memory://test",
+        uid=b"fake-sup",
+        _inputs=SimpleNamespace(cwd="/tmp"),
+    )
+
+    with (
+        patch(
+            "maverick.actors.xoscar.refuel_supervisor.xo.create_actor",
+            new=fake_create_actor,
+        ),
+        patch(
+            "maverick.actors.xoscar.refuel_supervisor.xo.destroy_actor",
+            new=fake_destroy_actor,
+        ),
+        patch(
+            "maverick.actors.xoscar.refuel_supervisor.DecomposerActor",
+            new=AsyncMock,
+        ),
+    ):
+        from maverick.config import (
+            DecomposerTiersConfig,
+            ImplementerTierConfig,
+        )
+
+        pool = _DecomposerPool(
+            supervisor=supervisor,
+            cap=2,
+            base_config=_StepConfig(provider="claude", model_id="sonnet"),
+            decomposer_tiers=DecomposerTiersConfig(
+                simple=ImplementerTierConfig(provider="opencode", model_id="x"),
+                moderate=ImplementerTierConfig(
+                    provider="claude", model_id="sonnet"
+                ),
+                complex=ImplementerTierConfig(provider="claude", model_id="opus"),
+            ),
+            detail_session_max_turns=1,
+            fix_session_max_turns=1,
+        )
+
+        # 1. Empty pool, acquire(moderate) → spawns first.
+        a1 = await pool.acquire("moderate")
+        assert pool.snapshot() == {
+            "cap": 2,
+            "total": 1,
+            "idle_by_tier": {},
+            "actors_by_tier": {"moderate": 1},
+        }
+
+        # 2. Release a1 then acquire(moderate) → REUSES (no spawn).
+        await pool.release(a1, "moderate")
+        a1_again = await pool.acquire("moderate")
+        assert a1_again is a1, "must reuse the cached moderate actor"
+        assert len(spawn_log) == 1
+
+        # 3. Acquire(simple) under cap → spawns second.
+        a2 = await pool.acquire("simple")
+        assert a2 is not a1
+        assert pool.total_live == 2
+        assert len(spawn_log) == 2
+        assert destroy_log == []
+
+        # 4. Release both, then acquire(complex) — at cap, must EVICT
+        # the LRU idle actor (the moderate one — released first).
+        await pool.release(a1_again, "moderate")
+        await pool.release(a2, "simple")
+        a3 = await pool.acquire("complex")
+        assert a3 is not a1
+        assert a3 is not a2
+        assert len(spawn_log) == 3
+        # The LRU was a1 (moderate, released first) — that's what got destroyed.
+        assert destroy_log == [a1.label]
+        snap = pool.snapshot()
+        assert snap["total"] == 2
+        # complex (busy, just acquired) + simple (idle in cache).
+        assert snap["actors_by_tier"] == {"simple": 1, "complex": 1}
+        assert snap["idle_by_tier"] == {"simple": 1}
+
+
+@pytest.mark.asyncio
+async def test_decomposer_pool_blocks_at_cap_when_no_idle() -> None:
+    """When every actor in the pool is busy and we're at cap, acquire()
+    must block until release() — not spawn beyond cap."""
+    import contextlib
+    from unittest.mock import AsyncMock, patch
+
+    from maverick.actors.xoscar.refuel_supervisor import _DecomposerPool
+
+    fake_actor_count = [0]
+
+    async def fake_create_actor(*_args: Any, **_kwargs: Any) -> _FakeRef:
+        fake_actor_count[0] += 1
+        return _FakeRef(f"actor-{fake_actor_count[0]}")
+
+    async def fake_destroy_actor(_ref: _FakeRef) -> None:
+        pass
+
+    supervisor = SimpleNamespace(
+        ref=lambda: SimpleNamespace(),
+        address="memory://test",
+        uid=b"fake-sup",
+        _inputs=SimpleNamespace(cwd="/tmp"),
+    )
+
+    with (
+        patch(
+            "maverick.actors.xoscar.refuel_supervisor.xo.create_actor",
+            new=fake_create_actor,
+        ),
+        patch(
+            "maverick.actors.xoscar.refuel_supervisor.xo.destroy_actor",
+            new=fake_destroy_actor,
+        ),
+        patch(
+            "maverick.actors.xoscar.refuel_supervisor.DecomposerActor",
+            new=AsyncMock,
+        ),
+    ):
+        pool = _DecomposerPool(
+            supervisor=supervisor,
+            cap=1,
+            base_config=_StepConfig(provider="claude", model_id="sonnet"),
+            decomposer_tiers=None,
+            detail_session_max_turns=1,
+            fix_session_max_turns=1,
+        )
+        a1 = await pool.acquire("moderate")  # spawned, busy
+        # Second acquire of same tier with no idle: must wait.
+        third_task = asyncio.create_task(pool.acquire("moderate"))
+        await asyncio.sleep(0.05)
+        assert not third_task.done(), "acquire must block when at cap with no idle"
+        # Release a1 → unblocks third_task with the same actor reused.
+        await pool.release(a1, "moderate")
+        a2 = await asyncio.wait_for(third_task, timeout=1.0)
+        assert a2 is a1, "released actor should be reused, not respawned"
+        # Cleanup: cancel any remaining waiters (none here, defensive).
+        with contextlib.suppress(asyncio.CancelledError):
+            third_task.cancel()
 
 
 def test_format_provider_label_handles_partial_configs() -> None:

@@ -93,6 +93,190 @@ REFUEL_BRIEFING_CONFIG: tuple[tuple[str, str, str], ...] = (
 PARALLEL_BRIEFING_NAMES: tuple[str, ...] = ("navigator", "structuralist", "recon")
 
 
+class _DecomposerPool:
+    """Demand-driven, LRU-evicting cache of per-tier DecomposerActors.
+
+    The pool is empty at start. ``acquire(tier)``:
+
+    1. **Reuse**: an idle actor of ``tier`` is in the cache → return it.
+    2. **Spawn**: under the cap → create a fresh actor for ``tier``.
+    3. **Evict + spawn**: at cap with idle actors of other tiers →
+       destroy the LRU idle actor, create a fresh actor for ``tier``.
+    4. **Wait**: at cap with no idle actors → block until ``release``.
+
+    ``release(actor, tier)`` returns the actor to the idle cache and
+    notifies any waiters. ``teardown()`` destroys every live actor.
+
+    The pool reflects the workload it's seen — a 42-bead all-moderate
+    epic ends up with up to ``cap`` moderate actors and zero of the
+    other tiers. A subsequent complex bead evicts an idle moderate to
+    spawn a complex actor on demand.
+
+    The cap is a system-resource budget (subprocess slots, memory),
+    not a classification axis. ``parallel.max_agents`` is the natural
+    fit since SubprocessQuota uses the same number for hard subprocess
+    capping; the actor-level cap here keeps the actor-object count
+    aligned with that budget so we don't churn idle Python actors that
+    SubprocessQuota would just keep killing the subprocess of.
+    """
+
+    def __init__(
+        self,
+        *,
+        supervisor: Any,  # RefuelSupervisor; forward-declared
+        cap: int,
+        base_config: Any,
+        decomposer_tiers: Any,  # DecomposerTiersConfig | None
+        detail_session_max_turns: int,
+        fix_session_max_turns: int,
+    ) -> None:
+        self._sup = supervisor
+        self._cap = max(1, cap)
+        self._base_config = base_config
+        self._decomposer_tiers = decomposer_tiers
+        self._detail_max_turns = detail_session_max_turns
+        self._fix_max_turns = fix_session_max_turns
+        # tier_name → list of idle actors (LIFO; tail is most recent)
+        self._idle: dict[str, list[xo.ActorRef]] = {}
+        # actor → tier_name (every live actor, idle or busy)
+        self._actor_tier: dict[xo.ActorRef, str] = {}
+        # idle actors in LRU order (oldest at index 0, newest at tail)
+        self._lru: list[xo.ActorRef] = []
+        # Awoken on every release / eviction so blocked acquirers retry.
+        self._cond = asyncio.Condition()
+        # Most recent broadcast context — applied to every freshly
+        # spawned actor so it has the same outline/flight-plan view as
+        # actors that already received it. None until first set_context.
+        self._context: Any = None
+        # Monotonic counter for unique actor uids.
+        self._next_id = 0
+
+    @property
+    def total_live(self) -> int:
+        """Total live actors across all tiers (busy + idle)."""
+        return len(self._actor_tier)
+
+    def tier_label(self, tier: str) -> str:
+        """``provider/model`` label for ``tier`` (used in AgentStarted events)."""
+        merged = self._merged_config_for(tier)
+        return RefuelSupervisor._format_provider_label(merged)
+
+    def _merged_config_for(self, tier: str) -> Any:
+        if self._decomposer_tiers is None:
+            return self._base_config
+        override = getattr(self._decomposer_tiers, tier, None)
+        if override is None:
+            return self._base_config
+        return FlySupervisor._merge_tier_config(
+            base=self._base_config, override=override
+        )
+
+    async def set_context(self, context: Any) -> None:
+        """Update the broadcast context. Applies to every existing actor
+        AND every actor spawned later."""
+        async with self._cond:
+            self._context = context
+            actors = list(self._actor_tier)
+        # Set on each actor outside the lock to avoid serialising on it.
+        if actors:
+            await asyncio.gather(*[a.set_context(context) for a in actors])
+
+    async def acquire(self, tier: str) -> xo.ActorRef:
+        async with self._cond:
+            while True:
+                # 1. Reuse an idle actor of this tier.
+                idle = self._idle.get(tier)
+                if idle:
+                    actor = idle.pop()
+                    self._lru.remove(actor)
+                    return actor
+                # 2. Spawn fresh under the cap.
+                if self.total_live < self._cap:
+                    return await self._spawn(tier)
+                # 3. Evict an LRU idle actor of any tier and spawn fresh.
+                if self._lru:
+                    victim = self._lru[0]
+                    await self._evict(victim)
+                    return await self._spawn(tier)
+                # 4. At cap with everything busy — wait for a release.
+                await self._cond.wait()
+
+    async def release(self, actor: xo.ActorRef, tier: str) -> None:
+        async with self._cond:
+            self._idle.setdefault(tier, []).append(actor)
+            self._lru.append(actor)
+            self._cond.notify()
+
+    async def teardown(self) -> None:
+        async with self._cond:
+            actors = list(self._actor_tier)
+            self._idle.clear()
+            self._lru.clear()
+            self._actor_tier.clear()
+        for a in actors:
+            try:
+                await xo.destroy_actor(a)
+            except Exception as exc:  # noqa: BLE001
+                logger.debug(
+                    "decomposer_pool.teardown_destroy_failed", error=str(exc)
+                )
+
+    async def _spawn(self, tier: str) -> xo.ActorRef:
+        """Create + register a fresh actor for ``tier``. Caller holds cond."""
+        config = self._merged_config_for(tier)
+        self._next_id += 1
+        sup_uid = self._sup.uid.decode()
+        actor = await xo.create_actor(
+            DecomposerActor,
+            self._sup.ref(),
+            cwd=self._sup._inputs.cwd,
+            config=config,
+            role="pool",
+            detail_session_max_turns=self._detail_max_turns,
+            fix_session_max_turns=self._fix_max_turns,
+            address=self._sup.address,
+            uid=f"{sup_uid}:dec-tier-{tier}-{self._next_id}",
+        )
+        self._actor_tier[actor] = tier
+        # Seed broadcast context so the new actor's first send_detail
+        # has the same outline as its peers.
+        if self._context is not None:
+            await actor.set_context(self._context)
+        return actor
+
+    async def _evict(self, victim: xo.ActorRef) -> None:
+        """Destroy ``victim`` and remove it from all bookkeeping. Caller
+        holds cond. ``xo.destroy_actor`` is awaited within the lock to
+        ensure the slot count is consistent across acquirers."""
+        victim_tier = self._actor_tier.pop(victim, None)
+        if victim_tier is not None and victim in self._idle.get(victim_tier, []):
+            self._idle[victim_tier].remove(victim)
+        if victim in self._lru:
+            self._lru.remove(victim)
+        try:
+            await xo.destroy_actor(victim)
+        except Exception as exc:  # noqa: BLE001
+            logger.debug(
+                "decomposer_pool.evict_destroy_failed", error=str(exc)
+            )
+
+    def snapshot(self) -> dict[str, Any]:
+        """Read-only view of pool state for tests / diagnostics.
+
+        Empty tier entries are filtered out so the snapshot reflects
+        the *current* set of cached / live tiers, not a history.
+        """
+        return {
+            "cap": self._cap,
+            "total": self.total_live,
+            "idle_by_tier": {t: len(v) for t, v in self._idle.items() if v},
+            "actors_by_tier": {
+                t: sum(1 for at in self._actor_tier.values() if at == t)
+                for t in set(self._actor_tier.values())
+            },
+        }
+
+
 @dataclass(frozen=True)
 class RefuelInputs:
     """Construction payload for ``RefuelSupervisor``.
@@ -227,16 +411,27 @@ class RefuelSupervisor(xo.Actor):
         #     that ignore tier mode see no workers and gracefully fall
         #     back to the primary decomposer.
         self._decomposer_pool: list[xo.ActorRef] = []
-        # Tier mode runs a *pool* of workers per tier (previously: one worker
-        # per tier, which meant a uniform-tier workload serialised on a single
-        # actor). ``_decomposer_tier_pools`` holds the full pools;
-        # ``_decomposer_tiers`` keeps the first ref per tier for the resolver
-        # call sites (which only need the tier-name keys, not every worker).
-        self._decomposer_tier_pools: dict[str, list[xo.ActorRef]] = {}
-        self._decomposer_tiers: dict[str, xo.ActorRef] = {}
-        # Round-robin index per tier — picks the next worker on each dispatch.
-        self._tier_round_robin: dict[str, int] = {}
-        if self._inputs.decomposer_tiers is None:
+        # Tier mode uses a demand-driven, LRU-evicting pool of decomposer
+        # actors. The pool is empty at start; actors spawn on demand as
+        # specific tiers are requested, and reuse / get evicted to make
+        # room for tiers that aren't currently cached. Cap = budget for
+        # decomposer subprocesses (currently ``parallel.max_agents``).
+        # Legacy round-robin mode keeps the eager pre-spawn shape.
+        self._decomposer_pool_dynamic: _DecomposerPool | None = None
+        # Three branches:
+        #   * decomposer_tiers is None → legacy round-robin with
+        #     ``decomposer_pool_size`` workers.
+        #   * decomposer_tiers is a DecomposerTiersConfig with at least
+        #     one populated tier → demand-driven pool.
+        #   * decomposer_tiers is a config with EVERY slot None → fall
+        #     back to a single legacy worker (preserves the historical
+        #     defensive default for "user wanted tiers but configured
+        #     nothing").
+        d_tiers_input = self._inputs.decomposer_tiers
+        has_any_tier = d_tiers_input is not None and any(
+            getattr(d_tiers_input, t, None) is not None for t in TIER_ORDER
+        )
+        if d_tiers_input is None:
             for i in range(self._inputs.decomposer_pool_size):
                 pool_ref = await xo.create_actor(
                     DecomposerActor,
@@ -250,71 +445,36 @@ class RefuelSupervisor(xo.Actor):
                     uid=f"{self.uid.decode()}:decomposer-pool-{i}",
                 )
                 self._decomposer_pool.append(pool_ref)
+        elif not has_any_tier:
+            self._decomposer_pool.append(
+                await xo.create_actor(
+                    DecomposerActor,
+                    self_ref,
+                    cwd=self._inputs.cwd,
+                    config=self._inputs.config,
+                    role="pool",
+                    detail_session_max_turns=self._inputs.detail_session_max_turns,
+                    fix_session_max_turns=self._inputs.fix_session_max_turns,
+                    address=self.address,
+                    uid=f"{self.uid.decode()}:decomposer-pool-0",
+                )
+            )
         else:
-            # Per-tier pool size matches ``parallel.decomposer_pool_size`` —
-            # the existing concurrency knob. Total live actor objects =
-            # pool_size × number-of-defined-tiers, but ACP subprocesses
-            # spawn lazily on first prompt, so unused-tier workers cost
-            # ~nothing. SubprocessQuota at ``parallel.max_agents`` bounds
-            # concurrent subprocesses across the run.
-            pool_size = max(1, self._inputs.decomposer_pool_size)
-            d_tiers = self._inputs.decomposer_tiers
-            for tier_name in TIER_ORDER:
-                tier_override = getattr(d_tiers, tier_name, None)
-                if tier_override is None:
-                    continue
-                tier_config = FlySupervisor._merge_tier_config(
-                    base=self._inputs.config,
-                    override=tier_override,
-                )
-                pool: list[xo.ActorRef] = []
-                for i in range(pool_size):
-                    pool.append(
-                        await xo.create_actor(
-                            DecomposerActor,
-                            self_ref,
-                            cwd=self._inputs.cwd,
-                            config=tier_config,
-                            role="pool",
-                            detail_session_max_turns=self._inputs.detail_session_max_turns,
-                            fix_session_max_turns=self._inputs.fix_session_max_turns,
-                            address=self.address,
-                            uid=f"{self.uid.decode()}:decomposer-tier-{tier_name}-{i}",
-                        )
-                    )
-                self._decomposer_tier_pools[tier_name] = pool
-                self._decomposer_tiers[tier_name] = pool[0]  # resolver compat
-            if not self._decomposer_tier_pools:
-                # Empty tiers config — fall back to legacy default of 1 worker.
-                self._decomposer_pool.append(
-                    await xo.create_actor(
-                        DecomposerActor,
-                        self_ref,
-                        cwd=self._inputs.cwd,
-                        config=self._inputs.config,
-                        role="pool",
-                        detail_session_max_turns=self._inputs.detail_session_max_turns,
-                        fix_session_max_turns=self._inputs.fix_session_max_turns,
-                        address=self.address,
-                        uid=f"{self.uid.decode()}:decomposer-pool-0",
-                    )
-                )
+            # Demand pool — cap from ``decomposer_pool_size`` (interpreted
+            # as the *total* concurrency budget for tier mode). The pool
+            # starts empty; first acquire(tier) spawns the first actor.
+            self._decomposer_pool_dynamic = _DecomposerPool(
+                supervisor=self,
+                cap=max(1, self._inputs.decomposer_pool_size),
+                base_config=self._inputs.config,
+                decomposer_tiers=self._inputs.decomposer_tiers,
+                detail_session_max_turns=self._inputs.detail_session_max_turns,
+                fix_session_max_turns=self._inputs.fix_session_max_turns,
+            )
 
-        # Provider/model labels per tier — surfaced in AgentStarted events
-        # so the CLI's Live decompose table shows "wu-1 (gemini/gemini-3.1-pro)"
-        # instead of an opaque spinner. Mirrors the merge done above.
-        self._tier_label_by_name: dict[str, str] = {}
-        if self._inputs.decomposer_tiers is not None:
-            d_tiers = self._inputs.decomposer_tiers
-            for tier_name in TIER_ORDER:
-                tier_override = getattr(d_tiers, tier_name, None)
-                if tier_override is None:
-                    continue
-                merged = FlySupervisor._merge_tier_config(
-                    base=self._inputs.config, override=tier_override
-                )
-                self._tier_label_by_name[tier_name] = self._format_provider_label(merged)
-        # Round-robin / single-actor fallback label.
+        # Round-robin / single-actor fallback label — used for the
+        # legacy non-tier path. Tier mode's per-tier labels come from
+        # ``self._decomposer_pool_dynamic.tier_label(tier_name)``.
         self._default_decomposer_label: str = self._format_provider_label(
             self._inputs.config
         )
@@ -360,10 +520,13 @@ class RefuelSupervisor(xo.Actor):
 
     async def __pre_destroy__(self) -> None:
         """Destroy all children so their __pre_destroy__ hooks run."""
+        # Demand pool owns its own actors — tear it down first so its
+        # actors get properly destroyed (it also clears state).
+        if self._decomposer_pool_dynamic is not None:
+            await self._decomposer_pool_dynamic.teardown()
         refs: list[xo.ActorRef] = [
             self._decomposer,
             *self._decomposer_pool,
-            *(ref for pool in self._decomposer_tier_pools.values() for ref in pool),
             self._validator,
             self._bead_creator,
             *self._briefing_actors.values(),
@@ -664,29 +827,17 @@ class RefuelSupervisor(xo.Actor):
             return
 
         # Two dispatch modes — keep the routing logic in one place.
-        #   * Tier mode: ``_decomposer_tier_pools`` populated; each unit
-        #     dispatches to the next round-robin worker in its tier's pool.
+        #   * Tier mode: ``_decomposer_pool_dynamic`` is a demand-driven
+        #     pool. Per-unit ``acquire(tier)`` reuses an idle actor of
+        #     that tier, spawns a new one under the cap, or evicts an
+        #     LRU idle actor of a different tier and spawns fresh.
         #   * Legacy round-robin: ``_decomposer_pool`` (or fallback to the
         #     primary) handles units by index modulo pool size.
-        in_tier_mode = bool(self._decomposer_tier_pools)
-        if in_tier_mode:
-            # Flat list of all workers across all tier pools — used for
-            # broadcast context and for sizing the in-flight semaphore.
-            workers = [
-                ref
-                for pool in self._decomposer_tier_pools.values()
-                for ref in pool
-            ]
-            tier_summary = ",".join(
-                f"{tier}×{len(pool)}"
-                for tier, pool in self._decomposer_tier_pools.items()
-            )
-        else:
-            workers = self._decomposer_pool or [self._decomposer]
-            tier_summary = f"{len(workers)} round-robin"
-        pool_size = len(workers)
+        in_tier_mode = self._decomposer_pool_dynamic is not None
 
-        # Broadcast context once per pool actor so per-unit requests stay tiny.
+        # Broadcast context once. In tier mode the pool seeds each
+        # actor it spawns; this call updates currently-cached actors
+        # (none on first call, but keeps the code resumable).
         context = DecomposerContext(
             outline_json=json.dumps(self._outline_payload()),
             flight_plan_content=self._inputs.initial_payload.get("flight_plan_content", ""),
@@ -694,7 +845,18 @@ class RefuelSupervisor(xo.Actor):
                 "verification_properties", ""
             ),
         )
-        await asyncio.gather(*[ref.set_context(context) for ref in workers])
+        if in_tier_mode:
+            assert self._decomposer_pool_dynamic is not None
+            await self._decomposer_pool_dynamic.set_context(context)
+            tier_summary = (
+                f"demand pool, cap={self._decomposer_pool_dynamic._cap}"
+            )
+            pool_size = self._decomposer_pool_dynamic._cap
+        else:
+            workers = self._decomposer_pool or [self._decomposer]
+            await asyncio.gather(*[ref.set_context(context) for ref in workers])
+            tier_summary = f"{len(workers)} round-robin"
+            pool_size = len(workers)
 
         self._pending_detail_ids = set(unit_ids)
         await self._emit_output(
@@ -702,13 +864,10 @@ class RefuelSupervisor(xo.Actor):
             f"Detailing {len(unit_ids)} unit(s) across {tier_summary} worker(s)",
         )
 
-        # Bound concurrency at the total worker count — concurrency is a
-        # system-resources knob, not a per-tier knob, so a workload that
-        # all classifies as ``moderate`` runs across ALL moderate workers
-        # in parallel rather than serialising on one. SubprocessQuota at
-        # ``parallel.max_agents`` is the actual hard ceiling on live ACP
-        # subprocesses; this semaphore just bounds queued send_detail
-        # tasks so we don't pile up arbitrarily.
+        # Bound concurrency at the budget. In tier mode this matches the
+        # demand pool's cap, so we never spawn more dispatch tasks than
+        # the pool can serve in parallel; pool.acquire() blocks if needed
+        # and concurrency naturally stabilizes at the budget.
         semaphore = asyncio.Semaphore(max(1, pool_size))
 
         # Build a unit_id → outline-complexity index for tier dispatch.
@@ -720,77 +879,95 @@ class RefuelSupervisor(xo.Actor):
             for wu in self._outline.work_units:
                 complexity_by_unit[wu.id] = getattr(wu, "complexity", None)
 
-        def _worker_for(unit_id: str, fallback_index: int) -> Any:
-            if not in_tier_mode:
-                return workers[fallback_index % pool_size]
-            tier_name = FlySupervisor._resolve_tier_in(
-                self._decomposer_tiers, complexity_by_unit.get(unit_id), 0
+        def _tier_for(unit_id: str) -> str:
+            """Resolve the tier name for ``unit_id``. In tier mode the
+            demand pool's tier set drives this; in legacy mode there's
+            only one tier (the default)."""
+            assert self._decomposer_pool_dynamic is not None
+            # Build the tier-keys map on the fly from the configured tiers.
+            d_tiers = self._inputs.decomposer_tiers
+            tier_keys = {
+                t: True for t in TIER_ORDER if getattr(d_tiers, t, None) is not None
+            }
+            return FlySupervisor._resolve_tier_in(
+                tier_keys, complexity_by_unit.get(unit_id), 0
             )
-            tier_pool = self._decomposer_tier_pools[tier_name]
-            rr = self._tier_round_robin.get(tier_name, 0)
-            self._tier_round_robin[tier_name] = (rr + 1) % len(tier_pool)
-            return tier_pool[rr]
 
-        def _label_for(unit_id: str) -> str:
-            """Return "tier · provider/model" (or "provider/model" in
-            non-tier mode) for the AgentStarted display."""
-            if not in_tier_mode:
-                return self._default_decomposer_label
-            tier_name = FlySupervisor._resolve_tier_in(
-                self._decomposer_tiers, complexity_by_unit.get(unit_id), 0
-            )
-            provider_label = self._tier_label_by_name.get(
-                tier_name, self._default_decomposer_label
-            )
-            return f"{tier_name} · {provider_label}"
+        def _legacy_worker_for(fallback_index: int) -> Any:
+            return workers[fallback_index % pool_size]
+
+        def _label_for_tier(tier: str) -> str:
+            """Return "tier · provider/model" for the AgentStarted display."""
+            assert self._decomposer_pool_dynamic is not None
+            return f"{tier} · {self._decomposer_pool_dynamic.tier_label(tier)}"
 
         async def _one(index: int, unit_id: str) -> None:
-            assigned = _worker_for(unit_id, index)
-            # AgentStarted fires only after the semaphore admits the unit
-            # — otherwise queued units would all show running spinners
-            # while actually waiting for an in-flight slot. Emitted once;
-            # the inner retry loop holds the row in "running" state.
+            # Determine the tier and (for tier mode) acquire from the
+            # demand pool — which spawns / reuses / evicts as needed.
+            # AgentStarted fires only after we hold both the semaphore
+            # AND a worker, so queued units don't show a misleading
+            # spinner while actually waiting on the budget.
             started = False
             for attempt in range(MAX_DETAIL_RETRIES + 1):
                 async with semaphore:
-                    if not started:
-                        self._unit_start_times[unit_id] = _time.monotonic()
-                        await self._emit_agent_started(
-                            "decompose", unit_id, _label_for(unit_id)
+                    if in_tier_mode:
+                        assert self._decomposer_pool_dynamic is not None
+                        tier_name = _tier_for(unit_id)
+                        assigned = await self._decomposer_pool_dynamic.acquire(
+                            tier_name
                         )
-                        started = True
+                        label = _label_for_tier(tier_name)
+                    else:
+                        assigned = _legacy_worker_for(index)
+                        tier_name = ""
+                        label = self._default_decomposer_label
                     try:
-                        await xo.wait_for(
-                            assigned.send_detail(DetailRequest.for_unit(unit_id)),
-                            timeout=STALE_IN_FLIGHT_SECONDS,
-                        )
-                    except TimeoutError:
-                        if attempt < MAX_DETAIL_RETRIES:
-                            # Intra-actor retry — debug-only, not user-facing.
-                            logger.debug(
-                                "refuel.detail.timeout_retry",
-                                unit_id=unit_id,
-                                attempt=attempt + 1,
+                        if not started:
+                            self._unit_start_times[unit_id] = _time.monotonic()
+                            await self._emit_agent_started(
+                                "decompose", unit_id, label
                             )
-                            continue
-                        await self._emit_output(
-                            "refuel",
-                            f"Unit {unit_id!r} timed out after retries — abandoning",
-                            level="error",
-                        )
-                        self._pending_detail_ids.discard(unit_id)
-                        await self._emit_unit_completed(
-                            unit_id, success=False, error="timed out"
-                        )
-                        return
+                            started = True
+                        try:
+                            await xo.wait_for(
+                                assigned.send_detail(DetailRequest.for_unit(unit_id)),
+                                timeout=STALE_IN_FLIGHT_SECONDS,
+                            )
+                        except TimeoutError:
+                            if attempt < MAX_DETAIL_RETRIES:
+                                # Intra-actor retry — debug-only.
+                                logger.debug(
+                                    "refuel.detail.timeout_retry",
+                                    unit_id=unit_id,
+                                    attempt=attempt + 1,
+                                )
+                                continue
+                            await self._emit_output(
+                                "refuel",
+                                f"Unit {unit_id!r} timed out after retries — abandoning",
+                                level="error",
+                            )
+                            self._pending_detail_ids.discard(unit_id)
+                            await self._emit_unit_completed(
+                                unit_id, success=False, error="timed out"
+                            )
+                            return
+                    finally:
+                        # Always return the actor to the pool — both on
+                        # success (detail_ready already cleared pending)
+                        # and on retry/timeout/abandon.
+                        if in_tier_mode:
+                            assert self._decomposer_pool_dynamic is not None
+                            await self._decomposer_pool_dynamic.release(
+                                assigned, tier_name
+                            )
                 # send_detail returned. If the tool call landed, unit has been
                 # removed from pending_detail_ids by detail_ready. Otherwise,
                 # the agent skipped its tool call; retry once.
                 if unit_id not in self._pending_detail_ids:
                     return
                 if attempt < MAX_DETAIL_RETRIES:
-                    # Intra-actor retry — debug-only. The user only needs
-                    # to know about the final outcome (success or abandon).
+                    # Intra-actor retry — debug-only.
                     logger.debug(
                         "refuel.detail.no_tool_call_retry",
                         unit_id=unit_id,
@@ -1364,17 +1541,22 @@ class RefuelSupervisor(xo.Actor):
     async def t_peek_decomposers(self) -> dict[str, Any]:
         """Snapshot of decomposer-pool state for tests.
 
-        Returns a dict with four keys:
+        Tier mode is now demand-driven, so the snapshot reflects what
+        the pool currently caches (which depends on what work has run
+        through it), not what was pre-spawned.
+
+        Returns:
           * ``mode``: ``"legacy"`` (round-robin pool) or ``"tiered"``
           * ``pool_size``: count of legacy round-robin workers
-          * ``tier_names``: list of tier names with a dedicated pool
-          * ``tier_pool_sizes``: ``{tier_name: pool_size}`` per tier
+          * ``demand_pool``: snapshot of the demand pool (tier mode only),
+            with keys ``cap``, ``total``, ``idle_by_tier``, ``actors_by_tier``
         """
         return {
-            "mode": "tiered" if self._decomposer_tier_pools else "legacy",
+            "mode": "tiered" if self._decomposer_pool_dynamic is not None else "legacy",
             "pool_size": len(self._decomposer_pool),
-            "tier_names": list(self._decomposer_tier_pools),
-            "tier_pool_sizes": {
-                tier: len(pool) for tier, pool in self._decomposer_tier_pools.items()
-            },
+            "demand_pool": (
+                self._decomposer_pool_dynamic.snapshot()
+                if self._decomposer_pool_dynamic is not None
+                else None
+            ),
         }

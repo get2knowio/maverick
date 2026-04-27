@@ -224,7 +224,7 @@ async def test_decomposer_legacy_mode_uses_round_robin_pool(
     pool_address: str,
 ) -> None:
     """When decomposer_tiers is None, the refuel supervisor builds the
-    legacy round-robin pool of N workers and the tier dict stays empty."""
+    legacy round-robin pool of N workers; no demand pool is constructed."""
     from types import SimpleNamespace
 
     from maverick.actors.xoscar.refuel_supervisor import (
@@ -249,15 +249,17 @@ async def test_decomposer_legacy_mode_uses_round_robin_pool(
         snapshot = await sup.t_peek_decomposers()
         assert snapshot["mode"] == "legacy"
         assert snapshot["pool_size"] == 2
-        assert snapshot["tier_names"] == []
+        assert snapshot["demand_pool"] is None
     finally:
         await xo.destroy_actor(sup)
 
 
 @pytest.mark.asyncio
-async def test_decomposer_tier_mode_spawns_one_per_defined_tier(
+async def test_decomposer_tier_mode_uses_demand_pool(
     pool_address: str,
 ) -> None:
+    """In tier mode the supervisor constructs an empty demand pool — actors
+    spawn on demand as detail fan-out runs, not at supervisor init."""
     from types import SimpleNamespace
 
     from maverick.actors.xoscar.refuel_supervisor import (
@@ -275,7 +277,7 @@ async def test_decomposer_tier_mode_spawns_one_per_defined_tier(
         RefuelInputs(
             cwd="/tmp",
             flight_plan=plan,
-            decomposer_pool_size=3,  # ignored in tier mode
+            decomposer_pool_size=3,  # cap on the demand pool
             skip_briefing=True,
             decomposer_tiers=tiers,
         ),
@@ -285,8 +287,10 @@ async def test_decomposer_tier_mode_spawns_one_per_defined_tier(
     try:
         snapshot = await sup.t_peek_decomposers()
         assert snapshot["mode"] == "tiered"
-        assert snapshot["pool_size"] == 0
-        assert sorted(snapshot["tier_names"]) == ["complex", "moderate"]
+        assert snapshot["pool_size"] == 0  # no legacy round-robin actors
+        # Demand pool present, cap == decomposer_pool_size, empty at start.
+        assert snapshot["demand_pool"]["cap"] == 3
+        assert snapshot["demand_pool"]["total"] == 0
     finally:
         await xo.destroy_actor(sup)
 
@@ -322,6 +326,6 @@ async def test_decomposer_empty_tiers_falls_back_to_single_pool_worker(
         snapshot = await sup.t_peek_decomposers()
         assert snapshot["mode"] == "legacy"
         assert snapshot["pool_size"] == 1
-        assert snapshot["tier_names"] == []
+        assert snapshot["demand_pool"] is None
     finally:
         await xo.destroy_actor(sup)
