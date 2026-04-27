@@ -1231,18 +1231,61 @@ class RefuelSupervisor(xo.Actor):
                 level="warning",
                 metadata={"gap_count": len(gaps), "fix_round": self._fix_rounds},
             )
-        self._awaiting_fix = True
-        await self._decomposer.send_fix(
-            FixRequest(
-                outline_json=json.dumps(self._outline_payload()),
-                details_json=json.dumps(self._details_payload()),
-                verification_properties=self._inputs.initial_payload.get(
-                    "verification_properties", ""
-                ),
-                coverage_gaps=tuple(gaps),
-                overloaded=(),
-            )
+        # Surface the fix attempt as its own row in the agent-tracker
+        # table so the user has visible progress (and a duration) for
+        # the fix prompt — previously this was a silent ~minutes-long
+        # call into the primary decomposer with no UI feedback.
+        import time as _time
+
+        fix_agent_name = f"fix-round-{self._fix_rounds}"
+        fix_provider_label = self._default_decomposer_label
+        fix_start = _time.monotonic()
+        await self._emit_agent_started(
+            "decompose", fix_agent_name, fix_provider_label
         )
+
+        self._awaiting_fix = True
+        try:
+            await self._decomposer.send_fix(
+                FixRequest(
+                    outline_json=json.dumps(self._outline_payload()),
+                    details_json=json.dumps(self._details_payload()),
+                    verification_properties=self._inputs.initial_payload.get(
+                        "verification_properties", ""
+                    ),
+                    coverage_gaps=tuple(gaps),
+                    overloaded=(),
+                )
+            )
+        except Exception as exc:  # noqa: BLE001 — surface as ✗ then re-raise
+            elapsed = _time.monotonic() - fix_start
+            await self._emit_agent_completed(
+                "decompose",
+                fix_agent_name,
+                elapsed,
+                success=False,
+                error=str(exc)[:80] or "error",
+            )
+            raise
+
+        elapsed = _time.monotonic() - fix_start
+        if self._awaiting_fix:
+            # send_fix returned without fix_ready firing — the agent
+            # finished its turn without calling submit_fix. Mark the row
+            # ✗ so the user can see the round didn't land; the supervisor
+            # will fall through to the next round (or exhaust the budget).
+            await self._emit_agent_completed(
+                "decompose",
+                fix_agent_name,
+                elapsed,
+                success=False,
+                error="no tool call",
+            )
+        else:
+            await self._emit_agent_completed(
+                "decompose", fix_agent_name, elapsed, success=True
+            )
+
         # After send_fix returns, fix_ready should have updated self._outline/_details.
         # Refresh specs for the next validation pass.
         self._details = SubmitDetailsPayload(details=tuple(self._accumulated_details))
