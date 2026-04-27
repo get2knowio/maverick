@@ -403,7 +403,7 @@ class FlyBeadsWorkflow(PythonWorkflow):
         # provider/model. Bead routing happens in the supervisor based on
         # the decomposer-assigned ``complexity`` field. When the section is
         # absent, behaviour is unchanged (single actor).
-        from maverick.config import ImplementerTiersConfig
+        from maverick.config import ImplementerTiersConfig, ReviewerTiersConfig
 
         implementer_tiers: ImplementerTiersConfig | None = None
         try:
@@ -415,6 +415,20 @@ class FlyBeadsWorkflow(PythonWorkflow):
                 "fly",
                 f"Warning: actors.fly.implementer.tiers parse failed "
                 f"({exc!s}); falling back to single implementer.",
+                level="warning",
+            )
+
+        # Same shape for the reviewer (FUTURE.md §2.10 Phase 3).
+        reviewer_tiers: ReviewerTiersConfig | None = None
+        try:
+            r_tiers_raw = self._config.actors.get("fly", {}).get("reviewer", {}).get("tiers")
+            if r_tiers_raw:
+                reviewer_tiers = ReviewerTiersConfig.model_validate(r_tiers_raw)
+        except Exception as exc:  # noqa: BLE001 — invalid tiers is non-fatal
+            await self.emit_output(
+                "fly",
+                f"Warning: actors.fly.reviewer.tiers parse failed "
+                f"({exc!s}); falling back to single reviewer.",
                 level="warning",
             )
 
@@ -467,6 +481,7 @@ class FlyBeadsWorkflow(PythonWorkflow):
             watch=watch,
             watch_interval=watch_interval,
             implementer_tiers=implementer_tiers,
+            reviewer_tiers=reviewer_tiers,
         )
 
         await self.emit_output(

@@ -228,6 +228,63 @@ class ImplementerTiersConfig(BaseModel):
     escalation_threshold: int = Field(default=2, ge=0, le=5)
 
 
+class ReviewerTiersConfig(BaseModel):
+    """Tier routing for the reviewer step (FUTURE.md §2.10 Phase 3).
+
+    When set, the fly supervisor spawns one ``ReviewerActor`` per
+    defined tier; per-bead reviews are routed by the bead's
+    ``complexity`` field (decomposer-assigned). Sparse tiers round
+    DOWN to the nearest cheaper defined tier — the same rule the
+    implementer uses.
+
+    No escalation: reviews are one-shot per round, and the *implementer*
+    is the actor that escalates on fix-loop overflow. Cheap reviewers
+    on simple beads are a deliberate cost optimization; if the cheap
+    reviewer misses a bug, the next round catches it (or the aggregate
+    review at the end of the epic does).
+
+    Attributes:
+        trivial / simple / moderate / complex: Per-tier overrides.
+            Reuses :class:`ImplementerTierConfig` since both share the
+            same StepConfig-override shape.
+    """
+
+    trivial: ImplementerTierConfig | None = None
+    simple: ImplementerTierConfig | None = None
+    moderate: ImplementerTierConfig | None = None
+    complex: ImplementerTierConfig | None = None
+
+
+class DecomposerTiersConfig(BaseModel):
+    """Tier routing for the refuel detail-generation step (FUTURE.md §2.10 Phase 3).
+
+    When set, the refuel supervisor replaces the round-robin
+    ``decomposer_pool_size`` pool with one ``DecomposerActor`` per
+    defined tier (each in ``pool`` role, owning ``submit_details``).
+    Per-unit detail prompts dispatch to the worker matching the unit's
+    ``complexity`` from the outline pass.
+
+    Note that detail generation is mostly mechanical — most units can
+    share a single mid-tier model. A typical sparse config might define
+    only ``moderate`` and ``complex``, letting cheaper-tier units round
+    DOWN to ``moderate``.
+
+    Concurrency tradeoff: tier mode trades cross-worker parallelism for
+    per-tier model differentiation. With one worker per tier, multiple
+    same-complexity units queue. Crank ``decomposer_pool_size`` AND
+    enable tiers if both knobs matter; otherwise pick one.
+
+    Attributes:
+        trivial / simple / moderate / complex: Per-tier overrides.
+            Reuses :class:`ImplementerTierConfig`.
+    """
+
+    trivial: ImplementerTierConfig | None = None
+    simple: ImplementerTierConfig | None = None
+    moderate: ImplementerTierConfig | None = None
+    complex: ImplementerTierConfig | None = None
+
+
 class ParallelConfig(BaseModel):
     """Settings for concurrency limits.
 

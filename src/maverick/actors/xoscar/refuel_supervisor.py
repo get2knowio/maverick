@@ -33,6 +33,10 @@ import xoscar as xo
 from maverick.actors.xoscar.bead_creator import BeadCreatorActor
 from maverick.actors.xoscar.briefing import BriefingActor
 from maverick.actors.xoscar.decomposer import DecomposerActor
+from maverick.actors.xoscar.fly_supervisor import (
+    TIER_ORDER,
+    FlySupervisor,
+)
 from maverick.actors.xoscar.messages import (
     BriefingRequest,
     CreateBeadsRequest,
@@ -111,6 +115,12 @@ class RefuelInputs:
     # run via asyncio.gather). Setting this lower (e.g. 1) makes them run
     # sequentially — useful on resource-constrained hosts.
     max_briefing_agents: int = 3
+    # Per-unit complexity tier routing for detail generation
+    # (FUTURE.md §2.10 Phase 3). When set, replaces the round-robin
+    # ``decomposer_pool_size`` pool with one DecomposerActor per defined
+    # tier; each unit's detail prompt routes to the worker matching the
+    # unit's outline complexity. None = legacy round-robin pool.
+    decomposer_tiers: Any = None  # DecomposerTiersConfig | None
     # Cache paths — when set, the supervisor writes briefing / outline /
     # per-unit detail JSON back so a resumed run short-circuits each
     # phase. Empty strings disable caching.
@@ -199,20 +209,65 @@ class RefuelSupervisor(xo.Actor):
         )
 
         # --- Decomposer pool ---
+        # Two layouts:
+        #   * Legacy round-robin (default): N pool workers identified by
+        #     index — see ``_decomposer_pool: list``.
+        #   * Per-tier (Phase 3): one worker per defined tier under
+        #     ``_decomposer_tiers``; the pool list stays empty so callers
+        #     that ignore tier mode see no workers and gracefully fall
+        #     back to the primary decomposer.
         self._decomposer_pool: list[xo.ActorRef] = []
-        for i in range(self._inputs.decomposer_pool_size):
-            pool_ref = await xo.create_actor(
-                DecomposerActor,
-                self_ref,
-                cwd=self._inputs.cwd,
-                config=self._inputs.config,
-                role="pool",
-                detail_session_max_turns=self._inputs.detail_session_max_turns,
-                fix_session_max_turns=self._inputs.fix_session_max_turns,
-                address=self.address,
-                uid=f"{self.uid.decode()}:decomposer-pool-{i}",
-            )
-            self._decomposer_pool.append(pool_ref)
+        self._decomposer_tiers: dict[str, xo.ActorRef] = {}
+        if self._inputs.decomposer_tiers is None:
+            for i in range(self._inputs.decomposer_pool_size):
+                pool_ref = await xo.create_actor(
+                    DecomposerActor,
+                    self_ref,
+                    cwd=self._inputs.cwd,
+                    config=self._inputs.config,
+                    role="pool",
+                    detail_session_max_turns=self._inputs.detail_session_max_turns,
+                    fix_session_max_turns=self._inputs.fix_session_max_turns,
+                    address=self.address,
+                    uid=f"{self.uid.decode()}:decomposer-pool-{i}",
+                )
+                self._decomposer_pool.append(pool_ref)
+        else:
+            d_tiers = self._inputs.decomposer_tiers
+            for tier_name in TIER_ORDER:
+                tier_override = getattr(d_tiers, tier_name, None)
+                if tier_override is None:
+                    continue
+                tier_config = FlySupervisor._merge_tier_config(
+                    base=self._inputs.config,
+                    override=tier_override,
+                )
+                self._decomposer_tiers[tier_name] = await xo.create_actor(
+                    DecomposerActor,
+                    self_ref,
+                    cwd=self._inputs.cwd,
+                    config=tier_config,
+                    role="pool",
+                    detail_session_max_turns=self._inputs.detail_session_max_turns,
+                    fix_session_max_turns=self._inputs.fix_session_max_turns,
+                    address=self.address,
+                    uid=f"{self.uid.decode()}:decomposer-tier-{tier_name}",
+                )
+            if not self._decomposer_tiers:
+                # Empty tiers config — fall back to legacy default of 1 worker.
+                self._decomposer_pool.append(
+                    await xo.create_actor(
+                        DecomposerActor,
+                        self_ref,
+                        cwd=self._inputs.cwd,
+                        config=self._inputs.config,
+                        role="pool",
+                        detail_session_max_turns=self._inputs.detail_session_max_turns,
+                        fix_session_max_turns=self._inputs.fix_session_max_turns,
+                        address=self.address,
+                        uid=f"{self.uid.decode()}:decomposer-pool-0",
+                    )
+                )
 
         # --- Validator + BeadCreator ---
         self._validator = await xo.create_actor(
@@ -252,6 +307,7 @@ class RefuelSupervisor(xo.Actor):
         refs: list[xo.ActorRef] = [
             self._decomposer,
             *self._decomposer_pool,
+            *self._decomposer_tiers.values(),
             self._validator,
             self._bead_creator,
             *self._briefing_actors.values(),
@@ -549,8 +605,19 @@ class RefuelSupervisor(xo.Actor):
             )
             return
 
-        pool = self._decomposer_pool or [self._decomposer]
-        pool_size = len(pool)
+        # Two dispatch modes — keep the routing logic in one place.
+        #   * Tier mode: ``_decomposer_tiers`` populated; each unit
+        #     dispatches to the worker matching its outline complexity.
+        #   * Legacy round-robin: ``_decomposer_pool`` (or fallback to the
+        #     primary) handles units by index modulo pool size.
+        in_tier_mode = bool(self._decomposer_tiers)
+        if in_tier_mode:
+            workers = list(self._decomposer_tiers.values())
+            tier_summary = ",".join(self._decomposer_tiers)
+        else:
+            workers = self._decomposer_pool or [self._decomposer]
+            tier_summary = f"{len(workers)} round-robin"
+        pool_size = len(workers)
 
         # Broadcast context once per pool actor so per-unit requests stay tiny.
         context = DecomposerContext(
@@ -560,19 +627,36 @@ class RefuelSupervisor(xo.Actor):
                 "verification_properties", ""
             ),
         )
-        await asyncio.gather(*[ref.set_context(context) for ref in pool])
+        await asyncio.gather(*[ref.set_context(context) for ref in workers])
 
         self._pending_detail_ids = set(unit_ids)
         await self._emit_output(
             "refuel",
-            f"Detailing {len(unit_ids)} unit(s) across {pool_size} actor(s)",
+            f"Detailing {len(unit_ids)} unit(s) across {tier_summary} worker(s)",
         )
 
         # Bound concurrency at pool_size * 2 in-flight requests.
         semaphore = asyncio.Semaphore(max(1, pool_size * 2))
 
+        # Build a unit_id → outline-complexity index for tier dispatch.
+        # Outline carries the decomposer-assigned complexity per work
+        # unit. Empty when no outline (defensive — shouldn't happen
+        # because the detail fan-out runs after outline_ready).
+        complexity_by_unit: dict[str, str | None] = {}
+        if self._outline is not None:
+            for wu in self._outline.work_units:
+                complexity_by_unit[wu.id] = getattr(wu, "complexity", None)
+
+        def _worker_for(unit_id: str, fallback_index: int) -> Any:
+            if not in_tier_mode:
+                return workers[fallback_index % pool_size]
+            tier_name = FlySupervisor._resolve_tier_in(
+                self._decomposer_tiers, complexity_by_unit.get(unit_id), 0
+            )
+            return self._decomposer_tiers[tier_name]
+
         async def _one(index: int, unit_id: str) -> None:
-            assigned = pool[index % pool_size]
+            assigned = _worker_for(unit_id, index)
             for attempt in range(MAX_DETAIL_RETRIES + 1):
                 async with semaphore:
                     try:
@@ -1092,3 +1176,24 @@ class RefuelSupervisor(xo.Actor):
                     break
             enriched.append(gap)
         return enriched
+
+    # ------------------------------------------------------------------
+    # Test inspection helpers (FUTURE.md §2.10 Phase 3) — see the
+    # corresponding ``t_*`` methods on FlySupervisor for rationale. The
+    # ``t_`` prefix avoids the xoscar `_`-prefixed RPC restriction.
+    # ------------------------------------------------------------------
+
+    @xo.no_lock
+    async def t_peek_decomposers(self) -> dict[str, Any]:
+        """Snapshot of decomposer-pool state for tests.
+
+        Returns a dict with three keys:
+          * ``mode``: ``"legacy"`` (round-robin pool) or ``"tiered"``
+          * ``pool_size``: count of legacy round-robin workers
+          * ``tier_names``: list of tier names with a dedicated worker
+        """
+        return {
+            "mode": "tiered" if self._decomposer_tiers else "legacy",
+            "pool_size": len(self._decomposer_pool),
+            "tier_names": list(self._decomposer_tiers),
+        }

@@ -974,6 +974,24 @@ class RefuelMaverickWorkflow(PythonWorkflow):
         decomposer_pool_size = self._config.parallel.decomposer_pool_size
         max_briefing_agents = self._config.parallel.max_briefing_agents
 
+        # Per-unit complexity tier routing for detail generation
+        # (FUTURE.md §2.10 Phase 3). When ``actors.refuel.decomposer.tiers``
+        # is set, replaces the round-robin pool with one decomposer
+        # per defined tier; per-unit complexity from the outline drives
+        # dispatch.
+        from maverick.config import DecomposerTiersConfig
+
+        decomposer_tiers: DecomposerTiersConfig | None = None
+        try:
+            d_tiers_raw = self._config.actors.get("refuel", {}).get("decomposer", {}).get("tiers")
+            if d_tiers_raw:
+                decomposer_tiers = DecomposerTiersConfig.model_validate(d_tiers_raw)
+        except Exception as exc:  # noqa: BLE001 — invalid tiers is non-fatal
+            logger.warning(
+                "refuel.decomposer_tiers_parse_failed",
+                error=str(exc),
+            )
+
         supervisor_inputs = RefuelInputs(
             cwd=str(Path.cwd()),
             flight_plan=flight_plan,
@@ -985,6 +1003,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
             detail_session_max_turns=DETAIL_SESSION_MAX_TURNS,
             fix_session_max_turns=FIX_SESSION_MAX_TURNS,
             max_briefing_agents=max_briefing_agents,
+            decomposer_tiers=decomposer_tiers,
             briefing_cache_path=str(briefing_cache_path),
             outline_cache_path=str(outline_cache_path),
             detail_cache_dir=str(detail_cache_dir),

@@ -147,7 +147,7 @@ async def main() -> None:
     # --- Modes ---
     modes = getattr(session, "modes", None)
     if modes:
-        print(f"\n=== Modes ===", flush=True)
+        print("\n=== Modes ===", flush=True)
         print(f"  Current: {getattr(modes, 'current_mode_id', '?')}", flush=True)
         for m in getattr(modes, "modes", []):
             desc = getattr(m, "description", "")
@@ -160,7 +160,7 @@ async def main() -> None:
     # --- Models ---
     models = getattr(session, "models", None)
     if models:
-        print(f"\n=== Models ===", flush=True)
+        print("\n=== Models ===", flush=True)
         print(f"  Current: {getattr(models, 'current_model_id', '?')}", flush=True)
         for m in getattr(models, "available_models", []):
             desc = getattr(m, "description", "")

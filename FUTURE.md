@@ -426,7 +426,7 @@ Relevant code:
 
 ### 2.10 Per-Bead Complexity-Based Model Routing
 
-**Status:** Phases 1 + 2 + 2b implemented, Phase 3 active
+**Status:** Phases 1, 2, 2b, and 3 implemented
 
 **Background.** Bead workloads vary wildly inside a single epic — "create
 LICENSE file" and "implement complete tax engine" are both single beads
@@ -599,11 +599,49 @@ Per-phase knobs (`max_briefing_agents`, `decomposer_pool_size`,
 `max_briefing_agents=3`: 2 briefings concurrent, 3rd waits for an
 eviction or release.
 
-**Phase 3 (active, after Phase 2 settles): Extend tier routing to
-`review`, `fix`, `decompose_detail`.**
+**Phase 3 (implemented): Extend tier routing to `review`, `fix`,
+`decompose_detail`.**
 
 Each of these has the same per-unit invocation pattern as `implement`
-and benefits from the same complexity gating. Suggested defaults:
+and benefits from the same complexity gating.
+
+**As shipped:**
+
+- New :class:`ReviewerTiersConfig` and :class:`DecomposerTiersConfig`
+  in [src/maverick/config.py](src/maverick/config.py) — both reuse
+  :class:`ImplementerTierConfig` for per-tier overrides.
+- :class:`FlySupervisor` extracted the implementer's two-step tier
+  resolver into :meth:`_resolve_tier_in` (a static method working
+  against any actor map). Reviewer reuses it via
+  :meth:`_resolve_reviewer_tier`. Reviewer has no escalation — review
+  is one-shot per round; the *implementer* is the actor that escalates
+  on fix-loop overflow.
+- :class:`FlyInputs.reviewer_tiers` carries the parsed config; when
+  set, the supervisor spawns one ReviewerActor per defined tier and
+  routes `new_bead` + `send_review` through `_reviewer_for(complexity)`.
+- :class:`RefuelInputs.decomposer_tiers` carries the parsed config;
+  when set, the supervisor replaces the round-robin pool with one
+  DecomposerActor per defined tier (each in `pool` role). Per-unit
+  detail prompts route through the unit's outline complexity.
+- The fix path is automatically tier-routed because it runs on the
+  same per-tier ImplementerActor that handled the original implement
+  prompt — no separate wiring needed.
+- Workflows extract `actors.fly.reviewer.tiers` and
+  `actors.refuel.decomposer.tiers` from `maverick.yaml` and pass them
+  through the supervisor inputs.
+
+**Tradeoff (decompose_detail):** tier mode trades cross-worker
+parallelism for per-tier model differentiation. With one worker per
+tier, multiple same-complexity units queue on that worker. Crank
+`parallel.decomposer_pool_size` AND enable tiers if both knobs
+matter; otherwise pick the one that fits the workload.
+
+**Aggregate review** (the final cross-bead check) is *not* tiered —
+it sees diff across the whole epic and can't be classified per-bead.
+Stays on the base reviewer config (effectively the legacy single-
+actor path even when per-bead reviewer tiers are configured).
+
+Suggested defaults:
 
 ```yaml
 steps:
