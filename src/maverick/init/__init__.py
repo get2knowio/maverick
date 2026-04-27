@@ -20,7 +20,7 @@ import os
 import shutil
 from pathlib import Path
 
-from maverick.exceptions.init import ConfigExistsError, InitError, PrerequisiteError
+from maverick.exceptions.init import InitError, PrerequisiteError
 from maverick.init.config_generator import generate_config, write_config
 from maverick.init.detector import detect_project_type
 from maverick.init.git_parser import parse_git_remote
@@ -384,12 +384,14 @@ async def run_init(
         skip_providers: Skip ACP provider discovery.
 
     Returns:
-        InitResult with complete execution state.
+        InitResult with complete execution state. When ``maverick.yaml``
+        already existed and ``force=False``, ``config_existed=True`` and
+        ``config`` / ``detection`` are ``None`` — only the idempotent
+        steps (prereqs, beads, runway) ran.
 
     Raises:
         PrerequisiteError: If prerequisites fail.
         DetectionError: If detection fails.
-        ConfigExistsError: If config exists and force=False.
         ConfigWriteError: If write fails.
 
     Example:
@@ -400,13 +402,14 @@ async def run_init(
     # Use project_path or default to cwd
     effective_path = project_path if project_path is not None else Path.cwd()
     config_path = effective_path / "maverick.yaml"
-
-    # Check if config exists before doing expensive work
-    if config_path.exists() and not force:
-        raise ConfigExistsError(config_path)
+    config_existed = config_path.exists() and not force
 
     if verbose:
-        logger.info("init_started", project_path=str(effective_path))
+        logger.info(
+            "init_started",
+            project_path=str(effective_path),
+            config_existed=config_existed,
+        )
 
     # Step 1: Verify prerequisites
     preflight_result = await verify_prerequisites(
@@ -448,6 +451,36 @@ async def run_init(
             logger.info("git_remote_found", full_name=git_info.full_name)
         else:
             logger.warning("git_remote_not_found")
+
+    # Step 3+4+5: Detection / provider discovery / config generation are
+    # all skipped when the config already exists and force=False — see
+    # FUTURE.md §4.3. Detection is the expensive step (Claude call) and
+    # generating a config we won't write is wasted work; provider/model
+    # discovery would also overwrite the actors section if applied. We
+    # still run the idempotent post-config steps (beads, runway) below so
+    # ``maverick init`` is safe to re-run on an existing project.
+    if config_existed:
+        if verbose:
+            logger.info(
+                "init_skipping_config_steps",
+                reason="config_exists_and_force_false",
+                config_path=str(config_path),
+            )
+        beads_initialized = await _init_beads(effective_path, verbose)
+        runway_initialized = await _maybe_init_runway(effective_path, verbose)
+        return InitResult(
+            success=True,
+            config_path=str(config_path),
+            preflight=preflight_result,
+            git_info=git_info,
+            config=None,
+            detection=None,
+            findings_printed=verbose,
+            beads_initialized=beads_initialized,
+            runway_initialized=runway_initialized,
+            provider_discovery=None,
+            config_existed=True,
+        )
 
     # Step 3: Detect project type
     detection: ProjectDetectionResult | None = None

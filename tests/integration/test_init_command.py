@@ -326,7 +326,7 @@ asyncio_mode = "auto"
         call_kwargs = mock_detect.call_args
         assert call_kwargs[1].get("use_claude") is False
 
-    def test_init_config_exists_error(
+    def test_init_is_idempotent_when_config_exists(
         self,
         cli_runner: CliRunner,
         git_repo: Path,
@@ -334,32 +334,44 @@ asyncio_mode = "auto"
         mock_detection: ProjectDetectionResult,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """Test init fails with exit code 2 when config exists without --force."""
+        """Re-running ``maverick init`` on a project with an existing
+        ``maverick.yaml`` succeeds without overwriting the config — only
+        the idempotent steps (prereqs, beads, runway) are re-checked.
+        ``--force`` remains the way to regenerate from scratch.
+        FUTURE.md §4.3.
+        """
         os.chdir(git_repo)
         monkeypatch.setattr(Path, "home", lambda: git_repo)
 
-        # Create existing config
+        # Existing config with a unique sentinel — assert it survives.
         config_path = git_repo / "maverick.yaml"
-        config_path.write_text("# Existing config\n")
+        original_content = "# Existing config — must NOT be overwritten\n"
+        config_path.write_text(original_content)
 
         with (
             patch(
                 "maverick.init.verify_prerequisites",
                 new_callable=AsyncMock,
                 return_value=mock_prerequisites,
-            ),
+            ) as mock_prereq,
             patch(
                 "maverick.init.detect_project_type",
                 new_callable=AsyncMock,
                 return_value=mock_detection,
-            ),
+            ) as mock_detect,
         ):
             result = cli_runner.invoke(cli, ["init"])
 
-        # Should exit with code 2 (CONFIG_EXISTS)
-        assert result.exit_code == 2
-        assert "already exists" in result.output
+        # Idempotent re-init: exit success, config untouched.
+        assert result.exit_code == 0, f"Exit code {result.exit_code}: {result.output}"
+        assert config_path.read_text() == original_content
+        assert "Already initialized" in result.output
         assert "--force" in result.output
+
+        # Prereqs still ran (sanity check), but detection was skipped —
+        # we don't re-detect a project we already have a config for.
+        mock_prereq.assert_called_once()
+        mock_detect.assert_not_called()
 
     def test_init_force_overwrites_config(
         self,

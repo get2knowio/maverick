@@ -1228,6 +1228,46 @@ class TestInitResult:
         assert result.detection == detection
         assert result.findings_printed is True
 
+    def test_config_existed_defaults_false(self) -> None:
+        """``config_existed`` defaults to False so existing constructions
+        in the codebase continue to mean 'fresh init'. FUTURE.md §4.3."""
+        preflight = InitPreflightResult(success=True)
+        git_info = GitRemoteInfo()
+
+        result = InitResult(
+            success=True,
+            config_path="/test/maverick.yaml",
+            preflight=preflight,
+            git_info=git_info,
+            config=InitConfig(),
+        )
+        assert result.config_existed is False
+
+    def test_idempotent_re_init_shape(self) -> None:
+        """In the idempotent re-init path, ``config`` and ``detection``
+        are None and ``config_existed=True``. ``to_dict`` handles the
+        None config without raising."""
+        preflight = InitPreflightResult(success=True)
+        git_info = GitRemoteInfo(owner="org", repo="project")
+
+        result = InitResult(
+            success=True,
+            config_path="/test/maverick.yaml",
+            preflight=preflight,
+            git_info=git_info,
+            config=None,
+            detection=None,
+            beads_initialized=True,
+            runway_initialized=True,
+            config_existed=True,
+        )
+        assert result.config is None
+        assert result.config_existed is True
+        # to_dict survives the None config — surfaces it as JSON null.
+        out = result.to_dict()
+        assert out["config"] is None
+        assert out["config_existed"] is True
+
     def test_is_frozen(self) -> None:
         """Test that InitResult is frozen (immutable)."""
         preflight = InitPreflightResult(success=True)

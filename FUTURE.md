@@ -40,7 +40,7 @@ It reconciles those documents against the current codebase as of 2026-04-19 and 
 | Asynchronous human review queue | Partial | Human-review beads and CLI exist; question queue and mid-flight answering do not. |
 | Provider quota detection and automatic failover | Partial | Tier 1 exists; wait-and-resume and automatic failover do not. |
 | Step-level evals and prompt testing | Active | Still missing. |
-| Idempotent `maverick init` | Partial | Some sub-pieces are idempotent, but the overall command still blocks on existing config. |
+| Idempotent `maverick init` | Implemented | Re-running on a project with an existing `maverick.yaml` now succeeds, re-runs only the idempotent steps (prereqs, beads, runway), and leaves config untouched. `--force` still regenerates. |
 | Route tool calls through owning actor | Active | MCP inbox still bypasses the owning actor and talks straight to the supervisor. |
 | Structured telemetry via OpenTelemetry GenAI conventions | Active | No OTel or OpenLLMetry integration yet. |
 | Shared mailbox actor scaffold | Active | New opportunity observed in current code. |
@@ -1052,15 +1052,28 @@ The future shape of this work should be informed by the hidden workspace directi
 
 ### 4.3 Idempotent `maverick init`
 
-**Status:** Partial
+**Status:** Implemented
 
-Some initialization subpaths are already safe to repeat, but the full command still fails fast when `maverick.yaml` exists unless `--force` is used.
+Originally fail-fast: `run_init` raised ``ConfigExistsError`` early when ``maverick.yaml`` was present without ``--force``. Sub-pieces (``_init_beads`` via ``bd init --force``, ``_maybe_init_runway`` via the ``is_initialized`` skip) were already idempotent, but the top-level command refused to re-run.
 
-Relevant code:
+**Fix shipped** in [src/maverick/init/__init__.py](src/maverick/init/__init__.py) and [src/maverick/cli/commands/init.py](src/maverick/cli/commands/init.py): when ``config_path.exists() and not force``, ``run_init`` now takes the *idempotent re-init* path:
 
-- [src/maverick/init/config_generator.py](src/maverick/init/config_generator.py)
-- [src/maverick/cli/commands/init.py](src/maverick/cli/commands/init.py)
-- [src/maverick/init/mcp_config.py](src/maverick/init/mcp_config.py)
+1. Verify prerequisites (sanity check — useful when upgrading maverick or moving machines).
+2. Skip detection / provider discovery / config generation / config write — all of those would either re-do expensive work for no reason or risk overwriting the user's customizations.
+3. Run ``_init_beads`` (already idempotent via ``bd init --force``).
+4. Run ``_maybe_init_runway`` (already skips when initialized).
+5. Return ``InitResult(config_existed=True, config=None, detection=None, …)``.
+
+The CLI branches on ``result.config_existed``: prints "Already initialized at <path> — beads + runway re-checked, configuration unchanged" and a hint about ``--force``. Skips the model-discovery and actor-distribution rewrite that would otherwise mutate the existing config's actors section.
+
+``InitResult.config`` was widened to ``InitConfig | None`` so the idempotent path doesn't have to fabricate a placeholder. ``to_dict`` handles the None.
+
+**Tests added:**
+
+- ``test_init_is_idempotent_when_config_exists`` ([tests/integration/test_init_command.py](tests/integration/test_init_command.py)) — replaces the old ``test_init_config_exists_error``: existing config preserved verbatim, exit code 0, "Already initialized" in output, ``detect_project_type`` not called (fast path skipped detection), prereqs still ran.
+- ``test_config_existed_defaults_false`` and ``test_idempotent_re_init_shape`` ([tests/unit/init/test_models.py](tests/unit/init/test_models.py)) — guard the new InitResult shape.
+
+The pre-existing ``test_init_force_overwrites_config`` continues to verify that ``--force`` still regenerates from scratch.
 
 ### 4.4 `maverick land` Fails On `.beads/issues.jsonl` Merge Conflict
 

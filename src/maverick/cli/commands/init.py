@@ -14,7 +14,7 @@ import click
 from maverick.cli.common import cli_error_handler
 from maverick.cli.console import console, err_console
 from maverick.cli.context import ExitCode, async_command
-from maverick.exceptions.init import ConfigExistsError, PrerequisiteError
+from maverick.exceptions.init import PrerequisiteError
 from maverick.init import (
     InitResult,
     PreflightStatus,
@@ -23,9 +23,6 @@ from maverick.init import (
     run_init,
 )
 from maverick.init.provider_discovery import ProviderDiscoveryResult
-
-# Exit code for config exists (per CLI contract)
-CONFIG_EXISTS_EXIT_CODE = 2
 
 
 def _format_preflight_output(
@@ -138,6 +135,10 @@ def _format_config_output(
         return lines
 
     config = result.config
+    if config is None:
+        # Idempotent re-init path: no fresh config was generated. Nothing
+        # to display in this section.
+        return lines
     lines.append("[bold]Generated Configuration[/]")
 
     if config.validation.format_cmd:
@@ -295,6 +296,23 @@ async def init(
             if result.beads_initialized:
                 console.print("[green]✓[/] Beads initialized (.beads/)")
 
+            # Idempotent re-init path: maverick.yaml already existed and
+            # ``--force`` was not passed. Skip detection / provider / model
+            # discovery and the actors-section rewrite — those would
+            # overwrite the user's existing configuration. (FUTURE.md §4.3)
+            if result.config_existed:
+                console.print()
+                console.print(
+                    f"[green]✓[/] Already initialized at [bold]{result.config_path}[/] — "
+                    "beads + runway re-checked, configuration unchanged."
+                )
+                console.print()
+                console.print(
+                    "[dim]Use [bold]--force[/bold] to regenerate the configuration "
+                    "and re-run model discovery.[/]"
+                )
+                raise SystemExit(ExitCode.SUCCESS)
+
             # Resolve provider list for subsequent model discovery. Static
             # per-provider MCP config files (Copilot/Gemini) no longer apply:
             # the xoscar runtime uses an ephemeral pool address per run, and
@@ -406,9 +424,3 @@ async def init(
                 err_console.print()
                 err_console.print(f"[yellow]Remediation:[/yellow] {e.check.remediation}")
             raise SystemExit(ExitCode.FAILURE) from None
-
-        except ConfigExistsError as e:
-            err_console.print(f"[red]Error:[/red] {e.config_path} already exists.")
-            err_console.print()
-            err_console.print("Use [bold]--force[/] to overwrite the existing configuration.")
-            raise SystemExit(CONFIG_EXISTS_EXIT_CODE) from None

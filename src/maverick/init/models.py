@@ -633,24 +633,31 @@ class InitResult:
 
     Attributes:
         success: True if init completed successfully.
-        config_path: Path to generated maverick.yaml.
+        config_path: Path to maverick.yaml (generated this run, or pre-existing).
         preflight: Prerequisite check results.
-        detection: Detection result (None if --no-detect).
+        detection: Detection result. ``None`` when ``--no-detect`` was passed
+            or when re-init skipped detection because config already existed.
         git_info: Git remote information.
-        config: Generated configuration.
+        config: Generated configuration. ``None`` when re-init skipped
+            generation because config already existed (see ``config_existed``).
         findings_printed: Whether findings were displayed.
+        config_existed: True when ``maverick.yaml`` already existed at the
+            target path AND the run was not invoked with ``--force``. In this
+            mode init re-runs only the idempotent steps (prereqs, beads,
+            runway) and leaves the existing config untouched. (FUTURE.md §4.3)
     """
 
     success: bool
     config_path: str
     preflight: InitPreflightResult
     git_info: GitRemoteInfo
-    config: InitConfig
+    config: InitConfig | None = None
     detection: ProjectDetectionResult | None = None
     findings_printed: bool = False
     beads_initialized: bool = False
     runway_initialized: bool = False
     provider_discovery: ProviderDiscoveryResult | None = None
+    config_existed: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization.
@@ -664,13 +671,14 @@ class InitResult:
             "preflight": self.preflight.to_dict(),
             "detection": self.detection.to_dict() if self.detection else None,
             "git_info": self.git_info.to_dict(),
-            "config": self.config.model_dump(),
+            "config": self.config.model_dump() if self.config else None,
             "findings_printed": self.findings_printed,
             "beads_initialized": self.beads_initialized,
             "runway_initialized": self.runway_initialized,
             "provider_discovery": (
                 self.provider_discovery.to_dict() if self.provider_discovery else None
             ),
+            "config_existed": self.config_existed,
         }
 
 
