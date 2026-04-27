@@ -51,7 +51,7 @@ It reconciles those documents against the current codebase as of 2026-04-19 and 
 | ACP prompt-cache optimization | Implemented | Phase A observability + Phase B retry-session reuse shipped; Phases C/D/1h-TTL closed after Phase A data showed caching is content-keyed and already at ~99.98% hit on measured workloads. |
 | Consolidate agent `_end_turn` helpers | Active | Five xoscar agents duplicate a ~10-line cancel-after-forward helper. Minor refactor opportunity — extract to mixin or module helper when a sixth agent-with-inbox appears. |
 | Fly checkpoint resume ignores `--max-beads` | Implemented | Reporting fix: `beads_completed` now counts new-this-run, not cumulative. The cap was always enforced; the inflated count made it look ignored. |
-| Review prompts don't emit `prompt_usage` | Active (observability gap) | Observed in 2026-04-24 e2e: 13 review sessions created, 12 beads closed via review, 0 `acp_executor.prompt_usage` lines for review. Reviewer's agent-side cancel likely racing against the response path in `prompt_session`. |
+| Review prompts don't emit `prompt_usage` | Implemented | `prompt_session` now logs `prompt_usage` from a `finally` block with an `exit_path` field. The log fires unconditionally across success, timeout, AcpRequestError, and circuit-breaker paths — no prompt return path can bypass it. |
 | Commit provenance for evals | Active | New 2026-04-27. Curator strips bead IDs from public git history; restore the commit→bead link via a conventional Refs: trailer plus runway as system of record for provider/model/prompt. |
 
 ## 1. Orchestration And Human Review
@@ -963,9 +963,9 @@ What should happen next:
 
 ### 3.8 Review Prompts Don't Emit `acp_executor.prompt_usage`
 
-**Status:** Active (observability gap)
+**Status:** Implemented
 
-Observed during the 2026-04-24 e2e run on `sample-maverick-project`. The fly run closed 12 beads — every bead went through the implement → gate → ac → spec → review → commit cycle, so there should have been at least 12 review prompts. Log evidence:
+Originally observed during the 2026-04-24 e2e run on `sample-maverick-project`. The fly run closed 12 beads with this log breakdown:
 
 | signal | count |
 |---|---|
@@ -973,22 +973,18 @@ Observed during the 2026-04-24 e2e run on `sample-maverick-project`. The fly run
 | ``bead_closed`` (review gate passed) | 12 |
 | ``acp_executor.prompt_usage`` with ``step_name=review`` | **0** |
 
-Implementer prompts on the same run logged 12 ``prompt_usage`` events as expected (with ``usage_reported=False`` because copilot's ACP bridge doesn't surface token counts — that part is upstream and not Maverick's bug). Reviewer prompts produced zero log lines despite the sessions clearly being created and the reviews clearly running successfully.
+Reviews clearly succeeded (12 beads closed) but ``prompt_usage`` never logged for them. Implementer prompts on the same run logged correctly. Hypothesis was that the reviewer's agent-side cancel from ``on_tool_call._end_turn`` was racing the response path, routing prompt() returns through a branch that bypassed the inline log.
 
-Most likely cause: the agent-side cancel from ``reviewer.on_tool_call._end_turn`` is firing fast enough that ``prompt_session()`` returns via an exception path rather than via the response-with-usage path, bypassing the ``logger.info("acp_executor.prompt_usage", ...)`` call at the bottom of the success branch in [src/maverick/executor/acp.py](src/maverick/executor/acp.py). The implementer somehow doesn't hit this path — possibly because the implementer's submit tool is followed by a small wrap-up that delays the cancel just enough for the response to land first.
+**Fix shipped:** rather than chase the specific bypass, made the log structurally unbypassable. ``prompt_session`` in [src/maverick/executor/acp.py](src/maverick/executor/acp.py) now logs ``acp_executor.prompt_usage`` from a ``finally`` block with a new ``exit_path`` field tracked across the prompt's lifetime. Locals ``usage`` and ``exit_path`` are initialized to safe defaults (``None`` / ``"unknown"``) and updated as execution progresses; the finally fires the log regardless of whether the path was success, timeout, ``AcpRequestError``, circuit-breaker abort, or any unexpected exception. ``usage`` is captured *before* the circuit-breaker check so token counts stay visible on aborts.
 
-Why it matters:
+**Tests added** in ``TestPromptUsageExitPath`` ([tests/unit/executor/test_acp_executor.py](tests/unit/executor/test_acp_executor.py)) — one per exit path:
 
-- Phase A observability is the foundation of all the prompt-cache and cost-tracking work — any agent that silently doesn't log usage is invisible to that monitoring.
-- Reviewers run on every bead; this is half of the fly token budget going unobserved.
+- ``success`` → ``usage_reported=True`` with token counts.
+- ``timeout`` → ``usage_reported=False`` (no response captured).
+- ``acp_request_error`` → ``usage_reported=False``.
+- ``circuit_breaker_aborted`` → ``usage_reported=True`` (usage captured before the abort fires, so we still see the burned tokens).
 
-Relevant code:
-
-- [src/maverick/executor/acp.py](src/maverick/executor/acp.py) (``prompt_session``, lines around the ``acp_executor.prompt_usage`` info log)
-- [src/maverick/actors/xoscar/reviewer.py](src/maverick/actors/xoscar/reviewer.py) (``_end_turn``, ``on_tool_call``)
-- Compare with [src/maverick/actors/xoscar/implementer.py](src/maverick/actors/xoscar/implementer.py) which works correctly.
-
-Investigation should add a DEBUG-level log right at the start of every ``prompt_session()`` exception branch and at the success branch entry, then re-run the same fly scenario — the missing path will become obvious.
+Reflection: the original framing assumed the bug was a missing branch in the executor. The pragmatic fix was to remove the branching dependency entirely — making the log fire unconditionally is both more diagnosable (``exit_path`` tells us what really happened) and immune to future race conditions of the same shape. ``_run_single_attempt`` (one-shot path used by briefing/decomposer/curator) still has the inline log; if a similar gap surfaces there, the same finally-block pattern applies.
 
 ### 3.9 Commit Provenance For Evals
 

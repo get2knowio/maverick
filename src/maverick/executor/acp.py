@@ -613,6 +613,16 @@ class AcpStepExecutor:
         # fires on every return path.
         await self._pool.mark_busy()
         start_time = time.monotonic()
+        # Tracked across the prompt's exit paths (success, timeout,
+        # acp_request_error, circuit_breaker_aborted) so the
+        # ``prompt_usage`` log in the ``finally`` block records WHY a
+        # given call ended. Without unconditional logging, the reviewer
+        # actor's agent-side cancel from ``on_tool_call._end_turn`` could
+        # land prompt() through paths that bypassed the inline log
+        # (FUTURE.md §3.8 — observed in 2026-04-24 e2e: 13 reviewer
+        # sessions, 0 prompt_usage records).
+        usage: UsageMetadata | None = None
+        exit_path = "unknown"
         try:
             try:
                 coro = cached.conn.prompt(
@@ -626,6 +636,7 @@ class AcpStepExecutor:
                 else:
                     response = await coro
             except TimeoutError as exc:
+                exit_path = "timeout"
                 # Send an ACP CancelNotification so the agent stops the
                 # stalled turn instead of leaving the session half-alive.
                 # Cap the cancel at 5s: if the subprocess/socket is already
@@ -666,12 +677,18 @@ class AcpStepExecutor:
                     timeout_seconds=float(effective_config.timeout or 0),
                 ) from exc
             except AcpRequestError as exc:
+                exit_path = "acp_request_error"
                 raise NetworkError(
                     f"ACP prompt failed on session '{session_id}': {format_acp_error(exc)}",
                 ) from exc
 
+            # Capture usage *before* the circuit-breaker check so token
+            # counts are still observable on aborts.
+            usage = _usage_from_acp(getattr(response, "usage", None))
+
             # Check circuit breaker
             if cached.client.aborted:
+                exit_path = "circuit_breaker_aborted"
                 most_called_tool = _find_most_called_tool(cached.client)
                 raise CircuitBreakerError(
                     tool_name=most_called_tool,
@@ -683,27 +700,12 @@ class AcpStepExecutor:
             accumulated_text = cached.client.get_accumulated_text()
             duration_ms = int((time.monotonic() - start_time) * 1000)
 
-            usage = _usage_from_acp(getattr(response, "usage", None))
-
             self._logger.debug(
                 "acp_executor.prompt_session_complete",
                 session_id=session_id,
                 step_name=step_name,
                 response_len=len(accumulated_text),
                 duration_ms=duration_ms,
-            )
-            self._logger.info(
-                "acp_executor.prompt_usage",
-                step_name=step_name,
-                agent_name=agent_name,
-                session_id=session_id,
-                provider=provider_key,
-                input_tokens=usage.input_tokens if usage else None,
-                output_tokens=usage.output_tokens if usage else None,
-                cache_read_tokens=usage.cache_read_tokens if usage else None,
-                cache_write_tokens=usage.cache_write_tokens if usage else None,
-                usage_reported=usage is not None,
-                session_kind="multi_turn",
             )
 
             # Extract and validate output
@@ -717,6 +719,7 @@ class AcpStepExecutor:
             else:
                 output = accumulated_text
 
+            exit_path = "success"
             return ExecutorResult(
                 output=output,
                 success=True,
@@ -724,6 +727,20 @@ class AcpStepExecutor:
                 events=(),
             )
         finally:
+            self._logger.info(
+                "acp_executor.prompt_usage",
+                step_name=step_name,
+                agent_name=agent_name,
+                session_id=session_id,
+                provider=provider_key,
+                input_tokens=usage.input_tokens if usage else None,
+                output_tokens=usage.output_tokens if usage else None,
+                cache_read_tokens=usage.cache_read_tokens if usage else None,
+                cache_write_tokens=usage.cache_write_tokens if usage else None,
+                usage_reported=usage is not None,
+                session_kind="multi_turn",
+                exit_path=exit_path,
+            )
             await self._pool.mark_idle()
 
     async def _execute_with_retry(

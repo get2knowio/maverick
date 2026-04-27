@@ -1102,6 +1102,179 @@ class TestLifecycleLogging:
         assert any("prompt_send" in e for e in debug_events)
 
 
+@pytest.mark.asyncio
+class TestPromptUsageExitPath:
+    """``prompt_session`` emits ``acp_executor.prompt_usage`` on every exit
+    path (FUTURE.md §3.8). Reviewer prompts were missing the log entirely
+    in the 2026-04-24 e2e run because the agent-side cancel from
+    ``on_tool_call._end_turn`` could route the prompt() return through a
+    path that bypassed the inline log. The fix moves the log to a
+    ``finally`` block with an ``exit_path`` field for visibility.
+    """
+
+    def _capture_info(
+        self, executor: AcpStepExecutor
+    ) -> list[tuple[str, dict[str, Any]]]:
+        """Patch ``executor._logger.info`` and return a list that
+        accumulates ``(event, kwargs)`` tuples for assertions.
+        """
+        events: list[tuple[str, dict[str, Any]]] = []
+
+        def _capture(event: str, **kwargs: Any) -> None:
+            events.append((event, kwargs))
+
+        executor._logger.info = _capture  # type: ignore[assignment]
+        return events
+
+    def _find_usage_event(
+        self, events: list[tuple[str, dict[str, Any]]]
+    ) -> dict[str, Any]:
+        """Return the kwargs from the single ``prompt_usage`` event,
+        or fail the test if zero or more than one were emitted.
+        """
+        matching = [kw for ev, kw in events if ev == "acp_executor.prompt_usage"]
+        assert len(matching) == 1, (
+            f"expected exactly one prompt_usage event, got {len(matching)}: {matching}"
+        )
+        return matching[0]
+
+    async def test_success_path_logs_prompt_usage_with_exit_path_success(self) -> None:
+        executor = _make_executor()
+        mock_conn, mock_proc = _mock_spawn_context()
+
+        fake_usage = SimpleNamespace(
+            input_tokens=42,
+            output_tokens=7,
+            cached_read_tokens=10,
+            cached_write_tokens=0,
+        )
+        mock_conn.prompt = AsyncMock(return_value=SimpleNamespace(usage=fake_usage))
+
+        events = self._capture_info(executor)
+
+        with patch("maverick.executor._connection_pool.spawn_agent_process") as mock_spawn:
+            mock_spawn.return_value = _FakeAsyncContextManager(mock_conn, mock_proc)
+            session_id = await executor.create_session(
+                step_name="review",
+                agent_name="reviewer",
+            )
+            with patch.object(MaverickAcpClient, "get_accumulated_text", return_value="ok"):
+                await executor.prompt_session(
+                    session_id=session_id,
+                    prompt_text="review this",
+                    step_name="review",
+                    agent_name="reviewer",
+                )
+
+        usage_kw = self._find_usage_event(events)
+        assert usage_kw["exit_path"] == "success"
+        assert usage_kw["session_kind"] == "multi_turn"
+        assert usage_kw["step_name"] == "review"
+        assert usage_kw["agent_name"] == "reviewer"
+        assert usage_kw["usage_reported"] is True
+        assert usage_kw["input_tokens"] == 42
+        assert usage_kw["output_tokens"] == 7
+
+    async def test_timeout_path_logs_prompt_usage_with_exit_path_timeout(self) -> None:
+        executor = _make_executor()
+        mock_conn, mock_proc = _mock_spawn_context()
+        mock_conn.prompt = AsyncMock(side_effect=TimeoutError())
+        mock_conn.cancel = AsyncMock(return_value=None)
+
+        events = self._capture_info(executor)
+
+        with patch("maverick.executor._connection_pool.spawn_agent_process") as mock_spawn:
+            mock_spawn.return_value = _FakeAsyncContextManager(mock_conn, mock_proc)
+            session_id = await executor.create_session(
+                step_name="review",
+                agent_name="reviewer",
+            )
+            with pytest.raises(MaverickTimeoutError):
+                await executor.prompt_session(
+                    session_id=session_id,
+                    prompt_text="stall",
+                    step_name="review",
+                    agent_name="reviewer",
+                    config=StepConfig(timeout=1),
+                )
+
+        usage_kw = self._find_usage_event(events)
+        assert usage_kw["exit_path"] == "timeout"
+        assert usage_kw["usage_reported"] is False
+        assert usage_kw["input_tokens"] is None
+
+    async def test_acp_request_error_logs_prompt_usage_with_exit_path(self) -> None:
+        executor = _make_executor()
+        mock_conn, mock_proc = _mock_spawn_context()
+        mock_conn.prompt = AsyncMock(side_effect=AcpRequestError(code=-1, message="boom"))
+
+        events = self._capture_info(executor)
+
+        with patch("maverick.executor._connection_pool.spawn_agent_process") as mock_spawn:
+            mock_spawn.return_value = _FakeAsyncContextManager(mock_conn, mock_proc)
+            session_id = await executor.create_session(
+                step_name="review",
+                agent_name="reviewer",
+            )
+            with pytest.raises(NetworkError):
+                await executor.prompt_session(
+                    session_id=session_id,
+                    prompt_text="explode",
+                    step_name="review",
+                    agent_name="reviewer",
+                )
+
+        usage_kw = self._find_usage_event(events)
+        assert usage_kw["exit_path"] == "acp_request_error"
+        assert usage_kw["usage_reported"] is False
+
+    async def test_circuit_breaker_logs_prompt_usage_with_exit_path(self) -> None:
+        """The aborted-client check fires after the prompt returns. The
+        log must still emit, AND it must carry the usage we already
+        captured before the check (visibility into burned tokens)."""
+        from maverick.exceptions.agent import CircuitBreakerError
+
+        executor = _make_executor()
+        mock_conn, mock_proc = _mock_spawn_context()
+
+        fake_usage = SimpleNamespace(
+            input_tokens=999,
+            output_tokens=5,
+            cached_read_tokens=0,
+            cached_write_tokens=0,
+        )
+        mock_conn.prompt = AsyncMock(return_value=SimpleNamespace(usage=fake_usage))
+
+        events = self._capture_info(executor)
+
+        with patch("maverick.executor._connection_pool.spawn_agent_process") as mock_spawn:
+            mock_spawn.return_value = _FakeAsyncContextManager(mock_conn, mock_proc)
+            session_id = await executor.create_session(
+                step_name="review",
+                agent_name="reviewer",
+            )
+            # Force the circuit-breaker branch by flipping ``aborted`` on the
+            # session's MaverickAcpClient before the prompt returns.
+            with (
+                patch.object(MaverickAcpClient, "aborted", new=True),
+                patch.object(MaverickAcpClient, "get_accumulated_text", return_value=""),
+            ):
+                with pytest.raises(CircuitBreakerError):
+                    await executor.prompt_session(
+                        session_id=session_id,
+                        prompt_text="abort",
+                        step_name="review",
+                        agent_name="reviewer",
+                    )
+
+        usage_kw = self._find_usage_event(events)
+        assert usage_kw["exit_path"] == "circuit_breaker_aborted"
+        # Usage IS captured before the abort check fires, so token counts
+        # are visible even on aborts.
+        assert usage_kw["usage_reported"] is True
+        assert usage_kw["input_tokens"] == 999
+
+
 # ---------------------------------------------------------------------------
 # T034: Multi-provider scenarios
 # ---------------------------------------------------------------------------
