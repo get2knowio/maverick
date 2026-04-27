@@ -50,8 +50,9 @@ It reconciles those documents against the current codebase as of 2026-04-19 and 
 | Reusable supervisor fragments | Active | New opportunity observed in current code. |
 | ACP prompt-cache optimization | Implemented | Phase A observability + Phase B retry-session reuse shipped; Phases C/D/1h-TTL closed after Phase A data showed caching is content-keyed and already at ~99.98% hit on measured workloads. |
 | Consolidate agent `_end_turn` helpers | Active | Five xoscar agents duplicate a ~10-line cancel-after-forward helper. Minor refactor opportunity — extract to mixin or module helper when a sixth agent-with-inbox appears. |
-| Fly checkpoint resume ignores `--max-beads` | Active (bug) | Observed in 2026-04-24 e2e: launched with `--max-beads 2`, processed 12 beads. Resume path must reset / re-evaluate the budget against the new arg. |
+| Fly checkpoint resume ignores `--max-beads` | Implemented | Reporting fix: `beads_completed` now counts new-this-run, not cumulative. The cap was always enforced; the inflated count made it look ignored. |
 | Review prompts don't emit `prompt_usage` | Active (observability gap) | Observed in 2026-04-24 e2e: 13 review sessions created, 12 beads closed via review, 0 `acp_executor.prompt_usage` lines for review. Reviewer's agent-side cancel likely racing against the response path in `prompt_session`. |
+| Commit provenance for evals | Active | New 2026-04-27. Curator strips bead IDs from public git history; restore the commit→bead link via a conventional Refs: trailer plus runway as system of record for provider/model/prompt. |
 
 ## 1. Orchestration And Human Review
 
@@ -164,24 +165,17 @@ Relevant code:
 
 ### 1.7 Fly Checkpoint Resume Ignores `--max-beads`
 
-**Status:** Active (bug)
+**Status:** Implemented
 
-Observed during the 2026-04-24 e2e run on `sample-maverick-project`: launched ``maverick fly --epic <id> --max-beads 2`` and the run processed **12 beads** before being stopped manually. The header banner showed ``max_beads=2`` parsed correctly. The first log line was:
+Originally observed during the 2026-04-24 e2e run on `sample-maverick-project`: launched ``maverick fly --epic <id> --max-beads 2`` and the final report showed **12 beads** processed. The header banner showed ``max_beads=2`` parsed correctly. The first log line was:
 
 > Resuming from checkpoint 'checkpoint' (saved at 2026-03-19T02:24:14...)
 
-So the workflow restored a stale checkpoint and never re-evaluated the new ``max_beads`` budget against it — it just kept iterating until the epic was nearly complete. The bug is in the resume path: when a stale checkpoint is loaded, the bead-loop counter must either reset against the new ``max_beads`` argument or treat ``max_beads`` as the total-from-now budget.
+Root cause was a reporting bug, not a loop runaway. The bead loop in [src/maverick/actors/xoscar/fly_supervisor.py](src/maverick/actors/xoscar/fly_supervisor.py) (``_bead_loop``) correctly capped ``processed < max_beads`` for new work in this run. But the terminal-result payload reported ``"beads_completed": len(self._completed_beads)`` — and ``self._completed_beads`` is seeded from ``_inputs.completed_bead_ids`` (loaded from the checkpoint) so the loop's "skip already done" guard works on resume. With a stale checkpoint of 10 prior IDs and 2 new beads processed, the cumulative list was 12, so the report said "12 beads completed" without doing 12 beads of work.
 
-Why it matters:
+**Fix shipped:** ``FlySupervisor`` tracks ``self._processed_this_run: int`` separately, set to 0 on construction and incremented inside ``_bead_loop`` alongside the local counter. All three ``_mark_done`` payloads (success, exception, prompt-error) now report ``"beads_completed": self._processed_this_run`` while keeping ``completed_bead_ids`` cumulative (still needed for resume state). Regression test in [tests/unit/actors/xoscar_runtime/test_fly_supervisor.py](tests/unit/actors/xoscar_runtime/test_fly_supervisor.py) (``test_terminal_result_reports_only_this_runs_beads``) seeds 10 prior IDs, triggers the terminal path, and asserts ``beads_completed == 0``.
 
-- Anyone trying to do a constrained "smoke test" run gets a full epic instead.
-- Cost-control intent (cap the number of agent invocations on a debug run) is silently overridden.
-- Combined with auto-commit, this means a probe run can change the workspace far more than intended.
-
-Relevant code:
-
-- [src/maverick/workflows/fly_beads/workflow.py](src/maverick/workflows/fly_beads/workflow.py) (resume + bead-loop counter)
-- [src/maverick/checkpoint/](src/maverick/checkpoint/) (checkpoint shape — does it need a counter field?)
+Reflection: the FUTURE.md hypothesis ("the bead-loop counter must reset / re-evaluate the budget") was misdirected — the loop counter was already correct. The user-visible inflated count came from the reporting layer, not from extra agent work. Cost-control intent was always enforced; only the report was lying.
 
 ## 2. Agent Architecture And MCP Boundaries
 
@@ -995,6 +989,38 @@ Relevant code:
 - Compare with [src/maverick/actors/xoscar/implementer.py](src/maverick/actors/xoscar/implementer.py) which works correctly.
 
 Investigation should add a DEBUG-level log right at the start of every ``prompt_session()`` exception branch and at the success branch entry, then re-run the same fly scenario — the missing path will become obvious.
+
+### 3.9 Commit Provenance For Evals
+
+**Status:** Active (surfaced in 2026-04-27 design discussion)
+
+The CuratorAgent system prompt at [src/maverick/agents/curator.py](src/maverick/agents/curator.py) (lines 42-48) deliberately strips bead IDs and pipeline mechanics from commit messages so the public git history reads as human-authored. That is correct for the public history, but it severs the link between any landed commit and the bead that produced it — so there is no path from a landed commit back to the provider, model, prompt, or fix-loop history that created it. For eval work (§3.4), commit-level traceability is one of the two natural query axes (the other being bead-level via runway).
+
+Pre-`land`, the data exists: [src/maverick/workflows/fly_beads/_commit.py](src/maverick/workflows/fly_beads/_commit.py) writes ``bead({id}): {title}`` as the per-bead commit subject. The curator's squash + describe pass then erases it by design.
+
+**Proposal.** Two layers:
+
+1. **Conventional `Refs:` trailer in landed commits.** Update the curator system prompt to keep stripping bead IDs from the *subject* but append a ``Refs: bd-NNN[, bd-MMM]`` trailer at the bottom of the message — plural because curator squash collapses many beads into one commit. This matches existing git trailer conventions (``Signed-off-by:``, ``Co-Authored-By:``) and reads as human-authored, satisfying the curator's "no pipeline output" rule. Cost: one prompt edit plus a regression test that asserts the trailer survives squash and reorder.
+
+2. **Runway as system of record for full provenance.** Provider, model, prompt hash, response, fix-loop history, complexity tier — all keyed by bead ID. Some of this already lands via ``record_bead_outcome`` / ``record_review_findings``; what is missing is per-attempt ``(provider, model, prompt_hash)`` capture on the implementer and reviewer paths. With the trailer in place, any ``commit → bead → runway`` lookup works; without runway behind it, the trailer alone is just a foreign key pointing at nothing.
+
+**Why now:**
+
+- Cheapest possible step toward §3.4 — a stable join key from public history into runway, with no new infrastructure.
+- Combines naturally with §3.6 (unified trace envelope) — ``Refs:`` is the trace-id projection into git.
+- The curator change is additive (keep stripping subject IDs, also append a trailer), so regression risk is small.
+
+**Out of scope for v1:**
+
+- Embedding full prompts in the trailer. Too big; runway is the right home.
+- jj-native metadata via the still-pending design in jj-vcs/jj #8166 / #6664. The trailer approach is git-tooling-agnostic and works today.
+- Notes-based storage. Squash and rebase make ``refs/notes/*`` brittle, and jj has no ``jj notes`` command yet.
+
+**Relevant code:**
+
+- [src/maverick/agents/curator.py](src/maverick/agents/curator.py) (system prompt — the rule that strips bead IDs is the same rule that needs to append the trailer)
+- [src/maverick/workflows/fly_beads/_commit.py](src/maverick/workflows/fly_beads/_commit.py) (existing ``bead({id}): {title}`` source)
+- [src/maverick/runway/](src/maverick/runway/) (per-attempt ``(provider, model, prompt_hash)`` capture)
 
 ## 4. Developer Experience And Platform
 

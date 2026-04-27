@@ -154,9 +154,16 @@ class FlySupervisor(xo.Actor):
         self._last_aggregate_review: SubmitReviewPayload | None = None
         self._last_parse_error: tuple[str, str] | None = None
 
-        # Accumulators
+        # Accumulators. ``_completed_beads`` is cumulative across runs —
+        # it starts seeded with ``_inputs.completed_bead_ids`` (loaded
+        # from the checkpoint) so the loop's "skip already-done" guard
+        # works on resume. ``_processed_this_run`` is the new-work
+        # counter that ``--max-beads`` caps and that the terminal report
+        # surfaces, so resuming with ``--max-beads 2`` against a
+        # checkpoint with 10 prior IDs reports 2, not 12.
         self._completed_beads: list[str] = list(self._inputs.completed_bead_ids)
         self._completed_titles: list[str] = []
+        self._processed_this_run: int = 0
         self._current_bead_id: str | None = None
         # Reference to the in-flight bead dict (with ``complexity``,
         # ``work_unit_md``, etc.) for tier routing during fix loops.
@@ -470,7 +477,7 @@ class FlySupervisor(xo.Actor):
                 {
                     "success": False,
                     "error": str(exc),
-                    "beads_completed": len(self._completed_beads),
+                    "beads_completed": self._processed_this_run,
                     "completed_bead_ids": list(self._completed_beads),
                 }
             )
@@ -479,7 +486,7 @@ class FlySupervisor(xo.Actor):
         self._mark_done(
             {
                 "success": True,
-                "beads_completed": len(self._completed_beads),
+                "beads_completed": self._processed_this_run,
                 "completed_bead_ids": list(self._completed_beads),
             }
         )
@@ -514,6 +521,7 @@ class FlySupervisor(xo.Actor):
                 self._completed_beads.append(bead_id)
                 self._completed_titles.append(bead.get("title", ""))
                 processed += 1
+                self._processed_this_run = processed
             # If a bead failed (ok=False), the escalation path already
             # emitted a warning and recorded the outcome. Move on.
 
@@ -1209,7 +1217,7 @@ class FlySupervisor(xo.Actor):
                 "error": error.error,
                 "phase": error.phase,
                 "quota_exhausted": error.quota_exhausted,
-                "beads_completed": len(self._completed_beads),
+                "beads_completed": self._processed_this_run,
                 "completed_bead_ids": list(self._completed_beads),
             }
         )

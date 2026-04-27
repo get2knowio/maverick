@@ -108,3 +108,40 @@ async def test_prompt_error_marks_supervisor_done(pool_address: str) -> None:
         assert "ACP died" in result["error"]
     finally:
         await xo.destroy_actor(sup)
+
+
+@pytest.mark.asyncio
+async def test_terminal_result_reports_only_this_runs_beads(
+    pool_address: str,
+) -> None:
+    """Regression: ``--max-beads 2`` against a stale checkpoint must not
+    inflate the reported success count with checkpoint-prior IDs.
+
+    Before the fix, ``beads_completed`` was ``len(self._completed_beads)``,
+    which includes the IDs seeded from ``_inputs.completed_bead_ids``. So a
+    smoke-test ``--max-beads 2`` against a checkpoint with 10 prior IDs
+    reported ``beads_completed=10`` *without doing any new work*, making
+    the cap look ignored. The fix tracks new-this-run separately.
+    """
+    prior_ids = tuple(f"bead-old-{i}" for i in range(10))
+    sup = await xo.create_actor(
+        FlySupervisor,
+        FlyInputs(cwd="/tmp", max_beads=2, completed_bead_ids=prior_ids),
+        address=pool_address,
+        uid="fly-sup-resume-cap",
+    )
+    try:
+        # Trigger the terminal-result path without running any bead work.
+        # _processed_this_run is still 0; _completed_beads has the 10 prior IDs.
+        await sup.prompt_error(
+            PromptError(phase="implement", error="bail early", unit_id="bead-x")
+        )
+        result = await sup.get_terminal_result()
+        assert result is not None
+        assert result["success"] is False
+        # New work in this run = 0, despite 10 IDs loaded from checkpoint.
+        assert result["beads_completed"] == 0
+        # Cumulative ID list still flows through (used for state).
+        assert len(result["completed_bead_ids"]) == 10
+    finally:
+        await xo.destroy_actor(sup)
