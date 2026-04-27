@@ -8,7 +8,7 @@ import pytest
 import yaml
 from pydantic import ValidationError as PydanticValidationError
 
-from maverick.config import AgentConfig, ModelConfig
+from maverick.config import ActorConfig, AgentConfig, ModelConfig
 from maverick.exceptions import ConfigError
 from maverick.executor.config import (
     DEFAULT_EXECUTOR_CONFIG,
@@ -853,3 +853,91 @@ class TestResolveStepConfig:
             provider_default_model="sonnet",
         )
         assert result.model_id == "claude-opus-4-6"
+
+    # --- actor_config (the canonical actors: surface) precedence ---
+
+    def _make_actor(self, **kwargs: Any) -> ActorConfig:
+        from maverick.config import ActorConfig
+
+        return ActorConfig(**kwargs)
+
+    def test_actor_wins_over_project(self) -> None:
+        """Actor config takes precedence over project step config (legacy)."""
+        result = resolve_step_config(
+            inline_config=None,
+            actor_config=self._make_actor(model_id="actor-model"),
+            project_step_config=StepConfig(model_id="project-model"),
+            agent_config=None,
+            global_model=self._make_global(),
+            step_type=StepType.AGENT,
+            step_name="test",
+        )
+        assert result.model_id == "actor-model"
+
+    def test_actor_wins_over_agent(self) -> None:
+        """Actor config takes precedence over agent config (legacy)."""
+        result = resolve_step_config(
+            inline_config=None,
+            actor_config=self._make_actor(provider="copilot", model_id="gpt-5.4"),
+            project_step_config=None,
+            agent_config=self._make_agent(provider="claude", model_id="sonnet"),
+            global_model=self._make_global(),
+            step_type=StepType.AGENT,
+            step_name="test",
+        )
+        assert result.provider == "copilot"
+        assert result.model_id == "gpt-5.4"
+
+    def test_inline_wins_over_actor(self) -> None:
+        """Inline config still beats actor config (workflow-internal trumps user)."""
+        result = resolve_step_config(
+            inline_config={"model_id": "inline-model"},
+            actor_config=self._make_actor(model_id="actor-model"),
+            project_step_config=None,
+            agent_config=None,
+            global_model=self._make_global(),
+            step_type=StepType.AGENT,
+            step_name="test",
+        )
+        assert result.model_id == "inline-model"
+
+    def test_actor_timeout_resolves(self) -> None:
+        """Actor config carries timeout via the same precedence chain."""
+        result = resolve_step_config(
+            inline_config=None,
+            actor_config=self._make_actor(timeout=900),
+            project_step_config=StepConfig(timeout=300),
+            agent_config=None,
+            global_model=self._make_global(),
+            step_type=StepType.AGENT,
+            step_name="test",
+        )
+        assert result.timeout == 900
+
+    def test_actor_partial_falls_through_to_project(self) -> None:
+        """Fields the actor entry leaves None fall through to project_step_config."""
+        result = resolve_step_config(
+            inline_config=None,
+            actor_config=self._make_actor(provider="copilot"),
+            project_step_config=StepConfig(model_id="sonnet", timeout=600),
+            agent_config=None,
+            global_model=self._make_global(),
+            step_type=StepType.AGENT,
+            step_name="test",
+        )
+        assert result.provider == "copilot"
+        assert result.model_id == "sonnet"
+        assert result.timeout == 600
+
+    def test_actor_config_optional_default_none(self) -> None:
+        """The new keyword arg is optional — existing callers stay compatible."""
+        # Call without actor_config — must still work.
+        result = resolve_step_config(
+            inline_config=None,
+            project_step_config=StepConfig(model_id="sonnet"),
+            agent_config=None,
+            global_model=self._make_global(),
+            step_type=StepType.AGENT,
+            step_name="test",
+        )
+        assert result.model_id == "sonnet"

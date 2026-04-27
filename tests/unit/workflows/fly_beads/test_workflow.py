@@ -16,6 +16,7 @@ def _make_workflow() -> FlyBeadsWorkflow:
     config = MagicMock(spec=MaverickConfig)
     config.model = ModelConfig()
     config.steps = {}
+    config.actors = {}
     config.agents = {
         "implementer": AgentConfig(
             provider="gemini",

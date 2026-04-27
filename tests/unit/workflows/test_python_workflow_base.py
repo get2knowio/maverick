@@ -38,6 +38,7 @@ def _make_workflow(
     workflow_name: str = "test-workflow",
     steps_override: dict[str, Any] | None = None,
     agents_override: dict[str, Any] | None = None,
+    actors_override: dict[str, dict[str, Any]] | None = None,
 ) -> Any:
     """Instantiate a ConcreteTestWorkflow with injected dependencies.
 
@@ -54,6 +55,7 @@ def _make_workflow(
     mock_config.model = ModelConfig()
     mock_config.steps = steps_override or {}
     mock_config.agents = agents_override or {}
+    mock_config.actors = actors_override or {}
 
     mock_registry = MagicMock(spec=ComponentRegistry)
 
@@ -445,6 +447,156 @@ class TestResolveStepConfig:
         cfg = wf.resolve_step_config("briefing:scopist", agent_name="scopist")
         assert cfg.provider == "claude"
         assert cfg.model_id == "opus"
+
+    # ------------------------------------------------------------------
+    # actors:<workflow>.<actor> precedence layer (the canonical surface).
+    # ------------------------------------------------------------------
+
+    def test_resolve_step_config_uses_actors_layer(self) -> None:
+        """An entry under actors.<workflow_key>.<agent_name> is read."""
+        wf = _make_workflow(
+            workflow_name="generate-flight-plan",
+            actors_override={
+                "plan": {
+                    "scopist": {
+                        "provider": "gemini",
+                        "model_id": "gemini-3.1-pro-preview",
+                        "timeout": 600,
+                    },
+                },
+            },
+        )
+        cfg = wf.resolve_step_config("briefing_scopist", agent_name="scopist")
+        assert cfg.provider == "gemini"
+        assert cfg.model_id == "gemini-3.1-pro-preview"
+        assert cfg.timeout == 600
+
+    def test_resolve_step_config_actors_overrides_steps(self) -> None:
+        """actors: takes precedence over the legacy steps: surface."""
+        from maverick.executor.config import StepConfig
+
+        step_cfg = StepConfig(provider="claude", model_id="sonnet")
+        wf = _make_workflow(
+            workflow_name="fly-beads",
+            steps_override={"implement": step_cfg},
+            actors_override={
+                "fly": {
+                    "implementer": {
+                        "provider": "copilot",
+                        "model_id": "gpt-5.3-codex",
+                    },
+                },
+            },
+        )
+        cfg = wf.resolve_step_config("implement", agent_name="implementer")
+        assert cfg.provider == "copilot"
+        assert cfg.model_id == "gpt-5.3-codex"
+
+    def test_resolve_step_config_actors_overrides_agents(self) -> None:
+        """actors: takes precedence over the legacy agents: surface."""
+        from maverick.config import AgentConfig
+
+        agent_cfg = AgentConfig(provider="claude", model_id="sonnet")
+        wf = _make_workflow(
+            workflow_name="refuel-maverick",
+            agents_override={"decomposer": agent_cfg},
+            actors_override={
+                "refuel": {
+                    "decomposer": {
+                        "provider": "claude",
+                        "model_id": "opus",
+                    },
+                },
+            },
+        )
+        cfg = wf.resolve_step_config("decompose", agent_name="decomposer")
+        assert cfg.model_id == "opus"
+
+    def test_resolve_step_config_actors_workflow_key_mapping(self) -> None:
+        """Internal workflow_name 'fly-beads' maps to actors block 'fly'."""
+        wf = _make_workflow(
+            workflow_name="fly-beads",
+            actors_override={
+                "fly": {
+                    "reviewer": {"provider": "claude", "model_id": "opus"},
+                },
+            },
+        )
+        cfg = wf.resolve_step_config("review", agent_name="reviewer")
+        assert cfg.provider == "claude"
+        assert cfg.model_id == "opus"
+
+    def test_resolve_step_config_actors_partial_override_falls_through(
+        self,
+    ) -> None:
+        """Fields the actors entry leaves None fall through to steps:/agents:."""
+        from maverick.config import AgentConfig
+
+        # actors: sets provider only; model_id falls through to agents:.
+        agent_cfg = AgentConfig(model_id="sonnet")
+        wf = _make_workflow(
+            workflow_name="fly-beads",
+            agents_override={"implementer": agent_cfg},
+            actors_override={
+                "fly": {
+                    "implementer": {"provider": "copilot"},
+                },
+            },
+        )
+        cfg = wf.resolve_step_config("implement", agent_name="implementer")
+        assert cfg.provider == "copilot"
+        assert cfg.model_id == "sonnet"
+
+    def test_resolve_step_config_actors_tiers_field_ignored_at_top_level(
+        self,
+    ) -> None:
+        """A `tiers:` sub-key on the actor entry is structurally accepted but
+        ignored by the resolver — the tier dispatcher reads it separately."""
+        wf = _make_workflow(
+            workflow_name="fly-beads",
+            actors_override={
+                "fly": {
+                    "implementer": {
+                        "provider": "copilot",
+                        "model_id": "gpt-5.3-codex",
+                        "tiers": {
+                            "trivial": {
+                                "provider": "opencode",
+                                "model_id": "opencode/ling-2.6-flash-free",
+                            },
+                        },
+                    },
+                },
+            },
+        )
+        cfg = wf.resolve_step_config("implement", agent_name="implementer")
+        # Top-level provider/model used; tier-specific values are not.
+        assert cfg.provider == "copilot"
+        assert cfg.model_id == "gpt-5.3-codex"
+
+    def test_resolve_step_config_malformed_actors_entry_is_skipped(self) -> None:
+        """A malformed actors entry is logged and treated as absent —
+        startup must not crash on a single typo."""
+        from maverick.config import AgentConfig
+
+        agent_cfg = AgentConfig(provider="claude", model_id="sonnet")
+        wf = _make_workflow(
+            workflow_name="fly-beads",
+            agents_override={"implementer": agent_cfg},
+            actors_override={
+                "fly": {
+                    # Invalid temperature — Pydantic validator rejects.
+                    "implementer": {
+                        "provider": "copilot",
+                        "temperature": 99.0,  # > 1.0 cap
+                    },
+                },
+            },
+        )
+        cfg = wf.resolve_step_config("implement", agent_name="implementer")
+        # Malformed entry skipped; falls through to agents:.
+        assert cfg.provider == "claude"
+        assert cfg.model_id == "sonnet"
 
 
 # ---------------------------------------------------------------------------

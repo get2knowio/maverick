@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -519,6 +520,123 @@ steps:
 
         with pytest.raises(ConfigError):
             load_config()
+
+
+class TestLookupActorConfig:
+    """Tests for the actors.<workflow>.<actor> resolver helper."""
+
+    def _config_with_actors(self, actors: dict) -> Any:
+        """Build a MaverickConfig with a populated actors block."""
+        from maverick.config import MaverickConfig
+
+        cfg = MaverickConfig()
+        # actors is dict[str, dict[str, Any]] — assign directly.
+        cfg.actors = actors
+        return cfg
+
+    def test_returns_none_when_workflow_missing(self) -> None:
+        from maverick.config import lookup_actor_config
+
+        cfg = self._config_with_actors({})
+        assert lookup_actor_config(cfg, "fly-beads", "implementer") is None
+
+    def test_returns_none_when_actor_missing(self) -> None:
+        from maverick.config import lookup_actor_config
+
+        cfg = self._config_with_actors({"fly": {}})
+        assert lookup_actor_config(cfg, "fly-beads", "implementer") is None
+
+    def test_workflow_name_mapped_to_short_key(self) -> None:
+        """`fly-beads` (internal) → `fly` (user-facing actors block key)."""
+        from maverick.config import lookup_actor_config
+
+        cfg = self._config_with_actors(
+            {
+                "fly": {
+                    "implementer": {
+                        "provider": "copilot",
+                        "model_id": "gpt-5.3-codex",
+                    },
+                },
+            }
+        )
+        result = lookup_actor_config(cfg, "fly-beads", "implementer")
+        assert result is not None
+        assert result.provider == "copilot"
+        assert result.model_id == "gpt-5.3-codex"
+
+    def test_generate_flight_plan_maps_to_plan(self) -> None:
+        from maverick.config import lookup_actor_config
+
+        cfg = self._config_with_actors(
+            {"plan": {"scopist": {"provider": "gemini"}}}
+        )
+        result = lookup_actor_config(cfg, "generate-flight-plan", "scopist")
+        assert result is not None
+        assert result.provider == "gemini"
+
+    def test_refuel_maverick_maps_to_refuel(self) -> None:
+        from maverick.config import lookup_actor_config
+
+        cfg = self._config_with_actors(
+            {"refuel": {"decomposer": {"provider": "claude", "model_id": "opus"}}}
+        )
+        result = lookup_actor_config(cfg, "refuel-maverick", "decomposer")
+        assert result is not None
+        assert result.model_id == "opus"
+
+    def test_unknown_workflow_falls_back_to_literal_key(self) -> None:
+        """Unmapped workflow_name lookups try the literal key — useful
+        for ad-hoc workflows that haven't been added to the map."""
+        from maverick.config import lookup_actor_config
+
+        cfg = self._config_with_actors(
+            {"custom-workflow": {"agent": {"provider": "claude"}}}
+        )
+        result = lookup_actor_config(cfg, "custom-workflow", "agent")
+        assert result is not None
+        assert result.provider == "claude"
+
+    def test_tiers_field_preserved_on_actor_config(self) -> None:
+        """`tiers:` is structurally accepted on ActorConfig (consumed elsewhere)."""
+        from maverick.config import lookup_actor_config
+
+        cfg = self._config_with_actors(
+            {
+                "fly": {
+                    "implementer": {
+                        "provider": "copilot",
+                        "tiers": {
+                            "trivial": {"provider": "opencode"},
+                        },
+                    },
+                },
+            }
+        )
+        result = lookup_actor_config(cfg, "fly-beads", "implementer")
+        assert result is not None
+        assert result.provider == "copilot"
+        assert result.tiers == {"trivial": {"provider": "opencode"}}
+
+    def test_malformed_entry_returns_none(self) -> None:
+        """A validation error returns None and logs a warning — startup doesn't crash."""
+        from maverick.config import lookup_actor_config
+
+        cfg = self._config_with_actors(
+            {
+                "fly": {
+                    "implementer": {"temperature": 99.0},  # > 1.0 cap
+                },
+            }
+        )
+        assert lookup_actor_config(cfg, "fly-beads", "implementer") is None
+
+    def test_non_dict_entry_returns_none(self) -> None:
+        """A YAML scalar where a mapping was expected is treated as absent."""
+        from maverick.config import lookup_actor_config
+
+        cfg = self._config_with_actors({"fly": {"implementer": "not-a-mapping"}})
+        assert lookup_actor_config(cfg, "fly-beads", "implementer") is None
 
 
 class TestLoadConfigCustomPath:

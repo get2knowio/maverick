@@ -20,7 +20,7 @@ from maverick.logging import get_logger
 from maverick.types import AutonomyLevel, StepMode, StepType
 
 if TYPE_CHECKING:
-    from maverick.config import AgentConfig, ModelConfig
+    from maverick.config import ActorConfig, AgentConfig, ModelConfig
 
 logger = get_logger(__name__)
 
@@ -248,6 +248,7 @@ def infer_step_mode(
 def resolve_step_config(
     *,
     inline_config: dict[str, Any] | None,
+    actor_config: ActorConfig | None = None,
     project_step_config: StepConfig | None,
     agent_config: AgentConfig | None,
     global_model: ModelConfig,
@@ -255,14 +256,18 @@ def resolve_step_config(
     step_name: str,
     provider_default_model: str | None = None,
 ) -> StepConfig:
-    """Resolve per-step configuration from 5-layer precedence.
+    """Resolve per-step configuration from 6-layer precedence.
 
     Resolution order (highest to lowest priority):
     1. ``inline_config``: Raw dict from workflow YAML step's ``config`` field.
-    2. ``project_step_config``: From ``MaverickConfig.steps[step_name]``.
-    3. ``agent_config``: From ``MaverickConfig.agents[agent_name]``.
-    4. ``global_model``: From ``MaverickConfig.model``.
-    5. ``provider_default_model``: From ``AgentProviderConfig.default_model``.
+    2. ``actor_config``: From ``MaverickConfig.actors[workflow][actor_name]``.
+       The current/canonical surface (xoscar actor model).
+    3. ``project_step_config``: From ``MaverickConfig.steps[step_name]``.
+       Legacy surface kept for back-compat.
+    4. ``agent_config``: From ``MaverickConfig.agents[agent_name]``.
+       Legacy surface kept for back-compat.
+    5. ``global_model``: From ``MaverickConfig.model``.
+    6. ``provider_default_model``: From ``AgentProviderConfig.default_model``.
 
     Mode is inferred from ``step_type`` when not explicitly set by any layer.
     Autonomy defaults to ``AutonomyLevel.OPERATOR`` when not set.
@@ -271,6 +276,7 @@ def resolve_step_config(
 
     Args:
         inline_config: Raw YAML config dict from step record.
+        actor_config: Actor-level override from the ``actors:`` block.
         project_step_config: Project-level step default.
         agent_config: Agent-level model overrides.
         global_model: Global model configuration.
@@ -317,9 +323,9 @@ def resolve_step_config(
         except Exception as exc:
             raise ConfigError(f"Invalid inline config for step '{step_name}': {exc}") from exc
 
-    # --- Step 2: Resolve model fields via 4-layer precedence ---
+    # --- Step 2: Resolve model fields via 5-layer precedence ---
     # For model_id, temperature, max_tokens: first non-None from
-    # inline → project → agent → global
+    # inline → actor → project → agent → global
     def _first_non_none(*values: Any) -> Any:
         """Return the first non-None value, or None if all are None."""
         for v in values:
@@ -334,6 +340,7 @@ def resolve_step_config(
     )
     model_id = _first_non_none(
         parsed_inline.model_id if parsed_inline else None,
+        actor_config.model_id if actor_config else None,
         project_step_config.model_id if project_step_config else None,
         agent_config.model_id if agent_config else None,
         global_model_id,
@@ -342,6 +349,7 @@ def resolve_step_config(
 
     temperature = _first_non_none(
         parsed_inline.temperature if parsed_inline else None,
+        actor_config.temperature if actor_config else None,
         project_step_config.temperature if project_step_config else None,
         agent_config.temperature if agent_config else None,
         global_model.temperature,
@@ -349,6 +357,7 @@ def resolve_step_config(
 
     max_tokens = _first_non_none(
         parsed_inline.max_tokens if parsed_inline else None,
+        actor_config.max_tokens if actor_config else None,
         project_step_config.max_tokens if project_step_config else None,
         agent_config.max_tokens if agent_config else None,
         global_model.max_tokens,
@@ -357,6 +366,7 @@ def resolve_step_config(
     # --- Step 3: Resolve provider (None → executor resolves via registry default) ---
     provider = _first_non_none(
         parsed_inline.provider if parsed_inline else None,
+        actor_config.provider if actor_config else None,
         project_step_config.provider if project_step_config else None,
         agent_config.provider if agent_config else None,
     )
@@ -382,6 +392,7 @@ def resolve_step_config(
     # --- Step 6: Resolve remaining fields (simple precedence) ---
     timeout = _first_non_none(
         parsed_inline.timeout if parsed_inline else None,
+        actor_config.timeout if actor_config else None,
         project_step_config.timeout if project_step_config else None,
     )
 

@@ -51,6 +51,7 @@ def mock_config() -> MagicMock:
     cfg = MagicMock(spec=MaverickConfig)
     cfg.steps = {}
     cfg.agents = {}
+    cfg.actors = {}
     cfg.model = ModelConfig()
     # Real ParallelConfig — workflows now read parallel.* knobs at runtime
     # (decomposer_pool_size, max_briefing_agents, max_parallel_reviewers).

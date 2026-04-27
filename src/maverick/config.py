@@ -40,6 +40,9 @@ __all__ = [
     "SessionLogConfig",
     "WorkspaceConfig",
     "AgentConfig",
+    "ActorConfig",
+    "ACTOR_WORKFLOW_KEY_MAP",
+    "lookup_actor_config",
     "RunwayConfig",
     "RunwayConsolidationConfig",
     "RunwayRetrievalConfig",
@@ -457,6 +460,91 @@ class AgentConfig(BaseModel):
     temperature: float | None = Field(default=None, ge=0.0, le=1.0)
 
 
+class ActorConfig(BaseModel):
+    """Per-actor configuration override under ``actors.<workflow>.<actor>``.
+
+    The actor representation is the current/canonical surface for per-step
+    provider and model configuration; ``steps:`` and ``agents:`` are the
+    legacy surfaces kept for back-compat. Resolver precedence:
+
+    1. inline (workflow-internal)
+    2. ``actors.<workflow>.<actor>`` ← this model
+    3. ``steps.<step_name>``
+    4. ``agents.<agent_name>``
+    5. global ``model``
+    6. provider default model
+
+    The :attr:`tiers` field is structurally accepted here but ignored by
+    :func:`maverick.executor.config.resolve_step_config` — it is consumed
+    by the per-bead tier resolver in the fly and refuel supervisors. Keeping
+    it on the model lets users write a single coherent
+    ``actors.<workflow>.<actor>`` block with both top-level fields and
+    tier overrides without splitting them across two YAML keys.
+    """
+
+    provider: str | None = None
+    model_id: str | None = None
+    timeout: int | None = Field(default=None, gt=0)
+    max_tokens: int | None = Field(default=None, gt=0, le=200000)
+    temperature: float | None = Field(default=None, ge=0.0, le=1.0)
+    # Pass-through; the tier resolver parses this into ImplementerTiersConfig
+    # / ReviewerTiersConfig / DecomposerTiersConfig directly from the raw dict.
+    tiers: Any = None
+
+
+# Maps the internal workflow_name (e.g. "fly-beads") to the actors-block key
+# (e.g. "fly"). The short keys are what users write in maverick.yaml and what
+# `maverick init` already emits — this map keeps the workflow-internal name
+# stable while letting the user-facing surface stay terse.
+ACTOR_WORKFLOW_KEY_MAP: dict[str, str] = {
+    "fly-beads": "fly",
+    "generate-flight-plan": "plan",
+    "refuel-maverick": "refuel",
+}
+
+
+def lookup_actor_config(
+    config: MaverickConfig,
+    workflow_name: str,
+    actor_name: str,
+) -> ActorConfig | None:
+    """Look up ``actors.<workflow_key>.<actor_name>`` as a typed ActorConfig.
+
+    Args:
+        config: Loaded ``MaverickConfig``.
+        workflow_name: Internal workflow name (e.g. ``"fly-beads"``).
+        actor_name: Agent name as known to the workflow code
+            (e.g. ``"implementer"``, ``"scopist"``).
+
+    Returns:
+        The parsed ``ActorConfig`` when present; ``None`` otherwise. Malformed
+        entries are logged and treated as absent so a single typo doesn't
+        crash workflow startup.
+    """
+    actor_workflow_key = ACTOR_WORKFLOW_KEY_MAP.get(workflow_name, workflow_name)
+    raw = config.actors.get(actor_workflow_key, {}).get(actor_name)
+    if not raw:
+        return None
+    if not isinstance(raw, dict):
+        logger.warning(
+            "actor_config_invalid_shape",
+            workflow=workflow_name,
+            actor=actor_name,
+            got=type(raw).__name__,
+        )
+        return None
+    try:
+        return ActorConfig.model_validate(raw)
+    except ValidationError as exc:
+        logger.warning(
+            "actor_config_parse_failed",
+            workflow=workflow_name,
+            actor=actor_name,
+            error=str(exc),
+        )
+        return None
+
+
 class YamlConfigSource(PydanticBaseSettingsSource):
     """Custom settings source that loads from YAML files."""
 
@@ -525,7 +613,12 @@ class MaverickConfig(BaseSettings):
     )
     steps: dict[str, StepConfig] = Field(
         default_factory=dict,
-        description="Legacy step configuration (superseded by actors:).",
+        description=(
+            "Legacy step configuration. Read AFTER actors: by "
+            "resolve_step_config, so a value here only takes effect when "
+            "the corresponding actors.<workflow>.<actor> entry omits the "
+            "field. Prefer actors: for new projects."
+        ),
     )
     prompts: dict[str, PromptOverrideConfig] = Field(
         default_factory=dict,
