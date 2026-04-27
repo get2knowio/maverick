@@ -455,15 +455,40 @@ class BeadClient:
     # ------------------------------------------------------------------
 
     def is_initialized(self) -> bool:
-        """Check whether ``.beads/`` already holds a local database.
+        """Check whether ``.beads/`` holds a *fully* initialised database.
 
-        Looks for ``.beads/embeddeddolt/`` (default embedded engine) or
-        ``.beads/dolt/`` (server mode). Returns ``False`` for fresh repos
-        and for repos where a previous init aborted before the database
-        was created.
+        bd's own definition of "initialized" requires both:
+
+        * an ``embeddeddolt/`` (or ``dolt/`` server-mode) directory, AND
+        * a ``metadata.json`` with a non-empty ``issue_prefix`` field.
+
+        Without ``issue_prefix``, ``bd create`` errors with
+        ``database not initialized: issue_prefix config is missing``,
+        even though our directory probe would otherwise say "ready".
+
+        Mirroring bd's check here means our preflight catches half-
+        initialised states (a previous ``bd init`` aborted, a ``bd
+        bootstrap`` set up the directory but not the metadata, etc.) so
+        the user gets a fast "run maverick init" prompt instead of
+        burning through the workflow and dying at bead creation.
+
+        Returns ``True`` only when both directory + metadata are valid.
         """
         beads = self._cwd / ".beads"
-        return (beads / "embeddeddolt").is_dir() or (beads / "dolt").is_dir()
+        has_dolt_dir = (beads / "embeddeddolt").is_dir() or (beads / "dolt").is_dir()
+        if not has_dolt_dir:
+            return False
+        metadata_path = beads / "metadata.json"
+        if not metadata_path.is_file():
+            return False
+        try:
+            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return False
+        if not isinstance(metadata, dict):
+            return False
+        prefix = metadata.get("issue_prefix")
+        return isinstance(prefix, str) and bool(prefix.strip())
 
     async def remote_has_dolt_data(self, remote: str = "origin") -> bool:
         """Check whether ``<remote>`` advertises ``refs/dolt/data``.

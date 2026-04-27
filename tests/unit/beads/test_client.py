@@ -485,13 +485,23 @@ class TestBeadClientSetState:
 
 
 class TestBeadClientIsInitialized:
-    """Tests for BeadClient.is_initialized() — pure filesystem probe."""
+    """Tests for BeadClient.is_initialized() — directory + metadata probe."""
+
+    @staticmethod
+    def _seed_metadata(beads: Path, issue_prefix: str = "myproj") -> None:
+        """Write a valid ``metadata.json`` so is_initialized passes."""
+        import json as _json
+
+        beads.mkdir(parents=True, exist_ok=True)
+        (beads / "metadata.json").write_text(
+            _json.dumps({"issue_prefix": issue_prefix, "dolt_database": "myproj"})
+        )
 
     def test_returns_false_when_beads_dir_missing(self, temp_dir: Path) -> None:
         client = BeadClient(cwd=temp_dir, runner=AsyncMock())
         assert client.is_initialized() is False
 
-    def test_returns_false_when_only_metadata(self, temp_dir: Path) -> None:
+    def test_returns_false_when_only_jsonl(self, temp_dir: Path) -> None:
         # Just `.beads/issues.jsonl` is NOT a materialized DB — that's the
         # second-developer-onboarding case where bootstrap, not skip, applies.
         beads = temp_dir / ".beads"
@@ -500,13 +510,48 @@ class TestBeadClientIsInitialized:
         client = BeadClient(cwd=temp_dir, runner=AsyncMock())
         assert client.is_initialized() is False
 
-    def test_returns_true_when_embeddeddolt_exists(self, temp_dir: Path) -> None:
+    def test_returns_false_when_dolt_dir_but_no_metadata(
+        self, temp_dir: Path
+    ) -> None:
+        """Half-initialised state: directory exists but metadata.json is
+        missing. bd would error with "issue_prefix config is missing"."""
         (temp_dir / ".beads" / "embeddeddolt").mkdir(parents=True)
+        client = BeadClient(cwd=temp_dir, runner=AsyncMock())
+        assert client.is_initialized() is False
+
+    def test_returns_false_when_metadata_missing_issue_prefix(
+        self, temp_dir: Path
+    ) -> None:
+        """metadata.json exists but ``issue_prefix`` is missing — bd's own
+        check rejects this state, so our probe must too."""
+        import json as _json
+
+        (temp_dir / ".beads" / "embeddeddolt").mkdir(parents=True)
+        (temp_dir / ".beads" / "metadata.json").write_text(
+            _json.dumps({"dolt_database": "myproj"})  # no issue_prefix
+        )
+        client = BeadClient(cwd=temp_dir, runner=AsyncMock())
+        assert client.is_initialized() is False
+
+    def test_returns_false_when_metadata_corrupt(self, temp_dir: Path) -> None:
+        (temp_dir / ".beads" / "embeddeddolt").mkdir(parents=True)
+        (temp_dir / ".beads" / "metadata.json").write_text("{not valid json")
+        client = BeadClient(cwd=temp_dir, runner=AsyncMock())
+        assert client.is_initialized() is False
+
+    def test_returns_true_when_embeddeddolt_and_metadata_present(
+        self, temp_dir: Path
+    ) -> None:
+        (temp_dir / ".beads" / "embeddeddolt").mkdir(parents=True)
+        self._seed_metadata(temp_dir / ".beads")
         client = BeadClient(cwd=temp_dir, runner=AsyncMock())
         assert client.is_initialized() is True
 
-    def test_returns_true_when_server_dolt_exists(self, temp_dir: Path) -> None:
+    def test_returns_true_when_server_dolt_and_metadata_present(
+        self, temp_dir: Path
+    ) -> None:
         (temp_dir / ".beads" / "dolt").mkdir(parents=True)
+        self._seed_metadata(temp_dir / ".beads")
         client = BeadClient(cwd=temp_dir, runner=AsyncMock())
         assert client.is_initialized() is True
 
@@ -637,7 +682,14 @@ class TestBeadClientInitOrBootstrap:
     async def test_skip_when_already_initialized(
         self, mock_runner: AsyncMock, temp_dir: Path
     ) -> None:
-        (temp_dir / ".beads" / "embeddeddolt").mkdir(parents=True)
+        import json as _json
+
+        # Strict is_initialized requires both directory + valid metadata.
+        beads = temp_dir / ".beads"
+        (beads / "embeddeddolt").mkdir(parents=True)
+        (beads / "metadata.json").write_text(
+            _json.dumps({"issue_prefix": "x", "dolt_database": "x"})
+        )
         client = BeadClient(cwd=temp_dir, runner=mock_runner)
         action = await client.init_or_bootstrap(prefix="x")
         assert action is LifecycleAction.SKIP

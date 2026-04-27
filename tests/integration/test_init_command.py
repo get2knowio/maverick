@@ -897,8 +897,16 @@ class TestInitBeadsLifecycle:
 
         monkeypatch.setattr("maverick.init.shutil.which", lambda _: "/usr/bin/bd")
 
-        # Pre-existing local Dolt store — the SKIP branch.
-        (fresh_repo / ".beads" / "embeddeddolt").mkdir(parents=True)
+        # Pre-existing local Dolt store — the SKIP branch. Must include
+        # both the embedded directory AND a valid metadata.json with
+        # ``issue_prefix`` (the strict is_initialized contract).
+        import json as _json
+
+        beads = fresh_repo / ".beads"
+        (beads / "embeddeddolt").mkdir(parents=True)
+        (beads / "metadata.json").write_text(
+            _json.dumps({"issue_prefix": "earlybird", "dolt_database": "earlybird"})
+        )
 
         calls: list[list[str]] = []
 
