@@ -692,6 +692,117 @@ These are refinements over per-bead-complexity, not replacements. Land
 Phase 2 + Phase 3 first, see how often the misclassification cases
 cluster on a particular dimension, then add the next axis if they do.
 
+### 2.11 Auto Tech-Debt Beads From Approved-With-Findings Reviews
+
+**Status:** Active
+
+**Background.** Today the fly review loop has a hard binary: a review is
+either `approved` (bead commits, fly moves on) or `not approved` (fix
+loop fires). But reviewers regularly come back with `approved` AND a
+list of non-blocking findings — improvements they noticed but didn't
+think warranted gating the bead. Those findings get:
+
+* recorded to runway (`record_review_findings`) — historical context
+  for future briefings,
+* captured in the per-bead `fly-report.json` — audit trail,
+* and otherwise *dropped on the floor*. No follow-up bead, no surface
+  in the aggregate review prompt, no human nudge.
+
+In practice this means a moderate-tier reviewer flagging "this should
+use a context manager" disappears into the runway and never becomes
+work someone or some implementer addresses. As cheap-tier reviewers
+flag more (per Phase 3, simple/moderate beads now get reviewed by
+cheaper models with looser standards), the lost-finding rate grows.
+
+**Proposal.** When a review is `approved` AND contains findings at or
+above a configurable severity floor (default `major`), the supervisor
+auto-files each finding as a tech-debt bead under the same epic.
+
+**Bead shape:**
+
+```yaml
+parent: <epic_id>            # e.g. sample_maverick_project-e6c
+type: task
+labels: [tech-debt]
+metadata:
+  source_bead: <bead_id>     # e.g. sample_maverick_project-e6c.8
+  source_round: 2            # which review round produced it
+  severity: major
+  reviewer_tier: complex     # which tier flagged it
+  finding_text: "<original message>"
+title: "[tech-debt] <one-line summary from finding>"
+```
+
+**Design choices:**
+
+* **Child of the epic, no `depends_on`.** The source bead already
+  shipped and the reviewer explicitly didn't gate on these — they're
+  not blockers. Filing under the epic preserves lineage without
+  blocking epic closure. Six months later, "why are we using this
+  awkward pattern?" → one click to the source review finding.
+* **`tech-debt` label** so users can filter the normal ready queue
+  (`bd ready --exclude-label tech-debt`) or batch-triage them
+  (`bd ready --label tech-debt`).
+* **Severity floor (default `major`)** to keep noise down. `minor`
+  findings stay in the runway only. Configurable per project via
+  `fly.tech_debt_severity_floor` so teams can tighten or loosen.
+* **One bead per source finding (no dedupe in v1).** If the same
+  pattern fires across 5 beads in an epic, you get 5 tech-debt beads.
+  Dedupe (by similarity-hash of `finding_text` within an epic) is a
+  v2 add if it gets noisy in practice.
+
+**Cost considerations:**
+
+* No extra LLM cost — reviews already produce findings; this only
+  changes what we *do* with them.
+* Linear bd writes per qualifying finding. Negligible at typical fly
+  volumes (≤5 beads × ≤3 review rounds × ~3 findings).
+
+**Code-side changes:**
+
+* New `record_tech_debt_findings` action in
+  [src/maverick/library/actions/runway.py](src/maverick/library/actions/runway.py)
+  (sibling of `record_review_findings`).
+* `FlySupervisor._review_loop` calls it when a review returns
+  `approved=True` with findings ≥ severity floor.
+* New `fly.tech_debt_severity_floor: Literal["minor", "major", "critical"]`
+  field in `MaverickConfig`. Default `"major"`.
+* Bead-creation goes through the existing `BeadCreatorActor` /
+  `bd add` path — adds the parent + label + metadata fields.
+* CLI surfacing: a one-line `created N tech-debt bead(s)` event after
+  each approved-with-findings review so the user sees what got filed.
+
+**Telemetry / future tuning:**
+
+The runway already tracks per-tier review patterns. Add a
+`tech_debt_created` event so we can later answer: "do moderate-tier
+reviewers create more tech-debt-worthy findings than complex-tier
+ones?" That's a signal for whether to bump moderate review up a tier
+in the default config.
+
+**Out of scope for v1:**
+
+* Auto-resolution of tech-debt beads when a later bead happens to fix
+  the issue.
+* GitHub Issue mirroring (the existing `review-and-fix-with-registry`
+  fragment does this for the legacy review path; we'd port it later
+  if there's demand).
+* Cross-epic dedupe (only same-epic dedupe is even on the table).
+
+**Relevant code:**
+
+* [src/maverick/actors/xoscar/fly_supervisor.py](src/maverick/actors/xoscar/fly_supervisor.py)
+  (`_review_loop` — natural call site)
+* [src/maverick/library/actions/runway.py](src/maverick/library/actions/runway.py)
+  (existing `record_review_findings` — add a sibling)
+* [src/maverick/library/actions/beads.py](src/maverick/library/actions/beads.py)
+  (existing bead creation — extend with parent + label fields)
+* [src/maverick/config.py](src/maverick/config.py) (new
+  `tech_debt_severity_floor` knob)
+* [src/maverick/library/fragments/review-and-fix-with-registry.yaml](src/maverick/library/fragments/review-and-fix-with-registry.yaml)
+  (precedent for how the legacy review path handles this — worth
+  reading before implementing for consistency)
+
 ## 3. Learning, Feedback, And Telemetry
 
 ### 3.1 Observational Memory For Runway
