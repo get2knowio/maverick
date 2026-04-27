@@ -735,3 +735,184 @@ class TestInitCommandEdgeCases:
         # Verify Go-specific commands in config
         config_content = config_path.read_text()
         assert "go" in config_content.lower()
+
+
+class TestInitBeadsLifecycle:
+    """Integration tests for ``_init_beads`` lifecycle dispatch.
+
+    These tests opt out of the ``_mock_bd`` autouse fixture used elsewhere
+    in this module so they exercise the real ``BeadClient.init_or_bootstrap``
+    state machine. The bd subprocess itself is mocked at
+    :class:`CommandRunner.run` so the tests run without bd installed.
+
+    The team-onboarding scenario — a fresh clone of a repo whose remote
+    already carries Dolt history — is the path that previously surfaced
+    bd's remote-divergence guard as a hard error in ``maverick init``.
+    """
+
+    @pytest.fixture
+    def fresh_repo(self, temp_dir: Path) -> Path:
+        """Git repo with origin set; nothing in ``.beads/``."""
+        subprocess.run(["git", "init"], cwd=temp_dir, capture_output=True, check=True)
+        subprocess.run(
+            ["git", "remote", "add", "origin", "git@github.com:team/proj.git"],
+            cwd=temp_dir,
+            capture_output=True,
+            check=True,
+        )
+        return temp_dir
+
+    @pytest.mark.asyncio
+    async def test_remote_with_dolt_history_routes_to_bootstrap(
+        self,
+        fresh_repo: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A second developer cloning a project whose remote already has
+        Dolt refs MUST get ``bd bootstrap`` (non-destructive adopt), NOT
+        ``bd init --force`` (which bd's safety guard rejects)."""
+        from maverick.init import _init_beads
+        from maverick.runners.command import CommandRunner
+        from maverick.runners.models import CommandResult
+
+        # Pretend bd is on PATH — _init_beads guards on shutil.which.
+        monkeypatch.setattr("maverick.init.shutil.which", lambda _: "/usr/bin/bd")
+
+        calls: list[list[str]] = []
+
+        async def fake_run(_self, command, **_kwargs):
+            calls.append(list(command))
+            # ls-remote → return a Dolt-data ref hash so the dispatch
+            # picks the bootstrap branch.
+            if command[:2] == ["git", "ls-remote"]:
+                return CommandResult(
+                    returncode=0,
+                    stdout="abcdef\trefs/dolt/data\n",
+                    stderr="",
+                    duration_ms=5,
+                    timed_out=False,
+                )
+            # Any bd subcommand → succeed.
+            return CommandResult(
+                returncode=0, stdout="", stderr="", duration_ms=5, timed_out=False
+            )
+
+        monkeypatch.setattr(CommandRunner, "run", fake_run)
+
+        result = await _init_beads(fresh_repo, verbose=True)
+        assert result is True
+
+        # The cardinal assertion: bd bootstrap ran, bd init did NOT.
+        bd_subcommands = [c[1] for c in calls if c[0] == "bd"]
+        assert "bootstrap" in bd_subcommands, (
+            f"Expected 'bd bootstrap' to be invoked when remote has Dolt "
+            f"history; got bd calls: {bd_subcommands}"
+        )
+        assert "init" not in bd_subcommands, (
+            f"'bd init' must NOT run when remote has Dolt history "
+            f"(bd's safety guard would reject it); got bd calls: "
+            f"{bd_subcommands}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_jsonl_only_clone_routes_to_bootstrap(
+        self,
+        fresh_repo: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A clone where ``.beads/issues.jsonl`` is git-tracked but the
+        Dolt store hasn't been materialized locally must also bootstrap."""
+        from maverick.init import _init_beads
+        from maverick.runners.command import CommandRunner
+        from maverick.runners.models import CommandResult
+
+        monkeypatch.setattr("maverick.init.shutil.which", lambda _: "/usr/bin/bd")
+
+        # Simulate the second-developer state: tracked JSONL, no local DB.
+        beads = fresh_repo / ".beads"
+        beads.mkdir()
+        (beads / "issues.jsonl").write_text("")
+
+        calls: list[list[str]] = []
+
+        async def fake_run(_self, command, **_kwargs):
+            calls.append(list(command))
+            # ls-remote returns nothing → JSONL alone must drive bootstrap.
+            return CommandResult(
+                returncode=0, stdout="", stderr="", duration_ms=5, timed_out=False
+            )
+
+        monkeypatch.setattr(CommandRunner, "run", fake_run)
+
+        await _init_beads(fresh_repo, verbose=False)
+
+        bd_subcommands = [c[1] for c in calls if c[0] == "bd"]
+        assert "bootstrap" in bd_subcommands
+        assert "init" not in bd_subcommands
+
+    @pytest.mark.asyncio
+    async def test_truly_fresh_repo_routes_to_init(
+        self,
+        fresh_repo: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A genuinely fresh repo — no `.beads/`, no remote dolt refs —
+        gets ``bd init`` with the sanitized prefix."""
+        from maverick.init import _init_beads
+        from maverick.runners.command import CommandRunner
+        from maverick.runners.models import CommandResult
+
+        monkeypatch.setattr("maverick.init.shutil.which", lambda _: "/usr/bin/bd")
+
+        calls: list[list[str]] = []
+
+        async def fake_run(_self, command, **_kwargs):
+            calls.append(list(command))
+            return CommandResult(
+                returncode=0, stdout="", stderr="", duration_ms=5, timed_out=False
+            )
+
+        monkeypatch.setattr(CommandRunner, "run", fake_run)
+
+        await _init_beads(fresh_repo, verbose=False)
+
+        bd_calls = [c for c in calls if c[0] == "bd"]
+        assert len(bd_calls) == 1
+        assert bd_calls[0][1] == "init"
+        assert "--non-interactive" in bd_calls[0]
+        # Prefix is the (sanitized) project directory name.
+        assert "--prefix" in bd_calls[0]
+
+    @pytest.mark.asyncio
+    async def test_already_initialized_skips_lifecycle_call(
+        self,
+        fresh_repo: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Re-running on a repo with a materialized local DB performs no
+        bd lifecycle subprocess at all (idempotent)."""
+        from maverick.init import _init_beads
+        from maverick.runners.command import CommandRunner
+        from maverick.runners.models import CommandResult
+
+        monkeypatch.setattr("maverick.init.shutil.which", lambda _: "/usr/bin/bd")
+
+        # Pre-existing local Dolt store — the SKIP branch.
+        (fresh_repo / ".beads" / "embeddeddolt").mkdir(parents=True)
+
+        calls: list[list[str]] = []
+
+        async def fake_run(_self, command, **_kwargs):
+            calls.append(list(command))
+            return CommandResult(
+                returncode=0, stdout="", stderr="", duration_ms=5, timed_out=False
+            )
+
+        monkeypatch.setattr(CommandRunner, "run", fake_run)
+
+        await _init_beads(fresh_repo, verbose=False)
+
+        # Skipped — neither bd init nor bd bootstrap ran. ls-remote is also
+        # skipped because is_initialized() returns True before probing.
+        bd_calls = [c for c in calls if c[0] == "bd"]
+        assert bd_calls == []

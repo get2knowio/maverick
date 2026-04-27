@@ -69,12 +69,17 @@ def test_clear_invalid_bd_state_preserves_valid_metadata(tmp_path: Path) -> None
     (beads / "metadata.json").write_text(json.dumps(metadata))
     embedded = beads / "embeddeddolt"
     embedded.mkdir()
+    (embedded / "data").write_text("real-data")
 
     _clear_invalid_bd_state(tmp_path)
 
+    # With valid metadata, the embedded Dolt store is left intact so
+    # BeadClient.init_or_bootstrap can take the SKIP branch instead of
+    # re-cloning. (Aborted previous runs are now detected by missing or
+    # corrupt metadata, not by the presence of embeddeddolt.)
     assert (beads / "metadata.json").exists()
-    # embeddeddolt is still removed (handles aborted previous runs).
-    assert not embedded.exists()
+    assert embedded.exists()
+    assert (embedded / "data").read_text() == "real-data"
     assert json.loads((beads / "metadata.json").read_text()) == metadata
 
 
@@ -100,6 +105,8 @@ def test_clear_invalid_bd_state_handles_corrupt_metadata(tmp_path: Path) -> None
 
 
 def test_clear_invalid_bd_state_removes_stale_server_artifacts(tmp_path: Path) -> None:
+    """Lock/pid files are transient and always safe to clear; the dolt/
+    data directory is preserved when metadata is valid."""
     beads = tmp_path / ".beads"
     beads.mkdir()
     (beads / "metadata.json").write_text(json.dumps({"dolt_database": "sample_maverick_project"}))
@@ -111,7 +118,34 @@ def test_clear_invalid_bd_state_removes_stale_server_artifacts(tmp_path: Path) -
 
     _clear_invalid_bd_state(tmp_path)
 
-    assert not server_dir.exists()
+    # Server-mode data directory preserved (valid metadata = healthy DB).
+    assert server_dir.exists()
+    assert (server_dir / "data").read_text() == "x"
+    # Transient lock/pid files removed unconditionally.
     assert not (beads / "dolt-server.lock").exists()
     assert not (beads / "dolt-server.pid").exists()
     assert not (beads / "dolt-monitor.pid").exists()
+
+
+def test_clear_invalid_bd_state_wipes_embedded_when_metadata_invalid(
+    tmp_path: Path,
+) -> None:
+    """When metadata is corrupt/invalid, both metadata.json and the
+    embedded store are wiped so the next lifecycle call re-creates them."""
+    beads = tmp_path / ".beads"
+    beads.mkdir()
+    (beads / "metadata.json").write_text(
+        json.dumps({"dolt_database": "has-hyphens-which-are-illegal"})
+    )
+    embedded = beads / "embeddeddolt"
+    embedded.mkdir()
+    (embedded / "data").write_text("stale")
+    server_dir = beads / "dolt"
+    server_dir.mkdir()
+    (server_dir / "data").write_text("stale")
+
+    _clear_invalid_bd_state(tmp_path)
+
+    assert not (beads / "metadata.json").exists()
+    assert not embedded.exists()
+    assert not server_dir.exists()

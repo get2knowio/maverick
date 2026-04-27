@@ -105,3 +105,16 @@ class BeadQueryError(BeadError):
         """
         self.query = query
         super().__init__(message)
+
+
+class BeadLifecycleError(BeadError):
+    """Failed to run a bd lifecycle command (``bd init`` or ``bd bootstrap``).
+
+    Attributes:
+        message: Human-readable error message.
+        action: Which lifecycle command failed (``"init"`` or ``"bootstrap"``).
+    """
+
+    def __init__(self, message: str, action: str | None = None) -> None:
+        self.action = action
+        super().__init__(message)

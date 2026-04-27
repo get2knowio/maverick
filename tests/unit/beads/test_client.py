@@ -7,16 +7,33 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from maverick.beads.client import BeadClient
+from maverick.beads.client import BeadClient, LifecycleAction
 from maverick.beads.models import BeadDefinition, BeadDependency
 from maverick.exceptions.beads import (
     BeadCloseError,
     BeadCreationError,
     BeadDependencyError,
     BeadError,
+    BeadLifecycleError,
     BeadQueryError,
 )
 from maverick.runners.models import CommandResult
+
+
+def _ok(stdout: str = "") -> CommandResult:
+    return CommandResult(
+        returncode=0, stdout=stdout, stderr="", duration_ms=10, timed_out=False
+    )
+
+
+def _fail(stderr: str = "boom", returncode: int = 1) -> CommandResult:
+    return CommandResult(
+        returncode=returncode,
+        stdout="",
+        stderr=stderr,
+        duration_ms=10,
+        timed_out=False,
+    )
 
 
 class TestBeadClientVerifyAvailable:
@@ -460,3 +477,222 @@ class TestBeadClientSetState:
         client = BeadClient(cwd=temp_dir, runner=mock_runner)
         with pytest.raises(BeadError, match="Failed to set state"):
             await client.set_state("b-1", {"key": "val"})
+
+
+# ---------------------------------------------------------------------------
+# Lifecycle ops (init / bootstrap / state probes)
+# ---------------------------------------------------------------------------
+
+
+class TestBeadClientIsInitialized:
+    """Tests for BeadClient.is_initialized() — pure filesystem probe."""
+
+    def test_returns_false_when_beads_dir_missing(self, temp_dir: Path) -> None:
+        client = BeadClient(cwd=temp_dir, runner=AsyncMock())
+        assert client.is_initialized() is False
+
+    def test_returns_false_when_only_metadata(self, temp_dir: Path) -> None:
+        # Just `.beads/issues.jsonl` is NOT a materialized DB — that's the
+        # second-developer-onboarding case where bootstrap, not skip, applies.
+        beads = temp_dir / ".beads"
+        beads.mkdir()
+        (beads / "issues.jsonl").write_text("")
+        client = BeadClient(cwd=temp_dir, runner=AsyncMock())
+        assert client.is_initialized() is False
+
+    def test_returns_true_when_embeddeddolt_exists(self, temp_dir: Path) -> None:
+        (temp_dir / ".beads" / "embeddeddolt").mkdir(parents=True)
+        client = BeadClient(cwd=temp_dir, runner=AsyncMock())
+        assert client.is_initialized() is True
+
+    def test_returns_true_when_server_dolt_exists(self, temp_dir: Path) -> None:
+        (temp_dir / ".beads" / "dolt").mkdir(parents=True)
+        client = BeadClient(cwd=temp_dir, runner=AsyncMock())
+        assert client.is_initialized() is True
+
+
+class TestBeadClientRemoteHasDoltData:
+    """Tests for BeadClient.remote_has_dolt_data()."""
+
+    @pytest.mark.asyncio
+    async def test_true_when_ls_remote_returns_hash(
+        self, mock_runner: AsyncMock, temp_dir: Path
+    ) -> None:
+        mock_runner.run.return_value = _ok(
+            "abcdef0123456789abcdef0123456789abcdef01\trefs/dolt/data\n"
+        )
+        client = BeadClient(cwd=temp_dir, runner=mock_runner)
+        assert await client.remote_has_dolt_data() is True
+        cmd = mock_runner.run.call_args[0][0]
+        assert cmd == ["git", "ls-remote", "origin", "refs/dolt/data"]
+
+    @pytest.mark.asyncio
+    async def test_false_when_ls_remote_empty(
+        self, mock_runner: AsyncMock, temp_dir: Path
+    ) -> None:
+        mock_runner.run.return_value = _ok("")
+        client = BeadClient(cwd=temp_dir, runner=mock_runner)
+        assert await client.remote_has_dolt_data() is False
+
+    @pytest.mark.asyncio
+    async def test_false_when_ls_remote_fails(
+        self, mock_runner: AsyncMock, temp_dir: Path
+    ) -> None:
+        # No remote / network down / auth failure → fall through to init
+        # rather than guessing.
+        mock_runner.run.return_value = _fail("fatal: remote 'origin' not found")
+        client = BeadClient(cwd=temp_dir, runner=mock_runner)
+        assert await client.remote_has_dolt_data() is False
+
+    @pytest.mark.asyncio
+    async def test_custom_remote_name(
+        self, mock_runner: AsyncMock, temp_dir: Path
+    ) -> None:
+        mock_runner.run.return_value = _ok("abc\trefs/dolt/data\n")
+        client = BeadClient(cwd=temp_dir, runner=mock_runner)
+        await client.remote_has_dolt_data(remote="upstream")
+        cmd = mock_runner.run.call_args[0][0]
+        assert cmd == ["git", "ls-remote", "upstream", "refs/dolt/data"]
+
+
+class TestBeadClientBootstrap:
+    """Tests for BeadClient.bootstrap()."""
+
+    @pytest.mark.asyncio
+    async def test_invokes_bd_bootstrap_yes(
+        self, mock_runner: AsyncMock, temp_dir: Path
+    ) -> None:
+        mock_runner.run.return_value = _ok()
+        client = BeadClient(cwd=temp_dir, runner=mock_runner)
+        await client.bootstrap()
+        cmd = mock_runner.run.call_args[0][0]
+        assert cmd == ["bd", "bootstrap", "--yes"]
+
+    @pytest.mark.asyncio
+    async def test_threads_env(
+        self, mock_runner: AsyncMock, temp_dir: Path
+    ) -> None:
+        mock_runner.run.return_value = _ok()
+        client = BeadClient(cwd=temp_dir, runner=mock_runner)
+        await client.bootstrap(env={"GIT_CONFIG_COUNT": "1"})
+        kwargs = mock_runner.run.call_args.kwargs
+        assert kwargs["env"] == {"GIT_CONFIG_COUNT": "1"}
+
+    @pytest.mark.asyncio
+    async def test_failure_raises_lifecycle_error(
+        self, mock_runner: AsyncMock, temp_dir: Path
+    ) -> None:
+        mock_runner.run.return_value = _fail("remote refused")
+        client = BeadClient(cwd=temp_dir, runner=mock_runner)
+        with pytest.raises(BeadLifecycleError) as exc_info:
+            await client.bootstrap()
+        assert exc_info.value.action == "bootstrap"
+        assert "remote refused" in str(exc_info.value)
+
+
+class TestBeadClientInit:
+    """Tests for BeadClient.init()."""
+
+    @pytest.mark.asyncio
+    async def test_default_invocation(
+        self, mock_runner: AsyncMock, temp_dir: Path
+    ) -> None:
+        mock_runner.run.return_value = _ok()
+        client = BeadClient(cwd=temp_dir, runner=mock_runner)
+        await client.init(prefix="myproj")
+        cmd = mock_runner.run.call_args[0][0]
+        assert cmd[:3] == ["bd", "init", "--non-interactive"]
+        assert "--prefix" in cmd
+        assert "myproj" in cmd
+        assert "--from-jsonl" not in cmd
+        assert "--force" not in cmd
+
+    @pytest.mark.asyncio
+    async def test_passes_optional_flags(
+        self, mock_runner: AsyncMock, temp_dir: Path
+    ) -> None:
+        mock_runner.run.return_value = _ok()
+        client = BeadClient(cwd=temp_dir, runner=mock_runner)
+        await client.init(prefix="x", from_jsonl=True, force=True)
+        cmd = mock_runner.run.call_args[0][0]
+        assert "--from-jsonl" in cmd
+        assert "--force" in cmd
+
+    @pytest.mark.asyncio
+    async def test_failure_raises_lifecycle_error(
+        self, mock_runner: AsyncMock, temp_dir: Path
+    ) -> None:
+        mock_runner.run.return_value = _fail("remote 'origin' already has Dolt history")
+        client = BeadClient(cwd=temp_dir, runner=mock_runner)
+        with pytest.raises(BeadLifecycleError) as exc_info:
+            await client.init(prefix="x")
+        assert exc_info.value.action == "init"
+        assert "Dolt history" in str(exc_info.value)
+
+
+class TestBeadClientInitOrBootstrap:
+    """Tests for the state-aware dispatch — the structural anti-recurrence fix."""
+
+    @pytest.mark.asyncio
+    async def test_skip_when_already_initialized(
+        self, mock_runner: AsyncMock, temp_dir: Path
+    ) -> None:
+        (temp_dir / ".beads" / "embeddeddolt").mkdir(parents=True)
+        client = BeadClient(cwd=temp_dir, runner=mock_runner)
+        action = await client.init_or_bootstrap(prefix="x")
+        assert action is LifecycleAction.SKIP
+        # No subprocess calls — the runner stays untouched.
+        mock_runner.run.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_bootstrap_when_remote_has_dolt(
+        self, mock_runner: AsyncMock, temp_dir: Path
+    ) -> None:
+        # First call: git ls-remote → returns hash. Second call: bd bootstrap.
+        mock_runner.run.side_effect = [
+            _ok("abc\trefs/dolt/data\n"),
+            _ok(),
+        ]
+        client = BeadClient(cwd=temp_dir, runner=mock_runner)
+        action = await client.init_or_bootstrap(prefix="x")
+        assert action is LifecycleAction.BOOTSTRAP
+        assert mock_runner.run.call_count == 2
+        bootstrap_cmd = mock_runner.run.call_args_list[1][0][0]
+        assert bootstrap_cmd == ["bd", "bootstrap", "--yes"]
+
+    @pytest.mark.asyncio
+    async def test_bootstrap_when_jsonl_present(
+        self, mock_runner: AsyncMock, temp_dir: Path
+    ) -> None:
+        # `.beads/issues.jsonl` from a clone — local DB not yet materialized.
+        (temp_dir / ".beads").mkdir()
+        (temp_dir / ".beads" / "issues.jsonl").write_text("")
+        # ls-remote → empty (no remote dolt), but JSONL alone routes to bootstrap.
+        mock_runner.run.side_effect = [_ok(""), _ok()]
+        client = BeadClient(cwd=temp_dir, runner=mock_runner)
+        action = await client.init_or_bootstrap(prefix="x")
+        assert action is LifecycleAction.BOOTSTRAP
+
+    @pytest.mark.asyncio
+    async def test_init_when_truly_fresh(
+        self, mock_runner: AsyncMock, temp_dir: Path
+    ) -> None:
+        # No `.beads/`, no remote dolt → init path with the supplied prefix.
+        mock_runner.run.side_effect = [_ok(""), _ok()]
+        client = BeadClient(cwd=temp_dir, runner=mock_runner)
+        action = await client.init_or_bootstrap(prefix="myproj")
+        assert action is LifecycleAction.INIT
+        init_cmd = mock_runner.run.call_args_list[1][0][0]
+        assert "init" in init_cmd
+        assert "myproj" in init_cmd
+
+    @pytest.mark.asyncio
+    async def test_threads_env_to_chosen_action(
+        self, mock_runner: AsyncMock, temp_dir: Path
+    ) -> None:
+        mock_runner.run.side_effect = [_ok("abc\trefs/dolt/data\n"), _ok()]
+        client = BeadClient(cwd=temp_dir, runner=mock_runner)
+        await client.init_or_bootstrap(prefix="x", env={"FOO": "bar"})
+        # The bootstrap call (second invocation) carries the env.
+        bootstrap_kwargs = mock_runner.run.call_args_list[1].kwargs
+        assert bootstrap_kwargs["env"] == {"FOO": "bar"}

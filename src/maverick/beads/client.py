@@ -7,6 +7,7 @@ for async-safe subprocess execution with timeouts and retries.
 from __future__ import annotations
 
 import json
+from enum import Enum
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +25,7 @@ from maverick.exceptions.beads import (
     BeadCreationError,
     BeadDependencyError,
     BeadError,
+    BeadLifecycleError,
     BeadQueryError,
 )
 from maverick.logging import get_logger
@@ -33,6 +35,18 @@ logger = get_logger(__name__)
 
 # Timeout for bd operations (seconds)
 BD_TIMEOUT: float = 30.0
+
+# Lifecycle ops can clone Dolt history from a remote, which takes longer
+# than a single read/write. Bumped above BD_TIMEOUT.
+BD_LIFECYCLE_TIMEOUT: float = 60.0
+
+
+class LifecycleAction(str, Enum):
+    """Action chosen by :meth:`BeadClient.init_or_bootstrap`."""
+
+    INIT = "init"
+    BOOTSTRAP = "bootstrap"
+    SKIP = "skip"
 
 
 class BeadClient:
@@ -435,3 +449,186 @@ class BeadClient:
             bead_id=bead_id,
             state=state,
         )
+
+    # ------------------------------------------------------------------
+    # Lifecycle (init / bootstrap / state probes)
+    # ------------------------------------------------------------------
+
+    def is_initialized(self) -> bool:
+        """Check whether ``.beads/`` already holds a local database.
+
+        Looks for ``.beads/embeddeddolt/`` (default embedded engine) or
+        ``.beads/dolt/`` (server mode). Returns ``False`` for fresh repos
+        and for repos where a previous init aborted before the database
+        was created.
+        """
+        beads = self._cwd / ".beads"
+        return (beads / "embeddeddolt").is_dir() or (beads / "dolt").is_dir()
+
+    async def remote_has_dolt_data(self, remote: str = "origin") -> bool:
+        """Check whether ``<remote>`` advertises ``refs/dolt/data``.
+
+        bd refuses ``bd init --force`` against a remote that already has
+        Dolt history because force only authorizes local divergence. We
+        probe for that condition with ``git ls-remote`` so the caller can
+        route to ``bd bootstrap`` instead.
+
+        Args:
+            remote: Git remote name to query (default ``origin``).
+
+        Returns:
+            ``True`` when the remote has ``refs/dolt/data``. ``False``
+            when the ref is absent OR ``git ls-remote`` fails for any
+            reason (no remote configured, no network, auth failure) —
+            on uncertainty we prefer to fall through to ``bd init``,
+            which will produce a precise error message.
+        """
+        result = await self._runner.run(
+            ["git", "ls-remote", remote, "refs/dolt/data"],
+            cwd=self._cwd,
+        )
+        if not result.success:
+            logger.debug(
+                "bd_remote_probe_failed",
+                remote=remote,
+                stderr=result.stderr.strip(),
+            )
+            return False
+        return bool(result.stdout.strip())
+
+    async def bootstrap(
+        self,
+        *,
+        env: dict[str, str] | None = None,
+        timeout: float = BD_LIFECYCLE_TIMEOUT,
+    ) -> None:
+        """Run ``bd bootstrap --yes`` (non-destructive setup).
+
+        Bootstrap is bd's own state-aware command. Per ``bd bootstrap
+        --help`` it auto-detects the right action: clone from remote
+        Dolt refs, restore from backup JSONL, import from
+        ``.beads/issues.jsonl``, or create fresh — and validates if a
+        database already exists. This is what bd's own error messages
+        recommend when ``bd init`` runs into the remote-divergence guard.
+
+        Args:
+            env: Optional extra environment variables (merged into the
+                runner's environment for this call only).
+            timeout: Seconds to wait — raised above ``BD_TIMEOUT`` since
+                bootstrap can clone Dolt history over the network.
+
+        Raises:
+            BeadLifecycleError: If ``bd bootstrap`` exits non-zero or
+                times out.
+        """
+        result = await self._runner.run(
+            ["bd", "bootstrap", "--yes"],
+            cwd=self._cwd,
+            env=env,
+            timeout=timeout,
+        )
+        if not result.success:
+            detail = result.stderr.strip() or result.stdout.strip() or "(no output)"
+            raise BeadLifecycleError(
+                f"'bd bootstrap' failed (exit code {result.returncode}): {detail}",
+                action="bootstrap",
+            )
+        logger.info("bd_bootstrapped", path=str(self._cwd / ".beads"))
+
+    async def init(
+        self,
+        *,
+        prefix: str | None = None,
+        from_jsonl: bool = False,
+        force: bool = False,
+        env: dict[str, str] | None = None,
+        timeout: float = BD_LIFECYCLE_TIMEOUT,
+    ) -> None:
+        """Run ``bd init`` for a fresh repository.
+
+        Prefer :meth:`init_or_bootstrap` over calling this directly —
+        ``bd init`` is destructive when the remote already has Dolt
+        history, and bd refuses to run in that state.
+
+        Args:
+            prefix: Issue prefix. ``None`` lets bd default to the
+                directory name. Callers should pre-sanitize for Dolt
+                naming rules (no hyphens; no leading digit).
+            from_jsonl: Pass ``--from-jsonl`` to import issues from
+                ``.beads/issues.jsonl`` rather than re-cloning.
+            force: Pass ``--force`` to wipe an existing local database.
+                Deprecated upstream in favour of ``--reinit-local``;
+                kept here for compatibility with older bd versions.
+            env: Extra environment variables (merged for this call).
+            timeout: Seconds to wait.
+
+        Raises:
+            BeadLifecycleError: If ``bd init`` exits non-zero or times out.
+        """
+        cmd: list[str] = ["bd", "init", "--non-interactive"]
+        if prefix:
+            cmd.extend(["--prefix", prefix])
+        if from_jsonl:
+            cmd.append("--from-jsonl")
+        if force:
+            cmd.append("--force")
+        result = await self._runner.run(
+            cmd, cwd=self._cwd, env=env, timeout=timeout
+        )
+        if not result.success:
+            detail = result.stderr.strip() or result.stdout.strip() or "(no output)"
+            raise BeadLifecycleError(
+                f"'bd init' failed (exit code {result.returncode}): {detail}",
+                action="init",
+            )
+        logger.info("bd_initialized", path=str(self._cwd / ".beads"), prefix=prefix)
+
+    async def init_or_bootstrap(
+        self,
+        *,
+        prefix: str | None = None,
+        env: dict[str, str] | None = None,
+    ) -> LifecycleAction:
+        """State-aware dispatch: pick init, bootstrap, or skip.
+
+        State machine:
+
+        =========================================  =====================
+        Repo state                                 Action
+        =========================================  =====================
+        ``.beads/`` already has a local database   :attr:`SKIP`
+        Remote ``origin`` advertises Dolt refs     :attr:`BOOTSTRAP`
+        ``.beads/issues.jsonl`` exists in a clone  :attr:`BOOTSTRAP`
+        Otherwise (truly fresh repo)               :attr:`INIT`
+        =========================================  =====================
+
+        Args:
+            prefix: Issue prefix for the :attr:`INIT` branch only;
+                ignored otherwise.
+            env: Extra environment variables threaded into whichever
+                lifecycle command runs.
+
+        Returns:
+            The :class:`LifecycleAction` actually taken — useful for
+            callers that emit different log lines per branch.
+
+        Raises:
+            BeadLifecycleError: If the chosen lifecycle command fails.
+        """
+        if self.is_initialized():
+            logger.debug("bd_init_or_bootstrap_skip", path=str(self._cwd / ".beads"))
+            return LifecycleAction.SKIP
+
+        # Two signals route to bootstrap: a remote that already has
+        # Dolt history (the case the user's error report surfaced), or
+        # a clone that already carries `.beads/issues.jsonl` (the
+        # second-developer-onboarding case where the JSONL is in git
+        # but the local Dolt store hasn't been materialized yet).
+        has_remote_dolt = await self.remote_has_dolt_data()
+        has_jsonl = (self._cwd / ".beads" / "issues.jsonl").is_file()
+        if has_remote_dolt or has_jsonl:
+            await self.bootstrap(env=env)
+            return LifecycleAction.BOOTSTRAP
+
+        await self.init(prefix=prefix, env=env)
+        return LifecycleAction.INIT
