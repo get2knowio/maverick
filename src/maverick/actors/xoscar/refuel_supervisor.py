@@ -780,6 +780,7 @@ class RefuelSupervisor(xo.Actor):
         # feedback instead of three doomed fix rounds + a Pydantic error.
         if self._abandoned_unit_ids:
             abandoned_count = len(self._abandoned_unit_ids)
+            abandoned_list = ", ".join(sorted(self._abandoned_unit_ids))
             quota_count = sum(
                 1 for uid in self._abandoned_unit_ids
                 if uid in self._detail_quota_errors
@@ -797,21 +798,22 @@ class RefuelSupervisor(xo.Actor):
                 )
                 msg = (
                     f"{abandoned_count}/{self._detail_total_count} unit(s) "
-                    f"abandoned — {quota_count} due to provider quota "
-                    f"exhaustion{reset_suffix}. The successful units are "
-                    f"cached on disk, so re-running after capacity returns "
-                    f"will only re-process the failures. Consider switching "
-                    f"the affected tier to a different provider in your "
+                    f"abandoned ({abandoned_list}) — {quota_count} due to "
+                    f"provider quota exhaustion{reset_suffix}. The "
+                    f"successful units are cached on disk, so re-running "
+                    f"after capacity returns will only re-process the "
+                    f"failures. Consider switching the affected tier to a "
+                    f"different provider in your "
                     f"actors.refuel.decomposer.tiers config."
                 )
             else:
                 msg = (
                     f"{abandoned_count}/{self._detail_total_count} unit(s) "
-                    f"abandoned during decompose — the worker model didn't "
-                    f"submit details. Likely cause: an unreliable MCP-tool "
-                    f"caller in the affected tier. Check the per-unit "
-                    f"table above for the failed model; consider switching "
-                    f"to claude/sonnet for that tier."
+                    f"abandoned during decompose ({abandoned_list}) — the "
+                    f"worker model didn't submit details. Likely cause: an "
+                    f"unreliable MCP-tool caller in the affected tier. "
+                    f"Check the per-unit table above for the failed model; "
+                    f"consider switching to claude/sonnet for that tier."
                 )
             await self._emit_output("refuel", msg, level="error")
             await self._emit_phase_completed(
