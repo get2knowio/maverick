@@ -27,10 +27,11 @@ _DEFAULT_COPILOT_COMMAND: list[str] = [
 ]
 
 #: Default Gemini CLI provider command.
-#: Uses the experimental ACP mode in the Gemini CLI.
+#: Uses ACP server mode in the Gemini CLI (was ``--experimental-acp``
+#: in earlier releases; current Gemini CLI uses ``--acp``).
 _DEFAULT_GEMINI_COMMAND: list[str] = [
     "gemini",
-    "--experimental-acp",
+    "--acp",
 ]
 
 #: Default OpenCode provider command.

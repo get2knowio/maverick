@@ -139,7 +139,7 @@ class TestBuiltinProviderResolution:
         cfg = registry.get("gemini")
         assert cfg.command is not None
         assert "gemini" in cfg.command
-        assert "--experimental-acp" in cfg.command
+        assert "--acp" in cfg.command
 
     def test_opencode_resolves_command_automatically(self) -> None:
         providers = {
