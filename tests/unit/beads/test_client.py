@@ -488,13 +488,26 @@ class TestBeadClientIsInitialized:
     """Tests for BeadClient.is_initialized() — directory + metadata probe."""
 
     @staticmethod
-    def _seed_metadata(beads: Path, issue_prefix: str = "myproj") -> None:
-        """Write a valid ``metadata.json`` so is_initialized passes."""
+    def _seed_metadata(beads: Path, dolt_database: str = "myproj") -> None:
+        """Write a valid ``metadata.json`` so is_initialized passes.
+
+        Mirrors what ``bd init`` actually writes — note: NO
+        ``issue_prefix`` (that field lives in ``config.yaml``, not
+        metadata).
+        """
         import json as _json
 
         beads.mkdir(parents=True, exist_ok=True)
         (beads / "metadata.json").write_text(
-            _json.dumps({"issue_prefix": issue_prefix, "dolt_database": "myproj"})
+            _json.dumps(
+                {
+                    "database": "dolt",
+                    "backend": "dolt",
+                    "dolt_mode": "embedded",
+                    "dolt_database": dolt_database,
+                    "project_id": "test-id",
+                }
+            )
         )
 
     def test_returns_false_when_beads_dir_missing(self, temp_dir: Path) -> None:
@@ -514,21 +527,23 @@ class TestBeadClientIsInitialized:
         self, temp_dir: Path
     ) -> None:
         """Half-initialised state: directory exists but metadata.json is
-        missing. bd would error with "issue_prefix config is missing"."""
+        missing. ``_clear_invalid_bd_state`` should detect and recover
+        from this; here we just verify the probe says "not ready"."""
         (temp_dir / ".beads" / "embeddeddolt").mkdir(parents=True)
         client = BeadClient(cwd=temp_dir, runner=AsyncMock())
         assert client.is_initialized() is False
 
-    def test_returns_false_when_metadata_missing_issue_prefix(
+    def test_returns_false_when_metadata_missing_dolt_database(
         self, temp_dir: Path
     ) -> None:
-        """metadata.json exists but ``issue_prefix`` is missing — bd's own
-        check rejects this state, so our probe must too."""
+        """metadata.json exists but ``dolt_database`` is missing —
+        defensive: bd-written metadata always has it, so absence
+        means corruption."""
         import json as _json
 
         (temp_dir / ".beads" / "embeddeddolt").mkdir(parents=True)
         (temp_dir / ".beads" / "metadata.json").write_text(
-            _json.dumps({"dolt_database": "myproj"})  # no issue_prefix
+            _json.dumps({"backend": "dolt"})  # no dolt_database
         )
         client = BeadClient(cwd=temp_dir, runner=AsyncMock())
         assert client.is_initialized() is False
@@ -542,6 +557,9 @@ class TestBeadClientIsInitialized:
     def test_returns_true_when_embeddeddolt_and_metadata_present(
         self, temp_dir: Path
     ) -> None:
+        """Mirrors what ``bd init`` produces — embeddeddolt + metadata.json
+        with a valid ``dolt_database``. ``issue_prefix`` is NOT in
+        metadata.json (it's in ``config.yaml``), so we don't gate on it."""
         (temp_dir / ".beads" / "embeddeddolt").mkdir(parents=True)
         self._seed_metadata(temp_dir / ".beads")
         client = BeadClient(cwd=temp_dir, runner=AsyncMock())
@@ -684,11 +702,13 @@ class TestBeadClientInitOrBootstrap:
     ) -> None:
         import json as _json
 
-        # Strict is_initialized requires both directory + valid metadata.
+        # is_initialized requires directory + metadata.json with a valid
+        # ``dolt_database``. Mirrors bd's actual schema (issue_prefix is
+        # in config.yaml, not metadata.json).
         beads = temp_dir / ".beads"
         (beads / "embeddeddolt").mkdir(parents=True)
         (beads / "metadata.json").write_text(
-            _json.dumps({"issue_prefix": "x", "dolt_database": "x"})
+            _json.dumps({"dolt_database": "x"})
         )
         client = BeadClient(cwd=temp_dir, runner=mock_runner)
         action = await client.init_or_bootstrap(prefix="x")

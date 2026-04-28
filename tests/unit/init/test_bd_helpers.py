@@ -65,10 +65,15 @@ def test_clear_invalid_bd_state_removes_hyphenated_metadata(tmp_path: Path) -> N
 def test_clear_invalid_bd_state_preserves_valid_metadata(tmp_path: Path) -> None:
     beads = tmp_path / ".beads"
     beads.mkdir()
-    # Valid metadata = both ``dolt_database`` AND ``issue_prefix`` present.
+    # Valid metadata = bd-written shape: database + backend + dolt_mode
+    # + dolt_database + project_id. Note: NO issue_prefix — that lives
+    # in config.yaml, not metadata.json (verified empirically against
+    # bd 1.0.x).
     metadata = {
+        "database": "dolt",
+        "backend": "dolt",
+        "dolt_mode": "embedded",
         "dolt_database": "sample_maverick_project",
-        "issue_prefix": "smp",
         "project_id": "abc",
     }
     (beads / "metadata.json").write_text(json.dumps(metadata))
@@ -116,7 +121,13 @@ def test_clear_invalid_bd_state_removes_stale_server_artifacts(tmp_path: Path) -
     beads.mkdir()
     (beads / "metadata.json").write_text(
         json.dumps(
-            {"dolt_database": "sample_maverick_project", "issue_prefix": "smp"}
+            {
+                "database": "dolt",
+                "backend": "dolt",
+                "dolt_mode": "embedded",
+                "dolt_database": "sample_maverick_project",
+                "project_id": "abc",
+            }
         )
     )
     server_dir = beads / "dolt"
@@ -160,87 +171,67 @@ def test_clear_invalid_bd_state_wipes_embedded_when_metadata_invalid(
     assert not server_dir.exists()
 
 
-def test_clear_invalid_bd_state_wipes_when_issue_prefix_missing(
+def test_clear_invalid_bd_state_preserves_metadata_with_only_dolt_database(
     tmp_path: Path,
 ) -> None:
-    """``metadata.json`` with valid ``dolt_database`` but missing
-    ``issue_prefix`` is the half-init state that bd's ``bd create``
-    rejects with "issue_prefix config is missing". The cleanup must
-    wipe so the next ``bd init`` can re-create cleanly — without this,
-    bd refuses to re-init because the embeddeddolt/ directory is still
-    present, deadlocking the user."""
+    """``metadata.json`` with a valid ``dolt_database`` is what
+    ``bd init`` actually writes — and it does NOT include
+    ``issue_prefix`` (that's in ``config.yaml``). Earlier code wiped
+    such metadata as "half-init", which broke fresh bd installs.
+    Verify the cleanup leaves a valid bd-written metadata alone."""
     beads = tmp_path / ".beads"
     beads.mkdir()
-    (beads / "metadata.json").write_text(
-        json.dumps({"dolt_database": "myproj"})  # no issue_prefix
-    )
+    metadata = {
+        "database": "dolt",
+        "backend": "dolt",
+        "dolt_mode": "embedded",
+        "dolt_database": "myproj",
+        "project_id": "abc",
+    }
+    (beads / "metadata.json").write_text(json.dumps(metadata))
     embedded = beads / "embeddeddolt"
     embedded.mkdir()
-    (embedded / "data").write_text("stale")
+    (embedded / "data").write_text("real")
 
     _clear_invalid_bd_state(tmp_path)
 
-    assert not (beads / "metadata.json").exists()
-    assert not embedded.exists()
-
-
-def test_clear_invalid_bd_state_wipes_when_issue_prefix_empty(
-    tmp_path: Path,
-) -> None:
-    """Empty-string ``issue_prefix`` is also half-init."""
-    beads = tmp_path / ".beads"
-    beads.mkdir()
-    (beads / "metadata.json").write_text(
-        json.dumps({"dolt_database": "myproj", "issue_prefix": ""})
-    )
-    embedded = beads / "embeddeddolt"
-    embedded.mkdir()
-
-    _clear_invalid_bd_state(tmp_path)
-
-    assert not (beads / "metadata.json").exists()
-    assert not embedded.exists()
+    assert (beads / "metadata.json").exists()
+    assert embedded.exists()
+    assert (embedded / "data").read_text() == "real"
 
 
 def test_clear_invalid_bd_state_wipes_config_json_on_invalid_metadata(
     tmp_path: Path,
 ) -> None:
-    """``config.json`` carries ``sync.remote`` from previous runs. When
-    metadata is invalid (half-init), the stale config can force the next
-    ``bd init`` to "sync from remote" — pointing at a non-Dolt git URL —
-    and fail with "remote at that url contains no Dolt data". The cleanup
-    must wipe config.json so the next init starts truly fresh."""
+    """Legacy ``config.json`` (older bd versions used JSON before
+    switching to YAML). When metadata is invalid the cleanup wipes
+    both formats defensively."""
     beads = tmp_path / ".beads"
     beads.mkdir()
-    (beads / "metadata.json").write_text(
-        json.dumps({"dolt_database": "myproj"})  # invalid — no issue_prefix
-    )
+    # Trigger cleanup via "dolt dir present, metadata missing" — the
+    # form (4) half-init we actually encounter in the wild. Don't seed
+    # metadata.json since bd-written metadata-with-only-dolt_database
+    # is VALID under the current contract.
+    (beads / "embeddeddolt").mkdir()
     (beads / "config.json").write_text(
         json.dumps({"sync": {"remote": "git+https://github.com/x/y.git"}})
     )
-    (beads / "embeddeddolt").mkdir()
 
     _clear_invalid_bd_state(tmp_path)
 
     assert not (beads / "config.json").exists()
-    assert not (beads / "metadata.json").exists()
     assert not (beads / "embeddeddolt").exists()
 
 
 def test_clear_invalid_bd_state_wipes_issues_jsonl_on_invalid_metadata(
     tmp_path: Path,
 ) -> None:
-    """A leftover ``issues.jsonl`` from a previous half-init can cause
-    the next ``bd bootstrap`` to take an unwanted import path. Since
-    half-init states have no real bd issues (you need issue_prefix to
-    create them), wiping the JSONL is safe."""
+    """Stale ``issues.jsonl`` from a previous half-init is wiped so the
+    next ``bd bootstrap`` doesn't take the unwanted import path."""
     beads = tmp_path / ".beads"
     beads.mkdir()
-    (beads / "metadata.json").write_text(
-        json.dumps({"dolt_database": "myproj"})  # invalid
-    )
+    (beads / "embeddeddolt").mkdir()  # form (4) trigger
     (beads / "issues.jsonl").write_text("{}\n")
-    (beads / "embeddeddolt").mkdir()
 
     _clear_invalid_bd_state(tmp_path)
 
@@ -295,13 +286,11 @@ def test_clear_invalid_bd_state_wipes_config_yaml(tmp_path: Path) -> None:
     clone from a non-Dolt git remote."""
     beads = tmp_path / ".beads"
     beads.mkdir()
-    (beads / "metadata.json").write_text(
-        json.dumps({"dolt_database": "myproj"})  # invalid: missing issue_prefix
-    )
+    # Trigger via form (4): dolt dir present, no metadata.json.
+    (beads / "embeddeddolt").mkdir()
     (beads / "config.yaml").write_text(
         "sync:\n  remote: git+https://github.com/x/y.git\n"
     )
-    (beads / "embeddeddolt").mkdir()
 
     _clear_invalid_bd_state(tmp_path)
 

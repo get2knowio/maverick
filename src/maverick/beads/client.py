@@ -455,24 +455,29 @@ class BeadClient:
     # ------------------------------------------------------------------
 
     def is_initialized(self) -> bool:
-        """Check whether ``.beads/`` holds a *fully* initialised database.
+        """Check whether ``.beads/`` holds an initialised database.
 
-        bd's own definition of "initialized" requires both:
+        bd's real contract for "initialized" (verified empirically against
+        a fresh ``bd init`` against bd 1.0.x):
 
         * an ``embeddeddolt/`` (or ``dolt/`` server-mode) directory, AND
-        * a ``metadata.json`` with a non-empty ``issue_prefix`` field.
+        * a ``metadata.json`` containing a non-empty ``dolt_database``
+          field. The other metadata fields (``database``, ``backend``,
+          ``dolt_mode``, ``project_id``) come along for free in any
+          bd-written state and aren't worth gating on individually.
 
-        Without ``issue_prefix``, ``bd create`` errors with
-        ``database not initialized: issue_prefix config is missing``,
-        even though our directory probe would otherwise say "ready".
+        Note: ``issue_prefix`` is NOT in ``metadata.json`` — it lives in
+        ``config.yaml`` and is auto-detected from the directory name when
+        not set. A previous version of this check required ``issue_prefix``
+        in metadata.json and always returned False after a fresh init,
+        because bd never writes the field there.
 
-        Mirroring bd's check here means our preflight catches half-
-        initialised states (a previous ``bd init`` aborted, a ``bd
-        bootstrap`` set up the directory but not the metadata, etc.) so
-        the user gets a fast "run maverick init" prompt instead of
-        burning through the workflow and dying at bead creation.
-
-        Returns ``True`` only when both directory + metadata are valid.
+        Half-init detection (e.g. ``config.yaml`` with empty
+        ``issue-prefix:`` set explicitly) lives in
+        ``_clear_invalid_bd_state``, not here — by the time a workflow
+        preflight runs, init has already executed any cleanup. This probe
+        is intentionally narrow: "does this look like a usable bd
+        install?" Anything more invasive belongs in init's cleanup phase.
         """
         beads = self._cwd / ".beads"
         has_dolt_dir = (beads / "embeddeddolt").is_dir() or (beads / "dolt").is_dir()
@@ -487,8 +492,8 @@ class BeadClient:
             return False
         if not isinstance(metadata, dict):
             return False
-        prefix = metadata.get("issue_prefix")
-        return isinstance(prefix, str) and bool(prefix.strip())
+        db_name = metadata.get("dolt_database")
+        return isinstance(db_name, str) and bool(db_name.strip())
 
     async def remote_has_dolt_data(self, remote: str = "origin") -> bool:
         """Check whether ``<remote>`` advertises ``refs/dolt/data``.

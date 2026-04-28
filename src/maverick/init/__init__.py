@@ -151,8 +151,12 @@ def _clear_invalid_bd_state(project_path: Path) -> None:
     server_dir = beads_dir / "dolt"
     has_dolt_dir = embedded_dir.is_dir() or server_dir.is_dir()
 
-    # Triage the metadata. ``state_invalid`` collapses the four forms
-    # above into one "this needs to be wiped" decision.
+    # Triage the metadata. Note: ``issue_prefix`` is NOT a metadata.json
+    # field — bd stores it in ``config.yaml``. Earlier versions of this
+    # function checked ``metadata.get("issue_prefix")`` and never matched
+    # bd's actual schema; the check is gone here and the trigger is
+    # purely "directory present but metadata is missing or has a bad
+    # ``dolt_database``".
     state_invalid = False
     if has_dolt_dir and not metadata_path.is_file():
         # Form (4): dolt directory present but metadata gone. Half-init.
@@ -166,12 +170,7 @@ def _clear_invalid_bd_state(project_path: Path) -> None:
             state_invalid = True
         else:
             db_name = metadata.get("dolt_database")
-            issue_prefix = metadata.get("issue_prefix")
             if not (isinstance(db_name, str) and _is_valid_dolt_db_name(db_name)):
-                state_invalid = True
-            elif not (isinstance(issue_prefix, str) and issue_prefix.strip()):
-                # bd's ``bd create`` requires issue_prefix; without it
-                # the database is unusable.
                 state_invalid = True
         if state_invalid:
             try:
