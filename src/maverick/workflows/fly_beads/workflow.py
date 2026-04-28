@@ -122,6 +122,7 @@ class FlyBeadsWorkflow(PythonWorkflow):
         auto_commit: bool = bool(inputs.get("auto_commit", False))
         watch: bool = bool(inputs.get("watch", False))
         watch_interval: int = int(inputs.get("watch_interval", 30))
+        skip_preflight: bool = bool(inputs.get("skip_preflight", False))
 
         # Load checkpoint to get previously completed beads
         checkpoint = await self.load_checkpoint()
@@ -173,21 +174,30 @@ class FlyBeadsWorkflow(PythonWorkflow):
         # ----------------------------------------------------------------
         # Step 1: Preflight
         # ----------------------------------------------------------------
-        await self.emit_step_started(PREFLIGHT, display_label="Pre-flight checks")
-        try:
-            preflight_result = await run_preflight_checks(
-                check_providers=True,
-                check_git=True,
-                check_jj=True,
-                check_bd=True,
-                check_validation_tools=False,
-                fail_on_error=True,
-                config=self._config,
+        if skip_preflight:
+            await self.emit_step_started(PREFLIGHT, display_label="Pre-flight checks")
+            await self.emit_output(
+                PREFLIGHT,
+                "Skipped (--skip-preflight)",
+                level="warning",
             )
-        except Exception as exc:
-            await self.emit_step_failed(PREFLIGHT, str(exc))
-            raise
-        await self.emit_step_completed(PREFLIGHT, preflight_result.to_dict())
+            await self.emit_step_completed(PREFLIGHT, {"skipped": True})
+        else:
+            await self.emit_step_started(PREFLIGHT, display_label="Pre-flight checks")
+            try:
+                preflight_result = await run_preflight_checks(
+                    check_providers=True,
+                    check_git=True,
+                    check_jj=True,
+                    check_bd=True,
+                    check_validation_tools=False,
+                    fail_on_error=True,
+                    config=self._config,
+                )
+            except Exception as exc:
+                await self.emit_step_failed(PREFLIGHT, str(exc))
+                raise
+            await self.emit_step_completed(PREFLIGHT, preflight_result.to_dict())
 
         # ----------------------------------------------------------------
         # Step 2: Snapshot uncommitted changes

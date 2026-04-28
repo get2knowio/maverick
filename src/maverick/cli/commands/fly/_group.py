@@ -89,6 +89,15 @@ _FLY_BEADS_STEPS = [
     show_default=True,
     help="Seconds between polls when no beads are ready (requires --watch).",
 )
+@click.option(
+    "--skip-preflight",
+    is_flag=True,
+    default=False,
+    help=(
+        "Skip the pre-flight checks (provider health, git config, etc.). "
+        "Testing only — runtime failures will surface mid-flight instead."
+    ),
+)
 @click.pass_context
 @async_command
 async def fly(
@@ -100,6 +109,7 @@ async def fly(
     session_log: Path | None,
     watch: bool,
     watch_interval: int,
+    skip_preflight: bool,
 ) -> None:
     """Run a bead-driven development workflow.
 
@@ -132,10 +142,18 @@ async def fly(
     # Preflight: bd installed AND .beads initialized. Fly closes beads
     # at the end of every successful round, so a missing bd setup would
     # only surface mid-workflow (after expensive implementer + reviewer
-    # work) without this check.
-    from maverick.cli.common import verify_bd_ready
+    # work) without this check. ``--skip-preflight`` bypasses both this
+    # CLI-level check and the in-workflow PREFLIGHT step.
+    if skip_preflight:
+        console.print(
+            "[yellow]Warning:[/yellow] --skip-preflight is set; "
+            "provider/git/jj/bd checks will not run. "
+            "Failures will surface mid-flight."
+        )
+    else:
+        from maverick.cli.common import verify_bd_ready
 
-    verify_bd_ready()
+        verify_bd_ready()
 
     await execute_python_workflow(
         ctx,
@@ -147,6 +165,7 @@ async def fly(
                 "auto_commit": auto_commit,
                 "watch": watch,
                 "watch_interval": watch_interval,
+                "skip_preflight": skip_preflight,
             },
             session_log_path=session_log,
         ),
