@@ -30,6 +30,7 @@ CREATE_BEADS = "create_beads"
 WIRE_DEPS = "wire_deps"
 ANALYZE_OPEN_BEADS = "analyze_open_beads"
 WIRE_CROSS_PLAN_DEPS = "wire_cross_plan_deps"
+COMMIT_OUTPUT = "commit_output"
 
 # Default config values
 WORKFLOW_NAME: str = "refuel-maverick"

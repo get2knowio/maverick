@@ -30,6 +30,7 @@ from maverick.workflows.base import PythonWorkflow
 from maverick.workflows.refuel_maverick.constants import (
     ANALYZE_OPEN_BEADS,
     BRIEFING,
+    COMMIT_OUTPUT,
     CREATE_BEADS,
     DECOMPOSE,
     DERIVE_VERIFICATION,
@@ -187,6 +188,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
         if not flight_plan_path_str:
             raise WorkflowError("'flight_plan_path' input is required")
         skip_briefing: bool = bool(inputs.get("skip_briefing", False))
+        auto_commit: bool = bool(inputs.get("auto_commit", False))
 
         flight_plan_path = Path(flight_plan_path_str)
 
@@ -737,6 +739,60 @@ class RefuelMaverickWorkflow(PythonWorkflow):
             except Exception as exc:
                 await self.emit_step_failed(WIRE_CROSS_PLAN_DEPS, str(exc))
                 logger.warning("wire_cross_plan_deps_failed", error=str(exc))
+
+        # ------------------------------------------------------------------
+        # Step 9 (optional): Auto-commit refuel artifacts
+        # ------------------------------------------------------------------
+        # Mirrors fly's ``--auto-commit``: when set, snapshot the
+        # working directory so the user can pivot directly to ``maverick
+        # fly`` without the snapshot step tripping on refuel's own
+        # output (.maverick/plans, .beads/issues.jsonl, etc.). Failure
+        # here is non-fatal — refuel itself succeeded.
+        if auto_commit:
+            from maverick.library.actions.git import snapshot_uncommitted_changes
+
+            await self.emit_step_started(
+                COMMIT_OUTPUT, display_label="Committing refuel output"
+            )
+            try:
+                snap = await snapshot_uncommitted_changes(
+                    message=f"chore: refuel {flight_plan.name}",
+                )
+                if snap.success and snap.committed:
+                    sha_preview = (snap.commit_sha or "")[:8]
+                    await self.emit_output(
+                        COMMIT_OUTPUT,
+                        f"Committed refuel output ({sha_preview})",
+                    )
+                    if snap.warning:
+                        await self.emit_output(
+                            COMMIT_OUTPUT, snap.warning, level="warning"
+                        )
+                    await self.emit_step_completed(
+                        COMMIT_OUTPUT,
+                        {"committed": True, "commit_sha": snap.commit_sha},
+                    )
+                elif snap.success and not snap.committed:
+                    await self.emit_output(
+                        COMMIT_OUTPUT,
+                        "Working directory clean — nothing to commit",
+                    )
+                    await self.emit_step_completed(
+                        COMMIT_OUTPUT, {"committed": False}
+                    )
+                else:
+                    await self.emit_output(
+                        COMMIT_OUTPUT,
+                        snap.error or "commit failed",
+                        level="error",
+                    )
+                    await self.emit_step_completed(
+                        COMMIT_OUTPUT,
+                        {"committed": False, "error": snap.error},
+                    )
+            except Exception as exc:
+                await self.emit_step_failed(COMMIT_OUTPUT, str(exc))
+                logger.warning("auto_commit_failed", error=str(exc))
 
         # ------------------------------------------------------------------
         # Return final output

@@ -36,6 +36,16 @@ from maverick.cli.context import ExitCode, async_command
     help="Skip the briefing room step (parallel agent analysis).",
 )
 @click.option(
+    "--auto-commit",
+    is_flag=True,
+    default=False,
+    help=(
+        "Commit any uncommitted changes (including refuel's own output) "
+        "after refuel succeeds. Lets ``maverick fly`` pick up the work "
+        "without tripping the snapshot check."
+    ),
+)
+@click.option(
     "--plans-dir",
     default=DEFAULT_PLANS_DIR,
     show_default=True,
@@ -49,6 +59,7 @@ async def refuel(
     list_steps: bool,
     session_log: Path | None,
     skip_briefing: bool,
+    auto_commit: bool,
     plans_dir: str,
 ) -> None:
     """Decompose a flight plan into beads.
@@ -118,6 +129,7 @@ async def refuel(
             inputs={
                 "flight_plan_path": str(flight_plan_path),
                 "skip_briefing": skip_briefing,
+                "auto_commit": auto_commit,
             },
             session_log_path=session_log,
         ),
