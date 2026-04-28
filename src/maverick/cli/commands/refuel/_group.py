@@ -122,3 +122,13 @@ async def refuel(
             session_log_path=session_log,
         ),
     )
+
+    # Surface the "what next" command. The workflow writes the bd epic id
+    # into ``.maverick/runs/<run_id>/metadata.json`` — read it back so the
+    # user doesn't have to dig for it (it's not the same as the plan name).
+    from maverick.runway.run_metadata import find_latest_run
+
+    meta = find_latest_run(name)
+    if meta and meta.epic_id:
+        console.print()
+        console.print(f"[dim]Next:[/] [bold]maverick fly --epic {meta.epic_id}[/]")

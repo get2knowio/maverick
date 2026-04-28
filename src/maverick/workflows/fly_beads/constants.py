@@ -18,7 +18,11 @@ ACCEPTANCE_CHECK = "acceptance_check"
 SPEC_COMPLIANCE = "spec_compliance"
 
 # Default config values
-MAX_BEADS: int = 30
+# 0 = unlimited (drain the queue until no ready beads remain). Refuel
+# routinely produces 40+ beads per epic, so a hard cap surprises users
+# who expect ``--epic <id>`` to drain the epic. Pass ``--max-beads N``
+# explicitly when you want a bounded run.
+MAX_BEADS: int = 0
 WORKFLOW_NAME: str = "fly-beads"
 
 # Bead execution defaults

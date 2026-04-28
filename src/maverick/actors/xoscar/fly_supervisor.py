@@ -108,7 +108,8 @@ class FlyInputs:
     # tiers are configured, this is the per-tier base before override merging.
     # ``None`` preserves the legacy single-config behaviour for older callers.
     reviewer_config: Any = None
-    max_beads: int = 30
+    # 0 = unlimited; see fly_beads.constants.MAX_BEADS for the rationale.
+    max_beads: int = 0
     validation_commands: dict[str, tuple[str, ...]] | None = None
     project_type: str = "rust"
     completed_bead_ids: tuple[str, ...] = ()
@@ -510,11 +511,15 @@ class FlySupervisor(xo.Actor):
         processed = 0
         idle_polls = 0
         max_idle = self._inputs.max_idle_polls if self._inputs.watch else 0
+        # ``max_beads <= 0`` means unlimited — drain whatever's ready.
+        # The loop still terminates naturally when ``_select_next_bead``
+        # returns nothing (and watch mode hits ``max_idle`` polls).
+        unlimited = self._inputs.max_beads <= 0
         await self._emit_output(
             "fly",
             f"Starting bead loop (epic: {self._inputs.epic_id or 'any'})",
         )
-        while processed < self._inputs.max_beads:
+        while unlimited or processed < self._inputs.max_beads:
             bead = await self._select_next_bead()
             if bead is None or not bead.get("found"):
                 if self._inputs.watch and idle_polls < max_idle:

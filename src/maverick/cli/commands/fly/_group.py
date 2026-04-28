@@ -53,10 +53,10 @@ _FLY_BEADS_STEPS = [
 )
 @click.option(
     "--max-beads",
-    default=30,
+    default=0,
     show_default=True,
     type=int,
-    help="Maximum number of beads to process.",
+    help="Maximum number of beads to process (0 = unlimited; drain the queue).",
 )
 @click.option(
     "--list-steps",
