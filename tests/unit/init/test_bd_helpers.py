@@ -65,7 +65,12 @@ def test_clear_invalid_bd_state_removes_hyphenated_metadata(tmp_path: Path) -> N
 def test_clear_invalid_bd_state_preserves_valid_metadata(tmp_path: Path) -> None:
     beads = tmp_path / ".beads"
     beads.mkdir()
-    metadata = {"dolt_database": "sample_maverick_project", "project_id": "abc"}
+    # Valid metadata = both ``dolt_database`` AND ``issue_prefix`` present.
+    metadata = {
+        "dolt_database": "sample_maverick_project",
+        "issue_prefix": "smp",
+        "project_id": "abc",
+    }
     (beads / "metadata.json").write_text(json.dumps(metadata))
     embedded = beads / "embeddeddolt"
     embedded.mkdir()
@@ -109,7 +114,11 @@ def test_clear_invalid_bd_state_removes_stale_server_artifacts(tmp_path: Path) -
     data directory is preserved when metadata is valid."""
     beads = tmp_path / ".beads"
     beads.mkdir()
-    (beads / "metadata.json").write_text(json.dumps({"dolt_database": "sample_maverick_project"}))
+    (beads / "metadata.json").write_text(
+        json.dumps(
+            {"dolt_database": "sample_maverick_project", "issue_prefix": "smp"}
+        )
+    )
     server_dir = beads / "dolt"
     server_dir.mkdir()
     (server_dir / "data").write_text("x")
@@ -149,3 +158,45 @@ def test_clear_invalid_bd_state_wipes_embedded_when_metadata_invalid(
     assert not (beads / "metadata.json").exists()
     assert not embedded.exists()
     assert not server_dir.exists()
+
+
+def test_clear_invalid_bd_state_wipes_when_issue_prefix_missing(
+    tmp_path: Path,
+) -> None:
+    """``metadata.json`` with valid ``dolt_database`` but missing
+    ``issue_prefix`` is the half-init state that bd's ``bd create``
+    rejects with "issue_prefix config is missing". The cleanup must
+    wipe so the next ``bd init`` can re-create cleanly — without this,
+    bd refuses to re-init because the embeddeddolt/ directory is still
+    present, deadlocking the user."""
+    beads = tmp_path / ".beads"
+    beads.mkdir()
+    (beads / "metadata.json").write_text(
+        json.dumps({"dolt_database": "myproj"})  # no issue_prefix
+    )
+    embedded = beads / "embeddeddolt"
+    embedded.mkdir()
+    (embedded / "data").write_text("stale")
+
+    _clear_invalid_bd_state(tmp_path)
+
+    assert not (beads / "metadata.json").exists()
+    assert not embedded.exists()
+
+
+def test_clear_invalid_bd_state_wipes_when_issue_prefix_empty(
+    tmp_path: Path,
+) -> None:
+    """Empty-string ``issue_prefix`` is also half-init."""
+    beads = tmp_path / ".beads"
+    beads.mkdir()
+    (beads / "metadata.json").write_text(
+        json.dumps({"dolt_database": "myproj", "issue_prefix": ""})
+    )
+    embedded = beads / "embeddeddolt"
+    embedded.mkdir()
+
+    _clear_invalid_bd_state(tmp_path)
+
+    assert not (beads / "metadata.json").exists()
+    assert not embedded.exists()

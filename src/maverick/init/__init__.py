@@ -112,7 +112,7 @@ def _is_valid_dolt_db_name(name: str) -> bool:
 def _clear_invalid_bd_state(project_path: Path) -> None:
     """Reset stale bd state when metadata is corrupt or absent.
 
-    Two failure modes have to be handled:
+    Three failure modes have to be handled:
 
     1. Older bd versions wrote ``dolt_database`` values that the current Dolt
        engine refuses to open (typically because of hyphens carried over from
@@ -121,13 +121,20 @@ def _clear_invalid_bd_state(project_path: Path) -> None:
     2. A previous ``bd init`` attempt may have aborted mid-clone, leaving a
        partial ``embeddeddolt/`` directory that the next bd command rejects
        with "database exists".
+    3. ``metadata.json`` exists with a valid ``dolt_database`` but is missing
+       ``issue_prefix``. ``bd create`` then fails with
+       ``database not initialized: issue_prefix config is missing``, and
+       ``bd init`` refuses to re-init because ``embeddeddolt/`` exists. The
+       only way out is to wipe the half-state and start fresh — there's no
+       data to preserve, since bd needs ``issue_prefix`` to create issues.
 
     Routes:
 
     - **Valid metadata, no action**: a healthy ``.beads/`` is left intact so
       :meth:`BeadClient.init_or_bootstrap` can take the SKIP branch.
-    - **Invalid metadata**: drop ``metadata.json`` *and* wipe the embedded
-      Dolt store; the next lifecycle call re-creates them cleanly.
+    - **Invalid metadata** (any of the three failure modes): drop
+      ``metadata.json`` *and* wipe the embedded Dolt store; the next
+      lifecycle call re-creates them cleanly.
     - **No metadata**: leave the directory alone unless server-mode artifacts
       are present from a half-shut-down previous run; those are always safe
       to remove.
@@ -141,9 +148,19 @@ def _clear_invalid_bd_state(project_path: Path) -> None:
             metadata = json.loads(metadata_path.read_text())
         except (OSError, ValueError):
             metadata = None
-        db_name = metadata.get("dolt_database") if isinstance(metadata, dict) else None
-        if not (isinstance(db_name, str) and _is_valid_dolt_db_name(db_name)):
+        if not isinstance(metadata, dict):
             metadata_invalid = True
+        else:
+            db_name = metadata.get("dolt_database")
+            issue_prefix = metadata.get("issue_prefix")
+            if not (isinstance(db_name, str) and _is_valid_dolt_db_name(db_name)):
+                metadata_invalid = True
+            elif not (isinstance(issue_prefix, str) and issue_prefix.strip()):
+                # bd's ``bd create`` requires issue_prefix; without it the
+                # database is unusable. Treat as invalid so we wipe and
+                # re-init from scratch.
+                metadata_invalid = True
+        if metadata_invalid:
             try:
                 metadata_path.unlink()
             except OSError:
