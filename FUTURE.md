@@ -41,6 +41,7 @@ It reconciles those documents against the current codebase as of 2026-04-19 and 
 | Provider quota detection and automatic failover | Partial | Tier 1 (detection) + Tier 1.5 (detail-phase surfacing + retry short-circuit) + Tier 1.6 (decomposer escalation on any abandon) exist. Tier 2 (wait-and-resume) and Tier 3 (automatic failover) are not yet built — see §6.2. |
 | Step-level evals and prompt testing | Active | Still missing. |
 | Idempotent `maverick init` | Implemented | Re-running on a project with an existing `maverick.yaml` now succeeds, re-runs only the idempotent steps (prereqs, beads, runway), and leaves config untouched. `--force` still regenerates. |
+| Defer bd-state inference to bd itself | Active | Our filesystem probe of `.beads/` keeps drifting from bd's own definition of "initialized". `bd doctor --json` would be authoritative — see §4.5. |
 | Route tool calls through owning actor | Active | MCP inbox still bypasses the owning actor and talks straight to the supervisor. |
 | Structured telemetry via OpenTelemetry GenAI conventions | Active | No OTel or OpenLLMetry integration yet. |
 | Shared mailbox actor scaffold | Active | New opportunity observed in current code. |
@@ -1109,6 +1110,75 @@ Reflection: the `.gitattributes merge=ours` approach considered earlier needs a 
 **Out of scope (separate ergonomic improvements):**
 - `.gitattributes` setup at `maverick init` for explicit declaration (still useful as documentation, but the runtime fix already handles the conflict).
 - Auto-adding `.beads/issues.jsonl` to `.gitignore` so it's never tracked. Existing repos with the file already committed make this a breaking change; revisit if the file becomes universally regenerable.
+
+### 4.5 Defer bd-state Inference To bd Itself
+
+**Status:** Active
+
+We currently infer "is bd initialized?" by probing the filesystem:
+``BeadClient.is_initialized()`` checks for ``.beads/embeddeddolt/`` (or
+``dolt/``) AND for a valid ``metadata.json`` with ``issue_prefix``.
+``_clear_invalid_bd_state`` likewise inspects metadata.json and decides
+whether to wipe based on field validity.
+
+That contract has drifted from bd's own definition of "initialized"
+twice already during the 2026-04-27 / 2026-04-28 sessions:
+
+1. ``BeadClient.is_initialized`` originally checked only the directory.
+   bd's ``bd create`` rejected projects whose metadata was missing
+   ``issue_prefix`` even though our probe said "ready" — leading to a
+   670-second refuel run that died on the bead-creation step. Fixed
+   by tightening the probe.
+2. ``_clear_invalid_bd_state`` originally cleared only on bad
+   ``dolt_database`` names, not on missing ``issue_prefix``. The same
+   half-init state survived cleanup, ``bd init`` then refused to
+   re-init because the directory still existed, and ``maverick init``
+   deadlocked. Fixed by widening the cleanup trigger.
+
+Both bugs share a root cause: **we're inferring bd's contract from
+filesystem inspection instead of asking bd**. Every time bd's metadata
+schema changes, our inference breaks again.
+
+**Better surface:** call ``bd doctor --json`` (already exists, returns
+a structured report including initialization state, schema version,
+and detected issues) or ``bd info --json``. Treat bd's answer as
+authoritative:
+
+- *bd reports "initialized"* → take the SKIP path.
+- *bd reports any failure* → forward bd's own remediation hint to the
+  user; route ``init_or_bootstrap`` through ``bd bootstrap`` (its
+  own state machine handles every case bd considers recoverable).
+
+Implementation sketch:
+
+- New ``BeadClient.doctor()`` async method that runs ``bd doctor
+  --json`` and parses the report into a typed result.
+- ``is_initialized()`` becomes thin: ``return (await
+  self.doctor()).initialized``.
+- ``_clear_invalid_bd_state`` either delegates to ``bd doctor --check
+  artifacts --clean`` (which bd already implements for stale-state
+  cleanup) or stays as a defensive sweep but is no longer the primary
+  decision point.
+
+Tradeoffs:
+
+- ``bd doctor`` is a subprocess call (~tens of ms), where the current
+  filesystem probe is microseconds. Acceptable for the preflight and
+  ``init_or_bootstrap`` paths since they run once per workflow; would
+  not be acceptable inside hot loops.
+- Couples maverick to bd's CLI surface. We already have that coupling
+  for ``bd create / close / show / query / dep``; one more subcommand
+  doesn't change the architecture, just expands the wrapper.
+- Cross-version compatibility: if a user's bd lacks ``--json`` on
+  ``doctor``, we fall back to the current filesystem probe. Detect
+  this once at startup and cache.
+
+Relevant code:
+
+- [src/maverick/beads/client.py](src/maverick/beads/client.py)
+  (``is_initialized``, lifecycle ops)
+- [src/maverick/init/__init__.py](src/maverick/init/__init__.py)
+  (``_clear_invalid_bd_state``)
 
 ## 5. Reusable Workflow Building Blocks
 
