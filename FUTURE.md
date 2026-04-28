@@ -41,7 +41,7 @@ It reconciles those documents against the current codebase as of 2026-04-19 and 
 | Provider quota detection and automatic failover | Partial | Tier 1 (detection) + Tier 1.5 (detail-phase surfacing + retry short-circuit) + Tier 1.6 (decomposer escalation on any abandon) exist. Tier 2 (wait-and-resume) and Tier 3 (automatic failover) are not yet built — see §6.2. |
 | Step-level evals and prompt testing | Active | Still missing. |
 | Idempotent `maverick init` | Implemented | Re-running on a project with an existing `maverick.yaml` now succeeds, re-runs only the idempotent steps (prereqs, beads, runway), and leaves config untouched. `--force` still regenerates. |
-| Defer bd-state inference to bd itself | Active | Our filesystem probe of `.beads/` keeps drifting from bd's own definition of "initialized". `bd doctor --json` would be authoritative — see §4.5. |
+| Defer bd-state inference to bd itself | Reframed | Investigated 2026-04-28: `bd doctor` doesn't support embedded mode (which is what maverick uses), and other read-only bd commands don't catch half-init either. Filesystem inspection stays as the pragmatic approach — see §4.5 for findings. |
 | Route tool calls through owning actor | Active | MCP inbox still bypasses the owning actor and talks straight to the supervisor. |
 | Structured telemetry via OpenTelemetry GenAI conventions | Active | No OTel or OpenLLMetry integration yet. |
 | Shared mailbox actor scaffold | Active | New opportunity observed in current code. |
@@ -1113,7 +1113,10 @@ Reflection: the `.gitattributes merge=ours` approach considered earlier needs a 
 
 ### 4.5 Defer bd-state Inference To bd Itself
 
-**Status:** Active
+**Status:** Reframed — proposed approach doesn't work for embedded
+mode; see "Investigation findings" below.
+
+#### Original motivation
 
 We currently infer "is bd initialized?" by probing the filesystem:
 ``BeadClient.is_initialized()`` checks for ``.beads/embeddeddolt/`` (or
@@ -1121,8 +1124,8 @@ We currently infer "is bd initialized?" by probing the filesystem:
 ``_clear_invalid_bd_state`` likewise inspects metadata.json and decides
 whether to wipe based on field validity.
 
-That contract has drifted from bd's own definition of "initialized"
-twice already during the 2026-04-27 / 2026-04-28 sessions:
+That contract drifted from bd's own definition of "initialized" twice
+during the 2026-04-27 / 2026-04-28 sessions:
 
 1. ``BeadClient.is_initialized`` originally checked only the directory.
    bd's ``bd create`` rejected projects whose metadata was missing
@@ -1130,48 +1133,87 @@ twice already during the 2026-04-27 / 2026-04-28 sessions:
    670-second refuel run that died on the bead-creation step. Fixed
    by tightening the probe.
 2. ``_clear_invalid_bd_state`` originally cleared only on bad
-   ``dolt_database`` names, not on missing ``issue_prefix``. The same
-   half-init state survived cleanup, ``bd init`` then refused to
-   re-init because the directory still existed, and ``maverick init``
-   deadlocked. Fixed by widening the cleanup trigger.
+   ``dolt_database`` names, not on missing ``issue_prefix``. Stale
+   ``config.json`` (with ``sync.remote`` pointing at a non-Dolt git
+   URL) survived cleanup; the next ``bd init`` then tried to clone
+   Dolt data from a regular git remote and failed. Fixed by widening
+   the cleanup trigger and the wipe set.
 
-Both bugs share a root cause: **we're inferring bd's contract from
-filesystem inspection instead of asking bd**. Every time bd's metadata
-schema changes, our inference breaks again.
+Original proposal: replace the filesystem probe with a call to
+``bd doctor --json`` (or similar) and trust bd's own "is this healthy?"
+answer.
 
-**Better surface:** call ``bd doctor --json`` (already exists, returns
-a structured report including initialization state, schema version,
-and detected issues) or ``bd info --json``. Treat bd's answer as
-authoritative:
+#### Investigation findings (2026-04-28)
 
-- *bd reports "initialized"* → take the SKIP path.
-- *bd reports any failure* → forward bd's own remediation hint to the
-  user; route ``init_or_bootstrap`` through ``bd bootstrap`` (its
-  own state machine handles every case bd considers recoverable).
+**``bd doctor`` is not available in embedded mode.** Running it on a
+project initialized with maverick's default ``bd init`` (embedded-Dolt
+backend) prints:
 
-Implementation sketch:
+```
+Note: 'bd doctor' is not yet supported in embedded mode.
 
-- New ``BeadClient.doctor()`` async method that runs ``bd doctor
-  --json`` and parses the report into a typed result.
-- ``is_initialized()`` becomes thin: ``return (await
-  self.doctor()).initialized``.
-- ``_clear_invalid_bd_state`` either delegates to ``bd doctor --check
-  artifacts --clean`` (which bd already implements for stale-state
-  cleanup) or stays as a defensive sweep but is no longer the primary
-  decision point.
+For embedded mode troubleshooting:
+  • Verify database exists:  ls -la .beads/embeddeddolt/
+  • Check bd version:        bd version
+  • Reinitialize if needed:  bd init --force
+  • Switch to server mode:   bd init --server
+```
 
-Tradeoffs:
+bd's own remediation guidance for embedded mode is filesystem
+inspection — i.e., what we already do.
 
-- ``bd doctor`` is a subprocess call (~tens of ms), where the current
-  filesystem probe is microseconds. Acceptable for the preflight and
-  ``init_or_bootstrap`` paths since they run once per workflow; would
-  not be acceptable inside hot loops.
-- Couples maverick to bd's CLI surface. We already have that coupling
-  for ``bd create / close / show / query / dep``; one more subcommand
-  doesn't change the architecture, just expands the wrapper.
-- Cross-version compatibility: if a user's bd lacks ``--json`` on
-  ``doctor``, we fall back to the current filesystem probe. Detect
-  this once at startup and cache.
+**Other bd read-only commands don't catch half-init either.**
+Empirically tested against a half-init state (embeddeddolt directory
+present, ``metadata.json`` missing ``issue_prefix``):
+
+| Command | Half-init result | Useful as probe? |
+|---|---|---|
+| ``bd doctor`` | `Note: 'bd doctor' is not yet supported in embedded mode` | No |
+| ``bd status`` | succeeds, prints empty stats | No |
+| ``bd info`` | succeeds, prints empty stats | No |
+| ``bd context`` | errors on missing git repo (different cause) | No |
+| ``bd list --json`` | succeeds, returns ``[]`` | No |
+| ``bd ready --json`` | succeeds, returns ``[]`` | No |
+| ``bd query --json`` | succeeds (modulo expression parse) | No |
+| ``bd create`` | errors with "issue_prefix config is missing" | Yes — but it's destructive, can't use as a probe |
+
+The only bd command that catches the half-init state is ``bd create``
+itself — and that mutates state, so we can't use it for read-only
+detection at preflight time.
+
+#### Realistic next steps
+
+The original premise ("bd has an authoritative checker") doesn't hold
+for embedded mode in the current bd CLI surface. Three forward paths,
+none of them simple:
+
+1. **Contribute embedded-mode support to bd's ``doctor`` upstream.**
+   The cleanest fix; turns this from a maverick problem into a one-time
+   bd PR. Likely needs equivalent metadata-validation logic on the bd
+   side, which the maintainers may or may not want.
+
+2. **Migrate maverick to bd's server mode.** ``bd doctor`` works in
+   server mode. But server mode runs an external dolt sql-server
+   (per-project or shared), which adds an operational dependency we
+   currently don't have. Worth considering if/when other server-mode
+   benefits accumulate.
+
+3. **Stay on filesystem inspection but minimise drift.** Document bd's
+   expected metadata schema in code comments, write a regression test
+   per known-required field (``dolt_database``, ``issue_prefix``), and
+   add new fields as we encounter them. This is what we have now; the
+   defensive wipe in ``_clear_invalid_bd_state`` is generous enough
+   that recovery is reliable even when our probe is wrong.
+
+Realistically, the maverick bug rate from contract drift is one
+incident per ~6 months — not a frequent enough failure mode to
+justify the operational cost of (1) or (2). (3) is what we're doing
+and what the code reflects after the 2026-04-28 fixes.
+
+If a third drift incident materialises, revisit (1) or (2). Until
+then, this stays "Reframed" — the original proposal isn't viable, and
+the current filesystem-inspection approach is the pragmatic
+alternative.
 
 Relevant code:
 
