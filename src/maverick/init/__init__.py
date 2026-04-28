@@ -110,87 +110,89 @@ def _is_valid_dolt_db_name(name: str) -> bool:
 
 
 def _clear_invalid_bd_state(project_path: Path) -> None:
-    """Reset stale bd state when metadata is corrupt or absent.
+    """Reset stale bd state when the project is in a half-init condition.
 
-    Three failure modes have to be handled:
+    Half-init = ``.beads/`` contains state but bd considers it incomplete.
+    Empirically observed forms (each one a separate field bug we shipped):
 
-    1. Older bd versions wrote ``dolt_database`` values that the current Dolt
-       engine refuses to open (typically because of hyphens carried over from
-       the repository directory name). bd init then silently keeps the bad
-       name even when given a fresh ``--prefix``.
-    2. A previous ``bd init`` attempt may have aborted mid-clone, leaving a
-       partial ``embeddeddolt/`` directory that the next bd command rejects
+    1. Older bd versions wrote ``dolt_database`` values the current Dolt
+       engine refuses to open (typically hyphens). ``bd init`` then keeps
+       the bad name even with a fresh ``--prefix``.
+    2. A previous ``bd init`` aborted mid-clone, leaving a partial
+       ``embeddeddolt/`` directory. ``bd init`` rejects the next attempt
        with "database exists".
-    3. ``metadata.json`` exists with a valid ``dolt_database`` but is missing
-       ``issue_prefix``. ``bd create`` then fails with
-       ``database not initialized: issue_prefix config is missing``, and
-       ``bd init`` refuses to re-init because ``embeddeddolt/`` exists. The
-       only way out is to wipe the half-state and start fresh — there's no
-       data to preserve, since bd needs ``issue_prefix`` to create issues.
+    3. ``metadata.json`` valid but missing ``issue_prefix``. ``bd create``
+       fails with "issue_prefix config is missing".
+    4. ``dolt/`` (server mode) or ``embeddeddolt/`` exists with NO
+       ``metadata.json`` at all — half-init from a previous server-mode
+       attempt that never finished. ``config.yaml`` typically still has
+       ``sync.remote`` set, causing the next ``bd init`` to try cloning
+       Dolt from a non-Dolt git remote and fail with "remote at that url
+       contains no Dolt data".
 
-    Routes:
+    The trigger is "directory present, metadata missing/invalid" — both
+    conditions matter, and the previous version of this code only fired
+    on (2) + (3) (metadata-present-and-invalid). Form (4) survived
+    unscathed and kept biting users.
 
-    - **Valid metadata, no action**: a healthy ``.beads/`` is left intact so
-      :meth:`BeadClient.init_or_bootstrap` can take the SKIP branch.
-    - **Invalid metadata** (any of the three failure modes): drop
-      ``metadata.json`` *and* wipe the embedded Dolt store; the next
-      lifecycle call re-creates them cleanly.
-    - **No metadata**: leave the directory alone unless server-mode artifacts
-      are present from a half-shut-down previous run; those are always safe
-      to remove.
+    bd uses ``config.yaml`` (not ``.json``) for project config, so the
+    wipe targets both extensions defensively.
+
+    Files / dirs we deliberately preserve:
+        * ``hooks/`` — bd-installed git hooks; project-level config.
+        * ``.gitignore`` / ``AGENTS.md`` / ``README.md`` — documentation.
     """
     beads_dir = project_path / ".beads"
-    metadata_path = beads_dir / "metadata.json"
+    if not beads_dir.is_dir():
+        return
 
-    metadata_invalid = False
-    if metadata_path.is_file():
+    metadata_path = beads_dir / "metadata.json"
+    embedded_dir = beads_dir / "embeddeddolt"
+    server_dir = beads_dir / "dolt"
+    has_dolt_dir = embedded_dir.is_dir() or server_dir.is_dir()
+
+    # Triage the metadata. ``state_invalid`` collapses the four forms
+    # above into one "this needs to be wiped" decision.
+    state_invalid = False
+    if has_dolt_dir and not metadata_path.is_file():
+        # Form (4): dolt directory present but metadata gone. Half-init.
+        state_invalid = True
+    elif metadata_path.is_file():
         try:
             metadata = json.loads(metadata_path.read_text())
         except (OSError, ValueError):
             metadata = None
         if not isinstance(metadata, dict):
-            metadata_invalid = True
+            state_invalid = True
         else:
             db_name = metadata.get("dolt_database")
             issue_prefix = metadata.get("issue_prefix")
             if not (isinstance(db_name, str) and _is_valid_dolt_db_name(db_name)):
-                metadata_invalid = True
+                state_invalid = True
             elif not (isinstance(issue_prefix, str) and issue_prefix.strip()):
-                # bd's ``bd create`` requires issue_prefix; without it the
-                # database is unusable. Treat as invalid so we wipe and
-                # re-init from scratch.
-                metadata_invalid = True
-        if metadata_invalid:
+                # bd's ``bd create`` requires issue_prefix; without it
+                # the database is unusable.
+                state_invalid = True
+        if state_invalid:
             try:
                 metadata_path.unlink()
             except OSError:
                 pass
 
-    # Only wipe Dolt directories when we have evidence of corruption.
-    # Otherwise a healthy local DB looks "initialized" to the state probe
-    # and the SKIP branch can avoid an unnecessary lifecycle call.
-    #
-    # When metadata is invalid we wipe ALL bd-managed state in
-    # ``.beads/`` — not just the Dolt directories. Half-init states
-    # also leave behind ``config.json`` (with stale ``sync.remote``
-    # entries that point at non-Dolt git remotes), legacy
-    # ``issues.jsonl`` exports, and ``backup/`` directories. Any one of
-    # these can cause the next ``bd init`` / ``bd bootstrap`` to take a
-    # wrong branch and re-fail. Since bd needs ``issue_prefix`` to
-    # create issues, an invalid-metadata state has produced no real
-    # data — wiping is safe.
-    #
-    # Files / dirs we deliberately preserve:
-    #   * ``hooks/`` — bd-installed git hooks; project-level config,
-    #     not state.
-    #   * ``.gitignore`` / ``AGENTS.md`` — project-level documentation.
-    #   * Anything starting with a dot (user dotfiles).
-    if metadata_invalid:
+    # Wipe ALL bd-managed state when invalid. ``config.yaml`` is the
+    # source of the persistent ``sync.remote`` issue — bd reads it on
+    # every init and tries to sync, even after we wipe ``embeddeddolt/``
+    # / ``dolt/``. Wiping config.yaml + interactions.jsonl + backup/ +
+    # the legacy config.json + issues.jsonl ensures bd starts from a
+    # truly clean slate.
+    if state_invalid:
         bd_managed_state = (
             "embeddeddolt",
             "dolt",
+            "config.yaml",
             "config.json",
             "issues.jsonl",
+            "interactions.jsonl",
             "backup",
         )
         for name in bd_managed_state:

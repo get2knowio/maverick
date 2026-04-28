@@ -247,6 +247,84 @@ def test_clear_invalid_bd_state_wipes_issues_jsonl_on_invalid_metadata(
     assert not (beads / "issues.jsonl").exists()
 
 
+def test_clear_invalid_bd_state_wipes_dolt_dir_with_no_metadata(
+    tmp_path: Path,
+) -> None:
+    """Server-mode ``dolt/`` directory present with no ``metadata.json``
+    is a half-init from a previous failed attempt — must trigger the
+    full wipe so the next ``bd init`` starts clean. Was the
+    actually-encountered failure mode that survived earlier rounds of
+    cleanup tightening (the previous trigger required metadata to
+    EXIST and be invalid; a missing metadata file was a no-op)."""
+    beads = tmp_path / ".beads"
+    beads.mkdir()
+    server_dir = beads / "dolt"
+    server_dir.mkdir()
+    (server_dir / "data").write_text("stale")
+    (beads / "config.yaml").write_text(
+        "sync:\n  remote: git+https://github.com/x/y.git\n"
+    )
+    (beads / "interactions.jsonl").write_text("")
+
+    _clear_invalid_bd_state(tmp_path)
+
+    assert not server_dir.exists()
+    assert not (beads / "config.yaml").exists()
+    assert not (beads / "interactions.jsonl").exists()
+
+
+def test_clear_invalid_bd_state_wipes_embeddeddolt_with_no_metadata(
+    tmp_path: Path,
+) -> None:
+    """Same trigger but for embedded-mode (``embeddeddolt/``)."""
+    beads = tmp_path / ".beads"
+    beads.mkdir()
+    (beads / "embeddeddolt").mkdir()
+    (beads / "config.yaml").write_text("sync:\n  remote: x\n")
+
+    _clear_invalid_bd_state(tmp_path)
+
+    assert not (beads / "embeddeddolt").exists()
+    assert not (beads / "config.yaml").exists()
+
+
+def test_clear_invalid_bd_state_wipes_config_yaml(tmp_path: Path) -> None:
+    """bd uses ``config.yaml`` (not ``.json``) for project config, and
+    that's where ``sync.remote`` lives. Wiping ``config.json`` alone
+    leaves ``sync.remote`` in place and bd's next init still tries to
+    clone from a non-Dolt git remote."""
+    beads = tmp_path / ".beads"
+    beads.mkdir()
+    (beads / "metadata.json").write_text(
+        json.dumps({"dolt_database": "myproj"})  # invalid: missing issue_prefix
+    )
+    (beads / "config.yaml").write_text(
+        "sync:\n  remote: git+https://github.com/x/y.git\n"
+    )
+    (beads / "embeddeddolt").mkdir()
+
+    _clear_invalid_bd_state(tmp_path)
+
+    assert not (beads / "config.yaml").exists()
+
+
+def test_clear_invalid_bd_state_no_op_when_no_dolt_dir(tmp_path: Path) -> None:
+    """A ``.beads/`` with only ``hooks/`` and ``README.md`` — and no
+    actual database directory — is not a half-init; it's just a project
+    that has bd hooks installed but no DB yet. Must not wipe anything."""
+    beads = tmp_path / ".beads"
+    beads.mkdir()
+    hooks = beads / "hooks"
+    hooks.mkdir()
+    (hooks / "pre-commit").write_text("#!/bin/sh\n")
+    (beads / "README.md").write_text("docs")
+
+    _clear_invalid_bd_state(tmp_path)
+
+    assert hooks.is_dir()
+    assert (beads / "README.md").is_file()
+
+
 def test_clear_invalid_bd_state_preserves_hooks_dir(tmp_path: Path) -> None:
     """``hooks/`` is project-level git-hook config, not bd state. The
     cleanup must not touch it even when wiping for a fresh init."""
