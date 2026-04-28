@@ -42,6 +42,7 @@ It reconciles those documents against the current codebase as of 2026-04-19 and 
 | Step-level evals and prompt testing | Active | Still missing. |
 | Idempotent `maverick init` | Implemented | Re-running on a project with an existing `maverick.yaml` now succeeds, re-runs only the idempotent steps (prereqs, beads, runway), and leaves config untouched. `--force` still regenerates. |
 | Defer bd-state inference to bd itself | Reframed | Investigated 2026-04-28: `bd doctor` doesn't support embedded mode (which is what maverick uses), and other read-only bd commands don't catch half-init either. Filesystem inspection stays as the pragmatic approach — see §4.5 for findings. |
+| Reduce MCP tool-call reliability as a hard dependency | Active | Tool calls are model-dependent (claude/opus reliable; haiku ~70%; gemini ~0% on detail). Three paths: JSON-in-text fallback, `response_format` for capable providers, per-tier capability docs at preflight. See §4.6. |
 | Route tool calls through owning actor | Active | MCP inbox still bypasses the owning actor and talks straight to the supervisor. |
 | Structured telemetry via OpenTelemetry GenAI conventions | Active | No OTel or OpenLLMetry integration yet. |
 | Shared mailbox actor scaffold | Active | New opportunity observed in current code. |
@@ -1221,6 +1222,135 @@ Relevant code:
   (``is_initialized``, lifecycle ops)
 - [src/maverick/init/__init__.py](src/maverick/init/__init__.py)
   (``_clear_invalid_bd_state``)
+
+### 4.6 Reduce MCP Tool-Call Reliability As A Hard Dependency
+
+**Status:** Active — three sub-items, ordered by ROI.
+
+Maverick's mailbox-actor protocol requires every agentic actor (briefing,
+decomposer, implementer, reviewer, generator) to deliver structured
+output via an MCP tool call (``submit_details``, ``submit_review``, etc.).
+Schema-validated payloads from Pydantic are a real win, but tool-call
+reliability is model-dependent:
+
+| Tier model | Observed tool-call hit rate |
+|---|---|
+| claude/opus, claude/sonnet | ~100% |
+| copilot/gpt-5.4, gpt-5.3-codex, gpt-5-mini | ~100% |
+| claude/haiku | ~70% (one-in-three turns misses) |
+| gemini/gemini-3.1-pro-preview | ~0% on detail prompts |
+| openrouter/*:free | varies; documented unreliable in project memory |
+
+This forces users to choose between two bad options: pay frontier
+prices on every tier, or accept escalation churn. The
+2026-04-27 / 2026-04-28 sessions hit this repeatedly — escalation
+recovers most cases but burns ~4 LLM turns per failure (prompt + nudge,
+then prompt + nudge at the higher tier).
+
+The architectural alternative — replace the supervisor with an LLM
+agent and switch to agent-to-agent natural language — multiplies the
+failure modes (LLM in supervisor inherits all the same problems) and
+loses Pydantic validation. We should not go there.
+
+The structural fix is narrower: make MCP tool calling optional, not
+required, while keeping schema validation.
+
+#### 4.6.1 JSON-In-Text Fallback For Tool-Call Misses
+
+When the agent's turn ends without firing the expected MCP tool, scan
+its text response for a fenced JSON code block matching the expected
+schema. If found, treat it as if the tool was called. This is a
+documented Anthropic pattern ("implicit tool use"); many models that
+miss tool calls produce the JSON inline.
+
+Implementation sketch:
+
+- Add ``parse_json_fallback(response_text, expected_schema)`` to the
+  agentic-actor mixin. Tries ``json.loads`` on every fenced code block,
+  validates against the expected Pydantic model, returns the parsed
+  payload or None.
+- In ``_run_with_self_nudge``: when the nudge turn also fails to
+  deliver, try the fallback before reporting failure. If it succeeds,
+  invoke the same supervisor handler the MCP tool would have hit.
+- Single config knob: ``mailbox.json_fallback`` (default ``True``).
+
+Expected impact: cuts haiku miss rate from ~30% to <5%, makes free
+OpenRouter models usable on tiers that don't strictly require
+tool-calling capability.
+
+Cost: ~30 lines at the actor boundary, plus tests for "model produces
+JSON in markdown" / "model produces JSON in plain text" / "model
+produces neither" outcomes.
+
+#### 4.6.2 ``response_format: json_schema`` For Providers That Support It
+
+Where the provider supports strict JSON-schema generation (OpenAI/copilot
+since 2024-08, Anthropic 2025+, increasingly Gemini), generation is
+schema-constrained — the model literally cannot emit malformed output.
+This bypasses tool-calling entirely while preserving structure.
+
+Implementation sketch:
+
+- Add ``StepConfig.use_response_format: bool | None`` (None = auto-detect
+  from provider capability).
+- When True, the agentic actor's prompt builder emits the schema as a
+  ``response_format`` field on the create-session call instead of
+  registering an MCP tool.
+- The supervisor's tool handler is replaced by a "parse final agent
+  message" handler that runs the same Pydantic validation.
+
+Tradeoff: provider coverage. Where ``response_format`` isn't supported
+(or isn't supported for a given model), fall back to the MCP path or
+the JSON-in-text fallback.
+
+Cost: bigger than 4.6.1 — touches the executor's session creation,
+prompt builders, and per-actor handler logic. Maybe 1 day of work
+plus careful provider-by-provider testing.
+
+#### 4.6.3 Per-Tier Capability Documentation
+
+Add a ``required_capabilities`` field to tier configs:
+
+```yaml
+actors:
+  fly:
+    implementer:
+      tiers:
+        moderate:
+          provider: copilot
+          model_id: gpt-5-mini
+          required_capabilities: [tool_calls]    # or [structured_output]
+```
+
+When a user configures a tier whose provider/model doesn't support the
+required capability, the preflight rejects fast with a clear message:
+"moderate tier configured with claude/haiku but the implement step
+requires reliable tool calls; haiku has documented misses around
+30%. Consider claude/sonnet or copilot/gpt-5.4."
+
+Implementation sketch:
+
+- Maintain a ``KNOWN_TOOL_CALL_RELIABILITY`` table in
+  ``maverick.executor.provider_registry`` keyed by ``(provider, model_prefix)``,
+  values like ``"reliable"`` / ``"weak"`` / ``"unreliable"``.
+- ``verify_bd_ready`` (or a sibling ``verify_tier_capabilities``)
+  walks the user's tier config, looks up each tier's reliability, and
+  warns/errors on weak/unreliable matches.
+- Document expected capabilities per actor type in code comments.
+
+This is the smallest of the three but probably the highest immediate
+ROI — it stops the "configured haiku, got 30% misses, didn't know why"
+class of bug at preflight, before any expensive work runs. Cost: ~50
+lines + the reliability table that we maintain by hand based on
+observed runs.
+
+#### Sequencing
+
+Land 4.6.1 first (cheapest, highest fix-rate impact). Then 4.6.3 (cheap,
+prevents misconfiguration). 4.6.2 is the biggest piece and should wait
+until we have evidence that the first two aren't enough — likely we'll
+find that 4.6.1 + 4.6.3 + the existing escalation already cover ~95%
+of the pain.
 
 ## 5. Reusable Workflow Building Blocks
 
