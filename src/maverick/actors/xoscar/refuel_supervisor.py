@@ -1339,20 +1339,39 @@ class RefuelSupervisor(xo.Actor):
 
     @xo.no_lock
     async def fix_ready(self, payload: SubmitFixPayload) -> None:
+        # The fix payload is a DELTA — only units the fixer changed.
+        # MUST merge into existing state; replacing wholesale drops the
+        # 41 untouched units and the validator then sees a 1-unit
+        # decomposition with dangling dependencies. This was an
+        # observed-in-the-wild bug: a fix targeting one missing
+        # ``trace_ref`` reduced a 42-unit run to 4 created beads.
         if payload.work_units:
-            self._outline = SubmitOutlinePayload(work_units=payload.work_units)
-            # Persist the fixed outline so a re-run picks up the
+            if self._outline is None:
+                self._outline = SubmitOutlinePayload(work_units=payload.work_units)
+            else:
+                merged_units = {wu.id: wu for wu in self._outline.work_units}
+                for fixed_wu in payload.work_units:
+                    merged_units[fixed_wu.id] = fixed_wu
+                self._outline = SubmitOutlinePayload(
+                    work_units=tuple(merged_units.values())
+                )
+            # Persist the merged outline so a re-run picks up the
             # corrections instead of re-loading the pre-fix version
             # and burning through the fix loop again.
             self._cache_outline()
         if payload.details:
-            self._details = SubmitDetailsPayload(details=payload.details)
-            self._accumulated_details = list(payload.details)
+            merged_details = {d.id: d for d in self._accumulated_details}
+            for fixed_d in payload.details:
+                merged_details[fixed_d.id] = fixed_d
+            self._accumulated_details = list(merged_details.values())
+            self._details = SubmitDetailsPayload(
+                details=tuple(self._accumulated_details)
+            )
             # Persist each fixed detail per-unit so a re-run resumes at
             # the post-fix state. The cache writer overwrites the
-            # existing JSON, so units the fix didn't touch are
-            # unaffected and fixed units pick up their new
-            # acceptance_criteria / verification / etc.
+            # existing JSON, so units the fix didn't touch keep their
+            # existing cache entries; only the fixed ones get
+            # rewritten.
             for detail in payload.details:
                 self._cache_detail(detail.id, detail)
         self._awaiting_fix = False
@@ -1588,6 +1607,24 @@ class RefuelSupervisor(xo.Actor):
 
     async def t_peek_detail_quota_errors(self) -> dict[str, str]:
         return dict(self._detail_quota_errors)
+
+    async def t_peek_outline_and_details(self) -> dict[str, Any]:
+        """Test snapshot of merged outline + details — used to verify the
+        fix-merge semantics. Plain dicts so the result crosses the actor
+        boundary cleanly."""
+        return {
+            "outline_ids": [wu.id for wu in self._outline.work_units]
+            if self._outline
+            else [],
+            "outline_tasks": {
+                wu.id: wu.task
+                for wu in (self._outline.work_units if self._outline else ())
+            },
+            "detail_ids": [d.id for d in self._accumulated_details],
+            "detail_instructions": {
+                d.id: d.instructions for d in self._accumulated_details
+            },
+        }
 
     @staticmethod
     def _format_provider_label(config: Any) -> str:

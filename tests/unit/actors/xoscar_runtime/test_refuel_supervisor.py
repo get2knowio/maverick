@@ -408,6 +408,143 @@ async def test_fix_ready_writes_outline_and_details_to_cache(
         await xo.destroy_actor(sup)
 
 
+@pytest.mark.asyncio
+async def test_fix_ready_merges_partial_payload_with_existing_state(
+    pool_address: str, tmp_path: Path
+) -> None:
+    """The fix payload is a DELTA — only units the fixer changed.
+    fix_ready MUST merge into existing outline + accumulated_details;
+    replacing wholesale drops the untouched units and the validator
+    sees a 1-unit decomposition with dangling deps. This was an
+    observed-in-the-wild bug where a 42-unit run with a missing
+    trace_ref produced 4 created beads after the fix overwrote 41
+    untouched units."""
+    from maverick.tools.agent_inbox.models import (
+        AcceptanceCriterionPayload,
+        SubmitDetailsPayload,
+        SubmitFixPayload,
+        SubmitOutlinePayload,
+        WorkUnitDetailPayload,
+        WorkUnitOutlinePayload,
+    )
+
+    sup = await xo.create_actor(
+        RefuelSupervisor,
+        RefuelInputs(
+            cwd=str(tmp_path),
+            flight_plan=_flight_plan(),
+            initial_payload={"flight_plan_content": "plan"},
+            skip_briefing=True,
+        ),
+        address=pool_address,
+        uid="ref-sup-fix-merge",
+    )
+    try:
+        # Pre-seed outline + details with three units (simulating a
+        # full decompose that already completed).
+        await sup.outline_ready(
+            SubmitOutlinePayload(
+                work_units=(
+                    WorkUnitOutlinePayload(id="wu-a", task="A", sequence=1),
+                    WorkUnitOutlinePayload(id="wu-b", task="B", sequence=2),
+                    WorkUnitOutlinePayload(id="wu-c", task="C", sequence=3),
+                )
+            )
+        )
+        # Seed each unit's detail.
+        for uid in ("wu-a", "wu-b", "wu-c"):
+            await sup.t_seed_detail_state([uid])  # marks as pending
+            await sup.detail_ready(
+                SubmitDetailsPayload(
+                    details=(
+                        WorkUnitDetailPayload(
+                            id=uid,
+                            instructions=f"original {uid}",
+                            acceptance_criteria=(
+                                AcceptanceCriterionPayload(
+                                    text="t", trace_ref="SC-001"
+                                ),
+                            ),
+                            verification=("npm test",),
+                        ),
+                    )
+                )
+            )
+        # Drain events so the next assertions see only fix-related output.
+        await sup.t_drain_events()
+
+        # Fix payload addresses ONLY wu-b.
+        await sup.fix_ready(
+            SubmitFixPayload(
+                work_units=(
+                    WorkUnitOutlinePayload(
+                        id="wu-b", task="B (fixed)", sequence=2
+                    ),
+                ),
+                details=(
+                    WorkUnitDetailPayload(
+                        id="wu-b",
+                        instructions="updated by fix",
+                        acceptance_criteria=(
+                            AcceptanceCriterionPayload(
+                                text="t", trace_ref="SC-002"
+                            ),
+                        ),
+                        verification=("npm test",),
+                    ),
+                ),
+            )
+        )
+
+        # Probe state via t_ helper.
+        async def _peek_state(s: RefuelSupervisor) -> dict[str, Any]:
+            return {
+                "outline_ids": [wu.id for wu in s._outline.work_units]
+                if s._outline
+                else [],
+                "outline_tasks": {
+                    wu.id: wu.task for wu in (s._outline.work_units if s._outline else ())
+                },
+                "detail_ids": [d.id for d in s._accumulated_details],
+                "detail_instructions": {
+                    d.id: d.instructions for d in s._accumulated_details
+                },
+            }
+
+        # Use a small inline t_ method on the actor to peek state.
+        # Since the supervisor doesn't have one for this purpose,
+        # check via the existing t_drain_events / outline_payload by
+        # serialising to dict.
+        outline_dict = await sup.t_peek_outline_and_details()
+        assert sorted(outline_dict["outline_ids"]) == ["wu-a", "wu-b", "wu-c"], (
+            "outline must keep all 3 units after fix; got "
+            f"{outline_dict['outline_ids']}"
+        )
+        assert outline_dict["outline_tasks"]["wu-b"] == "B (fixed)"
+        assert outline_dict["outline_tasks"]["wu-a"] == "A"  # preserved
+
+        assert sorted(outline_dict["detail_ids"]) == [
+            "wu-a",
+            "wu-b",
+            "wu-c",
+        ], (
+            "accumulated_details must keep all 3 units after fix; got "
+            f"{outline_dict['detail_ids']}"
+        )
+        assert (
+            outline_dict["detail_instructions"]["wu-b"] == "updated by fix"
+        )
+        # Untouched units retain their original instructions.
+        assert (
+            outline_dict["detail_instructions"]["wu-a"] == "original wu-a"
+        )
+        assert (
+            outline_dict["detail_instructions"]["wu-c"] == "original wu-c"
+        )
+    finally:
+        await xo.destroy_actor(sup)
+
+
 def test_seed_cached_details_no_op_when_no_cache() -> None:
     """Empty cache → no-op, returns empty set, accumulator unchanged."""
     from types import SimpleNamespace
