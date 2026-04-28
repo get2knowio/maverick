@@ -369,6 +369,96 @@ async def _maybe_init_runway(project_path: Path, verbose: bool) -> bool:
 
 
 # =============================================================================
+# .gitignore maintenance (best-effort)
+# =============================================================================
+
+
+#: Lines we ensure are present in ``.gitignore``. Keep this list tightly
+#: scoped to maverick's own ephemeral output — language/tool-specific
+#: ignores (``node_modules/``, ``dist/``, ``__pycache__``) belong in the
+#: project's existing ignore strategy, not in maverick's defaults.
+_MAVERICK_GITIGNORE_ENTRIES: tuple[str, ...] = (".maverick/runs/",)
+
+#: Patterns that already cover an entry — used to avoid duplicating
+#: the line when a broader pattern like ``.maverick/`` is present.
+_MAVERICK_GITIGNORE_COVERED_BY: dict[str, tuple[str, ...]] = {
+    ".maverick/runs/": (
+        ".maverick/runs",
+        ".maverick/runs/",
+        ".maverick/",
+        ".maverick",
+        ".maverick/*",
+        ".maverick/**",
+    ),
+}
+
+
+async def _ensure_gitignore_entries(project_path: Path, verbose: bool) -> bool:
+    """Make sure ``.gitignore`` ignores maverick's ephemeral output.
+
+    Currently appends ``.maverick/runs/`` if no equivalent pattern is
+    already present. Idempotent — safe to re-run on every init.
+
+    Best-effort: failures are logged but never raised. The user can
+    always edit ``.gitignore`` themselves.
+
+    Args:
+        project_path: Project root directory.
+        verbose: Whether to log progress.
+
+    Returns:
+        True when ``.gitignore`` ended up containing every entry we
+        wanted (whether we added anything or not). False if writing
+        failed.
+    """
+    try:
+        gitignore_path = project_path / ".gitignore"
+        existing_text = (
+            gitignore_path.read_text(encoding="utf-8") if gitignore_path.exists() else ""
+        )
+        existing_lines = {line.strip() for line in existing_text.splitlines()}
+
+        to_append: list[str] = []
+        for entry in _MAVERICK_GITIGNORE_ENTRIES:
+            covered_by = _MAVERICK_GITIGNORE_COVERED_BY.get(entry, (entry,))
+            if any(pattern in existing_lines for pattern in covered_by):
+                continue
+            to_append.append(entry)
+
+        if not to_append:
+            if verbose:
+                logger.debug(
+                    "gitignore_already_has_maverick_entries",
+                    path=str(gitignore_path),
+                )
+            return True
+
+        # Preserve trailing-newline hygiene: add one if the existing
+        # file doesn't end in one.
+        prefix = ""
+        if existing_text and not existing_text.endswith("\n"):
+            prefix = "\n"
+
+        block = prefix + "\n".join(
+            ["# maverick", *to_append],
+        ) + "\n"
+
+        with gitignore_path.open("a", encoding="utf-8") as fp:
+            fp.write(block)
+
+        if verbose:
+            logger.info(
+                "gitignore_updated",
+                path=str(gitignore_path),
+                added=to_append,
+            )
+        return True
+    except Exception as exc:
+        logger.debug("gitignore_update_error", error=str(exc))
+        return False
+
+
+# =============================================================================
 # Provider Discovery (best-effort)
 # =============================================================================
 
@@ -522,6 +612,7 @@ async def run_init(
             )
         beads_initialized = await _init_beads(effective_path, verbose)
         runway_initialized = await _maybe_init_runway(effective_path, verbose)
+        await _ensure_gitignore_entries(effective_path, verbose)
         return InitResult(
             success=True,
             config_path=str(config_path),
@@ -611,6 +702,10 @@ async def run_init(
 
     # Step 7: Initialize runway (best-effort)
     runway_initialized = await _maybe_init_runway(effective_path, verbose)
+
+    # Step 8: Make sure .gitignore covers maverick's ephemeral output
+    # (best-effort — never blocks init).
+    await _ensure_gitignore_entries(effective_path, verbose)
 
     # Build and return result
     return InitResult(
