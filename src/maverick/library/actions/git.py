@@ -140,48 +140,34 @@ async def git_has_changes(
         :class:`GitStatusResult` with staged/unstaged/untracked/any flags.
     """
     resolved = _resolve_cwd(cwd)
+
+    async def _name_only(*args: str) -> tuple[str, ...]:
+        proc = await asyncio.create_subprocess_exec(
+            "git",
+            *args,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=resolved,
+            start_new_session=True,
+        )
+        out, _ = await proc.communicate()
+        return tuple(line for line in out.decode().splitlines() if line.strip())
+
     try:
-        # Check for staged changes
-        proc = await asyncio.create_subprocess_exec(
-            "git",
-            "diff",
-            "--cached",
-            "--quiet",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            cwd=resolved,
-            start_new_session=True,
-        )
-        await proc.wait()
-        has_staged = proc.returncode != 0
-
-        # Check for unstaged changes
-        proc = await asyncio.create_subprocess_exec(
-            "git",
-            "diff",
-            "--quiet",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            cwd=resolved,
-            start_new_session=True,
-        )
-        await proc.wait()
-        has_unstaged = proc.returncode != 0
-
-        # Check for untracked files
-        proc = await asyncio.create_subprocess_exec(
-            "git",
+        # Capture filenames in one pass per category — we need them for
+        # error messages anyway, so the older two-step "quiet" probes
+        # are redundant. Empty tuple == no changes.
+        staged_files = await _name_only("diff", "--cached", "--name-only")
+        unstaged_files = await _name_only("diff", "--name-only")
+        untracked_files = await _name_only(
             "ls-files",
             "--others",
             "--exclude-standard",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            cwd=resolved,
-            start_new_session=True,
         )
-        stdout, _ = await proc.communicate()
-        has_untracked = bool(stdout.decode().strip())
 
+        has_staged = bool(staged_files)
+        has_unstaged = bool(unstaged_files)
+        has_untracked = bool(untracked_files)
         has_any = has_staged or has_unstaged or has_untracked
 
         logger.debug(
@@ -197,6 +183,9 @@ async def git_has_changes(
             has_unstaged=has_unstaged,
             has_untracked=has_untracked,
             has_any=has_any,
+            staged_files=staged_files,
+            unstaged_files=unstaged_files,
+            untracked_files=untracked_files,
         )
 
     except (RuntimeError, OSError) as e:

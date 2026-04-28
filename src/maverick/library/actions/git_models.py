@@ -12,12 +12,21 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class GitStatusResult:
-    """Staged/unstaged/untracked change detection."""
+    """Staged/unstaged/untracked change detection.
+
+    The ``*_files`` tuples carry the actual paths so callers can show
+    the user *which* files are dirty (the boolean flags only answer
+    "are any?"). They default to ``()`` for backward compatibility with
+    callers that only set the booleans.
+    """
 
     has_staged: bool
     has_unstaged: bool
     has_untracked: bool
     has_any: bool
+    staged_files: tuple[str, ...] = ()
+    unstaged_files: tuple[str, ...] = ()
+    untracked_files: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)

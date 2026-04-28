@@ -9,6 +9,7 @@ from typing import Any
 
 from maverick.exceptions import WorkflowError
 from maverick.library.actions.git import git_has_changes, snapshot_uncommitted_changes
+from maverick.library.actions.git_models import GitStatusResult
 from maverick.library.actions.preflight import run_preflight_checks
 from maverick.library.actions.validation import run_independent_gate
 from maverick.library.actions.workspace import create_fly_workspace
@@ -26,6 +27,34 @@ from maverick.workflows.fly_beads.models import FlyBeadsResult
 from maverick.workspace.manager import WorkspaceManager
 
 logger = get_logger(__name__)
+
+_DIRTY_FILE_LIST_LIMIT = 20
+
+
+def _format_dirty_file_summary(status: GitStatusResult) -> str:
+    """Render a short, human-readable list of uncommitted paths.
+
+    Caps each category at ``_DIRTY_FILE_LIST_LIMIT`` so a repo with
+    thousands of untracked build artifacts doesn't drown the error
+    message. The user can always run ``git status`` for the full list.
+    """
+
+    def _section(label: str, paths: tuple[str, ...]) -> list[str]:
+        if not paths:
+            return []
+        head = list(paths[:_DIRTY_FILE_LIST_LIMIT])
+        more = len(paths) - len(head)
+        lines = [f"  {label} ({len(paths)}):"]
+        lines.extend(f"    {p}" for p in head)
+        if more > 0:
+            lines.append(f"    ... and {more} more")
+        return lines
+
+    chunks: list[str] = []
+    chunks.extend(_section("Staged", status.staged_files))
+    chunks.extend(_section("Unstaged", status.unstaged_files))
+    chunks.extend(_section("Untracked", status.untracked_files))
+    return "\n".join(chunks) if chunks else "  (no files reported)"
 
 
 class FlyBeadsWorkflow(PythonWorkflow):
@@ -231,15 +260,17 @@ class FlyBeadsWorkflow(PythonWorkflow):
                             level="warning",
                         )
                 else:
+                    file_list = _format_dirty_file_summary(change_status)
                     await self.emit_step_failed(
                         SNAPSHOT_UNCOMMITTED,
                         "Uncommitted changes detected. Commit them first "
-                        "or re-run with --auto-commit.",
+                        "or re-run with --auto-commit.\n" + file_list,
                     )
                     raise WorkflowError(
                         "Uncommitted changes detected in the working directory. "
                         "The workspace clone will not include these changes. "
-                        "Please commit them first or re-run with --auto-commit.",
+                        "Please commit them first or re-run with --auto-commit.\n"
+                        + file_list,
                         workflow_name=WORKFLOW_NAME,
                     )
             else:

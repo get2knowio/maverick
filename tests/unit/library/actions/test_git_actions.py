@@ -533,10 +533,10 @@ class TestGitCheckAndStage:
         """Test detects changes and stages them in one call."""
         with patch("maverick.library.actions.git.asyncio.create_subprocess_exec") as mock_exec:
             mock_exec.side_effect = [
-                # git_has_changes: git diff --cached --quiet (has staged)
-                create_mock_process(1),
-                # git_has_changes: git diff --quiet (no unstaged)
-                create_mock_process(0),
+                # git_has_changes: git diff --cached --name-only (has staged)
+                create_mock_process(0, stdout="staged.py\n"),
+                # git_has_changes: git diff --name-only (no unstaged)
+                create_mock_process(0, stdout=""),
                 # git_has_changes: git ls-files --others (no untracked)
                 create_mock_process(0, stdout=""),
                 # git_stage_all: git add .
@@ -557,8 +557,8 @@ class TestGitCheckAndStage:
         """Test returns all expected status fields."""
         with patch("maverick.library.actions.git.asyncio.create_subprocess_exec") as mock_exec:
             mock_exec.side_effect = [
-                create_mock_process(0),  # no staged
-                create_mock_process(1),  # has unstaged
+                create_mock_process(0, stdout=""),  # no staged
+                create_mock_process(0, stdout="modified.py\n"),  # has unstaged
                 create_mock_process(0, stdout="new_file.py\n"),  # has untracked
                 create_mock_process(0),  # git add .
             ]
@@ -569,14 +569,16 @@ class TestGitCheckAndStage:
             assert result.has_unstaged is True
             assert result.has_untracked is True
             assert result.has_any is True
+            assert result.unstaged_files == ("modified.py",)
+            assert result.untracked_files == ("new_file.py",)
 
     @pytest.mark.asyncio
     async def test_skips_staging_when_no_changes(self) -> None:
         """Test skips staging when no changes detected."""
         with patch("maverick.library.actions.git.asyncio.create_subprocess_exec") as mock_exec:
             mock_exec.side_effect = [
-                create_mock_process(0),  # no staged
-                create_mock_process(0),  # no unstaged
+                create_mock_process(0, stdout=""),  # no staged
+                create_mock_process(0, stdout=""),  # no unstaged
                 create_mock_process(0, stdout=""),  # no untracked
                 # No git add . call expected
             ]
@@ -592,8 +594,8 @@ class TestGitCheckAndStage:
         """Test returns status even when staging fails."""
         with patch("maverick.library.actions.git.asyncio.create_subprocess_exec") as mock_exec:
             mock_exec.side_effect = [
-                create_mock_process(1),  # has staged
-                create_mock_process(0),  # no unstaged
+                create_mock_process(0, stdout="staged.py\n"),  # has staged
+                create_mock_process(0, stdout=""),  # no unstaged
                 create_mock_process(0, stdout=""),  # no untracked
                 create_mock_process(1, stderr="fatal: staging error"),  # git add . fails
             ]
