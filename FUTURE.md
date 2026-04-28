@@ -42,7 +42,7 @@ It reconciles those documents against the current codebase as of 2026-04-19 and 
 | Step-level evals and prompt testing | Active | Still missing. |
 | Idempotent `maverick init` | Implemented | Re-running on a project with an existing `maverick.yaml` now succeeds, re-runs only the idempotent steps (prereqs, beads, runway), and leaves config untouched. `--force` still regenerates. |
 | Defer bd-state inference to bd itself | Reframed | Investigated 2026-04-28: `bd doctor` doesn't support embedded mode (which is what maverick uses), and other read-only bd commands don't catch half-init either. Filesystem inspection stays as the pragmatic approach — see §4.5 for findings. |
-| Reduce MCP tool-call reliability as a hard dependency | Active | Tool calls are model-dependent (claude/opus reliable; haiku ~70%; gemini ~0% on detail). Three paths: JSON-in-text fallback, `response_format` for capable providers, per-tier capability docs at preflight. See §4.6. |
+| Reduce MCP tool-call reliability as a hard dependency | Partial | §4.6.1 (JSON-in-text fallback) implemented for decomposer outline / detail / fix. §4.6.2 (`response_format`) and §4.6.3 (capability docs) still open. See §4.6. |
 | Route tool calls through owning actor | Active | MCP inbox still bypasses the owning actor and talks straight to the supervisor. |
 | Structured telemetry via OpenTelemetry GenAI conventions | Active | No OTel or OpenLLMetry integration yet. |
 | Shared mailbox actor scaffold | Active | New opportunity observed in current code. |
@@ -1257,30 +1257,52 @@ required, while keeping schema validation.
 
 #### 4.6.1 JSON-In-Text Fallback For Tool-Call Misses
 
+**Status:** Implemented for the decomposer (outline / detail / fix paths).
+
 When the agent's turn ends without firing the expected MCP tool, scan
 its text response for a fenced JSON code block matching the expected
 schema. If found, treat it as if the tool was called. This is a
 documented Anthropic pattern ("implicit tool use"); many models that
 miss tool calls produce the JSON inline.
 
-Implementation sketch:
+As shipped:
 
-- Add ``parse_json_fallback(response_text, expected_schema)`` to the
-  agentic-actor mixin. Tries ``json.loads`` on every fenced code block,
-  validates against the expected Pydantic model, returns the parsed
-  payload or None.
-- In ``_run_with_self_nudge``: when the nudge turn also fails to
-  deliver, try the fallback before reporting failure. If it succeeds,
-  invoke the same supervisor handler the MCP tool would have hit.
-- Single config knob: ``mailbox.json_fallback`` (default ``True``).
+- Module-level helpers in
+  [src/maverick/actors/xoscar/_agentic.py](src/maverick/actors/xoscar/_agentic.py):
+  ``_extract_json_candidates`` finds fenced code blocks (``\`\`\`json``,
+  ``\`\`\``) plus the whole text as a final fallback;
+  ``try_parse_tool_payload_from_text`` runs each candidate through
+  ``parse_supervisor_tool_payload`` and returns the first match.
+- :meth:`AgenticActorMixin._run_with_self_nudge` accepts an optional
+  ``json_fallback`` callable. After both prompt and nudge fail to
+  deliver the tool, the mixin invokes the fallback with the most
+  recent response (then the first response as a secondary attempt).
+  On success, the actor marks the tool as delivered and returns
+  cleanly — equivalent to the tool firing.
+- :class:`DecomposerActor` wires the fallback for ``submit_details``
+  in ``send_detail`` (post-prompt path; the detail phase opts out of
+  self-nudge since the supervisor's per-unit retry handles missing
+  tools), and for ``submit_outline`` / ``submit_fix`` via
+  ``_run_with_self_nudge``'s new parameter.
+- 15 unit tests in
+  [tests/unit/actors/xoscar_runtime/test_json_fallback.py](tests/unit/actors/xoscar_runtime/test_json_fallback.py):
+  fenced-block extraction, plain-text extraction, multi-candidate
+  ordering, schema mismatches, malformed JSON, non-dict JSON, end-to-
+  end parse for ``submit_details`` / ``submit_outline`` /
+  ``submit_fix``.
 
-Expected impact: cuts haiku miss rate from ~30% to <5%, makes free
-OpenRouter models usable on tiers that don't strictly require
-tool-calling capability.
+Coverage observed against the failure cases that motivated this:
 
-Cost: ~30 lines at the actor boundary, plus tests for "model produces
-JSON in markdown" / "model produces JSON in plain text" / "model
-produces neither" outcomes.
+- claude/haiku ~30% miss rate → expected near-zero abandon rate
+  (haiku's misses include the JSON inline).
+- copilot/gpt-5.4 top-tier ~5% miss rate → recovered without needing
+  escalation budget.
+
+Still open: extending the same fallback to briefing actors,
+implementer/reviewer, and generator. Same mechanism — pass a
+``json_fallback`` callable to ``_run_with_self_nudge``. Worth doing
+once we have evidence the fallback is reliable in practice on the
+decomposer paths.
 
 #### 4.6.2 ``response_format: json_schema`` For Providers That Support It
 

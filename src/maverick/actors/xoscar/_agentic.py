@@ -22,6 +22,8 @@ returns the ``HttpMcpServer`` config that points the agent's MCP client at
 
 from __future__ import annotations
 
+import json
+import re
 from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any, ClassVar
 
@@ -33,6 +35,106 @@ from maverick.tools.agent_inbox.gateway import (
     AgentToolGateway,
     agent_tool_gateway_for,
 )
+
+# ---------------------------------------------------------------------------
+# JSON-in-text fallback for tool-call misses (FUTURE.md §4.6.1)
+# ---------------------------------------------------------------------------
+#
+# Some models miss the MCP tool call but DO write the structured payload
+# inline as JSON in their text response. Rather than abandon the unit /
+# escalate to a more capable tier, we try to parse the JSON from the
+# response and treat it as if the tool had fired.
+#
+# Coverage from observed failure modes:
+#   * claude/haiku    — ~30% miss rate; nearly all misses include a JSON
+#                       block in the response.
+#   * copilot/gpt-5.4 — ~5% miss rate at top tier; same pattern.
+#   * gemini          — ~100% miss on detail; less reliable JSON output
+#                       too, so the fallback recovers fewer (~50%).
+#
+# The fallback is opt-in per-actor: each call site decides whether to
+# attempt it. False positives (model writes JSON-shaped text that
+# happens to validate but isn't the answer) are unlikely because the
+# Pydantic validation requires every required field; we'd need a
+# coincidentally valid payload.
+
+# Match fenced code blocks: ``` or ```<lang> ... ```
+# Greedy-counter-greedy on the inside so blocks with embedded
+# triple-backticks don't terminate early.
+_FENCED_JSON_RE = re.compile(
+    r"```(?:json|JSON)?\s*\n?(.*?)\n?```",
+    re.DOTALL,
+)
+
+
+def _extract_json_candidates(text: str) -> list[str]:
+    """Return JSON-shaped strings from ``text``, ordered most-to-least likely.
+
+    Tries fenced code blocks first (``` or ```json), then falls back to the
+    whole text as a candidate if it parses as JSON. Empty / whitespace-only
+    text yields no candidates.
+
+    The returned strings are not validated as JSON here — callers run
+    ``json.loads`` and Pydantic on each in turn.
+    """
+    if not text or not text.strip():
+        return []
+    candidates: list[str] = []
+    for match in _FENCED_JSON_RE.finditer(text):
+        block = match.group(1).strip()
+        if block:
+            candidates.append(block)
+    # Try the whole text as a final fallback — some models emit JSON
+    # without fences. Don't add if it duplicates a fenced block.
+    stripped = text.strip()
+    if stripped and stripped not in candidates:
+        candidates.append(stripped)
+    return candidates
+
+
+def try_parse_tool_payload_from_text(
+    text: str,
+    tool_name: str,
+) -> Any | None:
+    """Try to recover a typed mailbox payload from agent text response.
+
+    Scans ``text`` for JSON candidates (fenced code blocks first, then
+    the whole response), parses each as JSON, and validates against the
+    schema for ``tool_name`` via
+    :func:`parse_supervisor_tool_payload`. Returns the first matching
+    typed payload, or ``None`` if no candidate validates.
+
+    Defensive: malformed JSON, schema mismatches, and validation errors
+    are all caught and logged at debug. Failures are silent because this
+    is a fallback path — the caller falls back to the existing
+    "abandon" / "escalate" behaviour if no payload is recovered.
+    """
+    if not text or not tool_name:
+        return None
+    from maverick.tools.agent_inbox.models import (
+        SupervisorToolPayloadError,
+        parse_supervisor_tool_payload,
+    )
+
+    for candidate in _extract_json_candidates(text):
+        try:
+            decoded = json.loads(candidate)
+        except (ValueError, TypeError):
+            continue
+        if not isinstance(decoded, dict):
+            continue
+        try:
+            payload = parse_supervisor_tool_payload(tool_name, decoded)
+        except (SupervisorToolPayloadError, ValueError) as exc:
+            logger.debug(
+                "agentic.json_fallback.schema_mismatch",
+                tool_name=tool_name,
+                error=str(exc)[:200],
+                candidate_preview=candidate[:120],
+            )
+            continue
+        return payload
+    return None
 
 if TYPE_CHECKING:
     pass
@@ -449,6 +551,7 @@ class AgenticActorMixin:
         run_nudge: Callable[[], Awaitable[None]],
         on_failure: Callable[[str], Awaitable[None]],
         log_prefix: str,
+        json_fallback: Callable[[str], Awaitable[bool]] | None = None,
     ) -> None:
         """Run a prompt that must end in a specific MCP tool call.
 
@@ -457,12 +560,22 @@ class AgenticActorMixin:
           and returns.
         * If the tool was delivered, returns successfully.
         * Otherwise awaits ``run_nudge`` once. Same exception handling.
+        * If still not delivered, calls ``json_fallback`` (when provided)
+          with the most recent response text. The fallback returns ``True``
+          if it successfully extracted a payload from JSON-in-text and
+          forwarded it to the supervisor — equivalent to the tool firing.
         * If still not delivered, calls ``on_failure(...)`` with a
           standardized message describing the two-turn exhaustion.
 
         ``log_prefix`` keys structured log events (e.g. ``"briefing"``
         emits ``briefing.tool_missing_nudging`` etc.) so each actor's
         traces stay distinguishable.
+
+        ``json_fallback`` is opt-in per call site. Pass a callable that
+        runs :func:`try_parse_tool_payload_from_text` against the
+        expected tool's schema, forwards the payload to the supervisor
+        on success, and returns the success bool. Recovers tool-call
+        misses where the model wrote the JSON inline.
         """
         self._reset_tool_tracking(expected_tool)
         # Clear stale captured text from a previous run so we don't surface
@@ -502,6 +615,36 @@ class AgenticActorMixin:
             return
 
         nudge_response = self._get_last_response()
+
+        # JSON-in-text fallback: when the agent missed the tool but
+        # wrote the JSON inline. Try the nudge response first (most
+        # recent / most likely correct after the explicit "you must
+        # call the tool" instruction), then the first response as a
+        # secondary fallback.
+        if json_fallback is not None:
+            for label, candidate in (
+                ("nudge", nudge_response),
+                ("first", first_response),
+            ):
+                if not candidate:
+                    continue
+                try:
+                    if await json_fallback(candidate):
+                        logger.info(
+                            f"{log_prefix}.tool_delivered_via_json_fallback",
+                            actor=actor_tag,
+                            expected_tool=expected_tool,
+                            source_turn=label,
+                        )
+                        self._mark_tool_delivered(expected_tool)
+                        return
+                except Exception as exc:  # noqa: BLE001 — fallback must not break the failure path
+                    logger.debug(
+                        f"{log_prefix}.json_fallback_errored",
+                        actor=actor_tag,
+                        error=str(exc)[:200],
+                    )
+
         logger.warning(
             f"{log_prefix}.tool_missing_after_nudge",
             actor=actor_tag,

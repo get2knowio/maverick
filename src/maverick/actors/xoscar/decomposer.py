@@ -177,17 +177,46 @@ class DecomposerActor(AgenticActorMixin, xo.Actor):
 
     async def send_detail(self, request: DetailRequest) -> None:
         """Send a detail prompt for one work unit. Result arrives via
-        on_tool_call.
+        on_tool_call (or, when the agent forgets to call the tool but
+        emits JSON inline, via the json-fallback path below).
 
         The detail phase already has a fan-out retry loop in the supervisor,
-        so missing-tool here is left to that path — no self-nudge.
+        so a missing tool that ALSO has no recoverable JSON falls through
+        to that path — no self-nudge.
         """
+        from maverick.actors.xoscar._agentic import (
+            try_parse_tool_payload_from_text,
+        )
+        from maverick.tools.agent_inbox.models import SubmitDetailsPayload
+
         unit_id = request.unit_ids[0] if request.unit_ids else None
+        # Reset delivery tracking so the post-prompt fallback can tell
+        # whether on_tool_call already forwarded a payload.
+        self._reset_tool_tracking("submit_details")
         await self._run_prompt(
             self._send_detail_prompt(request),
             phase="detail",
             unit_id=unit_id,
         )
+        if self._was_tool_delivered("submit_details"):
+            return
+        # Tool wasn't called. Try the json-in-text fallback before
+        # leaving the supervisor's per-unit retry / escalation paths to
+        # handle it. This recovers ~30% haiku misses and ~5% gpt-5.4
+        # misses observed in 2026-04-28 runs — the models that miss the
+        # tool call usually still write the JSON inline in their text
+        # response.
+        response_text = self._get_last_response()
+        payload = try_parse_tool_payload_from_text(response_text, "submit_details")
+        if isinstance(payload, SubmitDetailsPayload):
+            logger.info(
+                "decomposer.detail_recovered_from_json_fallback",
+                actor=self._actor_tag,
+                unit_id=unit_id,
+                detail_count=len(payload.details),
+            )
+            await self._supervisor_ref.detail_ready(payload)
+            self._mark_tool_delivered("submit_details")
 
     async def send_fix(self, request: FixRequest) -> None:
         """Send a fix prompt with updated coverage gaps / overloaded units.
@@ -231,11 +260,23 @@ class DecomposerActor(AgenticActorMixin, xo.Actor):
         :meth:`AgenticActorMixin._run_with_self_nudge` so the supervisor
         only sees a typed callback (success) or a ``PromptError`` (failure)
         — no post-hoc "did the tool fire" inspection across the boundary.
+        Outline / fix paths additionally pass a ``json_fallback`` so a
+        missed tool call with a JSON-in-text response still recovers
+        without needing the supervisor's escalation budget.
 
         When ``expected_tool`` is ``None`` (e.g., the detail phase, where
         the supervisor's per-unit fan-out retry covers missing tools),
-        we just translate exceptions into a ``PromptError``.
+        we just translate exceptions into a ``PromptError``. The detail
+        phase's own JSON fallback lives in :meth:`send_detail`.
         """
+        from maverick.actors.xoscar._agentic import (
+            try_parse_tool_payload_from_text,
+        )
+        from maverick.tools.agent_inbox.models import (
+            SubmitFixPayload,
+            SubmitOutlinePayload,
+        )
+
         logger.debug("decomposer.phase_starting", phase=phase, unit_id=unit_id)
 
         async def _failure(error_str: str) -> None:
@@ -263,12 +304,30 @@ class DecomposerActor(AgenticActorMixin, xo.Actor):
                 )
             )
 
+        async def _json_fallback(response_text: str) -> bool:
+            """Try to recover from a missed tool call by parsing JSON in
+            the agent's text response. Returns True iff a valid payload
+            was found and forwarded to the supervisor."""
+            payload = try_parse_tool_payload_from_text(response_text, expected_tool)
+            if payload is None:
+                return False
+            if expected_tool == "submit_outline" and isinstance(
+                payload, SubmitOutlinePayload
+            ):
+                await self._supervisor_ref.outline_ready(payload)
+                return True
+            if expected_tool == "submit_fix" and isinstance(payload, SubmitFixPayload):
+                await self._supervisor_ref.fix_ready(payload)
+                return True
+            return False
+
         await self._run_with_self_nudge(
             expected_tool=expected_tool,
             run_prompt=lambda: coro,
             run_nudge=_nudge,
             on_failure=_failure,
             log_prefix="decomposer",
+            json_fallback=_json_fallback,
         )
 
     async def _report_decomposer_failure(
