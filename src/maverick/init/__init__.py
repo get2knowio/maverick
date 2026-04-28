@@ -169,13 +169,39 @@ def _clear_invalid_bd_state(project_path: Path) -> None:
     # Only wipe Dolt directories when we have evidence of corruption.
     # Otherwise a healthy local DB looks "initialized" to the state probe
     # and the SKIP branch can avoid an unnecessary lifecycle call.
+    #
+    # When metadata is invalid we wipe ALL bd-managed state in
+    # ``.beads/`` — not just the Dolt directories. Half-init states
+    # also leave behind ``config.json`` (with stale ``sync.remote``
+    # entries that point at non-Dolt git remotes), legacy
+    # ``issues.jsonl`` exports, and ``backup/`` directories. Any one of
+    # these can cause the next ``bd init`` / ``bd bootstrap`` to take a
+    # wrong branch and re-fail. Since bd needs ``issue_prefix`` to
+    # create issues, an invalid-metadata state has produced no real
+    # data — wiping is safe.
+    #
+    # Files / dirs we deliberately preserve:
+    #   * ``hooks/`` — bd-installed git hooks; project-level config,
+    #     not state.
+    #   * ``.gitignore`` / ``AGENTS.md`` — project-level documentation.
+    #   * Anything starting with a dot (user dotfiles).
     if metadata_invalid:
-        embedded_dir = beads_dir / "embeddeddolt"
-        if embedded_dir.is_dir():
-            shutil.rmtree(embedded_dir, ignore_errors=True)
-        server_dir = beads_dir / "dolt"
-        if server_dir.is_dir():
-            shutil.rmtree(server_dir, ignore_errors=True)
+        bd_managed_state = (
+            "embeddeddolt",
+            "dolt",
+            "config.json",
+            "issues.jsonl",
+            "backup",
+        )
+        for name in bd_managed_state:
+            target = beads_dir / name
+            if target.is_dir():
+                shutil.rmtree(target, ignore_errors=True)
+            elif target.is_file():
+                try:
+                    target.unlink()
+                except OSError:
+                    pass
 
     # Server-mode lock/pid files from a previous run are always safe to
     # clear — they're transient state, never durable storage.

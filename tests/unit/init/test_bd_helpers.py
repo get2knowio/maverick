@@ -200,3 +200,66 @@ def test_clear_invalid_bd_state_wipes_when_issue_prefix_empty(
 
     assert not (beads / "metadata.json").exists()
     assert not embedded.exists()
+
+
+def test_clear_invalid_bd_state_wipes_config_json_on_invalid_metadata(
+    tmp_path: Path,
+) -> None:
+    """``config.json`` carries ``sync.remote`` from previous runs. When
+    metadata is invalid (half-init), the stale config can force the next
+    ``bd init`` to "sync from remote" — pointing at a non-Dolt git URL —
+    and fail with "remote at that url contains no Dolt data". The cleanup
+    must wipe config.json so the next init starts truly fresh."""
+    beads = tmp_path / ".beads"
+    beads.mkdir()
+    (beads / "metadata.json").write_text(
+        json.dumps({"dolt_database": "myproj"})  # invalid — no issue_prefix
+    )
+    (beads / "config.json").write_text(
+        json.dumps({"sync": {"remote": "git+https://github.com/x/y.git"}})
+    )
+    (beads / "embeddeddolt").mkdir()
+
+    _clear_invalid_bd_state(tmp_path)
+
+    assert not (beads / "config.json").exists()
+    assert not (beads / "metadata.json").exists()
+    assert not (beads / "embeddeddolt").exists()
+
+
+def test_clear_invalid_bd_state_wipes_issues_jsonl_on_invalid_metadata(
+    tmp_path: Path,
+) -> None:
+    """A leftover ``issues.jsonl`` from a previous half-init can cause
+    the next ``bd bootstrap`` to take an unwanted import path. Since
+    half-init states have no real bd issues (you need issue_prefix to
+    create them), wiping the JSONL is safe."""
+    beads = tmp_path / ".beads"
+    beads.mkdir()
+    (beads / "metadata.json").write_text(
+        json.dumps({"dolt_database": "myproj"})  # invalid
+    )
+    (beads / "issues.jsonl").write_text("{}\n")
+    (beads / "embeddeddolt").mkdir()
+
+    _clear_invalid_bd_state(tmp_path)
+
+    assert not (beads / "issues.jsonl").exists()
+
+
+def test_clear_invalid_bd_state_preserves_hooks_dir(tmp_path: Path) -> None:
+    """``hooks/`` is project-level git-hook config, not bd state. The
+    cleanup must not touch it even when wiping for a fresh init."""
+    beads = tmp_path / ".beads"
+    beads.mkdir()
+    (beads / "metadata.json").write_text(
+        json.dumps({"dolt_database": "myproj"})  # invalid → triggers wipe
+    )
+    hooks = beads / "hooks"
+    hooks.mkdir()
+    (hooks / "pre-commit").write_text("#!/bin/sh\necho hi\n")
+
+    _clear_invalid_bd_state(tmp_path)
+
+    assert hooks.is_dir(), "hooks/ must survive cleanup"
+    assert (hooks / "pre-commit").is_file()
