@@ -252,9 +252,7 @@ def test_clear_invalid_bd_state_wipes_dolt_dir_with_no_metadata(
     server_dir = beads / "dolt"
     server_dir.mkdir()
     (server_dir / "data").write_text("stale")
-    (beads / "config.yaml").write_text(
-        "sync:\n  remote: git+https://github.com/x/y.git\n"
-    )
+    (beads / "config.yaml").write_text("sync:\n  remote: git+https://github.com/x/y.git\n")
     (beads / "interactions.jsonl").write_text("")
 
     _clear_invalid_bd_state(tmp_path)
@@ -288,9 +286,7 @@ def test_clear_invalid_bd_state_wipes_config_yaml(tmp_path: Path) -> None:
     beads.mkdir()
     # Trigger via form (4): dolt dir present, no metadata.json.
     (beads / "embeddeddolt").mkdir()
-    (beads / "config.yaml").write_text(
-        "sync:\n  remote: git+https://github.com/x/y.git\n"
-    )
+    (beads / "config.yaml").write_text("sync:\n  remote: git+https://github.com/x/y.git\n")
 
     _clear_invalid_bd_state(tmp_path)
 

@@ -122,9 +122,7 @@ class TestFlyBeadsWorkflowXoscarConfig:
         config.model = ModelConfig()
         config.steps = {}
         config.agents = {
-            "implementer": AgentConfig(
-                provider="copilot", model_id="gpt-5.3-codex"
-            ),
+            "implementer": AgentConfig(provider="copilot", model_id="gpt-5.3-codex"),
         }
         config.actors = {
             "fly": {
@@ -140,9 +138,7 @@ class TestFlyBeadsWorkflowXoscarConfig:
             "claude": AgentProviderConfig(
                 command=["claude-agent"], default=True, default_model="sonnet"
             ),
-            "copilot": AgentProviderConfig(
-                command=["copilot-agent"], default_model="gpt-5-mini"
-            ),
+            "copilot": AgentProviderConfig(command=["copilot-agent"], default_model="gpt-5-mini"),
             "gemini": AgentProviderConfig(
                 command=["gemini-agent"], default_model="gemini-default"
             ),

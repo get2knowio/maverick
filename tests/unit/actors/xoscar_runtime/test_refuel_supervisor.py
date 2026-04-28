@@ -204,9 +204,7 @@ async def test_detail_ready_no_double_emit_for_unknown_unit(pool_address: str) -
         await sup.t_drain_events()
 
         await sup.detail_ready(
-            SubmitDetailsPayload(
-                details=(WorkUnitDetailPayload(id="wu-stale", instructions="x"),)
-            )
+            SubmitDetailsPayload(details=(WorkUnitDetailPayload(id="wu-stale", instructions="x"),))
         )
         events = await sup.t_drain_events()
         completed = [e for e in events if isinstance(e, AgentCompleted)]
@@ -252,9 +250,7 @@ def test_seed_cached_details_loads_into_accumulator() -> None:
     sup = RefuelSupervisor(
         RefuelInputs(
             cwd="/tmp",
-            flight_plan=SimpleNamespace(
-                name="plan", objective="x", success_criteria=[]
-            ),
+            flight_plan=SimpleNamespace(name="plan", objective="x", success_criteria=[]),
             initial_payload={"cached_details": cached_details},
             skip_briefing=True,
         )
@@ -281,9 +277,7 @@ async def test_decomposer_escalation_threshold_default_is_one(
 
     cfg = DecomposerTiersConfig(
         moderate=ImplementerTierConfig(provider="copilot", model_id="gpt-5.4"),
-        complex=ImplementerTierConfig(
-            provider="copilot", model_id="gpt-5.3-codex"
-        ),
+        complex=ImplementerTierConfig(provider="copilot", model_id="gpt-5.3-codex"),
     )
     assert cfg.escalation_threshold == 1
 
@@ -389,13 +383,9 @@ async def test_fix_ready_writes_outline_and_details_to_cache(
             )
         )
 
-        assert outline_cache_path.is_file(), (
-            "fix_ready must persist the corrected outline"
-        )
+        assert outline_cache_path.is_file(), "fix_ready must persist the corrected outline"
         detail_path = detail_cache_dir / "wu-1.json"
-        assert detail_path.is_file(), (
-            "fix_ready must persist each corrected detail per-unit"
-        )
+        assert detail_path.is_file(), "fix_ready must persist each corrected detail per-unit"
         import json as _json
 
         cached_detail = _json.loads(detail_path.read_text(encoding="utf-8"))
@@ -461,9 +451,7 @@ async def test_fix_ready_merges_partial_payload_with_existing_state(
                             id=uid,
                             instructions=f"original {uid}",
                             acceptance_criteria=(
-                                AcceptanceCriterionPayload(
-                                    text="t", trace_ref="SC-001"
-                                ),
+                                AcceptanceCriterionPayload(text="t", trace_ref="SC-001"),
                             ),
                             verification=("npm test",),
                         ),
@@ -476,19 +464,13 @@ async def test_fix_ready_merges_partial_payload_with_existing_state(
         # Fix payload addresses ONLY wu-b.
         await sup.fix_ready(
             SubmitFixPayload(
-                work_units=(
-                    WorkUnitOutlinePayload(
-                        id="wu-b", task="B (fixed)", sequence=2
-                    ),
-                ),
+                work_units=(WorkUnitOutlinePayload(id="wu-b", task="B (fixed)", sequence=2),),
                 details=(
                     WorkUnitDetailPayload(
                         id="wu-b",
                         instructions="updated by fix",
                         acceptance_criteria=(
-                            AcceptanceCriterionPayload(
-                                text="t", trace_ref="SC-002"
-                            ),
+                            AcceptanceCriterionPayload(text="t", trace_ref="SC-002"),
                         ),
                         verification=("npm test",),
                     ),
@@ -499,16 +481,12 @@ async def test_fix_ready_merges_partial_payload_with_existing_state(
         # Probe state via t_ helper.
         async def _peek_state(s: RefuelSupervisor) -> dict[str, Any]:
             return {
-                "outline_ids": [wu.id for wu in s._outline.work_units]
-                if s._outline
-                else [],
+                "outline_ids": [wu.id for wu in s._outline.work_units] if s._outline else [],
                 "outline_tasks": {
                     wu.id: wu.task for wu in (s._outline.work_units if s._outline else ())
                 },
                 "detail_ids": [d.id for d in s._accumulated_details],
-                "detail_instructions": {
-                    d.id: d.instructions for d in s._accumulated_details
-                },
+                "detail_instructions": {d.id: d.instructions for d in s._accumulated_details},
             }
 
         # Use a small inline t_ method on the actor to peek state.
@@ -517,8 +495,7 @@ async def test_fix_ready_merges_partial_payload_with_existing_state(
         # serialising to dict.
         outline_dict = await sup.t_peek_outline_and_details()
         assert sorted(outline_dict["outline_ids"]) == ["wu-a", "wu-b", "wu-c"], (
-            "outline must keep all 3 units after fix; got "
-            f"{outline_dict['outline_ids']}"
+            f"outline must keep all 3 units after fix; got {outline_dict['outline_ids']}"
         )
         assert outline_dict["outline_tasks"]["wu-b"] == "B (fixed)"
         assert outline_dict["outline_tasks"]["wu-a"] == "A"  # preserved
@@ -527,20 +504,11 @@ async def test_fix_ready_merges_partial_payload_with_existing_state(
             "wu-a",
             "wu-b",
             "wu-c",
-        ], (
-            "accumulated_details must keep all 3 units after fix; got "
-            f"{outline_dict['detail_ids']}"
-        )
-        assert (
-            outline_dict["detail_instructions"]["wu-b"] == "updated by fix"
-        )
+        ], f"accumulated_details must keep all 3 units after fix; got {outline_dict['detail_ids']}"
+        assert outline_dict["detail_instructions"]["wu-b"] == "updated by fix"
         # Untouched units retain their original instructions.
-        assert (
-            outline_dict["detail_instructions"]["wu-a"] == "original wu-a"
-        )
-        assert (
-            outline_dict["detail_instructions"]["wu-c"] == "original wu-c"
-        )
+        assert outline_dict["detail_instructions"]["wu-a"] == "original wu-a"
+        assert outline_dict["detail_instructions"]["wu-c"] == "original wu-c"
     finally:
         await xo.destroy_actor(sup)
 
@@ -554,9 +522,7 @@ def test_seed_cached_details_no_op_when_no_cache() -> None:
     sup = RefuelSupervisor(
         RefuelInputs(
             cwd="/tmp",
-            flight_plan=SimpleNamespace(
-                name="plan", objective="x", success_criteria=[]
-            ),
+            flight_plan=SimpleNamespace(name="plan", objective="x", success_criteria=[]),
             initial_payload={},
             skip_briefing=True,
         )
@@ -585,9 +551,7 @@ def test_merge_to_specs_skips_unparseable_specs() -> None:
     sup = RefuelSupervisor(
         RefuelInputs(
             cwd="/tmp",
-            flight_plan=SimpleNamespace(
-                name="plan", objective="x", success_criteria=[]
-            ),
+            flight_plan=SimpleNamespace(name="plan", objective="x", success_criteria=[]),
             initial_payload={},
             skip_briefing=True,
         )
@@ -604,17 +568,13 @@ def test_merge_to_specs_skips_unparseable_specs() -> None:
             WorkUnitDetailPayload(
                 id="wu-good",
                 instructions="ok",
-                acceptance_criteria=(
-                    AcceptanceCriterionPayload(text="t", trace_ref="SC-1"),
-                ),
+                acceptance_criteria=(AcceptanceCriterionPayload(text="t", trace_ref="SC-1"),),
                 verification=("npm test",),
             ),
             WorkUnitDetailPayload(
                 id="wu-bad",
                 instructions="ok",
-                acceptance_criteria=(
-                    AcceptanceCriterionPayload(text="t", trace_ref="SC-2"),
-                ),
+                acceptance_criteria=(AcceptanceCriterionPayload(text="t", trace_ref="SC-2"),),
                 verification=(),  # empty → validation fails
             ),
         )
@@ -644,9 +604,7 @@ def test_merge_to_specs_skips_units_without_detail() -> None:
     sup = RefuelSupervisor(
         RefuelInputs(
             cwd="/tmp",
-            flight_plan=SimpleNamespace(
-                name="plan", objective="x", success_criteria=[]
-            ),
+            flight_plan=SimpleNamespace(name="plan", objective="x", success_criteria=[]),
             initial_payload={},
             skip_briefing=True,
         )
@@ -806,9 +764,7 @@ async def test_decomposer_pool_reuse_spawn_evict() -> None:
             base_config=_StepConfig(provider="claude", model_id="sonnet"),
             decomposer_tiers=DecomposerTiersConfig(
                 simple=ImplementerTierConfig(provider="opencode", model_id="x"),
-                moderate=ImplementerTierConfig(
-                    provider="claude", model_id="sonnet"
-                ),
+                moderate=ImplementerTierConfig(provider="claude", model_id="sonnet"),
                 complex=ImplementerTierConfig(provider="claude", model_id="opus"),
             ),
             detail_session_max_turns=1,

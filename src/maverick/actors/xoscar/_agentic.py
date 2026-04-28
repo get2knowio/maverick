@@ -136,6 +136,7 @@ def try_parse_tool_payload_from_text(
         return payload
     return None
 
+
 if TYPE_CHECKING:
     pass
 

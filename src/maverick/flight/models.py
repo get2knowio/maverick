@@ -249,21 +249,44 @@ class AcceptanceCriterion(BaseModel):
     def trace_ref_must_match_format(cls, v: str | None) -> str | None:
         """Validate that trace_ref matches SC-\\d+ format when set.
 
-        Empty string and whitespace-only string normalise to ``None``
-        (i.e. "no trace ref"). Some agents emit ``""`` for "I have
-        nothing to trace this to" instead of omitting the field; treating
-        that as ``None`` lets the model accept the payload instead of
-        crashing the validator (which used to surface only as a generic
-        ``error_type="other"`` and burn fix rounds).
+        ``None``, empty, whitespace-only, AND any non-SC-shaped string
+        (e.g. ``"General"``, ``"see PRD"``, free-text values) all
+        normalise to ``None`` — i.e. "no trace ref." Some agents emit
+        free-form descriptors when they don't have a specific SC to
+        cite; semantically that's the same as omitting the field.
+
+        The previous strict behaviour raised ``ValueError`` for any
+        non-matching string, which surfaced through the validator
+        actor as ``error_type="other"`` and burned fix rounds — the
+        fixer can't repair "trace_ref: 'General' is not SC-shaped"
+        because it doesn't have the SC numbering context to assign the
+        right ref. Coerce-and-warn is the right balance: workflow
+        completes, log captures the bad value for diagnosis, and the
+        next pass through the agent prompt teaches the right shape.
+
+        Strings that DO start with ``SC-`` but malformed (e.g.
+        ``"SC-not-a-number"``) still raise — those are likely real
+        agent bugs (typo, wrong ref) where silent drop would hide the
+        error.
         """
         if v is None:
             return None
         if not v.strip():
             return None
-        v = _normalize_trace_ref(v)
-        if not _TRACE_REF_RE.match(v):
+        normalised = _normalize_trace_ref(v)
+        if _TRACE_REF_RE.match(normalised):
+            return normalised
+        # Strict path for SC-prefixed but malformed (typo, wrong format).
+        if normalised.upper().startswith("SC-"):
             raise ValueError(f"trace_ref must match SC-<id> format, got: {v!r}")
-        return v
+        # Free-text values without SC- prefix — coerce to None and
+        # log so we can spot the prompt drift in production.
+        logger.warning(
+            "trace_ref_coerced_to_none",
+            value=v,
+            reason="not SC-shaped; agent wrote free text instead of SC ref",
+        )
+        return None
 
 
 class FileScope(BaseModel):

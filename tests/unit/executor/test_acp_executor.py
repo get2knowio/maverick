@@ -1112,9 +1112,7 @@ class TestPromptUsageExitPath:
     ``finally`` block with an ``exit_path`` field for visibility.
     """
 
-    def _capture_info(
-        self, executor: AcpStepExecutor
-    ) -> list[tuple[str, dict[str, Any]]]:
+    def _capture_info(self, executor: AcpStepExecutor) -> list[tuple[str, dict[str, Any]]]:
         """Patch ``executor._logger.info`` and return a list that
         accumulates ``(event, kwargs)`` tuples for assertions.
         """
@@ -1126,9 +1124,7 @@ class TestPromptUsageExitPath:
         executor._logger.info = _capture  # type: ignore[assignment]
         return events
 
-    def _find_usage_event(
-        self, events: list[tuple[str, dict[str, Any]]]
-    ) -> dict[str, Any]:
+    def _find_usage_event(self, events: list[tuple[str, dict[str, Any]]]) -> dict[str, Any]:
         """Return the kwargs from the single ``prompt_usage`` event,
         or fail the test if zero or more than one were emitted.
         """

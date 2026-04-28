@@ -143,9 +143,7 @@ class PlanSupervisor(xo.Actor):
         self._briefing_actors: dict[str, xo.ActorRef] = {}
         if not self._inputs.skip_briefing:
             for agent_name, _label, mcp_tool, forward_method in PLAN_BRIEFING_CONFIG:
-                actor_config = self._inputs.briefing_configs.get(
-                    agent_name, self._inputs.config
-                )
+                actor_config = self._inputs.briefing_configs.get(agent_name, self._inputs.config)
                 self._briefing_actors[agent_name] = await xo.create_actor(
                     BriefingActor,
                     self_ref,

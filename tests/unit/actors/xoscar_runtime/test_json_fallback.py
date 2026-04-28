@@ -19,7 +19,6 @@ from maverick.tools.agent_inbox.models import (
     SubmitOutlinePayload,
 )
 
-
 # ---------------------------------------------------------------------------
 # _extract_json_candidates
 # ---------------------------------------------------------------------------
@@ -39,15 +38,12 @@ def test_extract_finds_fenced_json_block() -> None:
 """
     candidates = _extract_json_candidates(text)
     assert len(candidates) >= 1
-    assert (
-        '{"details": [{"id": "wu-1", "instructions": "do it"}]}'
-        in candidates[0]
-    )
+    assert '{"details": [{"id": "wu-1", "instructions": "do it"}]}' in candidates[0]
 
 
 def test_extract_finds_plain_fenced_block() -> None:
     """Code block without a language tag still works."""
-    text = "Sure:\n```\n{\"foo\": 1}\n```\n"
+    text = 'Sure:\n```\n{"foo": 1}\n```\n'
     candidates = _extract_json_candidates(text)
     assert any('"foo": 1' in c for c in candidates)
 
@@ -99,9 +95,7 @@ def test_parses_submit_details_from_fenced_block() -> None:
                 {
                     "id": "wu-1",
                     "instructions": "do it",
-                    "acceptance_criteria": [
-                        {"text": "passes", "trace_ref": "SC-001"}
-                    ],
+                    "acceptance_criteria": [{"text": "passes", "trace_ref": "SC-001"}],
                     "verification": ["npm test"],
                     "test_specification": "tests pass",
                 }
@@ -132,9 +126,7 @@ def test_parses_submit_outline_from_plain_text() -> None:
 def test_parses_submit_fix_from_text_with_prefix() -> None:
     body = json.dumps(
         {
-            "work_units": [
-                {"id": "wu-1", "task": "task1 fixed", "sequence": 1}
-            ],
+            "work_units": [{"id": "wu-1", "task": "task1 fixed", "sequence": 1}],
             "details": [],
         }
     )
@@ -185,5 +177,5 @@ Second, valid:
 
 def test_skips_non_dict_json() -> None:
     """JSON that parses to a list / string / number isn't a tool payload."""
-    text = '```json\n[1, 2, 3]\n```'
+    text = "```json\n[1, 2, 3]\n```"
     assert try_parse_tool_payload_from_text(text, "submit_details") is None

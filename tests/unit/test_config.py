@@ -568,9 +568,7 @@ class TestLookupActorConfig:
     def test_generate_flight_plan_maps_to_plan(self) -> None:
         from maverick.config import lookup_actor_config
 
-        cfg = self._config_with_actors(
-            {"plan": {"scopist": {"provider": "gemini"}}}
-        )
+        cfg = self._config_with_actors({"plan": {"scopist": {"provider": "gemini"}}})
         result = lookup_actor_config(cfg, "generate-flight-plan", "scopist")
         assert result is not None
         assert result.provider == "gemini"
@@ -590,9 +588,7 @@ class TestLookupActorConfig:
         for ad-hoc workflows that haven't been added to the map."""
         from maverick.config import lookup_actor_config
 
-        cfg = self._config_with_actors(
-            {"custom-workflow": {"agent": {"provider": "claude"}}}
-        )
+        cfg = self._config_with_actors({"custom-workflow": {"agent": {"provider": "claude"}}})
         result = lookup_actor_config(cfg, "custom-workflow", "agent")
         assert result is not None
         assert result.provider == "claude"

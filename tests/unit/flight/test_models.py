@@ -472,14 +472,27 @@ class TestAcceptanceCriterion:
         ac = AcceptanceCriterion(text="some criterion", trace_ref="   ")
         assert ac.trace_ref is None
 
-    def test_invalid_trace_ref_still_raises(self) -> None:
-        """A non-empty ``trace_ref`` that doesn't match the SC pattern
-        is still a hard error — only empty/whitespace gets the lenient
-        coercion."""
+    def test_freetext_trace_ref_coerces_to_none(self) -> None:
+        """Free-text ``trace_ref`` values like ``"General"``, ``"see PRD"``
+        — anything that doesn't start with ``SC-`` — coerce to ``None``
+        instead of raising. Semantically these mean "no specific SC
+        traced." Strict rejection used to crash the validator and burn
+        fix rounds; coerce-and-warn is the right tradeoff."""
+        from maverick.flight.models import AcceptanceCriterion
+
+        for value in ("General", "see PRD", "TBD", "n/a", "section 4.2"):
+            ac = AcceptanceCriterion(text="t", trace_ref=value)
+            assert ac.trace_ref is None, f"free-text trace_ref {value!r} should coerce to None"
+
+    def test_malformed_sc_prefix_still_raises(self) -> None:
+        """A ``trace_ref`` that DOES start with ``SC-`` but is malformed
+        (typo, wrong numbering) still raises — silent drop would hide
+        a real agent bug, where the agent intended to trace something
+        but mangled the reference."""
         from maverick.flight.models import AcceptanceCriterion
 
         with pytest.raises(ValidationError):
-            AcceptanceCriterion(text="t", trace_ref="not-a-trace-ref")
+            AcceptanceCriterion(text="t", trace_ref="SC-not-a-number!@#")
 
 
 class TestFileScope:
@@ -793,11 +806,16 @@ class TestAcceptanceCriterionTraceRef:
         assert ac.trace_ref is None
 
     def test_invalid_trace_ref_wrong_prefix(self) -> None:
-        """trace_ref with wrong prefix raises ValidationError."""
+        """trace_ref without an ``SC-`` prefix coerces to None.
+
+        ``XX-001`` looks ref-shaped but isn't SC-prefixed; we treat it
+        as free text (same as ``General`` or ``see PRD``) rather than
+        raising — see ``test_freetext_trace_ref_coerces_to_none``.
+        """
         from maverick.flight.models import AcceptanceCriterion
 
-        with pytest.raises(ValidationError):
-            AcceptanceCriterion(text="criterion", trace_ref="XX-001")
+        ac = AcceptanceCriterion(text="criterion", trace_ref="XX-001")
+        assert ac.trace_ref is None
 
     def test_invalid_trace_ref_no_digits(self) -> None:
         """trace_ref without digits raises ValidationError."""
@@ -814,11 +832,17 @@ class TestAcceptanceCriterionTraceRef:
             AcceptanceCriterion(text="criterion", trace_ref="sc-001")
 
     def test_invalid_trace_ref_no_hyphen(self) -> None:
-        """trace_ref without hyphen raises ValidationError."""
+        """trace_ref without a hyphen coerces to None.
+
+        ``SC001`` doesn't start with ``SC-`` so it falls into the
+        free-text branch and coerces — strict-raise is reserved for
+        values that DO start with ``SC-`` but are otherwise malformed
+        (those are likely real agent typos worth surfacing).
+        """
         from maverick.flight.models import AcceptanceCriterion
 
-        with pytest.raises(ValidationError):
-            AcceptanceCriterion(text="criterion", trace_ref="SC001")
+        ac = AcceptanceCriterion(text="criterion", trace_ref="SC001")
+        assert ac.trace_ref is None
 
     def test_valid_trace_ref_with_suffix(self) -> None:
         """trace_ref with alphanumeric suffix is valid (e.g., SC-B1-default)."""

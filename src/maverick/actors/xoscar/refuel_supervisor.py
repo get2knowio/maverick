@@ -167,9 +167,7 @@ class _DecomposerPool:
         override = getattr(self._decomposer_tiers, tier, None)
         if override is None:
             return self._base_config
-        return FlySupervisor._merge_tier_config(
-            base=self._base_config, override=override
-        )
+        return FlySupervisor._merge_tier_config(base=self._base_config, override=override)
 
     async def set_context(self, context: Any) -> None:
         """Update the broadcast context. Applies to every existing actor
@@ -217,9 +215,7 @@ class _DecomposerPool:
             try:
                 await xo.destroy_actor(a)
             except Exception as exc:  # noqa: BLE001
-                logger.debug(
-                    "decomposer_pool.teardown_destroy_failed", error=str(exc)
-                )
+                logger.debug("decomposer_pool.teardown_destroy_failed", error=str(exc))
 
     async def _spawn(self, tier: str) -> xo.ActorRef:
         """Create + register a fresh actor for ``tier``. Caller holds cond."""
@@ -256,9 +252,7 @@ class _DecomposerPool:
         try:
             await xo.destroy_actor(victim)
         except Exception as exc:  # noqa: BLE001
-            logger.debug(
-                "decomposer_pool.evict_destroy_failed", error=str(exc)
-            )
+            logger.debug("decomposer_pool.evict_destroy_failed", error=str(exc))
 
     def snapshot(self) -> dict[str, Any]:
         """Read-only view of pool state for tests / diagnostics.
@@ -499,9 +493,7 @@ class RefuelSupervisor(xo.Actor):
         # Round-robin / single-actor fallback label — used for the
         # legacy non-tier path. Tier mode's per-tier labels come from
         # ``self._decomposer_pool_dynamic.tier_label(tier_name)``.
-        self._default_decomposer_label: str = self._format_provider_label(
-            self._inputs.config
-        )
+        self._default_decomposer_label: str = self._format_provider_label(self._inputs.config)
 
         # --- Validator + BeadCreator ---
         self._validator = await xo.create_actor(
@@ -527,9 +519,7 @@ class RefuelSupervisor(xo.Actor):
         self._briefing_actors: dict[str, xo.ActorRef] = {}
         if not self._inputs.skip_briefing:
             for name, tool, method in REFUEL_BRIEFING_CONFIG:
-                actor_config = self._inputs.briefing_configs.get(
-                    name, self._inputs.config
-                )
+                actor_config = self._inputs.briefing_configs.get(name, self._inputs.config)
                 self._briefing_actors[name] = await xo.create_actor(
                     BriefingActor,
                     self_ref,
@@ -782,8 +772,7 @@ class RefuelSupervisor(xo.Actor):
             abandoned_count = len(self._abandoned_unit_ids)
             abandoned_list = ", ".join(sorted(self._abandoned_unit_ids))
             quota_count = sum(
-                1 for uid in self._abandoned_unit_ids
-                if uid in self._detail_quota_errors
+                1 for uid in self._abandoned_unit_ids if uid in self._detail_quota_errors
             )
             elapsed_ms = int((_time.monotonic() - decompose_start) * 1000)
             if quota_count:
@@ -793,9 +782,7 @@ class RefuelSupervisor(xo.Actor):
                 from maverick.exceptions.quota import parse_quota_reset
 
                 reset_hint = parse_quota_reset(sample)
-                reset_suffix = (
-                    f" (resets {reset_hint})" if reset_hint else ""
-                )
+                reset_suffix = f" (resets {reset_hint})" if reset_hint else ""
                 msg = (
                     f"{abandoned_count}/{self._detail_total_count} unit(s) "
                     f"abandoned ({abandoned_list}) — {quota_count} due to "
@@ -829,9 +816,7 @@ class RefuelSupervisor(xo.Actor):
                     "success": False,
                     "error": f"{abandoned_count} unit(s) abandoned",
                     "abandoned_unit_ids": sorted(self._abandoned_unit_ids),
-                    "quota_abandoned_unit_ids": sorted(
-                        self._detail_quota_errors.keys()
-                    ),
+                    "quota_abandoned_unit_ids": sorted(self._detail_quota_errors.keys()),
                     "specs": [],
                     "fix_rounds": 0,
                 }
@@ -939,9 +924,7 @@ class RefuelSupervisor(xo.Actor):
         if in_tier_mode:
             assert self._decomposer_pool_dynamic is not None
             await self._decomposer_pool_dynamic.set_context(context)
-            tier_summary = (
-                f"demand pool, cap={self._decomposer_pool_dynamic._cap}"
-            )
+            tier_summary = f"demand pool, cap={self._decomposer_pool_dynamic._cap}"
             pool_size = self._decomposer_pool_dynamic._cap
         else:
             workers = self._decomposer_pool or [self._decomposer]
@@ -952,9 +935,7 @@ class RefuelSupervisor(xo.Actor):
         # Seed _accumulated_details from the on-disk cache so a resumed
         # run skips units that already succeeded.
         cached_unit_ids = self._seed_cached_details(unit_ids)
-        unit_ids_to_dispatch = [
-            uid for uid in unit_ids if uid not in cached_unit_ids
-        ]
+        unit_ids_to_dispatch = [uid for uid in unit_ids if uid not in cached_unit_ids]
 
         self._pending_detail_ids = set(unit_ids_to_dispatch)
         # Stable denominator + abandon / quota / escalation tracking for the run.
@@ -1012,9 +993,7 @@ class RefuelSupervisor(xo.Actor):
             usage in the implementer-tier path."""
             assert self._decomposer_pool_dynamic is not None
             d_tiers = self._inputs.decomposer_tiers
-            tier_keys = {
-                t: True for t in TIER_ORDER if getattr(d_tiers, t, None) is not None
-            }
+            tier_keys = {t: True for t in TIER_ORDER if getattr(d_tiers, t, None) is not None}
             return FlySupervisor._resolve_tier_in(
                 tier_keys, complexity_by_unit.get(unit_id), escalation_level
             )
@@ -1070,9 +1049,7 @@ class RefuelSupervisor(xo.Actor):
                     if in_tier_mode:
                         assert self._decomposer_pool_dynamic is not None
                         tier_name = _tier_for_level(unit_id, escalation_level)
-                        assigned = await self._decomposer_pool_dynamic.acquire(
-                            tier_name
-                        )
+                        assigned = await self._decomposer_pool_dynamic.acquire(tier_name)
                         label = _label_for_tier(tier_name)
                     else:
                         assigned = _legacy_worker_for(index)
@@ -1083,9 +1060,7 @@ class RefuelSupervisor(xo.Actor):
                             self._unit_start_times[unit_id] = _time.monotonic()
                             await self._emit_agent_started(
                                 "decompose",
-                                self._unit_current_display_name.get(
-                                    unit_id, unit_id
-                                ),
+                                self._unit_current_display_name.get(unit_id, unit_id),
                                 label,
                             )
                             started = True
@@ -1115,9 +1090,7 @@ class RefuelSupervisor(xo.Actor):
                     finally:
                         if in_tier_mode:
                             assert self._decomposer_pool_dynamic is not None
-                            await self._decomposer_pool_dynamic.release(
-                                assigned, tier_name
-                            )
+                            await self._decomposer_pool_dynamic.release(assigned, tier_name)
                 # send_detail returned. If detail_ready cleared pending,
                 # we succeeded.
                 if unit_id not in self._pending_detail_ids:
@@ -1152,9 +1125,7 @@ class RefuelSupervisor(xo.Actor):
                     unit_id=unit_id,
                     escalation_level=escalation_level,
                 )
-                await self._emit_unit_completed(
-                    unit_id, success=False, error="no tool call"
-                )
+                await self._emit_unit_completed(unit_id, success=False, error="no tool call")
                 return ("no_tool_call", "no tool call")
             # Defensive fallthrough — should be unreachable.
             return ("no_tool_call", "no tool call")
@@ -1169,9 +1140,7 @@ class RefuelSupervisor(xo.Actor):
                 if level > 0:
                     # Update display name so the new tier attempt shows
                     # as a fresh CLI row. ``↑`` per escalation step.
-                    self._unit_current_display_name[unit_id] = (
-                        f"{unit_id}" + " ↑" * level
-                    )
+                    self._unit_current_display_name[unit_id] = f"{unit_id}" + " ↑" * level
                     self._unit_escalation_levels[unit_id] = level
                     # Clear any quota signal recorded against the previous
                     # tier; we may now be on a different provider.
@@ -1187,10 +1156,7 @@ class RefuelSupervisor(xo.Actor):
                     self._unit_escalated_count += 1
                     await self._emit_output(
                         "refuel",
-                        (
-                            f"Escalating {unit_id!r}: {from_tier} "
-                            f"→ {to_tier} ({err_msg})"
-                        ),
+                        (f"Escalating {unit_id!r}: {from_tier} → {to_tier} ({err_msg})"),
                         level="info",
                     )
                     continue
@@ -1242,9 +1208,7 @@ class RefuelSupervisor(xo.Actor):
         fix_agent_name = f"fix-round-{self._fix_rounds}"
         fix_provider_label = self._default_decomposer_label
         fix_start = _time.monotonic()
-        await self._emit_agent_started(
-            "decompose", fix_agent_name, fix_provider_label
-        )
+        await self._emit_agent_started("decompose", fix_agent_name, fix_provider_label)
 
         self._awaiting_fix = True
         try:
@@ -1284,9 +1248,7 @@ class RefuelSupervisor(xo.Actor):
                 error="no tool call",
             )
         else:
-            await self._emit_agent_completed(
-                "decompose", fix_agent_name, elapsed, success=True
-            )
+            await self._emit_agent_completed("decompose", fix_agent_name, elapsed, success=True)
 
         # After send_fix returns, fix_ready should have updated self._outline/_details.
         # Refresh specs for the next validation pass.
@@ -1354,9 +1316,7 @@ class RefuelSupervisor(xo.Actor):
                 merged_units = {wu.id: wu for wu in self._outline.work_units}
                 for fixed_wu in payload.work_units:
                     merged_units[fixed_wu.id] = fixed_wu
-                self._outline = SubmitOutlinePayload(
-                    work_units=tuple(merged_units.values())
-                )
+                self._outline = SubmitOutlinePayload(work_units=tuple(merged_units.values()))
             # Persist the merged outline so a re-run picks up the
             # corrections instead of re-loading the pre-fix version
             # and burning through the fix loop again.
@@ -1366,9 +1326,7 @@ class RefuelSupervisor(xo.Actor):
             for fixed_d in payload.details:
                 merged_details[fixed_d.id] = fixed_d
             self._accumulated_details = list(merged_details.values())
-            self._details = SubmitDetailsPayload(
-                details=tuple(self._accumulated_details)
-            )
+            self._details = SubmitDetailsPayload(details=tuple(self._accumulated_details))
             # Persist each fixed detail per-unit so a re-run resumes at
             # the post-fix state. The cache writer overwrites the
             # existing JSON, so units the fix didn't touch keep their
@@ -1595,9 +1553,7 @@ class RefuelSupervisor(xo.Actor):
 
         self._pending_detail_ids = set(pending)
         seed = start_times or {}
-        self._unit_start_times = {
-            uid: seed.get(uid, _time.monotonic()) for uid in pending
-        }
+        self._unit_start_times = {uid: seed.get(uid, _time.monotonic()) for uid in pending}
 
     async def t_drain_events(self) -> list[Any]:
         events: list[Any] = []
@@ -1615,17 +1571,12 @@ class RefuelSupervisor(xo.Actor):
         fix-merge semantics. Plain dicts so the result crosses the actor
         boundary cleanly."""
         return {
-            "outline_ids": [wu.id for wu in self._outline.work_units]
-            if self._outline
-            else [],
+            "outline_ids": [wu.id for wu in self._outline.work_units] if self._outline else [],
             "outline_tasks": {
-                wu.id: wu.task
-                for wu in (self._outline.work_units if self._outline else ())
+                wu.id: wu.task for wu in (self._outline.work_units if self._outline else ())
             },
             "detail_ids": [d.id for d in self._accumulated_details],
-            "detail_instructions": {
-                d.id: d.instructions for d in self._accumulated_details
-            },
+            "detail_instructions": {d.id: d.instructions for d in self._accumulated_details},
         }
 
     @staticmethod
@@ -1891,9 +1842,7 @@ class RefuelSupervisor(xo.Actor):
                 )
                 continue
             # Replace any earlier instance of this uid (defensive).
-            self._accumulated_details = [
-                d for d in self._accumulated_details if d.id != uid
-            ]
+            self._accumulated_details = [d for d in self._accumulated_details if d.id != uid]
             self._accumulated_details.append(detail)
             seeded.add(uid)
         return seeded

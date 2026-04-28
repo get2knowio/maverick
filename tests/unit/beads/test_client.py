@@ -21,9 +21,7 @@ from maverick.runners.models import CommandResult
 
 
 def _ok(stdout: str = "") -> CommandResult:
-    return CommandResult(
-        returncode=0, stdout=stdout, stderr="", duration_ms=10, timed_out=False
-    )
+    return CommandResult(returncode=0, stdout=stdout, stderr="", duration_ms=10, timed_out=False)
 
 
 def _fail(stderr: str = "boom", returncode: int = 1) -> CommandResult:
@@ -523,9 +521,7 @@ class TestBeadClientIsInitialized:
         client = BeadClient(cwd=temp_dir, runner=AsyncMock())
         assert client.is_initialized() is False
 
-    def test_returns_false_when_dolt_dir_but_no_metadata(
-        self, temp_dir: Path
-    ) -> None:
+    def test_returns_false_when_dolt_dir_but_no_metadata(self, temp_dir: Path) -> None:
         """Half-initialised state: directory exists but metadata.json is
         missing. ``_clear_invalid_bd_state`` should detect and recover
         from this; here we just verify the probe says "not ready"."""
@@ -533,9 +529,7 @@ class TestBeadClientIsInitialized:
         client = BeadClient(cwd=temp_dir, runner=AsyncMock())
         assert client.is_initialized() is False
 
-    def test_returns_false_when_metadata_missing_dolt_database(
-        self, temp_dir: Path
-    ) -> None:
+    def test_returns_false_when_metadata_missing_dolt_database(self, temp_dir: Path) -> None:
         """metadata.json exists but ``dolt_database`` is missing —
         defensive: bd-written metadata always has it, so absence
         means corruption."""
@@ -554,9 +548,7 @@ class TestBeadClientIsInitialized:
         client = BeadClient(cwd=temp_dir, runner=AsyncMock())
         assert client.is_initialized() is False
 
-    def test_returns_true_when_embeddeddolt_and_metadata_present(
-        self, temp_dir: Path
-    ) -> None:
+    def test_returns_true_when_embeddeddolt_and_metadata_present(self, temp_dir: Path) -> None:
         """Mirrors what ``bd init`` produces — embeddeddolt + metadata.json
         with a valid ``dolt_database``. ``issue_prefix`` is NOT in
         metadata.json (it's in ``config.yaml``), so we don't gate on it."""
@@ -565,9 +557,7 @@ class TestBeadClientIsInitialized:
         client = BeadClient(cwd=temp_dir, runner=AsyncMock())
         assert client.is_initialized() is True
 
-    def test_returns_true_when_server_dolt_and_metadata_present(
-        self, temp_dir: Path
-    ) -> None:
+    def test_returns_true_when_server_dolt_and_metadata_present(self, temp_dir: Path) -> None:
         (temp_dir / ".beads" / "dolt").mkdir(parents=True)
         self._seed_metadata(temp_dir / ".beads")
         client = BeadClient(cwd=temp_dir, runner=AsyncMock())
@@ -608,9 +598,7 @@ class TestBeadClientRemoteHasDoltData:
         assert await client.remote_has_dolt_data() is False
 
     @pytest.mark.asyncio
-    async def test_custom_remote_name(
-        self, mock_runner: AsyncMock, temp_dir: Path
-    ) -> None:
+    async def test_custom_remote_name(self, mock_runner: AsyncMock, temp_dir: Path) -> None:
         mock_runner.run.return_value = _ok("abc\trefs/dolt/data\n")
         client = BeadClient(cwd=temp_dir, runner=mock_runner)
         await client.remote_has_dolt_data(remote="upstream")
@@ -622,9 +610,7 @@ class TestBeadClientBootstrap:
     """Tests for BeadClient.bootstrap()."""
 
     @pytest.mark.asyncio
-    async def test_invokes_bd_bootstrap_yes(
-        self, mock_runner: AsyncMock, temp_dir: Path
-    ) -> None:
+    async def test_invokes_bd_bootstrap_yes(self, mock_runner: AsyncMock, temp_dir: Path) -> None:
         mock_runner.run.return_value = _ok()
         client = BeadClient(cwd=temp_dir, runner=mock_runner)
         await client.bootstrap()
@@ -632,9 +618,7 @@ class TestBeadClientBootstrap:
         assert cmd == ["bd", "bootstrap", "--yes"]
 
     @pytest.mark.asyncio
-    async def test_threads_env(
-        self, mock_runner: AsyncMock, temp_dir: Path
-    ) -> None:
+    async def test_threads_env(self, mock_runner: AsyncMock, temp_dir: Path) -> None:
         mock_runner.run.return_value = _ok()
         client = BeadClient(cwd=temp_dir, runner=mock_runner)
         await client.bootstrap(env={"GIT_CONFIG_COUNT": "1"})
@@ -657,9 +641,7 @@ class TestBeadClientInit:
     """Tests for BeadClient.init()."""
 
     @pytest.mark.asyncio
-    async def test_default_invocation(
-        self, mock_runner: AsyncMock, temp_dir: Path
-    ) -> None:
+    async def test_default_invocation(self, mock_runner: AsyncMock, temp_dir: Path) -> None:
         mock_runner.run.return_value = _ok()
         client = BeadClient(cwd=temp_dir, runner=mock_runner)
         await client.init(prefix="myproj")
@@ -671,9 +653,7 @@ class TestBeadClientInit:
         assert "--force" not in cmd
 
     @pytest.mark.asyncio
-    async def test_passes_optional_flags(
-        self, mock_runner: AsyncMock, temp_dir: Path
-    ) -> None:
+    async def test_passes_optional_flags(self, mock_runner: AsyncMock, temp_dir: Path) -> None:
         mock_runner.run.return_value = _ok()
         client = BeadClient(cwd=temp_dir, runner=mock_runner)
         await client.init(prefix="x", from_jsonl=True, force=True)
@@ -707,9 +687,7 @@ class TestBeadClientInitOrBootstrap:
         # in config.yaml, not metadata.json).
         beads = temp_dir / ".beads"
         (beads / "embeddeddolt").mkdir(parents=True)
-        (beads / "metadata.json").write_text(
-            _json.dumps({"dolt_database": "x"})
-        )
+        (beads / "metadata.json").write_text(_json.dumps({"dolt_database": "x"}))
         client = BeadClient(cwd=temp_dir, runner=mock_runner)
         action = await client.init_or_bootstrap(prefix="x")
         assert action is LifecycleAction.SKIP
@@ -746,9 +724,7 @@ class TestBeadClientInitOrBootstrap:
         assert action is LifecycleAction.BOOTSTRAP
 
     @pytest.mark.asyncio
-    async def test_init_when_truly_fresh(
-        self, mock_runner: AsyncMock, temp_dir: Path
-    ) -> None:
+    async def test_init_when_truly_fresh(self, mock_runner: AsyncMock, temp_dir: Path) -> None:
         # No `.beads/`, no remote dolt → init path with the supplied prefix.
         mock_runner.run.side_effect = [_ok(""), _ok()]
         client = BeadClient(cwd=temp_dir, runner=mock_runner)

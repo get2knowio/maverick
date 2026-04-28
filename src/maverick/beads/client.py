@@ -602,9 +602,7 @@ class BeadClient:
             cmd.append("--from-jsonl")
         if force:
             cmd.append("--force")
-        result = await self._runner.run(
-            cmd, cwd=self._cwd, env=env, timeout=timeout
-        )
+        result = await self._runner.run(cmd, cwd=self._cwd, env=env, timeout=timeout)
         if not result.success:
             detail = result.stderr.strip() or result.stdout.strip() or "(no output)"
             raise BeadLifecycleError(

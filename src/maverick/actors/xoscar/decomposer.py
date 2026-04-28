@@ -311,9 +311,7 @@ class DecomposerActor(AgenticActorMixin, xo.Actor):
             payload = try_parse_tool_payload_from_text(response_text, expected_tool)
             if payload is None:
                 return False
-            if expected_tool == "submit_outline" and isinstance(
-                payload, SubmitOutlinePayload
-            ):
+            if expected_tool == "submit_outline" and isinstance(payload, SubmitOutlinePayload):
                 await self._supervisor_ref.outline_ready(payload)
                 return True
             if expected_tool == "submit_fix" and isinstance(payload, SubmitFixPayload):

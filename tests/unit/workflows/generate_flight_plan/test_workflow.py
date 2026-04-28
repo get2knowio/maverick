@@ -515,9 +515,7 @@ class TestGenerateFlightPlanWorkflowXoscarConfig:
             "claude": AgentProviderConfig(
                 command=["claude-agent"], default=True, default_model="sonnet"
             ),
-            "copilot": AgentProviderConfig(
-                command=["copilot-agent"], default_model="gpt-5-mini"
-            ),
+            "copilot": AgentProviderConfig(command=["copilot-agent"], default_model="gpt-5-mini"),
             "gemini": AgentProviderConfig(
                 command=["gemini-agent"], default_model="gemini-default"
             ),

@@ -160,11 +160,7 @@ class TestExtractBeadIds:
         assert extract_bead_ids(desc) == ["sample_maverick_project-e6c.8"]
 
     def test_extracts_multiple_bead_ids_in_squashed_message(self) -> None:
-        desc = (
-            "bead(proj-a.1): first part\n"
-            "\n"
-            "bead(proj-a.2): second part"
-        )
+        desc = "bead(proj-a.1): first part\n\nbead(proj-a.2): second part"
         assert extract_bead_ids(desc) == ["proj-a.1", "proj-a.2"]
 
     def test_dedupes_repeated_ids(self) -> None:
