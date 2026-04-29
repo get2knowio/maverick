@@ -2,17 +2,35 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, patch
+from typing import Any
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from click.testing import CliRunner
 
 from maverick.cli.commands.doctor import doctor
 from maverick.library.actions.preflight import PreflightCheckResult
+from maverick.runners.preflight import ValidationResult
 
 
-def _make_result(*, success: bool, **kwargs: object) -> PreflightCheckResult:
-    """Build a PreflightCheckResult for tests."""
+def _make_other_result(*, success: bool, **kwargs: object) -> PreflightCheckResult:
+    """Build a PreflightCheckResult for the non-provider checks."""
     return PreflightCheckResult(success=success, **kwargs)  # type: ignore[arg-type]
+
+
+def _make_health_check(name: str, *, success: bool, errors: tuple[str, ...] = ()) -> Any:
+    """Stand-in for ``AcpProviderHealthCheck`` — just needs ``provider_name``
+    and an awaitable ``validate()``."""
+    hc = MagicMock()
+    hc.provider_name = name
+    hc.validate = AsyncMock(
+        return_value=ValidationResult(
+            success=success,
+            component=f"ACP:{name}",
+            errors=errors,
+            duration_ms=10,
+        )
+    )
+    return hc
 
 
 def test_help_lists_options() -> None:
@@ -24,83 +42,113 @@ def test_help_lists_options() -> None:
 
 
 def test_passes_when_all_checks_succeed() -> None:
-    """All green → exit 0, friendly summary line."""
+    """All providers + non-provider checks green → exit 0."""
     runner = CliRunner()
-    success_result = _make_result(success=True)
+    fake_config = MagicMock()
+    health_checks = [
+        _make_health_check("claude", success=True),
+        _make_health_check("copilot", success=True),
+    ]
 
-    with patch(
-        "maverick.library.actions.preflight.run_preflight_checks",
-        new=AsyncMock(return_value=success_result),
+    other = _make_other_result(success=True)
+    with (
+        patch.dict("os.environ", {"NO_COLOR": "1"}),
+        patch(
+            "maverick.cli.commands.doctor.build_provider_health_checks",
+            return_value=health_checks,
+        ),
+        patch(
+            "maverick.cli.commands.doctor.run_preflight_checks",
+            new=AsyncMock(return_value=other),
+        ),
     ):
-        result = runner.invoke(doctor, [])
+        result = runner.invoke(doctor, [], obj={"config": fake_config})
 
     assert result.exit_code == 0
     assert "All checks passed" in result.output
-    assert "ACP providers" in result.output
-    assert "git" in result.output
 
 
-def test_fails_with_nonzero_exit_when_check_fails() -> None:
-    """Any failed check → exit 1, errors enumerated."""
+def test_runs_every_provider_even_when_one_fails() -> None:
+    """Failure in one provider must NOT short-circuit the others.
+
+    All three validates should be awaited, and all three rows should
+    appear in the post-run output.
+    """
     runner = CliRunner()
-    bad_result = _make_result(
-        success=False,
-        providers_available=False,
-        errors=("Provider 'gemini' returned no content. Set GEMINI_API_KEY.",),
+    fake_config = MagicMock()
+    hc_a = _make_health_check("claude", success=True)
+    hc_b = _make_health_check(
+        "gemini", success=False, errors=("Provider 'gemini' returned no content.",)
     )
+    hc_c = _make_health_check("copilot", success=True)
 
-    with patch(
-        "maverick.library.actions.preflight.run_preflight_checks",
-        new=AsyncMock(return_value=bad_result),
+    other = _make_other_result(success=True)
+    with (
+        patch.dict("os.environ", {"NO_COLOR": "1"}),
+        patch(
+            "maverick.cli.commands.doctor.build_provider_health_checks",
+            return_value=[hc_a, hc_b, hc_c],
+        ),
+        patch(
+            "maverick.cli.commands.doctor.run_preflight_checks",
+            new=AsyncMock(return_value=other),
+        ),
     ):
-        result = runner.invoke(doctor, [])
+        result = runner.invoke(doctor, [], obj={"config": fake_config})
 
+    # Every provider was actually invoked.
+    hc_a.validate.assert_awaited_once()
+    hc_b.validate.assert_awaited_once()
+    hc_c.validate.assert_awaited_once()
+
+    # The failure shows up in the issues section, not just the table.
+    assert "gemini" in result.output
+    assert "returned no content" in result.output
+    # Exit code reflects the failure.
     assert result.exit_code != 0
-    assert "GEMINI_API_KEY" in result.output
-    assert "One or more checks failed" in result.output
 
 
 def test_providers_only_skips_other_checks() -> None:
-    """``--providers-only`` should only print the ACP providers row."""
+    """``--providers-only`` should skip the run_preflight_checks call entirely."""
     runner = CliRunner()
-    success_result = _make_result(success=True)
-    captured_kwargs: dict[str, object] = {}
+    fake_config = MagicMock()
+    health_checks = [_make_health_check("claude", success=True)]
 
-    async def fake_run(**kwargs: object) -> PreflightCheckResult:
-        captured_kwargs.update(kwargs)
-        return success_result
-
-    with patch(
-        "maverick.library.actions.preflight.run_preflight_checks",
-        new=fake_run,
+    run_preflight_mock = AsyncMock()
+    with (
+        patch.dict("os.environ", {"NO_COLOR": "1"}),
+        patch(
+            "maverick.cli.commands.doctor.build_provider_health_checks",
+            return_value=health_checks,
+        ),
+        patch(
+            "maverick.cli.commands.doctor.run_preflight_checks",
+            new=run_preflight_mock,
+        ),
     ):
-        result = runner.invoke(doctor, ["--providers-only"])
+        result = runner.invoke(doctor, ["--providers-only"], obj={"config": fake_config})
 
     assert result.exit_code == 0
-    # check_providers stays on; the rest were turned off.
-    assert captured_kwargs["check_providers"] is True
-    assert captured_kwargs["check_git"] is False
-    assert captured_kwargs["check_github"] is False
-    assert captured_kwargs["check_bd"] is False
-    assert captured_kwargs["check_jj"] is False
-    # Output omits the rows for the skipped checks.
-    assert "ACP providers" in result.output
+    run_preflight_mock.assert_not_awaited()
+    # No git/gh/jj rows in the output.
     assert "GitHub CLI" not in result.output
+    assert "jj (Jujutsu)" not in result.output
 
 
-def test_warnings_are_displayed() -> None:
+def test_no_config_skips_provider_checks_gracefully() -> None:
+    """Doctor invoked outside a maverick project (no config) shouldn't
+    crash — it should print a hint and report on whatever else it can."""
     runner = CliRunner()
-    result_with_warnings = _make_result(
-        success=True,
-        warnings=("optional tool 'jj' missing; some workflows degraded",),
-    )
+    other = _make_other_result(success=True)
 
-    with patch(
-        "maverick.library.actions.preflight.run_preflight_checks",
-        new=AsyncMock(return_value=result_with_warnings),
+    with (
+        patch.dict("os.environ", {"NO_COLOR": "1"}),
+        patch(
+            "maverick.cli.commands.doctor.run_preflight_checks",
+            new=AsyncMock(return_value=other),
+        ),
     ):
-        result = runner.invoke(doctor, [])
+        result = runner.invoke(doctor, [], obj={"config": None})
 
     assert result.exit_code == 0
-    assert "Warnings" in result.output
-    assert "jj" in result.output
+    assert "skipping provider checks" in result.output

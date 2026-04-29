@@ -15,9 +15,81 @@ from maverick.config import AgentProviderConfig
 from maverick.logging import get_logger
 from maverick.runners.preflight import ValidationResult
 
-__all__ = ["AcpProviderHealthCheck"]
+__all__ = ["AcpProviderHealthCheck", "build_provider_health_checks"]
 
 logger = get_logger(__name__)
+
+
+def build_provider_health_checks(
+    config: Any,
+    *,
+    timeout: float = 15.0,
+) -> list[AcpProviderHealthCheck]:
+    """Build one ``AcpProviderHealthCheck`` per configured provider.
+
+    Bundles up the model-collection logic that was previously inlined in
+    ``run_preflight_checks``: every provider gets its ``default_model``
+    in its validation set, and the *default* provider additionally
+    inherits the global ``config.model.model_id`` (when explicitly set)
+    plus any per-agent ``model_id`` overrides.
+
+    Shared by ``run_preflight_checks`` (the workflow preflight step) and
+    ``maverick doctor`` (the standalone CLI command) so both surfaces
+    test the exact same set.
+
+    Args:
+        config: A loaded ``MaverickConfig``.
+        timeout: Per-provider health-check timeout in seconds. Default
+            15s mirrors the workflow preflight.
+
+    Returns:
+        Health checks ordered by provider name (stable for display).
+    """
+    from maverick.executor.provider_registry import AgentProviderRegistry
+
+    registry = AgentProviderRegistry.from_config(config.agent_providers)
+
+    default_provider_name: str | None = None
+    for name, pcfg in registry.items():
+        if pcfg.default:
+            default_provider_name = name
+            break
+    if default_provider_name is None and registry.items():
+        default_provider_name = next(iter(registry.items()))[0]
+
+    provider_models: dict[str, set[str]] = {}
+    for name, pcfg in registry.items():
+        models_set: set[str] = set()
+        if pcfg.default_model:
+            models_set.add(pcfg.default_model)
+        provider_models[name] = models_set
+
+    # Global ``model.model_id`` only counts when the user explicitly set
+    # it — the Pydantic default (a Claude alias) is meaningless for
+    # non-Claude providers.
+    model_id_explicit = "model_id" in config.model.model_fields_set
+    if default_provider_name and config.model.model_id and model_id_explicit:
+        provider_models.setdefault(default_provider_name, set()).add(
+            config.model.model_id,
+        )
+
+    if default_provider_name:
+        for agent_cfg in config.agents.values():
+            if agent_cfg.model_id:
+                provider_models.setdefault(
+                    default_provider_name,
+                    set(),
+                ).add(agent_cfg.model_id)
+
+    return [
+        AcpProviderHealthCheck(
+            provider_name=name,
+            provider_config=provider_cfg,
+            models_to_validate=frozenset(provider_models.get(name, set())),
+            timeout=timeout,
+        )
+        for name, provider_cfg in sorted(registry.items())
+    ]
 
 
 @dataclass(frozen=True, slots=True)
