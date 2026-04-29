@@ -182,6 +182,79 @@ class TestWorkspaceManagerBootstrap:
             await manager.bootstrap()
 
 
+class TestBeadBootstrapInWorkspace:
+    """Tests for ``WorkspaceManager._bootstrap_beads`` — the bd init step
+    that materializes Dolt from the cloned ``.beads/issues.jsonl``.
+
+    The clone brings the JSONL but not the gitignored Dolt store, so
+    bd queries inside the workspace see no issues until this runs.
+    """
+
+    @pytest.mark.asyncio
+    async def test_bootstrap_calls_init_or_bootstrap_when_jsonl_present(
+        self, manager: WorkspaceManager
+    ) -> None:
+        manager.workspace_path.mkdir(parents=True)
+        beads_dir = manager.workspace_path / ".beads"
+        beads_dir.mkdir()
+        (beads_dir / "issues.jsonl").write_text('{"id":"x"}\n')
+
+        mock_client = AsyncMock()
+        mock_client.init_or_bootstrap = AsyncMock(
+            return_value=type("A", (), {"value": "bootstrap"})()
+        )
+
+        with patch(
+            "maverick.beads.client.BeadClient",
+            return_value=mock_client,
+        ):
+            await manager._bootstrap_beads()
+
+        mock_client.init_or_bootstrap.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_bootstrap_skips_when_no_jsonl(
+        self, manager: WorkspaceManager
+    ) -> None:
+        """Greenfield project — no .beads/issues.jsonl committed yet.
+        Don't call into bd at all."""
+        manager.workspace_path.mkdir(parents=True)
+
+        mock_client = AsyncMock()
+        with patch(
+            "maverick.beads.client.BeadClient",
+            return_value=mock_client,
+        ):
+            await manager._bootstrap_beads()
+
+        mock_client.init_or_bootstrap.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_bootstrap_swallows_bd_failures(
+        self, manager: WorkspaceManager
+    ) -> None:
+        """A bd hiccup shouldn't take down the whole workspace setup —
+        the in-flow code path that needs bd will re-fail loudly later."""
+        from maverick.exceptions.beads import BeadLifecycleError
+
+        manager.workspace_path.mkdir(parents=True)
+        beads_dir = manager.workspace_path / ".beads"
+        beads_dir.mkdir()
+        (beads_dir / "issues.jsonl").write_text('{"id":"x"}\n')
+
+        mock_client = AsyncMock()
+        mock_client.init_or_bootstrap = AsyncMock(
+            side_effect=BeadLifecycleError("bd bootstrap exploded"),
+        )
+
+        with patch(
+            "maverick.beads.client.BeadClient",
+            return_value=mock_client,
+        ):
+            # Must not raise.
+            await manager._bootstrap_beads()
+
+
 class TestWorkspaceManagerSync:
     """Tests for WorkspaceManager.sync_from_origin()."""
 

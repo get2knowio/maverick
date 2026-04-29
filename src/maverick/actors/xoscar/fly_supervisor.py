@@ -818,7 +818,21 @@ class FlySupervisor(xo.Actor):
         prompt = (
             f"## {phase.title()} findings (round {round})\n\n"
             f"{context}\n\n"
-            "Address each issue and re-verify your changes."
+            "Address each issue at its root cause and re-verify your "
+            "changes. **Do not silence errors to make checks pass** — "
+            "fixing a typecheck failure means the types are actually "
+            "correct, not adding `@ts-ignore` / `@ts-expect-error` / "
+            "`@ts-nocheck`; fixing a lint failure means the code is "
+            "actually clean, not adding `eslint-disable` / `# noqa` / "
+            "`# pylint: disable`; fixing a test failure means the test "
+            "passes, not skipping it (`it.skip`, `xdescribe`, "
+            "`@pytest.mark.skip`) or commenting it out; fixing a type "
+            "error means correct types, not `# type: ignore` / `as "
+            "any`. If you genuinely believe a check is wrong (e.g. a "
+            "library type definition is buggy), explain that in your "
+            "fix summary so a human can review — don't apply the "
+            "suppression silently. Maverick runs autonomously; there "
+            "is no reviewer watching to catch a quick punt."
         )
 
         # Tier escalation (FUTURE.md §2.10 Phase 2). When tiers are

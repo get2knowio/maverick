@@ -203,8 +203,58 @@ class WorkspaceManager:
             :class:`WorkspaceInfo`.
         """
         info = await self.create()
+        await self._bootstrap_beads()
         await self.bootstrap()
         return info
+
+    async def _bootstrap_beads(self) -> None:
+        """Materialize bd's local Dolt database from the cloned ``.beads/issues.jsonl``.
+
+        ``jj git clone`` brings over committed files, so the workspace
+        gets ``.beads/issues.jsonl`` (which the user's repo tracks) but
+        not the dolt working directory (which is gitignored). Without
+        this step bd queries inside the workspace see an empty issue
+        index — fly's "create review bead" path then fails with
+        ``parent issue <epic> not found`` because it can't see the epic
+        the user just created.
+
+        ``init_or_bootstrap`` is idempotent: if bd is already initialized
+        it returns SKIP. So this is safe to call on every workspace
+        create, including re-runs.
+
+        Best-effort: a bd hiccup shouldn't block fly entirely. The
+        in-workflow code path that needs bd will re-fail with a clear
+        message later if this didn't take.
+        """
+        # Local import to keep workspace.manager import-light — bd client
+        # pulls in subprocess machinery we don't need for teardown paths.
+        from maverick.beads.client import BeadClient
+        from maverick.exceptions.beads import BeadLifecycleError
+
+        if not (self.workspace_path / ".beads" / "issues.jsonl").is_file():
+            logger.debug(
+                "workspace_bd_bootstrap_skipped",
+                reason="no .beads/issues.jsonl in clone",
+                workspace_path=str(self.workspace_path),
+            )
+            return
+
+        client = BeadClient(cwd=self.workspace_path)
+        try:
+            action = await client.init_or_bootstrap()
+        except BeadLifecycleError as exc:
+            logger.warning(
+                "workspace_bd_bootstrap_failed",
+                workspace_path=str(self.workspace_path),
+                error=str(exc),
+            )
+            return
+
+        logger.info(
+            "workspace_bd_bootstrapped",
+            workspace_path=str(self.workspace_path),
+            action=action.value,
+        )
 
     # =====================================================================
     # Lifecycle: sync
