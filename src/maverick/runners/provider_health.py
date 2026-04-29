@@ -122,7 +122,21 @@ class AcpProviderHealthCheck:
         )
 
         try:
-            ctx = spawn_agent_process(client, command, *args, env=env)
+            # Match the executor's stdio buffer (1 MiB). Without this the
+            # default 64 KiB asyncio.StreamReader limit overflows on
+            # agents that emit large initialize responses (opencode's
+            # provider/model catalogue, gemini's authMethods + capabilities)
+            # and the receive loop crashes with LimitOverrunError before
+            # the health check even gets a result back.
+            from maverick.executor._subprocess import STDIO_BUFFER_LIMIT
+
+            ctx = spawn_agent_process(
+                client,
+                command,
+                *args,
+                env=env,
+                transport_kwargs={"limit": STDIO_BUFFER_LIMIT},
+            )
             conn, _proc = await ctx.__aenter__()
         except FileNotFoundError:
             return ValidationResult(

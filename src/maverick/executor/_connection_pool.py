@@ -24,8 +24,13 @@ from acp.schema import ClientCapabilities, Implementation
 
 from maverick.config import AgentProviderConfig
 from maverick.exceptions.agent import CLINotFoundError, NetworkError, ProcessError
-from maverick.executor._subprocess import kill_process_group
-from maverick.executor._subprocess import spawn_agent_process_pg as spawn_agent_process
+from maverick.executor._subprocess import (
+    STDIO_BUFFER_LIMIT,
+    kill_process_group,
+)
+from maverick.executor._subprocess import (
+    spawn_agent_process_pg as spawn_agent_process,
+)
 from maverick.executor.acp_client import MaverickAcpClient
 from maverick.logging import get_logger
 from maverick.tools.agent_inbox.subprocess_quota import (
@@ -223,7 +228,7 @@ class ConnectionPool:
                 command,
                 *args,
                 env=env,
-                transport_kwargs={"limit": 1_048_576},
+                transport_kwargs={"limit": STDIO_BUFFER_LIMIT},
             )
             conn, proc = await ctx.__aenter__()
         except FileNotFoundError as exc:

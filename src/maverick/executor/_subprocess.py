@@ -40,6 +40,15 @@ from maverick.logging import get_logger
 
 logger = get_logger(__name__)
 
+#: asyncio's default ``StreamReader`` limit is 64 KiB, which overflows
+#: when an ACP agent emits a large newline-delimited JSON message in
+#: one chunk (Write tool with full file contents, opencode's lengthy
+#: initialize response, etc.). 1 MiB has held up across all observed
+#: agents. Used by the connection pool *and* the standalone provider
+#: health check — keep them in lockstep so a check that passes in
+#: doctor still passes in the live executor.
+STDIO_BUFFER_LIMIT: int = 1_048_576
+
 
 @asynccontextmanager
 async def spawn_stdio_transport_pg(
