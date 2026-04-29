@@ -45,6 +45,10 @@ _LAZY_COMMANDS: dict[str, tuple[str, str]] = {
         "maverick.cli.commands.brief:brief",
         "Review queued beads before flying.",
     ),
+    "doctor": (
+        "maverick.cli.commands.doctor:doctor",
+        "Validate the local environment (providers, git, bd).",
+    ),
     "fly": (
         "maverick.cli.commands.fly:fly",
         "Run a bead-driven development workflow.",
