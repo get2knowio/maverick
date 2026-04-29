@@ -20,10 +20,19 @@ __all__ = ["AcpProviderHealthCheck", "build_provider_health_checks"]
 logger = get_logger(__name__)
 
 
+#: Per-provider health-check timeout when the MCP tool-call probe is
+#: enabled. The probe stacks a fresh ACP session + tool-call round
+#: trip on top of the basic prompt test, so 15 s isn't enough — it
+#: pushes legitimate providers (claude, copilot, gemini, opencode)
+#: past the wire and they fail at the timeout instead of the actual
+#: probe boundary.
+_MCP_PROBE_OUTER_TIMEOUT: float = 30.0
+
+
 def build_provider_health_checks(
     config: Any,
     *,
-    timeout: float = 15.0,
+    timeout: float | None = None,
     test_mcp_tool_call: bool = False,
 ) -> list[AcpProviderHealthCheck]:
     """Build one ``AcpProviderHealthCheck`` per configured provider.
@@ -40,12 +49,17 @@ def build_provider_health_checks(
 
     Args:
         config: A loaded ``MaverickConfig``.
-        timeout: Per-provider health-check timeout in seconds. Default
-            15s mirrors the workflow preflight.
+        timeout: Per-provider health-check timeout in seconds. When
+            ``None``, defaults to 15s normally and 30s when
+            ``test_mcp_tool_call`` is enabled (the MCP probe stacks
+            an extra session + tool-call round trip on the basic
+            prompt test).
 
     Returns:
         Health checks ordered by provider name (stable for display).
     """
+    if timeout is None:
+        timeout = _MCP_PROBE_OUTER_TIMEOUT if test_mcp_tool_call else 15.0
     from maverick.executor.provider_registry import AgentProviderRegistry
 
     registry = AgentProviderRegistry.from_config(config.agent_providers)
@@ -492,12 +506,12 @@ class AcpProviderHealthCheck:
                         ],
                         session_id=mcp_session.session_id,
                     ),
-                    timeout=15.0,
+                    timeout=8.0,
                 )
             except TimeoutError:
                 return (
                     f"Provider '{self.provider_name}' MCP probe: prompt "
-                    f"timed out after 15s without calling submit_health_check. "
+                    f"timed out after 8s without calling submit_health_check. "
                     f"The bridge may have dropped the MCP server attachment."
                 )
             except Exception as exc:
@@ -527,5 +541,18 @@ class AcpProviderHealthCheck:
             if mcp_session is not None:
                 with contextlib.suppress(Exception):
                     await conn.cancel(session_id=mcp_session.session_id)
-            with contextlib.suppress(Exception):
-                await gateway.stop()
+            # Stopping the in-process uvicorn while the MCP session
+            # manager is mid-handshake fires "ASGI callable returned
+            # without completing response" at ERROR on the root logger.
+            # The probe already has its result; the warning is benign
+            # noise that just looks alarming in the doctor output.
+            import logging as _logging
+
+            _root = _logging.getLogger()
+            _prev = _root.level
+            _root.setLevel(_logging.CRITICAL)
+            try:
+                with contextlib.suppress(Exception):
+                    await gateway.stop()
+            finally:
+                _root.setLevel(_prev)
