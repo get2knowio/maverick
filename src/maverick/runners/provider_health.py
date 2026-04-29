@@ -463,6 +463,22 @@ class AcpProviderHealthCheck:
 
         gateway = AgentToolGateway()
         await gateway.start()
+        # Hush uvicorn's ``uvicorn.error`` logger AFTER startup —
+        # uvicorn calls ``logging.config.dictConfig`` during
+        # ``gateway.start()`` and overwrites whatever level we set
+        # earlier. The MCP session manager's HTTP handshake races
+        # against the ACP-side prompt completion: when the agent's
+        # tool call lands and the prompt returns before uvicorn
+        # finishes streaming the SSE response, uvicorn fires "ASGI
+        # callable returned without completing response" at ERROR.
+        # Benign (we already have the result) but loud in the doctor
+        # output above the Rich Live table. Restore the level in
+        # ``finally``.
+        import logging as _logging
+
+        _uvicorn_err = _logging.getLogger("uvicorn.error")
+        _prev_uvicorn_level = _uvicorn_err.level
+        _uvicorn_err.setLevel(_logging.CRITICAL)
         mcp_session: Any = None
         try:
             uid = f"doctor-probe-{self.provider_name}"
@@ -542,18 +558,6 @@ class AcpProviderHealthCheck:
             if mcp_session is not None:
                 with contextlib.suppress(Exception):
                     await conn.cancel(session_id=mcp_session.session_id)
-            # Stopping the in-process uvicorn while the MCP session
-            # manager is mid-handshake fires "ASGI callable returned
-            # without completing response" at ERROR on the root logger.
-            # The probe already has its result; the warning is benign
-            # noise that just looks alarming in the doctor output.
-            import logging as _logging
-
-            _root = _logging.getLogger()
-            _prev = _root.level
-            _root.setLevel(_logging.CRITICAL)
-            try:
-                with contextlib.suppress(Exception):
-                    await gateway.stop()
-            finally:
-                _root.setLevel(_prev)
+            with contextlib.suppress(Exception):
+                await gateway.stop()
+            _uvicorn_err.setLevel(_prev_uvicorn_level)
