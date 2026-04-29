@@ -545,6 +545,31 @@ SUBMIT_CONTRARIAN_BRIEF = _tool(
 # Registry: all tools by name
 # -------------------------------------------------------------------------
 
+#: Diagnostic tool used by ``maverick doctor`` to verify that a
+#: provider's ACP bridge actually honors ``mcp_servers`` in
+#: ``new_session`` and surfaces tool calls back to the gateway.
+#: Not used in any production workflow — keeping its schema
+#: minimal so the success path is "agent saw one tool, called it
+#: with one string argument."
+SUBMIT_HEALTH_CHECK = _tool(
+    name="submit_health_check",
+    description=(
+        "Diagnostic probe used by maverick doctor. Call this exactly "
+        "once with status='ok' to confirm MCP tool routing works."
+    ),
+    schema={
+        "type": "object",
+        "properties": {
+            "status": {
+                "type": "string",
+                "description": "Always the literal string 'ok'.",
+            },
+        },
+        "required": ["status"],
+    },
+)
+
+
 ALL_TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
     "submit_outline": SUBMIT_OUTLINE,
     "submit_details": SUBMIT_DETAILS,
@@ -561,4 +586,5 @@ ALL_TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
     "submit_structuralist_brief": SUBMIT_STRUCTURALIST_BRIEF,
     "submit_recon_brief": SUBMIT_RECON_BRIEF,
     "submit_contrarian_brief": SUBMIT_CONTRARIAN_BRIEF,
+    "submit_health_check": SUBMIT_HEALTH_CHECK,
 }

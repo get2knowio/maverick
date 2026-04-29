@@ -128,7 +128,11 @@ async def _run_provider_checks(config: Any) -> dict[str, _ProviderResult]:
         console.print("[yellow]No config loaded — skipping provider checks.[/]")
         return {}
 
-    health_checks = build_provider_health_checks(config)
+    # Doctor opts in to the MCP tool-call probe. The workflow preflight
+    # leaves it off (extra 2-5s/provider) — fly already exercises the
+    # MCP path during real bead work, but doctor is the right place to
+    # surface bridge bugs before the user spends real tokens.
+    health_checks = build_provider_health_checks(config, test_mcp_tool_call=True)
     if not health_checks:
         console.print("[dim]No ACP providers configured.[/]")
         return {}

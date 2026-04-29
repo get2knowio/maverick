@@ -560,6 +560,183 @@ class TestModelValidation:
         assert "opus" in result.errors[0]
 
 
+class TestMcpToolCallProbe:
+    """Coverage for the opt-in MCP tool-call probe (``test_mcp_tool_call=True``).
+
+    The probe spins up a real ``AgentToolGateway`` and uses the live
+    ACP connection, so we mock the connection but let the gateway run
+    for real — that's the part most likely to break in production.
+    """
+
+    def _build_conn_with_handler_capture(
+        self,
+        *,
+        invoke_handler_with: dict[str, object] | None,
+    ) -> MagicMock:
+        """Build a mock conn whose second ``new_session`` + ``prompt``
+        invokes the registered MCP handler (or doesn't, depending on
+        ``invoke_handler_with``).
+
+        This simulates a well-behaved provider that calls the
+        MCP-hosted tool when prompted (vs a misbehaving one that doesn't).
+        The connection records both new_session calls so the test can
+        assert MCP attachment landed on the second one.
+        """
+        from maverick.tools.agent_inbox.gateway import AgentToolGateway
+
+        conn = MagicMock()
+        conn.initialize = AsyncMock(return_value=None)
+        conn.cancel = AsyncMock(return_value=None)
+
+        sessions = [_mock_session(), _mock_session()]
+        sessions[0].session_id = "sess-prompt"
+        sessions[1].session_id = "sess-mcp"
+        conn.new_session = AsyncMock(side_effect=sessions)
+
+        async def _prompt(prompt: object, session_id: str) -> None:  # type: ignore[no-untyped-def]
+            if session_id != "sess-mcp":
+                return
+            # Simulate the agent calling the MCP tool by reaching into the
+            # gateway and invoking the registered handler directly.
+            if invoke_handler_with is None:
+                return
+            for gw_inst in AgentToolGateway._instances_for_test:  # type: ignore[attr-defined]
+                for route in gw_inst._routes.values():
+                    await route.handler("submit_health_check", invoke_handler_with)
+
+        conn.prompt = AsyncMock(side_effect=_prompt)
+        return conn
+
+    @pytest.mark.asyncio
+    async def test_records_failure_when_tool_not_called(self) -> None:
+        """Provider passes basic prompt but never calls the MCP tool.
+        That's the silent-failure pattern we built this probe to catch."""
+        # Sidestep the gateway-spy plumbing — we just need the probe to
+        # go through with no handler invocation.
+        hc = AcpProviderHealthCheck(
+            provider_name="silent",
+            provider_config=_make_config(),
+            test_mcp_tool_call=True,
+        )
+
+        mock_conn = MagicMock()
+        mock_conn.initialize = AsyncMock(return_value=None)
+        mock_conn.new_session = AsyncMock(side_effect=[_mock_session(), _mock_session()])
+        mock_conn.prompt = AsyncMock(return_value=None)
+        mock_conn.cancel = AsyncMock(return_value=None)
+
+        mock_ctx = MagicMock()
+        mock_ctx.__aenter__ = AsyncMock(
+            return_value=(mock_conn, MagicMock()),
+        )
+        mock_ctx.__aexit__ = AsyncMock(return_value=None)
+
+        with (
+            patch(_WHICH, return_value="/usr/bin/x"),
+            patch(_SPAWN, return_value=mock_ctx),
+            patch(_ACCUMULATED, return_value="ok"),
+        ):
+            result = await hc.validate()
+
+        assert result.success is False
+        # Both sessions were created — basic prompt + MCP probe.
+        assert mock_conn.new_session.await_count == 2
+        # The MCP attachment landed on the second new_session.
+        second_call_kwargs = mock_conn.new_session.await_args_list[1].kwargs
+        assert "mcp_servers" in second_call_kwargs
+        attached = second_call_kwargs["mcp_servers"]
+        assert len(attached) == 1
+        # And the failure message names the suspect.
+        assert "submit_health_check" in result.errors[0]
+
+    @pytest.mark.asyncio
+    async def test_passes_when_tool_call_lands(self) -> None:
+        """Provider calls the diagnostic tool — probe reports success."""
+
+        hc = AcpProviderHealthCheck(
+            provider_name="good",
+            provider_config=_make_config(),
+            test_mcp_tool_call=True,
+        )
+
+        # Track tool-call invocation by hooking the registered handler.
+        # We can't reach into the gateway from outside, so simulate by
+        # capturing the handler reference passed to gateway.register and
+        # invoking it inside the prompt mock.
+        from maverick.tools.agent_inbox import gateway as gw_module
+
+        original_register = gw_module.AgentToolGateway.register
+        captured: dict[str, object] = {}
+
+        async def spy_register(self, uid, tool_names, handler):  # type: ignore[no-untyped-def]
+            captured["handler"] = handler
+            return await original_register(self, uid, tool_names, handler)
+
+        async def call_handler_during_prompt(*_args: object, **kwargs: object) -> None:
+            handler = captured.get("handler")
+            if handler is not None and kwargs.get("session_id") == "sess-mcp":
+                await handler("submit_health_check", {"status": "ok"})  # type: ignore[misc]
+
+        sessions = [_mock_session(), _mock_session()]
+        sessions[0].session_id = "sess-prompt"
+        sessions[1].session_id = "sess-mcp"
+
+        mock_conn = MagicMock()
+        mock_conn.initialize = AsyncMock(return_value=None)
+        mock_conn.new_session = AsyncMock(side_effect=sessions)
+        mock_conn.prompt = AsyncMock(side_effect=call_handler_during_prompt)
+        mock_conn.cancel = AsyncMock(return_value=None)
+
+        mock_ctx = MagicMock()
+        mock_ctx.__aenter__ = AsyncMock(
+            return_value=(mock_conn, MagicMock()),
+        )
+        mock_ctx.__aexit__ = AsyncMock(return_value=None)
+
+        with (
+            patch(_WHICH, return_value="/usr/bin/x"),
+            patch(_SPAWN, return_value=mock_ctx),
+            patch(_ACCUMULATED, return_value="ok"),
+            patch.object(gw_module.AgentToolGateway, "register", spy_register),
+        ):
+            result = await hc.validate()
+
+        assert result.success is True
+
+    @pytest.mark.asyncio
+    async def test_probe_skipped_when_flag_off(self) -> None:
+        """Default ``test_mcp_tool_call=False`` skips the probe entirely.
+        Only the basic prompt session is created."""
+        hc = AcpProviderHealthCheck(
+            provider_name="claude",
+            provider_config=_make_config(),
+            test_mcp_tool_call=False,
+        )
+
+        mock_conn = MagicMock()
+        mock_conn.initialize = AsyncMock(return_value=None)
+        mock_conn.new_session = AsyncMock(return_value=_mock_session())
+        mock_conn.prompt = AsyncMock(return_value=None)
+        mock_conn.cancel = AsyncMock(return_value=None)
+
+        mock_ctx = MagicMock()
+        mock_ctx.__aenter__ = AsyncMock(
+            return_value=(mock_conn, MagicMock()),
+        )
+        mock_ctx.__aexit__ = AsyncMock(return_value=None)
+
+        with (
+            patch(_WHICH, return_value="/usr/bin/x"),
+            patch(_SPAWN, return_value=mock_ctx),
+            patch(_ACCUMULATED, return_value="ok"),
+        ):
+            result = await hc.validate()
+
+        assert result.success is True
+        # Only ONE session — no MCP probe was attempted.
+        assert mock_conn.new_session.await_count == 1
+
+
 class TestPromptStep:
     """Coverage for the post-init "say ok" prompt verification."""
 

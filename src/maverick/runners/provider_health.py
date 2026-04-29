@@ -24,6 +24,7 @@ def build_provider_health_checks(
     config: Any,
     *,
     timeout: float = 15.0,
+    test_mcp_tool_call: bool = False,
 ) -> list[AcpProviderHealthCheck]:
     """Build one ``AcpProviderHealthCheck`` per configured provider.
 
@@ -87,6 +88,7 @@ def build_provider_health_checks(
             provider_config=provider_cfg,
             models_to_validate=frozenset(provider_models.get(name, set())),
             timeout=timeout,
+            test_mcp_tool_call=test_mcp_tool_call,
         )
         for name, provider_cfg in sorted(registry.items())
     ]
@@ -112,6 +114,15 @@ class AcpProviderHealthCheck:
     provider_config: AgentProviderConfig
     models_to_validate: frozenset[str] = frozenset()
     timeout: float = 15.0
+    #: When True, additionally spin up a temporary ``AgentToolGateway``
+    #: with one diagnostic tool (``submit_health_check``) and prompt
+    #: the provider to call it. Catches the case where a bridge accepts
+    #: the protocol + generates text but silently drops the
+    #: ``mcp_servers`` parameter from ``new_session`` — exactly the
+    #: failure mode that produces empty implementer responses on real
+    #: bead workloads. Adds 2-5s latency, so it's off by default and
+    #: opt-in for ``maverick doctor``.
+    test_mcp_tool_call: bool = False
 
     async def validate(self) -> ValidationResult:
         """Run the ACP health check.
@@ -319,6 +330,20 @@ class AcpProviderHealthCheck:
                             f"(e.g. set GEMINI_API_KEY for gemini, or "
                             f"run `copilot auth login`)."
                         )
+
+            # 3c: MCP tool-call probe (opt-in). Catches bridges that
+            # accept the protocol + generate text but silently drop
+            # ``mcp_servers`` from ``new_session`` — exactly the
+            # failure that produces empty implementer output on real
+            # bead workloads.
+            if self.test_mcp_tool_call and not errors:
+                mcp_error = await self._probe_mcp_tool_call(
+                    conn=conn,
+                    client=client,
+                    session_to_cancel=session,
+                )
+                if mcp_error:
+                    errors.append(mcp_error)
         except Exception as exc:
             logger.debug(
                 "provider_health.session_check_error",
@@ -384,3 +409,123 @@ class AcpProviderHealthCheck:
             component=component,
             duration_ms=int((time.monotonic() - start_time) * 1000),
         )
+
+    async def _probe_mcp_tool_call(
+        self,
+        *,
+        conn: Any,
+        client: Any,
+        session_to_cancel: Any,
+    ) -> str | None:
+        """Confirm the provider sees an attached MCP server and calls a tool.
+
+        Spins up a temporary :class:`AgentToolGateway` on the loopback
+        interface, registers one diagnostic tool (``submit_health_check``),
+        opens a fresh ACP session with the gateway URL in
+        ``mcp_servers``, and prompts the agent to call the tool. Records
+        whether the handler ever fired.
+
+        Returns:
+            ``None`` on success. An error message string when the probe
+            failed (no tool call within 15s, prompt error, etc.).
+        """
+        from acp import text_block
+        from acp.schema import HttpMcpServer
+
+        from maverick.tools.agent_inbox.gateway import AgentToolGateway
+
+        # Cancel the prior bare-prompt session — we want a fresh one
+        # with MCP attached. Best-effort; the outer finally also tries.
+        if session_to_cancel is not None:
+            with contextlib.suppress(Exception):
+                await conn.cancel(session_id=session_to_cancel.session_id)
+
+        called_tools: list[str] = []
+
+        async def handler(name: str, _args: dict[str, Any]) -> str:
+            called_tools.append(name)
+            return "ok"
+
+        gateway = AgentToolGateway()
+        await gateway.start()
+        mcp_session: Any = None
+        try:
+            uid = f"doctor-probe-{self.provider_name}"
+            url = await gateway.register(uid, ["submit_health_check"], handler)
+
+            mcp_server = HttpMcpServer(
+                type="http",
+                name="agent-tool-gateway",
+                url=url,
+                headers=[],
+            )
+            try:
+                mcp_session = await conn.new_session(
+                    cwd=os.getcwd(),
+                    mcp_servers=[mcp_server],
+                )
+            except Exception as exc:
+                return (
+                    f"Provider '{self.provider_name}' MCP probe: "
+                    f"new_session(mcp_servers=[...]) failed: {exc}. The "
+                    f"bridge may not support HTTP MCP attachments."
+                )
+
+            # Reset the client's per-session accumulators so a tool call
+            # from this prompt isn't conflated with the prior turn.
+            client.reset(
+                step_name="healthcheck-mcp",
+                agent_name="healthcheck",
+                event_callback=None,
+                allowed_tools=None,
+            )
+
+            try:
+                await asyncio.wait_for(
+                    conn.prompt(
+                        prompt=[
+                            text_block(
+                                "Use the submit_health_check tool with "
+                                "status='ok' as the only argument. Do not "
+                                "respond with text — only call the tool."
+                            )
+                        ],
+                        session_id=mcp_session.session_id,
+                    ),
+                    timeout=15.0,
+                )
+            except TimeoutError:
+                return (
+                    f"Provider '{self.provider_name}' MCP probe: prompt "
+                    f"timed out after 15s without calling submit_health_check. "
+                    f"The bridge may have dropped the MCP server attachment."
+                )
+            except Exception as exc:
+                return (
+                    f"Provider '{self.provider_name}' MCP probe: prompt "
+                    f"failed: {exc}"
+                )
+
+            if not called_tools:
+                accumulated = client.get_accumulated_text().strip()
+                hint = (
+                    "agent produced text but no tool call — bridge probably "
+                    "dropped the MCP server"
+                    if accumulated
+                    else "agent produced no output at all — bridge may have "
+                    "ignored mcp_servers entirely"
+                )
+                return (
+                    f"Provider '{self.provider_name}' MCP probe: "
+                    f"submit_health_check was never called. {hint}. Without "
+                    f"working MCP tool routing, fly's implementer/reviewer "
+                    f"actors cannot deliver structured output."
+                )
+
+            return None
+        finally:
+            if mcp_session is not None:
+                with contextlib.suppress(Exception):
+                    await conn.cancel(session_id=mcp_session.session_id)
+            with contextlib.suppress(Exception):
+                await gateway.stop()
