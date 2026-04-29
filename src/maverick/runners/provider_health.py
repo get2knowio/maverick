@@ -20,6 +20,44 @@ __all__ = ["AcpProviderHealthCheck", "build_provider_health_checks"]
 logger = get_logger(__name__)
 
 
+class _DropAsgiCompletionNoise:
+    """Logging filter that drops uvicorn's "ASGI callable returned
+    without completing response" race-condition noise.
+
+    The message fires when an MCP HTTP client closes its connection
+    after the agent's tool call lands but before uvicorn finishes
+    streaming the SSE response — purely benign in the doctor's
+    short-lived probe pattern. ``setLevel`` doesn't work because
+    ``uvicorn.Server.serve()`` calls ``logging.config.dictConfig``
+    which resets levels mid-test; filters survive because uvicorn
+    uses ``disable_existing_loggers=False``.
+
+    Installed once at module import; doctor and any other consumer
+    of the gateway benefit. Real uvicorn errors still pass through.
+    """
+
+    def filter(self, record: Any) -> bool:
+        try:
+            msg = record.getMessage()
+        except Exception:  # noqa: BLE001
+            return True
+        return "ASGI callable returned without completing response" not in msg
+
+
+def _install_uvicorn_noise_filter() -> None:
+    import logging as _logging
+
+    target = _logging.getLogger("uvicorn.error")
+    # Idempotent — re-imports during tests shouldn't stack filters.
+    for existing in target.filters:
+        if isinstance(existing, _DropAsgiCompletionNoise):
+            return
+    target.addFilter(_DropAsgiCompletionNoise())
+
+
+_install_uvicorn_noise_filter()
+
+
 #: Per-provider health-check timeout when the MCP tool-call probe is
 #: enabled. The probe stacks two ACP sessions (basic prompt + tool
 #: call) on top of spawn/initialize/teardown — each prompt has a
@@ -463,22 +501,6 @@ class AcpProviderHealthCheck:
 
         gateway = AgentToolGateway()
         await gateway.start()
-        # Hush uvicorn's ``uvicorn.error`` logger AFTER startup —
-        # uvicorn calls ``logging.config.dictConfig`` during
-        # ``gateway.start()`` and overwrites whatever level we set
-        # earlier. The MCP session manager's HTTP handshake races
-        # against the ACP-side prompt completion: when the agent's
-        # tool call lands and the prompt returns before uvicorn
-        # finishes streaming the SSE response, uvicorn fires "ASGI
-        # callable returned without completing response" at ERROR.
-        # Benign (we already have the result) but loud in the doctor
-        # output above the Rich Live table. Restore the level in
-        # ``finally``.
-        import logging as _logging
-
-        _uvicorn_err = _logging.getLogger("uvicorn.error")
-        _prev_uvicorn_level = _uvicorn_err.level
-        _uvicorn_err.setLevel(_logging.CRITICAL)
         mcp_session: Any = None
         try:
             uid = f"doctor-probe-{self.provider_name}"
@@ -560,4 +582,3 @@ class AcpProviderHealthCheck:
                     await conn.cancel(session_id=mcp_session.session_id)
             with contextlib.suppress(Exception):
                 await gateway.stop()
-            _uvicorn_err.setLevel(_prev_uvicorn_level)
