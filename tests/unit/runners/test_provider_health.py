@@ -789,16 +789,19 @@ class TestPromptStep:
 
     @pytest.mark.asyncio
     async def test_prompt_timeout_fails_with_clear_message(self) -> None:
-        """Provider hangs during prompt — we hit our 10s inner timeout."""
+        """Provider hangs during prompt — we hit our inner timeout."""
         import asyncio as _asyncio
 
         async def hang(*_args: object, **_kwargs: object) -> None:
             await _asyncio.sleep(60)
 
+        # Outer must be larger than the inner 20s prompt timeout so we
+        # actually surface the prompt-specific message instead of the
+        # generic outer timeout.
         hc = AcpProviderHealthCheck(
             provider_name="gemini",
             provider_config=_make_config(command=["gemini", "--acp"]),
-            timeout=15.0,
+            timeout=30.0,
         )
         _, mock_ctx = self._setup_mocks(prompt_side_effect=hang)
 

@@ -21,12 +21,13 @@ logger = get_logger(__name__)
 
 
 #: Per-provider health-check timeout when the MCP tool-call probe is
-#: enabled. The probe stacks a fresh ACP session + tool-call round
-#: trip on top of the basic prompt test, so 15 s isn't enough — it
-#: pushes legitimate providers (claude, copilot, gemini, opencode)
-#: past the wire and they fail at the timeout instead of the actual
-#: probe boundary.
-_MCP_PROBE_OUTER_TIMEOUT: float = 30.0
+#: enabled. The probe stacks two ACP sessions (basic prompt + tool
+#: call) on top of spawn/initialize/teardown — each prompt has a
+#: 20s inner cap, so the outer needs ~50s of headroom to surface
+#: the probe-specific failure message instead of the generic outer
+#: timeout. Real-world latency for Anthropic / Copilot / OpenRouter
+#: routes can hit 15s+ per round trip on slow days.
+_MCP_PROBE_OUTER_TIMEOUT: float = 60.0
 
 
 def build_provider_health_checks(
@@ -320,12 +321,12 @@ class AcpProviderHealthCheck:
                             prompt=[text_block("Respond with the single word: ok")],
                             session_id=session.session_id,
                         ),
-                        timeout=10.0,
+                        timeout=20.0,
                     )
                 except TimeoutError:
                     errors.append(
                         f"Provider '{self.provider_name}' prompt test "
-                        f"timed out after 10s. The provider negotiated "
+                        f"timed out after 20s. The provider negotiated "
                         f"the protocol but never produced a response — "
                         f"likely hung waiting for auth, or rate-limited."
                     )
@@ -506,12 +507,12 @@ class AcpProviderHealthCheck:
                         ],
                         session_id=mcp_session.session_id,
                     ),
-                    timeout=8.0,
+                    timeout=20.0,
                 )
             except TimeoutError:
                 return (
                     f"Provider '{self.provider_name}' MCP probe: prompt "
-                    f"timed out after 8s without calling submit_health_check. "
+                    f"timed out after 20s without calling submit_health_check. "
                     f"The bridge may have dropped the MCP server attachment."
                 )
             except Exception as exc:
