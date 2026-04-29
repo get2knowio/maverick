@@ -12,6 +12,7 @@ from maverick.runners.provider_health import AcpProviderHealthCheck
 _MOD = "maverick.runners.provider_health"
 _WHICH = f"{_MOD}.shutil.which"
 _SPAWN = "acp.spawn_agent_process"
+_ACCUMULATED = "maverick.executor.acp_client.MaverickAcpClient.get_accumulated_text"
 
 
 def _make_config(
@@ -163,6 +164,7 @@ class TestSuccess:
         mock_conn = MagicMock()
         mock_conn.initialize = AsyncMock(return_value=None)
         mock_conn.new_session = AsyncMock(return_value=_mock_session())
+        mock_conn.prompt = AsyncMock(return_value=None)
         mock_conn.cancel = AsyncMock(return_value=None)
         mock_proc = MagicMock()
 
@@ -175,12 +177,15 @@ class TestSuccess:
         with (
             patch(_WHICH, return_value="/usr/bin/x"),
             patch(_SPAWN, return_value=mock_ctx),
+            patch(_ACCUMULATED, return_value="ok"),
         ):
             result = await hc.validate()
 
         assert result.success is True
         assert result.component == "ACP:claude"
         assert result.duration_ms >= 0
+        # The prompt-test step ran
+        mock_conn.prompt.assert_awaited_once()
 
 
 class TestTimeout:
@@ -355,6 +360,7 @@ class TestModelValidation:
         mock_conn = MagicMock()
         mock_conn.initialize = AsyncMock(return_value=None)
         mock_conn.new_session = AsyncMock(return_value=session)
+        mock_conn.prompt = AsyncMock(return_value=None)
         mock_conn.cancel = AsyncMock(return_value=None)
 
         mock_ctx = MagicMock()
@@ -366,14 +372,17 @@ class TestModelValidation:
         with (
             patch(_WHICH, return_value="/usr/bin/x"),
             patch(_SPAWN, return_value=mock_ctx),
+            patch(_ACCUMULATED, return_value="ok"),
         ):
             result = await hc.validate()
 
         assert result.success is True
 
     @pytest.mark.asyncio
-    async def test_skips_when_no_models_to_validate(self) -> None:
-        """No models to validate → skip session, pass."""
+    async def test_no_models_to_validate_still_runs_prompt_test(self) -> None:
+        """Even without configured models we still create a session and
+        run the prompt test — that's the whole point of the prompt step,
+        catching providers that can negotiate but won't generate."""
         hc = AcpProviderHealthCheck(
             provider_name="claude",
             provider_config=_make_config(),
@@ -382,6 +391,9 @@ class TestModelValidation:
 
         mock_conn = MagicMock()
         mock_conn.initialize = AsyncMock(return_value=None)
+        mock_conn.new_session = AsyncMock(return_value=_mock_session())
+        mock_conn.prompt = AsyncMock(return_value=None)
+        mock_conn.cancel = AsyncMock(return_value=None)
         mock_proc = MagicMock()
 
         mock_ctx = MagicMock()
@@ -393,12 +405,13 @@ class TestModelValidation:
         with (
             patch(_WHICH, return_value="/usr/bin/x"),
             patch(_SPAWN, return_value=mock_ctx),
+            patch(_ACCUMULATED, return_value="ok"),
         ):
             result = await hc.validate()
 
         assert result.success is True
-        # Should not have called new_session since no models to validate
-        mock_conn.new_session.assert_not_called()
+        mock_conn.new_session.assert_awaited_once()
+        mock_conn.prompt.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_skips_when_no_models_advertised(self) -> None:
@@ -414,6 +427,7 @@ class TestModelValidation:
         mock_conn = MagicMock()
         mock_conn.initialize = AsyncMock(return_value=None)
         mock_conn.new_session = AsyncMock(return_value=session)
+        mock_conn.prompt = AsyncMock(return_value=None)
         mock_conn.cancel = AsyncMock(return_value=None)
 
         mock_ctx = MagicMock()
@@ -425,14 +439,21 @@ class TestModelValidation:
         with (
             patch(_WHICH, return_value="/usr/bin/x"),
             patch(_SPAWN, return_value=mock_ctx),
+            patch(_ACCUMULATED, return_value="ok"),
         ):
             result = await hc.validate()
 
         assert result.success is True
 
     @pytest.mark.asyncio
-    async def test_session_failure_not_fatal(self) -> None:
-        """new_session() failure doesn't fail the health check."""
+    async def test_session_failure_is_fatal(self) -> None:
+        """new_session() failure now fails the health check.
+
+        Previously this was non-fatal: if a provider couldn't even
+        create a session, we'd still mark it healthy. That hid real
+        provider problems behind a green preflight, so the prompt-test
+        rework treats session-creation failure as fatal too.
+        """
         hc = AcpProviderHealthCheck(
             provider_name="claude",
             provider_config=_make_config(),
@@ -457,8 +478,9 @@ class TestModelValidation:
         ):
             result = await hc.validate()
 
-        # Session failure is non-fatal — health check still passes
-        assert result.success is True
+        assert result.success is False
+        assert "session creation failed" in result.errors[0]
+        assert "session failed" in result.errors[0]
 
     @pytest.mark.asyncio
     async def test_resolves_semantic_model_before_validation(self) -> None:
@@ -479,6 +501,7 @@ class TestModelValidation:
         mock_conn = MagicMock()
         mock_conn.initialize = AsyncMock(return_value=None)
         mock_conn.new_session = AsyncMock(return_value=session)
+        mock_conn.prompt = AsyncMock(return_value=None)
         mock_conn.cancel = AsyncMock(return_value=None)
 
         mock_ctx = MagicMock()
@@ -490,6 +513,7 @@ class TestModelValidation:
         with (
             patch(_WHICH, return_value="/usr/bin/x"),
             patch(_SPAWN, return_value=mock_ctx),
+            patch(_ACCUMULATED, return_value="ok"),
         ):
             result = await hc.validate()
 
@@ -534,3 +558,140 @@ class TestModelValidation:
         # "opus" does NOT resolve to "opus[1m]" — different model → fail
         assert result.success is False
         assert "opus" in result.errors[0]
+
+
+class TestPromptStep:
+    """Coverage for the post-init "say ok" prompt verification."""
+
+    def _setup_mocks(
+        self,
+        *,
+        prompt_side_effect: object = None,
+        prompt_return: object = None,
+    ) -> tuple[MagicMock, MagicMock]:
+        """Build a (mock_conn, mock_ctx) pair with all the protocol stages
+        wired up. Caller supplies the prompt behaviour they want to exercise."""
+        session = _mock_session()
+        mock_conn = MagicMock()
+        mock_conn.initialize = AsyncMock(return_value=None)
+        mock_conn.new_session = AsyncMock(return_value=session)
+        if prompt_side_effect is not None:
+            mock_conn.prompt = AsyncMock(side_effect=prompt_side_effect)
+        else:
+            mock_conn.prompt = AsyncMock(return_value=prompt_return)
+        mock_conn.cancel = AsyncMock(return_value=None)
+
+        mock_ctx = MagicMock()
+        mock_ctx.__aenter__ = AsyncMock(
+            return_value=(mock_conn, MagicMock()),
+        )
+        mock_ctx.__aexit__ = AsyncMock(return_value=None)
+        return mock_conn, mock_ctx
+
+    @pytest.mark.asyncio
+    async def test_empty_response_fails_with_auth_hint(self) -> None:
+        """Provider negotiates the protocol but streams zero text — the
+        gemini-without-authenticate failure mode. We surface a clear
+        auth-related error message."""
+        hc = AcpProviderHealthCheck(
+            provider_name="gemini",
+            provider_config=_make_config(command=["gemini", "--acp"]),
+        )
+        _, mock_ctx = self._setup_mocks()
+
+        with (
+            patch(_WHICH, return_value="/usr/bin/x"),
+            patch(_SPAWN, return_value=mock_ctx),
+            patch(_ACCUMULATED, return_value=""),
+        ):
+            result = await hc.validate()
+
+        assert result.success is False
+        assert "no content" in result.errors[0]
+        assert "GEMINI_API_KEY" in result.errors[0]
+
+    @pytest.mark.asyncio
+    async def test_prompt_timeout_fails_with_clear_message(self) -> None:
+        """Provider hangs during prompt — we hit our 10s inner timeout."""
+        import asyncio as _asyncio
+
+        async def hang(*_args: object, **_kwargs: object) -> None:
+            await _asyncio.sleep(60)
+
+        hc = AcpProviderHealthCheck(
+            provider_name="gemini",
+            provider_config=_make_config(command=["gemini", "--acp"]),
+            timeout=15.0,
+        )
+        _, mock_ctx = self._setup_mocks(prompt_side_effect=hang)
+
+        with (
+            patch(_WHICH, return_value="/usr/bin/x"),
+            patch(_SPAWN, return_value=mock_ctx),
+        ):
+            result = await hc.validate()
+
+        assert result.success is False
+        assert "timed out" in result.errors[0]
+        assert "auth" in result.errors[0] or "rate-limited" in result.errors[0]
+
+    @pytest.mark.asyncio
+    async def test_prompt_exception_propagates_clearly(self) -> None:
+        """A generic exception during prompt surfaces with the provider name."""
+        hc = AcpProviderHealthCheck(
+            provider_name="copilot",
+            provider_config=_make_config(command=["copilot", "--acp", "--stdio"]),
+        )
+        _, mock_ctx = self._setup_mocks(
+            prompt_side_effect=Exception("HTTP 401 Unauthorized"),
+        )
+
+        with (
+            patch(_WHICH, return_value="/usr/bin/x"),
+            patch(_SPAWN, return_value=mock_ctx),
+        ):
+            result = await hc.validate()
+
+        assert result.success is False
+        assert "copilot" in result.errors[0]
+        assert "HTTP 401" in result.errors[0]
+
+    @pytest.mark.asyncio
+    async def test_prompt_skipped_when_model_validation_already_failed(
+        self,
+    ) -> None:
+        """No point testing a model that doesn't exist — skip the prompt
+        when model validation already produced an error."""
+        m1 = MagicMock(model_id="sonnet")
+        models = MagicMock(available_models=[m1])
+        session = _mock_session(models=models)
+
+        hc = AcpProviderHealthCheck(
+            provider_name="claude",
+            provider_config=_make_config(),
+            models_to_validate=frozenset({"nonexistent"}),
+        )
+
+        mock_conn = MagicMock()
+        mock_conn.initialize = AsyncMock(return_value=None)
+        mock_conn.new_session = AsyncMock(return_value=session)
+        mock_conn.prompt = AsyncMock(return_value=None)
+        mock_conn.cancel = AsyncMock(return_value=None)
+
+        mock_ctx = MagicMock()
+        mock_ctx.__aenter__ = AsyncMock(
+            return_value=(mock_conn, MagicMock()),
+        )
+        mock_ctx.__aexit__ = AsyncMock(return_value=None)
+
+        with (
+            patch(_WHICH, return_value="/usr/bin/x"),
+            patch(_SPAWN, return_value=mock_ctx),
+        ):
+            result = await hc.validate()
+
+        assert result.success is False
+        # Failure is the model-availability error, not a prompt error
+        assert "not available" in result.errors[0]
+        # Prompt was never called
+        mock_conn.prompt.assert_not_called()

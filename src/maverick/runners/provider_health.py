@@ -9,6 +9,7 @@ import os
 import shutil
 import time
 from dataclasses import dataclass
+from typing import Any
 
 from maverick.config import AgentProviderConfig
 from maverick.logging import get_logger
@@ -157,14 +158,22 @@ class AcpProviderHealthCheck:
                 duration_ms=int((time.monotonic() - start_time) * 1000),
             )
 
-        # Step 3: Create session and validate configured models
+        # Step 3: Create session, validate models, and exercise the prompt
+        # path. Skipping the prompt step lets a provider that can negotiate
+        # the protocol but won't actually generate (gemini ACP without
+        # ``authenticate``, copilot logged out, quota exceeded) sail through
+        # preflight and die on the first real bead — so we send a tiny
+        # "say ok" prompt and fail fast if the response is empty.
         errors: list[str] = []
-        if self.models_to_validate:
-            try:
-                session = await conn.new_session(
-                    cwd=os.getcwd(),
-                    mcp_servers=[],
-                )
+        session: Any = None
+        try:
+            session = await conn.new_session(
+                cwd=os.getcwd(),
+                mcp_servers=[],
+            )
+
+            # 3a: Validate configured models are available on this provider.
+            if self.models_to_validate:
                 from maverick.executor._model_resolver import (
                     get_available_model_ids,
                     resolve_model_for_provider,
@@ -181,16 +190,63 @@ class AcpProviderHealthCheck:
                                 f"for provider '{self.provider_name}'. "
                                 f"Available models: {available_list}"
                             )
-                # Cancel the session — we don't need it
+
+            # 3b: Tiny prompt test — only worth running when the model
+            # itself isn't already known-bad. Capped at 10s; the outer
+            # ``self.timeout`` (default 15s) is the hard ceiling.
+            if not errors:
+                from acp import text_block
+
+                client.reset(
+                    step_name="healthcheck",
+                    agent_name="healthcheck",
+                    event_callback=None,
+                    allowed_tools=None,
+                )
+                try:
+                    await asyncio.wait_for(
+                        conn.prompt(
+                            prompt=[text_block("Respond with the single word: ok")],
+                            session_id=session.session_id,
+                        ),
+                        timeout=10.0,
+                    )
+                except TimeoutError:
+                    errors.append(
+                        f"Provider '{self.provider_name}' prompt test "
+                        f"timed out after 10s. The provider negotiated "
+                        f"the protocol but never produced a response — "
+                        f"likely hung waiting for auth, or rate-limited."
+                    )
+                except Exception as prompt_exc:
+                    errors.append(
+                        f"Provider '{self.provider_name}' prompt test "
+                        f"failed: {prompt_exc}"
+                    )
+                else:
+                    accumulated = client.get_accumulated_text().strip()
+                    if not accumulated:
+                        errors.append(
+                            f"Provider '{self.provider_name}' accepted "
+                            f"the prompt but returned no content. Likely "
+                            f"cause: provider needs authentication "
+                            f"(e.g. set GEMINI_API_KEY for gemini, or "
+                            f"run `copilot auth login`)."
+                        )
+        except Exception as exc:
+            logger.debug(
+                "provider_health.session_check_error",
+                provider=self.provider_name,
+                error=str(exc),
+            )
+            errors.append(
+                f"Provider '{self.provider_name}' session creation "
+                f"failed: {exc}"
+            )
+        finally:
+            if session is not None:
                 with contextlib.suppress(Exception):
                     await conn.cancel(session_id=session.session_id)
-            except Exception as exc:
-                logger.debug(
-                    "provider_health.session_check_error",
-                    provider=self.provider_name,
-                    error=str(exc),
-                )
-                # Session failure is not fatal for basic health
 
         # Teardown — health check only, we don't keep the connection.
         # Wait for subprocess to fully exit so BaseSubprocessTransport.__del__
