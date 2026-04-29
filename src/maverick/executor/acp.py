@@ -1033,20 +1033,11 @@ def _find_most_called_tool(client: MaverickAcpClient) -> str:
 def _uses_tool_output_contract(mcp_servers: list[Any] | None) -> bool:
     """Return True when attached MCP servers define the output contract."""
     for server in mcp_servers or []:
-        # HTTP gateway uses ``agent-tool-gateway``; the older ``agent-inbox``
-        # and ``supervisor-inbox`` names are kept for back-compat with mocks
-        # in test fixtures.
-        if getattr(server, "name", "") in {
-            "agent-tool-gateway",
-            "agent-inbox",
-            "supervisor-inbox",
-        }:
+        if getattr(server, "name", "") == "agent-tool-gateway":
             return True
 
         args = getattr(server, "args", None) or []
         arg_strings = [str(arg) for arg in args]
-        if "serve-inbox" in arg_strings:
-            return True
         if any(arg.startswith("submit_") for arg in arg_strings):
             return True
     return False

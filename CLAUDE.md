@@ -349,8 +349,7 @@ call to the supervisor (``await self._supervisor_ref.outline_ready(payload)``).
 The supervisor exposes only typed domain methods — **no**
 ``on_tool_call`` — so its surface stays dict-free. The actor still
 owns its schemas, handler, session state, and ACP executor; only the
-MCP transport lives in shared infrastructure (replaces the legacy
-per-actor ``maverick serve-inbox`` stdio subprocess model).
+MCP transport lives in shared infrastructure.
 
 **Cancellation and timeouts**: wrap any long-running child call in
 ``xo.wait_for`` (not ``asyncio.wait_for`` — xoscar has a documented

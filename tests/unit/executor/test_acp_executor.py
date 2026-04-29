@@ -385,8 +385,8 @@ class TestPromptSessionOutputContracts:
                 agent_name="test_agent",
                 mcp_servers=[
                     SimpleNamespace(
-                        name="supervisor-inbox",
-                        args=["serve-inbox", "--tools", "submit_outline"],
+                        name="agent-tool-gateway",
+                        args=["--tools", "submit_outline"],
                     )
                 ],
             )

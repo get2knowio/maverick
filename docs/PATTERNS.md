@@ -43,8 +43,8 @@ Why it repeats:
 Representative code:
 
 - [AGENT-MCP architecture](AGENT-MCP.md)
-- [supervisor inbox schemas](../src/maverick/tools/supervisor_inbox/schemas.py)
-- [supervisor inbox server](../src/maverick/tools/supervisor_inbox/server.py)
+- [agent inbox schemas](../src/maverick/tools/agent_inbox/schemas.py)
+- [agent tool gateway](../src/maverick/tools/agent_inbox/gateway.py)
 - [fly implementer actor](../src/maverick/workflows/fly_beads/actors/implementer.py)
 - [fly reviewer actor](../src/maverick/workflows/fly_beads/actors/reviewer.py)
 - [plan briefing actor](../src/maverick/workflows/generate_flight_plan/actors/briefing.py)
@@ -68,9 +68,9 @@ Why it repeats:
 
 Representative code:
 
-- [supervisor inbox server schema validation](../src/maverick/tools/supervisor_inbox/server.py)
-- [typed intake payload models](../src/maverick/tools/supervisor_inbox/models.py)
-- [typed intake tests](../tests/unit/tools/supervisor_inbox/test_models.py)
+- [agent tool gateway schema validation](../src/maverick/tools/agent_inbox/gateway.py)
+- [typed intake payload models](../src/maverick/tools/agent_inbox/models.py)
+- [gateway tests](../tests/unit/tools/agent_inbox/test_gateway.py)
 - [briefing serializer compatibility layer](../src/maverick/preflight_briefing/serializer.py)
 
 This is one of the clearest recurring patterns in the repository: strict schema outside, tolerant typed intake just inside, stricter domain interpretation deeper in the pipeline.

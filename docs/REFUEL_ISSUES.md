@@ -257,8 +257,8 @@ def _handle_tool_call(self, message):
 `_handle_error` (`refuel_supervisor.py:1078-1114`) calls `_shutdown_all()` and `_mark_done({"success": False, ...})`. This is a terminal action: all agents get `{"type": "shutdown"}`, and the workflow's drain loop receives `done=True` with `success=False`.
 
 Getting here requires:
-1. The MCP server's json-schema validation passed (the server does this in `src/maverick/tools/supervisor_inbox/server.py`).
-2. But `parse_supervisor_tool_payload` (`src/maverick/tools/supervisor_inbox/models.py`) raised because a Pydantic model's validators rejected some field — typically because the model is stricter than the json-schema (Pydantic validators enforce things like kebab-case IDs, non-empty `task`, etc. that can't be expressed in pure JSON Schema).
+1. The MCP gateway's json-schema validation passed (the gateway does this in `src/maverick/tools/agent_inbox/gateway.py`).
+2. But `parse_supervisor_tool_payload` (`src/maverick/tools/agent_inbox/models.py`) raised because a Pydantic model's validators rejected some field — typically because the model is stricter than the json-schema (Pydantic validators enforce things like kebab-case IDs, non-empty `task`, etc. that can't be expressed in pure JSON Schema).
 
 This is exactly the "prompt drift" case PATTERNS.md §3 talks about:
 
@@ -1059,6 +1059,6 @@ Out of scope — you're on your own here:
 
 - The `curate` / `land` workflow.
 - The briefing prompts themselves (content quality) — only orchestration.
-- The MCP supervisor inbox server implementation beyond the Thespian handoff (`src/maverick/tools/supervisor_inbox/`).
+- The MCP agent tool gateway implementation beyond the actor-side calls (`src/maverick/tools/agent_inbox/`).
 - Performance / memory profiling under load.
 - Cross-workflow regressions a mixin change might introduce in fly or plan.

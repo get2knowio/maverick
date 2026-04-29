@@ -270,7 +270,7 @@ class MaverickAcpClient(Client):
         ACP surfaces MCP tools as ``mcp__<server>__<tool>``; callers
         typically configure their allowlist with the bare tool name.
         Match both forms so ``allowed_tools=["submit_outline"]`` accepts
-        a call whose title is ``mcp__agent-inbox__submit_outline``.
+        a call whose title is ``mcp__agent-tool-gateway__submit_outline``.
         """
         if self._allowed_tools is None:
             return True

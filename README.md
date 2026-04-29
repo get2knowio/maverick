@@ -292,7 +292,7 @@ Workflow Layer (async Python)
   │
 Thespian Actor Layer (multiprocTCPBase — each actor in own OS process)
   │
-  ├── Supervisors (routing policy in receiveMessage)
+  ├── Supervisors (typed RPC fan-out via xoscar)
   │   FlySupervisor, RefuelSupervisor, PlanSupervisor
   │
   ├── Agent actors (persistent ACP sessions)
@@ -301,8 +301,8 @@ Thespian Actor Layer (multiprocTCPBase — each actor in own OS process)
   ├── Deterministic actors (pure Python, no LLM)
   │   Gate, SpecCheck, ACCheck, Committer, Validator
   │
-  └── MCP Supervisor Inbox (maverick serve-inbox)
-      Agent → MCP tool call → jsonschema validation → Thespian tell()
+  └── MCP Agent Tool Gateway (in-process HTTP, 127.0.0.1:0)
+      Agent → MCP tool call → jsonschema validation → typed actor RPC
       Built-in tools (Read/Write) = work; MCP tools = messaging
   │
 ACP Executor (spawns agent subprocesses over stdio)
@@ -313,9 +313,11 @@ ACP Executor (spawns agent subprocesses over stdio)
 
 Agents don't return structured data in their text response. Instead, they
 call MCP tools (`submit_outline`, `submit_review`, `submit_implementation`)
-which deliver schema-validated messages directly to the supervisor's
-Thespian inbox. Built-in tools (Read, Write, Bash) are for doing work;
-MCP tools are for reporting results.
+which deliver schema-validated messages to the shared HTTP gateway. The
+gateway routes each call to the originating actor's ``on_tool_call``
+handler, which forwards a typed payload to the supervisor via xoscar
+RPC. Built-in tools (Read, Write, Bash) are for doing work; MCP tools
+are for reporting results.
 
 ## Technology Stack
 

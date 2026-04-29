@@ -20,7 +20,7 @@ def test_review_result_derives_findings_count_from_findings_payload() -> None:
                     {
                         "severity": "major",
                         "message": "Add a regression test for mailbox parsing.",
-                        "file": "tests/unit/tools/supervisor_inbox/test_models.py",
+                        "file": "tests/unit/tools/agent_inbox/test_gateway.py",
                     }
                 ],
             },

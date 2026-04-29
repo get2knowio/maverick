@@ -233,7 +233,7 @@ Why it still matters:
 
 Relevant code:
 
-- [src/maverick/tools/supervisor_inbox/server.py](src/maverick/tools/supervisor_inbox/server.py)
+- [src/maverick/tools/agent_inbox/gateway.py](src/maverick/tools/agent_inbox/gateway.py)
 - [src/maverick/actors/decomposer.py](src/maverick/actors/decomposer.py)
 - [src/maverick/actors/briefing.py](src/maverick/actors/briefing.py)
 
@@ -323,7 +323,7 @@ The originally proposed "warm-up cascade" for the briefing fan-out was dropped �
 
 **Phase C — Unblock MCP caching (Closed, not needed):**
 
-Phase A data contradicted the premise. The Anthropic docs claim MCP servers disable caching by default; the live run showed clear cache reads (99.98% of prompt served from cache on parallel briefings) with `agent-inbox` MCP attached. No upstream patch needed.
+Phase A data contradicted the premise. The Anthropic docs claim MCP servers disable caching by default; the live run showed clear cache reads (99.98% of prompt served from cache on parallel briefings) with the agent tool gateway MCP attached. No upstream patch needed.
 
 **Phase D — Session-lifetime refactors (Closed, not needed):**
 
@@ -959,7 +959,7 @@ The codebase has started moving toward canonical renderers, especially around ge
 What exists:
 
 - canonical flight plan markdown in [src/maverick/workflows/generate_flight_plan/markdown.py](src/maverick/workflows/generate_flight_plan/markdown.py);
-- typed MCP intake models in [src/maverick/tools/supervisor_inbox/models.py](src/maverick/tools/supervisor_inbox/models.py).
+- typed MCP intake models in [src/maverick/tools/agent_inbox/models.py](src/maverick/tools/agent_inbox/models.py).
 
 What should happen next:
 
