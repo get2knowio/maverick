@@ -176,9 +176,10 @@ async def refuel(
     # operating in the user cwd (no workspace was created).
     if workflow_cwd is not None:
         await ws_manager.finalize(message=f"chore: refuel {name}")
-        console.print(
-            f"[green]✓[/] Beads published to user repo (branch: maverick/{user_repo.name})"
-        )
+        from maverick.cli.common import resolve_publish_branch_label
+
+        branch_label = await resolve_publish_branch_label(user_repo)
+        console.print(f"[green]✓[/] Beads published to user repo (branch: {branch_label})")
 
     # Surface the "what next" command. The workflow writes the bd epic id
     # into ``.maverick/runs/<run_id>/metadata.json`` — read it back so the

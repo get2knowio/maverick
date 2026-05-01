@@ -182,6 +182,7 @@ async def generate(
     # user cwd (no workspace was created).
     if workflow_cwd is not None:
         await ws_manager.finalize(message=f"chore: add flight plan for {name}")
-        console.print(
-            f"[green]✓[/] Plan published to user repo (branch: maverick/{user_repo.name})"
-        )
+        from maverick.cli.common import resolve_publish_branch_label
+
+        branch_label = await resolve_publish_branch_label(user_repo)
+        console.print(f"[green]✓[/] Plan published to user repo (branch: {branch_label})")
