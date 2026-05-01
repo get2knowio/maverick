@@ -41,6 +41,7 @@ __all__ = [
     "OutputSchemaValidationError",
     "EventCallback",
     "create_default_executor",
+    "create_opencode_executor",
 ]
 
 
@@ -77,4 +78,34 @@ def create_default_executor(
         global_max_tokens=config.model.max_tokens,
         subprocess_quota=subprocess_quota,
         actor_uid=actor_uid,
+    )
+
+
+def create_opencode_executor(
+    *,
+    server_handle: Any = None,
+) -> Any:
+    """Create an :class:`OpenCodeStepExecutor` wired to the default agent registry.
+
+    Use this for non-mailbox call sites (one-shot ``execute()``) during
+    the ACP → OpenCode transition. Mailbox actors continue to receive an
+    :class:`AcpStepExecutor` from :func:`create_default_executor` until
+    Phase 4 finishes the bulk migration.
+
+    Args:
+        server_handle: Pre-spawned :class:`OpenCodeServerHandle` (e.g.
+            from a pool's ``actor_pool(with_opencode=True)`` context).
+            When ``None``, the executor lazily spawns its own server on
+            first use and tears it down via :meth:`cleanup`.
+    """
+    from maverick.cli.common import create_registered_registry
+    from maverick.config import load_config
+    from maverick.runtime.opencode import OpenCodeStepExecutor
+
+    config = load_config()
+    registry = create_registered_registry()
+    return OpenCodeStepExecutor(
+        agent_registry=registry,
+        global_max_tokens=config.model.max_tokens,
+        server_handle=server_handle,
     )

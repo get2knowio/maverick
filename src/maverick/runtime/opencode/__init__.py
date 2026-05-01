@@ -49,6 +49,7 @@ from maverick.runtime.opencode.events import (
     first_error,
     session_idle_signal,
 )
+from maverick.runtime.opencode.executor import OpenCodeStepExecutor
 from maverick.runtime.opencode.registry import (
     opencode_handle_for,
     register_opencode_handle,
@@ -114,4 +115,6 @@ __all__ = [
     "opencode_handle_for",
     "register_opencode_handle",
     "unregister_opencode_handle",
+    # executor
+    "OpenCodeStepExecutor",
 ]
