@@ -107,10 +107,15 @@ class ImplementerActor(AgenticActorMixin, xo.Actor):
         try:
             await self._new_session()
         except Exception as exc:  # noqa: BLE001
+            from maverick.exceptions.quota import is_quota_error, is_transient_error
+
+            err_str = str(exc)
             await self._supervisor_ref.prompt_error(
                 PromptError(
                     phase="new_bead",
-                    error=str(exc),
+                    error=err_str,
+                    quota_exhausted=is_quota_error(err_str),
+                    transient=is_transient_error(err_str),
                     unit_id=request.bead_id,
                 )
             )
@@ -159,9 +164,10 @@ class ImplementerActor(AgenticActorMixin, xo.Actor):
     async def _report_implementer_failure(
         self, error_str: str, *, phase: str, bead_id: str
     ) -> None:
-        from maverick.exceptions.quota import is_quota_error
+        from maverick.exceptions.quota import is_quota_error, is_transient_error
 
         quota = is_quota_error(error_str)
+        transient = is_transient_error(error_str)
         logger.debug(
             "implementer.phase_failed",
             phase=phase,
@@ -173,6 +179,7 @@ class ImplementerActor(AgenticActorMixin, xo.Actor):
                 phase=phase,
                 error=error_str,
                 quota_exhausted=quota,
+                transient=transient,
                 unit_id=bead_id,
             )
         )

@@ -160,6 +160,12 @@ class FlySupervisor(xo.Actor):
         self._last_review: SubmitReviewPayload | None = None
         self._last_aggregate_review: SubmitReviewPayload | None = None
         self._last_parse_error: tuple[str, str] | None = None
+        # Latest ``PromptError`` for the currently-awaited reviewer call,
+        # set by ``prompt_error`` during transient-review failures so the
+        # main ``_review_loop`` can decide whether to escalate or abandon.
+        # ``None`` when the reviewer either delivered a payload or hasn't
+        # been invoked this round.
+        self._last_review_prompt_error: PromptError | None = None
 
         # Accumulators. ``_completed_beads`` is cumulative across runs —
         # it starts seeded with ``_inputs.completed_bead_ids`` (loaded
@@ -235,6 +241,9 @@ class FlySupervisor(xo.Actor):
         # the bead's current tier. Reset when a new bead starts. Read by
         # _resolve_implementer_tier when escalation_threshold is reached.
         self._bead_escalation_level: int = 0
+        # Reviewer escalation level for the current bead, bumped by the
+        # review loop on transient-review failures. Reset per bead.
+        self._bead_reviewer_escalation_level: int = 0
         # Reviewer wiring — mirrors the implementer tier pattern. When
         # ``reviewer_tiers`` is None, one ReviewerActor under the
         # _DEFAULT_TIER sentinel; when set, one per defined tier.
@@ -438,9 +447,18 @@ class FlySupervisor(xo.Actor):
         """Backward-compat wrapper — see :meth:`_resolve_tier_in`."""
         return self._resolve_tier_in(self._implementers, complexity, escalation_level)
 
-    def _resolve_reviewer_tier(self, complexity: str | None) -> str:
-        """Pick the reviewer tier for a bead. No escalation."""
-        return self._resolve_tier_in(self._reviewers, complexity, 0)
+    def _resolve_reviewer_tier(
+        self,
+        complexity: str | None,
+        escalation_level: int = 0,
+    ) -> str:
+        """Pick the reviewer tier for a bead at ``escalation_level``.
+
+        Mirrors :meth:`_resolve_implementer_tier`. Default level 0 is the
+        bead's normal complexity-mapped tier; bumping the level walks
+        up to the next-defined tier on transient-error escalation.
+        """
+        return self._resolve_tier_in(self._reviewers, complexity, escalation_level)
 
     def _implementer_for(
         self,
@@ -451,10 +469,33 @@ class FlySupervisor(xo.Actor):
         tier_name = self._resolve_implementer_tier(complexity, escalation_level)
         return tier_name, self._implementers[tier_name]
 
-    def _reviewer_for(self, complexity: str | None) -> tuple[str, xo.ActorRef]:
+    def _reviewer_for(
+        self,
+        complexity: str | None,
+        escalation_level: int = 0,
+    ) -> tuple[str, xo.ActorRef]:
         """Return ``(tier_name, actor_ref)`` for routing a bead's review."""
-        tier_name = self._resolve_reviewer_tier(complexity)
+        tier_name = self._resolve_reviewer_tier(complexity, escalation_level)
         return tier_name, self._reviewers[tier_name]
+
+    def _can_escalate_reviewer(
+        self,
+        complexity: str | None,
+        current_level: int,
+    ) -> bool:
+        """True when escalating one more level reaches a higher reviewer tier.
+
+        Mirrors :meth:`_can_escalate` for the implementer.  Returns False
+        in legacy single-actor mode (no tiers configured) and at the top
+        of the configured tier ladder.
+        """
+        if _DEFAULT_TIER in self._reviewers:
+            return False
+        next_tier = self._resolve_reviewer_tier(complexity, current_level + 1)
+        cur_tier = self._resolve_reviewer_tier(complexity, current_level)
+        if next_tier == cur_tier:
+            return False
+        return TIER_ORDER.index(next_tier) > TIER_ORDER.index(cur_tier)
 
     # ------------------------------------------------------------------
     # Workflow entry point
@@ -508,6 +549,10 @@ class FlySupervisor(xo.Actor):
         )
 
     async def _bead_loop(self) -> None:
+        from maverick.workflows.fly_beads.graceful_stop import (
+            is_graceful_stop_requested,
+        )
+
         processed = 0
         idle_polls = 0
         max_idle = self._inputs.max_idle_polls if self._inputs.watch else 0
@@ -520,6 +565,18 @@ class FlySupervisor(xo.Actor):
             f"Starting bead loop (epic: {self._inputs.epic_id or 'any'})",
         )
         while unlimited or processed < self._inputs.max_beads:
+            # Honour user-requested graceful stop *before* picking the
+            # next bead. Picking up a new bead now would expose another
+            # in-flight unit to a hard cancellation if the user gets
+            # impatient and presses Ctrl-C a second time.
+            if is_graceful_stop_requested():
+                await self._emit_output(
+                    "fly",
+                    f"Graceful stop requested — exiting after "
+                    f"{processed} bead(s)",
+                    level="warning",
+                )
+                return
             bead = await self._select_next_bead()
             if bead is None or not bead.get("found"):
                 if self._inputs.watch and idle_polls < max_idle:
@@ -581,8 +638,10 @@ class FlySupervisor(xo.Actor):
         # may not).
         await self._load_bead_context(bead)
 
-        # Reset per-bead escalation tracker for tier routing.
+        # Reset per-bead escalation trackers for tier routing.
         self._bead_escalation_level = 0
+        self._bead_reviewer_escalation_level = 0
+        self._last_review_prompt_error = None
 
         # Pick the implementer tier based on bead complexity. In legacy
         # (no-tiers) mode this always returns the single fallback actor;
@@ -765,6 +824,103 @@ class FlySupervisor(xo.Actor):
                 return False
         return False
 
+    async def _review_with_transient_escalation(
+        self,
+        *,
+        bead_id: str,
+        complexity: str | None,
+        request: ReviewRequest,
+    ) -> bool:
+        """Send a review request, escalating one tier on transient failure.
+
+        Returns ``True`` if a review payload landed in ``self._last_review``,
+        ``False`` if the reviewer never submitted (whether due to
+        non-transient failure, exhausted escalation, or the actor's
+        own self-nudge giving up).
+
+        The actor itself already retries once on the same tier
+        (:meth:`AgenticActorMixin._run_prompt_with_transient_retry`).
+        This helper handles the *next* layer: when the actor still
+        reports a transient failure, walk one tier up and retry the
+        same request on the higher-tier reviewer. The bead's reviewer
+        escalation level persists for the rest of the bead — there's
+        no point dropping back to a tier we just learned is unreliable.
+        """
+        while True:
+            self._last_review = None
+            self._last_review_prompt_error = None
+            tier_name, reviewer = self._reviewer_for(
+                complexity,
+                escalation_level=self._bead_reviewer_escalation_level,
+            )
+            await reviewer.send_review(request)
+
+            if self._last_review is not None:
+                return True
+
+            transient_err = self._last_review_prompt_error
+            if transient_err is None:
+                # Non-transient failure path (or no result) — give up.
+                return False
+
+            if not self._can_escalate_reviewer(
+                complexity,
+                self._bead_reviewer_escalation_level,
+            ):
+                # Already at the top tier — this is fatal at the bead
+                # level. Mark the run done with the carried error so the
+                # workflow surfaces the same diagnostic the previous
+                # always-fatal path produced.
+                await self._emit_output(
+                    "fly",
+                    (
+                        f"Reviewer transient failure exhausted escalation "
+                        f"for {bead_id} at tier '{tier_name}': "
+                        f"{transient_err.error}"
+                    ),
+                    level="error",
+                    metadata={
+                        "phase": "review",
+                        "transient": True,
+                        "exhausted": True,
+                    },
+                )
+                self._mark_done(
+                    {
+                        "success": False,
+                        "error": transient_err.error,
+                        "phase": "review",
+                        "quota_exhausted": False,
+                        "transient": True,
+                        "beads_completed": self._processed_this_run,
+                        "completed_bead_ids": list(self._completed_beads),
+                    }
+                )
+                return False
+
+            self._bead_reviewer_escalation_level += 1
+            new_tier, _ = self._reviewer_for(
+                complexity,
+                escalation_level=self._bead_reviewer_escalation_level,
+            )
+            await self._emit_output(
+                "fly",
+                (
+                    f"Escalating reviewer for {bead_id} from tier "
+                    f"'{tier_name}' to '{new_tier}' after transient failure"
+                ),
+                level="warning",
+                metadata={
+                    "bead_id": bead_id,
+                    "from_tier": tier_name,
+                    "to_tier": new_tier,
+                    "phase": "review",
+                    "transient": True,
+                },
+            )
+            # Loop again: the next iteration picks up the new tier via
+            # the bumped escalation level and replays the same request.
+
     async def _review_loop(self, bead: dict[str, Any]) -> tuple[int, bool]:
         """Run the review fix loop.
 
@@ -773,40 +929,52 @@ class FlySupervisor(xo.Actor):
         ``approved`` is true when the last review was approved. When the
         reviewer never submits a payload at all, returns ``(0, False)``
         so the caller can distinguish "no result" from "findings".
+
+        On transient review failures (HTTP 5xx, "no capacity", etc.) the
+        loop walks the bead one tier up the reviewer ladder and replays
+        the same review request before declaring the round failed. The
+        escalation level persists across rounds for the bead — once we
+        learn a tier is unreliable for this bead, we don't drop back to
+        it for subsequent rounds.
         """
         bead_id = bead["bead_id"]
         complexity = bead.get("complexity")
-        _, reviewer = self._reviewer_for(complexity)
         rounds_with_findings = 0
+        request = ReviewRequest(
+            bead_id=bead_id,
+            bead_description=bead.get("description", ""),
+            work_unit_md=bead.get("work_unit_md", ""),
+            briefing_context=bead.get("briefing_context", ""),
+        )
         for round_n in range(1, MAX_REVIEW_ROUNDS + 1):
-            self._last_review = None
-            await reviewer.send_review(
-                ReviewRequest(
-                    bead_id=bead_id,
-                    bead_description=bead.get("description", ""),
-                    work_unit_md=bead.get("work_unit_md", ""),
-                    briefing_context=bead.get("briefing_context", ""),
-                )
+            review_landed = await self._review_with_transient_escalation(
+                bead_id=bead_id,
+                complexity=complexity,
+                request=request,
             )
-            if self._last_review is None:
+            if not review_landed:
                 await self._emit_output(
                     "fly",
                     f"Reviewer did not submit for {bead_id} (round {round_n})",
                     level="warning",
                 )
                 return (rounds_with_findings, False)
-            self._last_review_findings = self._last_review.findings
-            if self._last_review.approved:
+            # ``review_landed`` is True iff the helper set ``_last_review``;
+            # narrow the Optional for mypy.
+            assert self._last_review is not None
+            review = self._last_review
+            self._last_review_findings = review.findings
+            if review.approved:
                 return (rounds_with_findings, True)
             rounds_with_findings += 1
-            self._review_findings_for_bead.append(self._last_review)
+            self._review_findings_for_bead.append(review)
             # Record findings to runway for future briefings.
-            await self._record_review_findings(self._last_review.findings)
+            await self._record_review_findings(review.findings)
             if round_n >= MAX_REVIEW_ROUNDS:
                 return (rounds_with_findings, False)
             finding_text = "\n".join(
                 f"- [{f.severity}] {f.issue} ({f.file}:{f.line})"
-                for f in self._last_review.findings
+                for f in review.findings
             )
             if not await self._send_fix(
                 bead_id, phase="review", context=finding_text, round=round_n
@@ -1235,15 +1403,40 @@ class FlySupervisor(xo.Actor):
     async def prompt_error(self, error: PromptError) -> None:
         """Handle an ACP prompt failure.
 
-        Fatal across the board for fly (unlike refuel's detail-phase
-        retry): there's no per-unit retry loop here — bead-level
-        failures should surface loud and let the bead fail.
+        Most failures are fatal at the bead level — there's no
+        per-unit retry loop here, so the bead-level failure surfaces
+        loud and we abandon. The exception is **transient review
+        errors** (HTTP 5xx, "no capacity", etc.): for those we record
+        the error in ``_last_review_prompt_error`` and let the
+        surrounding ``_review_loop`` decide whether to escalate to a
+        higher-tier reviewer. Quota errors are never transient.
         """
+        # Transient review failure: hand off to the review loop.
+        # The loop tries one tier higher and only declares the bead
+        # failed when escalation is exhausted.
+        if (
+            error.phase == "review"
+            and error.transient
+            and not error.quota_exhausted
+        ):
+            self._last_review_prompt_error = error
+            await self._emit_output(
+                "fly",
+                f"review prompt transient-failed: {error.error}",
+                level="warning",
+                metadata={"phase": error.phase, "transient": True},
+            )
+            return
+
         await self._emit_output(
             "fly",
             f"{error.phase} prompt failed: {error.error}",
             level="error",
-            metadata={"phase": error.phase, "quota": error.quota_exhausted},
+            metadata={
+                "phase": error.phase,
+                "quota": error.quota_exhausted,
+                "transient": error.transient,
+            },
         )
         self._mark_done(
             {
@@ -1251,6 +1444,7 @@ class FlySupervisor(xo.Actor):
                 "error": error.error,
                 "phase": error.phase,
                 "quota_exhausted": error.quota_exhausted,
+                "transient": error.transient,
                 "beads_completed": self._processed_this_run,
                 "completed_bead_ids": list(self._completed_beads),
             }
@@ -1327,5 +1521,29 @@ class FlySupervisor(xo.Actor):
         return dict(self._reviewers)
 
     @xo.no_lock
-    async def t_resolve_reviewer_tier(self, complexity: str | None) -> str:
-        return self._resolve_reviewer_tier(complexity)
+    async def t_resolve_reviewer_tier(
+        self,
+        complexity: str | None,
+        escalation_level: int = 0,
+    ) -> str:
+        return self._resolve_reviewer_tier(complexity, escalation_level)
+
+    @xo.no_lock
+    async def t_can_escalate_reviewer(
+        self,
+        complexity: str | None,
+        current_level: int,
+    ) -> bool:
+        return self._can_escalate_reviewer(complexity, current_level)
+
+    @xo.no_lock
+    async def t_run_bead_loop_for_test(self) -> int:
+        """Test-only entry point: run :meth:`_bead_loop` once and return
+        the count of beads processed in this run.
+
+        Used to verify the graceful-stop short-circuit. Production
+        callers go through :meth:`run`, which spawns the bead loop
+        inside the driver task.
+        """
+        await self._bead_loop()
+        return self._processed_this_run

@@ -329,3 +329,142 @@ async def test_decomposer_empty_tiers_falls_back_to_single_pool_worker(
         assert snapshot["demand_pool"] is None
     finally:
         await xo.destroy_actor(sup)
+
+
+# ---------------------------------------------------------------------------
+# Reviewer transient-error escalation (FUTURE.md §2.10 follow-up).
+# ---------------------------------------------------------------------------
+#
+# The reviewer's tier is normally fixed by the bead's complexity (no
+# escalation). But on a *transient* prompt error (HTTP 5xx, "no
+# capacity"), the supervisor walks one tier up and replays the same
+# review request. These tests exercise the resolver + can_escalate
+# helpers that drive that loop, plus the legacy mode's no-op behaviour.
+
+
+@pytest.mark.asyncio
+async def test_reviewer_resolver_accepts_escalation_level(pool_address: str) -> None:
+    """Bumping the escalation level walks the reviewer one tier up."""
+    tiers = ReviewerTiersConfig(
+        simple=ImplementerTierConfig(provider="gemini"),
+        moderate=ImplementerTierConfig(provider="copilot"),
+        complex=ImplementerTierConfig(provider="claude"),
+    )
+    sup = await xo.create_actor(
+        FlySupervisor,
+        FlyInputs(cwd="/tmp", max_beads=1, reviewer_tiers=tiers),
+        address=pool_address,
+        uid="fly-reviewer-escalation",
+    )
+    try:
+        # Simple complexity, no escalation → simple tier.
+        assert await sup.t_resolve_reviewer_tier("simple") == "simple"
+        # +1 → walks up to next defined tier.
+        assert await sup.t_resolve_reviewer_tier("simple", 1) == "moderate"
+        # +2 → top tier.
+        assert await sup.t_resolve_reviewer_tier("simple", 2) == "complex"
+        # +3 → already at top, stays at complex (caller checks
+        # can_escalate to know whether to bump further).
+        assert await sup.t_resolve_reviewer_tier("simple", 3) == "complex"
+    finally:
+        await xo.destroy_actor(sup)
+
+
+@pytest.mark.asyncio
+async def test_can_escalate_reviewer_walks_up_then_stops(pool_address: str) -> None:
+    """``can_escalate_reviewer`` returns True until the top tier."""
+    tiers = ReviewerTiersConfig(
+        simple=ImplementerTierConfig(provider="gemini"),
+        moderate=ImplementerTierConfig(provider="copilot"),
+        complex=ImplementerTierConfig(provider="claude"),
+    )
+    sup = await xo.create_actor(
+        FlySupervisor,
+        FlyInputs(cwd="/tmp", max_beads=1, reviewer_tiers=tiers),
+        address=pool_address,
+        uid="fly-reviewer-can-escalate",
+    )
+    try:
+        # From simple → moderate is escalable.
+        assert await sup.t_can_escalate_reviewer("simple", 0) is True
+        # From moderate → complex is escalable.
+        assert await sup.t_can_escalate_reviewer("simple", 1) is True
+        # From complex → nothing higher.
+        assert await sup.t_can_escalate_reviewer("simple", 2) is False
+    finally:
+        await xo.destroy_actor(sup)
+
+
+@pytest.mark.asyncio
+async def test_can_escalate_reviewer_legacy_returns_false(pool_address: str) -> None:
+    """Legacy single-actor mode never escalates."""
+    sup = await xo.create_actor(
+        FlySupervisor,
+        FlyInputs(cwd="/tmp", max_beads=1, reviewer_tiers=None),
+        address=pool_address,
+        uid="fly-reviewer-can-escalate-legacy",
+    )
+    try:
+        assert await sup.t_can_escalate_reviewer("simple", 0) is False
+        assert await sup.t_can_escalate_reviewer(None, 0) is False
+    finally:
+        await xo.destroy_actor(sup)
+
+
+@pytest.mark.asyncio
+async def test_can_escalate_reviewer_at_top_tier_returns_false(
+    pool_address: str,
+) -> None:
+    """When the bead already routes to the top defined tier, no escalation."""
+    tiers = ReviewerTiersConfig(
+        complex=ImplementerTierConfig(provider="claude"),
+    )
+    sup = await xo.create_actor(
+        FlySupervisor,
+        FlyInputs(cwd="/tmp", max_beads=1, reviewer_tiers=tiers),
+        address=pool_address,
+        uid="fly-reviewer-top-tier",
+    )
+    try:
+        # Only one tier defined → can't go higher.
+        assert await sup.t_can_escalate_reviewer("complex", 0) is False
+        assert await sup.t_can_escalate_reviewer("simple", 0) is False
+    finally:
+        await xo.destroy_actor(sup)
+
+
+# ---------------------------------------------------------------------------
+# Graceful-stop honouring at bead-loop boundary.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_bead_loop_exits_when_graceful_stop_requested(
+    pool_address: str,
+) -> None:
+    """When the graceful-stop flag is set before the loop polls, the
+    loop returns without calling ``select_next_bead`` — no bead gets
+    pulled from the queue and no bead processing starts."""
+    from maverick.workflows.fly_beads.graceful_stop import (
+        request_graceful_stop,
+        reset_graceful_stop,
+    )
+
+    sup = await xo.create_actor(
+        FlySupervisor,
+        FlyInputs(cwd="/tmp", max_beads=10, reviewer_tiers=None),
+        address=pool_address,
+        uid="fly-graceful-stop",
+    )
+    try:
+        reset_graceful_stop()  # paranoia in case a prior test set it
+        request_graceful_stop()
+
+        processed = await sup.t_run_bead_loop_for_test()
+
+        # Loop short-circuited at the top of the iteration before
+        # ``select_next_bead`` ran, so no bead was processed.
+        assert processed == 0
+    finally:
+        reset_graceful_stop()
+        await xo.destroy_actor(sup)

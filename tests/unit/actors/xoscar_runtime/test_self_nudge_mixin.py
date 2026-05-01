@@ -198,6 +198,133 @@ async def test_run_with_self_nudge_routes_nudge_exception_to_failure() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Transient retry: the prompt-runner retries once on transient errors
+# before propagating. Quota and other failures pass through immediately.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_transient_retry_recovers_after_blip() -> None:
+    """A transient first call followed by success returns cleanly."""
+    m = _BareMixin()
+    calls: list[int] = []
+
+    async def _flaky() -> None:
+        calls.append(1)
+        if len(calls) == 1:
+            # Real-world capacity-error string from the gemini ACP path.
+            raise RuntimeError(
+                "ACP prompt failed: No capacity available for model X (code=500)"
+            )
+
+    await m._run_prompt_with_transient_retry(
+        _flaky,
+        log_prefix="test",
+        actor_tag="bare",
+        backoff_seconds=0,  # don't slow the test
+    )
+    assert len(calls) == 2  # original + one retry
+
+
+@pytest.mark.asyncio
+async def test_transient_retry_propagates_after_second_failure() -> None:
+    """Two transient failures in a row → exception propagates."""
+    m = _BareMixin()
+    calls: list[int] = []
+
+    async def _always_transient() -> None:
+        calls.append(1)
+        raise RuntimeError("Service unavailable")
+
+    with pytest.raises(RuntimeError, match="Service unavailable"):
+        await m._run_prompt_with_transient_retry(
+            _always_transient,
+            log_prefix="test",
+            actor_tag="bare",
+            backoff_seconds=0,
+        )
+    # Exactly one retry — no infinite loop.
+    assert len(calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_non_transient_error_propagates_without_retry() -> None:
+    """Non-transient errors are not retried — they fail through immediately."""
+    m = _BareMixin()
+    calls: list[int] = []
+
+    async def _content_error() -> None:
+        calls.append(1)
+        raise RuntimeError("Agent not found in registry")
+
+    with pytest.raises(RuntimeError, match="Agent not found"):
+        await m._run_prompt_with_transient_retry(
+            _content_error,
+            log_prefix="test",
+            actor_tag="bare",
+            backoff_seconds=0,
+        )
+    assert len(calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_quota_errors_are_not_retried() -> None:
+    """Quota errors (which excludes them from is_transient_error) skip retry."""
+    m = _BareMixin()
+    calls: list[int] = []
+
+    async def _quota_error() -> None:
+        calls.append(1)
+        raise RuntimeError("You've hit your limit · resets 6am")
+
+    with pytest.raises(RuntimeError, match="hit your limit"):
+        await m._run_prompt_with_transient_retry(
+            _quota_error,
+            log_prefix="test",
+            actor_tag="bare",
+            backoff_seconds=0,
+        )
+    assert len(calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_self_nudge_retries_transient_prompt() -> None:
+    """End-to-end: ``_run_with_self_nudge`` lets the inner retry recover."""
+    m = _BareMixin()
+    prompt_calls: list[int] = []
+    failures: list[str] = []
+
+    async def _flaky_prompt() -> None:
+        prompt_calls.append(1)
+        if len(prompt_calls) == 1:
+            raise RuntimeError("HTTP 503 server error")
+        # Second call succeeds — mark the tool delivered.
+        m._mark_tool_delivered("submit_x")
+
+    async def _nudge_unused() -> None:
+        raise AssertionError("nudge should not run when retry recovers")
+
+    async def _failure(msg: str) -> None:
+        failures.append(msg)
+
+    with patch("asyncio.sleep", new=_no_sleep):
+        await m._run_with_self_nudge(
+            expected_tool="submit_x",
+            run_prompt=_flaky_prompt,
+            run_nudge=_nudge_unused,
+            on_failure=_failure,
+            log_prefix="test",
+        )
+    assert prompt_calls == [1, 1]  # retry recovered
+    assert failures == []  # no failure routed
+
+
+async def _no_sleep(_seconds: float) -> None:
+    """Patch target — skip the retry backoff in tests."""
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Per-actor wiring — confirm each actor flips the flag in on_tool_call and
 # triggers the nudge path through ``send_*`` when the tool is skipped.
 # ---------------------------------------------------------------------------

@@ -2,12 +2,21 @@
 
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from maverick.config import AgentProviderConfig, PermissionMode
-from maverick.runners.provider_health import AcpProviderHealthCheck
+from maverick.runners.provider_health import (
+    AcpProviderHealthCheck,
+    _drain_stderr,
+    _StderrTail,
+    build_provider_health_checks,
+    providers_for_fly,
+    providers_referenced_by_actors,
+    providers_referenced_by_agents,
+)
 
 _MOD = "maverick.runners.provider_health"
 _WHICH = f"{_MOD}.shutil.which"
@@ -875,3 +884,408 @@ class TestPromptStep:
         assert "not available" in result.errors[0]
         # Prompt was never called
         mock_conn.prompt.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Stderr capture: bridge subprocess stderr is teed into the error message
+# ---------------------------------------------------------------------------
+
+
+class TestStderrTail:
+    """Pure-Python tests for the ring-buffer helper."""
+
+    def test_appends_and_strips_trailing_newlines(self) -> None:
+        tail = _StderrTail()
+        tail.append("first line\n")
+        tail.append("second line\r\n")
+        assert tail.snapshot() == ["first line", "second line"]
+
+    def test_skips_blank_lines(self) -> None:
+        tail = _StderrTail()
+        tail.append("\n")
+        tail.append("   \n")
+        tail.append("real line\n")
+        assert tail.snapshot() == ["   ", "real line"]
+
+    def test_truncates_oversize_lines(self) -> None:
+        tail = _StderrTail(max_chars_per_line=10)
+        tail.append("a" * 100 + "\n")
+        snap = tail.snapshot()
+        assert len(snap) == 1
+        # 10 chars + the ellipsis marker
+        assert snap[0] == ("a" * 10) + "…"
+
+    def test_drops_oldest_beyond_max_lines(self) -> None:
+        tail = _StderrTail(max_lines=3)
+        for i in range(5):
+            tail.append(f"line {i}\n")
+        assert tail.snapshot() == ["line 2", "line 3", "line 4"]
+
+
+class TestStderrDrainer:
+    """End-to-end behaviour of the async drainer against a real StreamReader."""
+
+    @pytest.mark.asyncio
+    async def test_drains_until_eof(self) -> None:
+        reader = asyncio.StreamReader()
+        proc = MagicMock()
+        proc.stderr = reader
+
+        tail = _StderrTail()
+        task = asyncio.create_task(_drain_stderr(proc, tail))
+
+        reader.feed_data(b"auth: token expired\n")
+        reader.feed_data(b"retrying with refresh...\n")
+        reader.feed_eof()
+
+        await asyncio.wait_for(task, timeout=1.0)
+
+        assert tail.snapshot() == [
+            "auth: token expired",
+            "retrying with refresh...",
+        ]
+
+    @pytest.mark.asyncio
+    async def test_returns_on_cancel(self) -> None:
+        reader = asyncio.StreamReader()
+        proc = MagicMock()
+        proc.stderr = reader
+
+        tail = _StderrTail()
+        task = asyncio.create_task(_drain_stderr(proc, tail))
+        reader.feed_data(b"first line before cancel\n")
+        # Yield so the drainer reads what's available before we cancel.
+        await asyncio.sleep(0)
+        task.cancel()
+        await asyncio.wait_for(task, timeout=1.0)
+
+        # Drainer captured what it saw before cancellation
+        assert "first line before cancel" in tail.snapshot()
+
+    @pytest.mark.asyncio
+    async def test_skips_non_streamreader(self) -> None:
+        """A non-StreamReader stderr (e.g., test mock) is a no-op exit."""
+        proc = MagicMock()
+        proc.stderr = MagicMock()  # not a StreamReader
+
+        tail = _StderrTail()
+        await asyncio.wait_for(_drain_stderr(proc, tail), timeout=1.0)
+        assert tail.snapshot() == []
+
+
+class TestStderrInErrorMessages:
+    """End-to-end: captured stderr lines reach the user-facing error message."""
+
+    @pytest.mark.asyncio
+    async def test_handshake_failure_includes_stderr_tail(self) -> None:
+        """When the ACP handshake errors, the bridge's stderr tail is appended."""
+        hc = AcpProviderHealthCheck(
+            provider_name="claude",
+            provider_config=_make_config(),
+        )
+
+        # Real StreamReader so the drainer works; pre-load some bridge output.
+        reader = asyncio.StreamReader()
+        reader.feed_data(b"claude-agent-acp: token expired (HTTP 401)\n")
+        reader.feed_data(b"please run: claude auth login\n")
+        reader.feed_eof()
+
+        mock_conn = MagicMock()
+        mock_conn.initialize = AsyncMock(side_effect=Exception("auth failed"))
+        mock_proc = MagicMock()
+        mock_proc.stderr = reader
+
+        mock_ctx = MagicMock()
+        mock_ctx.__aenter__ = AsyncMock(return_value=(mock_conn, mock_proc))
+        mock_ctx.__aexit__ = AsyncMock(return_value=None)
+
+        with (
+            patch(_WHICH, return_value="/usr/bin/x"),
+            patch(_SPAWN, return_value=mock_ctx),
+        ):
+            result = await hc.validate()
+
+        assert result.success is False
+        err = result.errors[0]
+        assert "handshake failed" in err
+        assert "auth failed" in err
+        assert "Provider stderr (last" in err
+        assert "claude-agent-acp: token expired (HTTP 401)" in err
+        assert "please run: claude auth login" in err
+
+    @pytest.mark.asyncio
+    async def test_timeout_includes_stderr_tail(self) -> None:
+        """Outer ``wait_for`` timeout still surfaces the stderr captured so far."""
+        hc = AcpProviderHealthCheck(
+            provider_name="gemini",
+            provider_config=_make_config(),
+            timeout=0.2,
+        )
+
+        reader = asyncio.StreamReader()
+        # Fill with hints before the spawn returns; drainer reads them
+        # while validate() is blocked in wait_for.
+        reader.feed_data(b"gemini-bridge: waiting for OAUTH callback...\n")
+        reader.feed_data(b"gemini-bridge: no GEMINI_API_KEY in env\n")
+
+        async def hanging_initialize(**_kwargs: object) -> None:
+            await asyncio.sleep(10)
+
+        mock_conn = MagicMock()
+        # Initialize hangs forever — health check times out at outer wait_for.
+        mock_conn.initialize = hanging_initialize
+        mock_proc = MagicMock()
+        mock_proc.stderr = reader
+
+        mock_ctx = MagicMock()
+        mock_ctx.__aenter__ = AsyncMock(return_value=(mock_conn, mock_proc))
+        mock_ctx.__aexit__ = AsyncMock(return_value=None)
+
+        with (
+            patch(_WHICH, return_value="/usr/bin/x"),
+            patch(_SPAWN, return_value=mock_ctx),
+        ):
+            result = await hc.validate()
+
+        assert result.success is False
+        err = result.errors[0]
+        assert "timed out" in err
+        assert "Provider stderr (last" in err
+        assert "waiting for OAUTH callback" in err
+        assert "no GEMINI_API_KEY" in err
+
+
+# ---------------------------------------------------------------------------
+# Per-command provider extraction + provider_filter
+# ---------------------------------------------------------------------------
+
+
+def _make_maverick_config(
+    *,
+    agent_providers: dict[str, AgentProviderConfig] | None = None,
+    actors: dict[str, dict[str, object]] | None = None,
+    agents: dict[str, object] | None = None,
+) -> object:
+    """Build a minimal MaverickConfig-shaped object for the extraction helpers.
+
+    The helpers read ``actors`` / ``agents`` / ``agent_providers``
+    duck-typed (they don't need the full Pydantic model), so a tiny
+    namespace stub is sufficient and keeps the test isolated from
+    Pydantic loader cost.
+    """
+    import types
+
+    return types.SimpleNamespace(
+        agent_providers=agent_providers or {},
+        actors=actors or {},
+        agents=agents or {},
+    )
+
+
+class TestProvidersReferencedByActors:
+    def test_collects_top_level_and_tier_providers(self) -> None:
+        config = _make_maverick_config(
+            actors={
+                "fly": {
+                    "implementer": {
+                        "provider": "copilot",
+                        "tiers": {
+                            "trivial": {"provider": "opencode"},
+                            "simple": {"provider": "claude"},
+                            "moderate": {"provider": "claude"},
+                            "complex": {"provider": "copilot"},
+                        },
+                    },
+                    "reviewer": {
+                        "provider": "claude",
+                        "tiers": {
+                            "simple": {"provider": "gemini"},
+                        },
+                    },
+                },
+            },
+        )
+        seen = providers_referenced_by_actors(config, "fly")
+        assert seen == {"copilot", "opencode", "claude", "gemini"}
+
+    def test_skips_other_workflows(self) -> None:
+        config = _make_maverick_config(
+            actors={
+                "refuel": {"decomposer": {"provider": "gemini"}},
+                "fly": {"implementer": {"provider": "claude"}},
+            },
+        )
+        assert providers_referenced_by_actors(config, "fly") == {"claude"}
+
+    def test_returns_empty_when_workflow_missing(self) -> None:
+        config = _make_maverick_config(actors={})
+        assert providers_referenced_by_actors(config, "fly") == set()
+
+    def test_ignores_malformed_tiers(self) -> None:
+        config = _make_maverick_config(
+            actors={
+                "fly": {
+                    "implementer": {
+                        "provider": "claude",
+                        "tiers": "not-a-dict",
+                    },
+                    "reviewer": {
+                        "tiers": {"simple": "not-a-dict"},
+                    },
+                },
+            },
+        )
+        assert providers_referenced_by_actors(config, "fly") == {"claude"}
+
+
+class TestProvidersReferencedByAgents:
+    def test_collects_listed_agents(self) -> None:
+        from maverick.config import AgentConfig
+
+        config = _make_maverick_config(
+            agents={
+                "implementer": AgentConfig(provider="copilot"),
+                "reviewer": AgentConfig(provider="claude"),
+                "decomposer": AgentConfig(provider="gemini"),
+            },
+        )
+        seen = providers_referenced_by_agents(config, ("implementer", "reviewer"))
+        assert seen == {"copilot", "claude"}
+
+    def test_skips_missing_or_provider_none(self) -> None:
+        from maverick.config import AgentConfig
+
+        config = _make_maverick_config(
+            agents={
+                "implementer": AgentConfig(provider=None),
+                # 'reviewer' missing entirely
+            },
+        )
+        assert (
+            providers_referenced_by_agents(config, ("implementer", "reviewer")) == set()
+        )
+
+
+class TestProvidersForFly:
+    def test_unions_actors_agents_and_default(self) -> None:
+        from maverick.config import AgentConfig
+
+        config = _make_maverick_config(
+            agent_providers={
+                "claude": AgentProviderConfig(
+                    command=["claude-agent-acp"],
+                    permission_mode=PermissionMode.AUTO_APPROVE,
+                    default=True,
+                ),
+                "gemini": AgentProviderConfig(
+                    command=["gemini", "--acp"],
+                    permission_mode=PermissionMode.AUTO_APPROVE,
+                ),
+                "opencode": AgentProviderConfig(
+                    command=["opencode", "acp"],
+                    permission_mode=PermissionMode.AUTO_APPROVE,
+                ),
+            },
+            actors={
+                "fly": {
+                    "implementer": {
+                        "provider": "copilot",
+                        "tiers": {"trivial": {"provider": "opencode"}},
+                    },
+                    "reviewer": {
+                        "tiers": {"simple": {"provider": "gemini"}},
+                    },
+                },
+            },
+            agents={
+                "implementer": AgentConfig(provider="copilot"),
+            },
+        )
+        seen = providers_for_fly(config)
+        # Default (claude) is always included even when no fly entry uses it.
+        assert seen == {"claude", "copilot", "gemini", "opencode"}
+
+    def test_excludes_providers_used_only_by_other_workflows(self) -> None:
+        config = _make_maverick_config(
+            agent_providers={
+                "claude": AgentProviderConfig(
+                    command=["claude-agent-acp"],
+                    permission_mode=PermissionMode.AUTO_APPROVE,
+                    default=True,
+                ),
+                "gemini": AgentProviderConfig(
+                    command=["gemini", "--acp"],
+                    permission_mode=PermissionMode.AUTO_APPROVE,
+                ),
+            },
+            actors={
+                # Only refuel uses gemini → fly must not include it.
+                "refuel": {"decomposer": {"provider": "gemini"}},
+                "fly": {"implementer": {"provider": "claude"}},
+            },
+        )
+        assert providers_for_fly(config) == {"claude"}
+
+
+class TestBuildProviderHealthChecksFilter:
+    """``provider_filter`` skips providers not in the set."""
+
+    def test_filter_drops_unlisted_providers(self) -> None:
+        from maverick.config import MaverickConfig
+
+        config = MaverickConfig()
+        config.agent_providers = {
+            "claude": AgentProviderConfig(
+                command=["claude-agent-acp"],
+                permission_mode=PermissionMode.AUTO_APPROVE,
+                default=True,
+            ),
+            "gemini": AgentProviderConfig(
+                command=["gemini", "--acp"],
+                permission_mode=PermissionMode.AUTO_APPROVE,
+            ),
+        }
+        all_checks = build_provider_health_checks(config)
+        assert {hc.provider_name for hc in all_checks} == {"claude", "gemini"}
+
+        filtered = build_provider_health_checks(
+            config,
+            provider_filter={"claude"},
+        )
+        assert {hc.provider_name for hc in filtered} == {"claude"}
+
+    def test_none_filter_keeps_all_providers(self) -> None:
+        """``provider_filter=None`` preserves the legacy doctor-style behaviour."""
+        from maverick.config import MaverickConfig
+
+        config = MaverickConfig()
+        config.agent_providers = {
+            "claude": AgentProviderConfig(
+                command=["claude-agent-acp"],
+                permission_mode=PermissionMode.AUTO_APPROVE,
+                default=True,
+            ),
+            "gemini": AgentProviderConfig(
+                command=["gemini", "--acp"],
+                permission_mode=PermissionMode.AUTO_APPROVE,
+            ),
+        }
+        checks = build_provider_health_checks(config, provider_filter=None)
+        assert {hc.provider_name for hc in checks} == {"claude", "gemini"}
+
+    def test_filter_with_no_matches_returns_empty_list(self) -> None:
+        from maverick.config import MaverickConfig
+
+        config = MaverickConfig()
+        config.agent_providers = {
+            "claude": AgentProviderConfig(
+                command=["claude-agent-acp"],
+                permission_mode=PermissionMode.AUTO_APPROVE,
+                default=True,
+            ),
+        }
+        checks = build_provider_health_checks(
+            config,
+            provider_filter={"nonexistent"},
+        )
+        assert checks == []

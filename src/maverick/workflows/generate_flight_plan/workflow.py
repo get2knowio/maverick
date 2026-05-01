@@ -164,6 +164,9 @@ class GenerateFlightPlanWorkflow(PythonWorkflow):
             raise WorkflowError("'name' input is required")
         output_dir: str = inputs.get("output_dir", ".maverick/plans")
         skip_briefing: bool = inputs.get("skip_briefing", False)
+        # Workspace path under Architecture A. None means "fall back to
+        # process cwd" so unit tests can run without a workspace.
+        cwd_input: str | None = inputs.get("cwd")
 
         output_path = Path(output_dir)
         plan_dir = output_path / name
@@ -191,6 +194,7 @@ class GenerateFlightPlanWorkflow(PythonWorkflow):
             name=name,
             plan_dir=plan_dir,
             skip_briefing=skip_briefing,
+            cwd=cwd_input,
         )
         return GenerateFlightPlanResult(
             flight_plan_path=result.get("flight_plan_path", str(target_file)),
@@ -207,6 +211,7 @@ class GenerateFlightPlanWorkflow(PythonWorkflow):
         name: str,
         plan_dir: Path,
         skip_briefing: bool,
+        cwd: str | None = None,
     ) -> dict[str, Any]:
         """Generate flight plan using the xoscar actor system.
 
@@ -221,7 +226,10 @@ class GenerateFlightPlanWorkflow(PythonWorkflow):
         from maverick.actors.xoscar.pool import actor_pool
         from maverick.types import StepType as _StepType
 
-        cwd = str(Path.cwd())
+        # Architecture A: prefer the workspace path threaded in via the
+        # ``cwd`` input. Fall back to process cwd for legacy callers and
+        # tests that don't set up a workspace.
+        cwd = cwd if cwd is not None else str(Path.cwd())
 
         # Resolve provider labels AND per-agent StepConfigs so each
         # briefing actor runs on its own provider/model. The agent_name

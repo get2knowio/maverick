@@ -99,7 +99,14 @@ class TestRefuelFromPlan:
         mock_execute: AsyncMock,
         cli_runner: CliRunner,
     ) -> None:
-        """Plan name is resolved to .maverick/plans/<name>/flight-plan.md."""
+        """Plan name resolves to ``<base>/.maverick/plans/<name>/flight-plan.md``.
+
+        Under Architecture A the CLI tries to attach to a workspace and
+        resolves the path against it. When workspace creation fails (no
+        git repo, e.g. in this test fixture), it falls back to user cwd
+        — so the path is absolute regardless. We assert the relative
+        suffix matches.
+        """
         result = cli_runner.invoke(
             cli,
             ["refuel", "my-feature"],
@@ -110,9 +117,8 @@ class TestRefuelFromPlan:
         mock_execute.assert_called_once()
         run_config = mock_execute.call_args[0][1]
         assert "flight_plan_path" in run_config.inputs
-        assert run_config.inputs["flight_plan_path"] == str(
-            Path(".maverick/plans/my-feature/flight-plan.md")
-        )
+        path = run_config.inputs["flight_plan_path"]
+        assert path.endswith(str(Path(".maverick/plans/my-feature/flight-plan.md")))
 
     @patch(_PATCH_EXECUTE, new_callable=AsyncMock)
     def test_session_log_passed_to_run_config(

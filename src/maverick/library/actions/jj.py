@@ -17,11 +17,14 @@ the underlying :class:`~maverick.jj.client.JjClient` targets that path.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from maverick.jj.client import JjClient
 from maverick.jj.errors import JjError
 from maverick.logging import get_logger
+
+if TYPE_CHECKING:
+    from maverick.library.actions.git_models import SnapshotResult
 
 logger = get_logger(__name__)
 
@@ -247,11 +250,13 @@ async def jj_commit_bead(
 ) -> dict[str, Any]:
     """Finalise the current change and start a fresh one.
 
-    In jj there is no staging area.  A "commit" is:
-    1. ``jj describe -m <message>``  — set the change description.
-    2. ``jj new``                    — start a new empty change.
+    In jj there is no staging area. ``jj commit -m <msg>`` finalizes the
+    working-copy change with the given description and creates a fresh
+    empty change on top — the jj-native equivalent of ``git commit``.
 
-    This replaces ``git_commit`` when operating in a jj-only workspace.
+    The returned ``change_id`` is the **finalized** change (the one the
+    bead's work just landed on), not the new empty WIP — i.e. the SHA
+    the supervisor surfaces in the "bead complete (xxx)" status line.
 
     Args:
         message: Description for the current change.
@@ -261,16 +266,16 @@ async def jj_commit_bead(
         Dict with:
         - success: True if commit succeeded
         - message: The commit message used
+        - change_id: Stable change ID of the finalized change (or None)
         - error: Error message if failed
     """
     try:
         client = _make_client(Path(cwd) if cwd else None)
-        await client.describe(message)
-        new_result = await client.new()
+        commit_result = await client.commit(message)
         return {
             "success": True,
             "message": message,
-            "change_id": new_result.change_id,
+            "change_id": commit_result.change_id or None,
             "error": None,
         }
     except (JjError, OSError) as e:
@@ -281,6 +286,98 @@ async def jj_commit_bead(
             "change_id": None,
             "error": str(e),
         }
+
+
+# =============================================================================
+# Snapshot uncommitted changes (jj-native replacement for git_commit path)
+# =============================================================================
+
+#: Threshold above which a snapshot commit gets a "large snapshot" warning
+#: appended to its description so the curator can flag it during land.
+_SNAPSHOT_FILE_THRESHOLD: int = 10
+
+
+async def jj_snapshot_changes(
+    message: str = "chore: snapshot uncommitted changes",
+    cwd: str | Path | None = None,
+) -> SnapshotResult:
+    """Commit any uncommitted changes via jj.
+
+    The jj-native replacement for ``snapshot_uncommitted_changes``. In jj
+    every command auto-snapshots the working copy, so this just needs to
+    finalize the current change and start a fresh one — which is exactly
+    what :meth:`JjClient.commit` does. Operates correctly in colocated
+    mode (jj's op log records the snapshot, keeping git in sync).
+
+    When the snapshot exceeds ``_SNAPSHOT_FILE_THRESHOLD`` files, a
+    warning string with diff stats is returned in
+    :attr:`SnapshotResult.warning` so the curator can flag the snapshot
+    during land.
+
+    Args:
+        message: Description for the snapshot change.
+        cwd: Working directory. Defaults to ``Path.cwd()``.
+
+    Returns:
+        :class:`SnapshotResult`. ``committed=False`` when there were no
+        changes to snapshot. ``commit_sha`` carries the jj change ID
+        (not a git SHA — but still a stable commit identifier).
+    """
+    from maverick.library.actions.git_models import SnapshotDiffStats, SnapshotResult
+
+    client = _make_client(cwd)
+
+    # Detect uncommitted changes via jj diff_stat. An empty working copy
+    # has zero files changed.
+    try:
+        stat = await client.diff_stat(revision="@")
+    except JjError as e:
+        logger.debug("jj_snapshot_diff_stat_failed", error=str(e))
+        return SnapshotResult(
+            success=False,
+            committed=False,
+            error=f"jj diff --stat failed: {e}",
+        )
+
+    if stat.files_changed == 0:
+        return SnapshotResult(success=True, committed=False)
+
+    diff_stats = SnapshotDiffStats(
+        file_count=stat.files_changed,
+        insertions=stat.insertions,
+        deletions=stat.deletions,
+        files=(),
+    )
+
+    warning: str | None = None
+    effective_message = message
+    if stat.files_changed > _SNAPSHOT_FILE_THRESHOLD:
+        warning = (
+            f"Large snapshot: {stat.files_changed} files, "
+            f"+{stat.insertions}/-{stat.deletions} lines. "
+            "Review before merging — may contain unrelated changes."
+        )
+        effective_message = f"{message}\n\nWARNING: {warning}\n"
+
+    try:
+        commit_result = await client.commit(effective_message)
+    except JjError as e:
+        logger.debug("jj_snapshot_commit_failed", error=str(e))
+        return SnapshotResult(
+            success=False,
+            committed=False,
+            diff_stats=diff_stats,
+            warning=warning,
+            error=f"jj commit failed: {e}",
+        )
+
+    return SnapshotResult(
+        success=True,
+        committed=True,
+        commit_sha=commit_result.change_id or None,
+        diff_stats=diff_stats,
+        warning=warning,
+    )
 
 
 # =============================================================================

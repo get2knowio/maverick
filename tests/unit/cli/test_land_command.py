@@ -18,7 +18,6 @@ from maverick.cli.commands.land import (
 )
 from maverick.cli.context import ExitCode
 from maverick.jj.errors import JjError
-from maverick.library.actions.git_models import GitMergeResult
 
 
 def _mock_command_runner() -> patch:
@@ -32,6 +31,21 @@ def _mock_command_runner() -> patch:
         "maverick.runners.command.CommandRunner",
         return_value=mock_runner,
     )
+
+
+def _make_mock_manager(*, exists: bool = True) -> AsyncMock:
+    """Build a mock WorkspaceManager with bridging methods configured.
+
+    ``apply_to_user_repo`` returns the success tuple ``(True, None)``;
+    ``cleanup_user_repo_branch`` is a no-op AsyncMock. Tests that need
+    a different outcome can override these directly on the returned
+    mock.
+    """
+    manager = AsyncMock()
+    manager.exists = exists
+    manager.apply_to_user_repo = AsyncMock(return_value=(True, None))
+    manager.cleanup_user_repo_branch = AsyncMock()
+    return manager
 
 
 # ── Help-text tests ──────────────────────────────────────────────────
@@ -107,7 +121,7 @@ class TestApprovePath:
     async def test_approve_with_yes_merges_locally(self) -> None:
         """--yes skips prompt, pushes via JjClient, merges locally."""
         mock_client = AsyncMock()
-        mock_manager = AsyncMock()
+        mock_manager = _make_mock_manager()
         mock_manager.exists = True
 
         with (
@@ -115,11 +129,6 @@ class TestApprovePath:
                 "maverick.jj.client.JjClient",
                 return_value=mock_client,
             ),
-            patch(
-                "maverick.library.actions.git.git_merge",
-                new_callable=AsyncMock,
-                return_value=GitMergeResult(success=True, branch="x", merge_commit="abc123"),
-            ) as mock_merge,
             _mock_command_runner(),
         ):
             await _approve(
@@ -134,25 +143,20 @@ class TestApprovePath:
 
         mock_client.bookmark_set.assert_awaited_once_with("maverick/myproject", revision="@-")
         mock_client.git_push.assert_awaited_once_with(bookmark="maverick/myproject")
-        mock_merge.assert_awaited_once()
+        mock_manager.apply_to_user_repo.assert_awaited_once_with("maverick/myproject")
         mock_manager.teardown.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_approve_custom_branch(self) -> None:
         """Explicit --branch overrides default branch name."""
         mock_client = AsyncMock()
-        mock_manager = AsyncMock()
+        mock_manager = _make_mock_manager()
         mock_manager.exists = False
 
         with (
             patch(
                 "maverick.jj.client.JjClient",
                 return_value=mock_client,
-            ),
-            patch(
-                "maverick.library.actions.git.git_merge",
-                new_callable=AsyncMock,
-                return_value=GitMergeResult(success=True, branch="x", merge_commit="abc"),
             ),
             _mock_command_runner(),
         ):
@@ -171,7 +175,7 @@ class TestApprovePath:
     @pytest.mark.asyncio
     async def test_approve_no_workspace_returns_early(self) -> None:
         """When cwd is None, approve returns with nothing to merge."""
-        mock_manager = AsyncMock()
+        mock_manager = _make_mock_manager()
         mock_manager.exists = False
 
         # Should not raise — just prints "nothing to merge"
@@ -190,7 +194,7 @@ class TestApprovePath:
         """Push failure raises SystemExit with FAILURE code."""
         mock_client = AsyncMock()
         mock_client.bookmark_set.side_effect = JjError("push failed")
-        mock_manager = AsyncMock()
+        mock_manager = _make_mock_manager()
         mock_manager.exists = True
 
         with (
@@ -216,22 +220,14 @@ class TestApprovePath:
     async def test_approve_merge_failure_exits(self) -> None:
         """Merge failure raises SystemExit with FAILURE code."""
         mock_client = AsyncMock()
-        mock_manager = AsyncMock()
+        mock_manager = _make_mock_manager()
         mock_manager.exists = True
+        mock_manager.apply_to_user_repo = AsyncMock(return_value=(False, "merge conflict"))
 
         with (
             patch(
                 "maverick.jj.client.JjClient",
                 return_value=mock_client,
-            ),
-            patch(
-                "maverick.library.actions.git.git_merge",
-                new_callable=AsyncMock,
-                return_value=GitMergeResult(
-                    success=False,
-                    branch="x",
-                    error="merge conflict",
-                ),
             ),
             pytest.raises(SystemExit) as exc_info,
         ):
@@ -252,7 +248,7 @@ class TestApprovePath:
         self,
     ) -> None:
         """Teardown is skipped when manager.exists is False."""
-        mock_manager = AsyncMock()
+        mock_manager = _make_mock_manager()
         mock_manager.exists = False
 
         await _approve(
@@ -278,7 +274,7 @@ class TestEjectPath:
     async def test_eject_pushes_preview_branch(self) -> None:
         """Eject pushes to maverick/preview/<project> by default."""
         mock_client = AsyncMock()
-        mock_manager = AsyncMock()
+        mock_manager = _make_mock_manager()
         mock_manager.set_state = MagicMock()
 
         with patch(
@@ -303,7 +299,7 @@ class TestEjectPath:
     async def test_eject_custom_branch(self) -> None:
         """Explicit --branch overrides preview branch name."""
         mock_client = AsyncMock()
-        mock_manager = AsyncMock()
+        mock_manager = _make_mock_manager()
         mock_manager.set_state = MagicMock()
 
         with patch(
@@ -327,7 +323,7 @@ class TestEjectPath:
         from maverick.workspace.models import WorkspaceState
 
         mock_client = AsyncMock()
-        mock_manager = AsyncMock()
+        mock_manager = _make_mock_manager()
         mock_manager.set_state = MagicMock()
 
         with patch(
@@ -349,7 +345,7 @@ class TestEjectPath:
     async def test_eject_does_not_teardown(self) -> None:
         """Eject never tears down the workspace."""
         mock_client = AsyncMock()
-        mock_manager = AsyncMock()
+        mock_manager = _make_mock_manager()
         mock_manager.set_state = MagicMock()
 
         with patch(
@@ -372,7 +368,7 @@ class TestEjectPath:
         """Eject push failure raises SystemExit."""
         mock_client = AsyncMock()
         mock_client.bookmark_set.side_effect = JjError("network error")
-        mock_manager = AsyncMock()
+        mock_manager = _make_mock_manager()
 
         with (
             patch(
@@ -395,7 +391,7 @@ class TestEjectPath:
     @pytest.mark.asyncio
     async def test_eject_no_workspace_returns_early(self) -> None:
         """When cwd is None, eject returns with nothing to do."""
-        mock_manager = AsyncMock()
+        mock_manager = _make_mock_manager()
 
         # Should not raise
         await _eject(
@@ -417,19 +413,10 @@ class TestFinalizePath:
     @pytest.mark.asyncio
     async def test_finalize_merges_locally(self) -> None:
         """Finalize merges preview branch into current branch."""
-        mock_manager = AsyncMock()
+        mock_manager = _make_mock_manager()
         mock_manager.exists = False
 
         with (
-            patch(
-                "maverick.library.actions.git.git_merge",
-                new_callable=AsyncMock,
-                return_value=GitMergeResult(
-                    success=True,
-                    branch="x",
-                    merge_commit="abc123",
-                ),
-            ) as mock_merge,
             patch(
                 "maverick.workspace.manager.WorkspaceManager",
                 return_value=mock_manager,
@@ -440,20 +427,15 @@ class TestFinalizePath:
             mock_path.cwd.return_value.resolve.return_value = Path("/home/user/myproject")
             await _finalize(base="main", branch=None)
 
-        mock_merge.assert_awaited_once()
+        mock_manager.apply_to_user_repo.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_finalize_custom_branch(self) -> None:
         """Explicit --branch overrides default preview branch."""
-        mock_manager = AsyncMock()
+        mock_manager = _make_mock_manager()
         mock_manager.exists = False
 
         with (
-            patch(
-                "maverick.library.actions.git.git_merge",
-                new_callable=AsyncMock,
-                return_value=GitMergeResult(success=True, branch="x", merge_commit="x"),
-            ),
             patch(
                 "maverick.workspace.manager.WorkspaceManager",
                 return_value=mock_manager,
@@ -465,18 +447,15 @@ class TestFinalizePath:
             # Should not raise — custom branch accepted
             await _finalize(base="main", branch="my/custom-branch")
 
+        mock_manager.apply_to_user_repo.assert_awaited_once_with("my/custom-branch")
+
     @pytest.mark.asyncio
     async def test_finalize_tears_down_workspace_if_exists(self) -> None:
         """Finalize tears down workspace when it exists."""
-        mock_manager = AsyncMock()
+        mock_manager = _make_mock_manager()
         mock_manager.exists = True
 
         with (
-            patch(
-                "maverick.library.actions.git.git_merge",
-                new_callable=AsyncMock,
-                return_value=GitMergeResult(success=True, branch="x", merge_commit="x"),
-            ),
             patch(
                 "maverick.workspace.manager.WorkspaceManager",
                 return_value=mock_manager,
@@ -492,15 +471,10 @@ class TestFinalizePath:
     @pytest.mark.asyncio
     async def test_finalize_skips_teardown_when_no_workspace(self) -> None:
         """Finalize skips teardown when workspace doesn't exist."""
-        mock_manager = AsyncMock()
+        mock_manager = _make_mock_manager()
         mock_manager.exists = False
 
         with (
-            patch(
-                "maverick.library.actions.git.git_merge",
-                new_callable=AsyncMock,
-                return_value=GitMergeResult(success=True, branch="x", merge_commit="x"),
-            ),
             patch(
                 "maverick.workspace.manager.WorkspaceManager",
                 return_value=mock_manager,
@@ -516,19 +490,11 @@ class TestFinalizePath:
     @pytest.mark.asyncio
     async def test_finalize_merge_failure_exits(self) -> None:
         """Finalize raises SystemExit when merge fails."""
-        mock_manager = AsyncMock()
+        mock_manager = _make_mock_manager()
         mock_manager.exists = False
+        mock_manager.apply_to_user_repo = AsyncMock(return_value=(False, "conflict"))
 
         with (
-            patch(
-                "maverick.library.actions.git.git_merge",
-                new_callable=AsyncMock,
-                return_value=GitMergeResult(
-                    success=False,
-                    branch="x",
-                    error="conflict",
-                ),
-            ),
             patch(
                 "maverick.workspace.manager.WorkspaceManager",
                 return_value=mock_manager,

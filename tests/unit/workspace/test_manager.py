@@ -213,9 +213,7 @@ class TestBeadBootstrapInWorkspace:
         mock_client.init_or_bootstrap.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_bootstrap_skips_when_no_jsonl(
-        self, manager: WorkspaceManager
-    ) -> None:
+    async def test_bootstrap_skips_when_no_jsonl(self, manager: WorkspaceManager) -> None:
         """Greenfield project — no .beads/issues.jsonl committed yet.
         Don't call into bd at all."""
         manager.workspace_path.mkdir(parents=True)
@@ -230,9 +228,7 @@ class TestBeadBootstrapInWorkspace:
         mock_client.init_or_bootstrap.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_bootstrap_swallows_bd_failures(
-        self, manager: WorkspaceManager
-    ) -> None:
+    async def test_bootstrap_swallows_bd_failures(self, manager: WorkspaceManager) -> None:
         """A bd hiccup shouldn't take down the whole workspace setup —
         the in-flow code path that needs bd will re-fail loudly later."""
         from maverick.exceptions.beads import BeadLifecycleError

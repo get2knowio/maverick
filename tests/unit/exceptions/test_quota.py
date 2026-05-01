@@ -7,6 +7,7 @@ import pytest
 from maverick.exceptions.quota import (
     ProviderQuotaError,
     is_quota_error,
+    is_transient_error,
     parse_quota_reset,
 )
 
@@ -101,3 +102,64 @@ class TestProviderQuotaError:
 
         err = ProviderQuotaError("quota exhausted")
         assert isinstance(err, AgentError)
+
+
+class TestIsTransientError:
+    """Pattern matching for retryable / escalation-eligible failures."""
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # Real-world capacity errors observed against gemini --acp
+            "ACP prompt failed on session 'abc': No capacity available "
+            "for model gemini-3.1-pro-preview on the server (code=500)",
+            "No capacity available for model X",
+            "capacity exhausted for this region",
+            "Service unavailable",
+            "service unavailable, please retry",
+            "Internal server error",
+            "Bad gateway",
+            "Gateway timeout",
+            "code=500 boom",
+            "code=503",
+            "HTTP 502 Bad Gateway",
+            "503 server error",
+            "Connection reset by peer",
+            "Resource temporarily unavailable",
+        ],
+    )
+    def test_detects_transient_errors(self, error_msg: str) -> None:
+        assert is_transient_error(error_msg) is True
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # Quota errors are NOT transient — must be excluded.
+            "You've hit your limit · resets 6am",
+            "402 You have no quota",
+            "Rate limit exceeded",
+            # Generic non-transient failures
+            "Agent not found in registry",
+            "Invalid tool 'submit_review'",
+            "no JSON block found in response",
+            "",
+        ],
+    )
+    def test_ignores_non_transient_errors(self, error_msg: str) -> None:
+        assert is_transient_error(error_msg) is False
+
+    def test_quota_and_transient_are_mutually_exclusive(self) -> None:
+        """A quota message must never read as transient."""
+        msg = "You've hit your limit · resets 6am"
+        assert is_quota_error(msg) is True
+        assert is_transient_error(msg) is False
+
+    def test_capacity_error_is_transient_not_quota(self) -> None:
+        """The earlybird-rn0.16 failure mode: capacity is transient, not quota."""
+        msg = (
+            "ACP prompt failed on session 'a8dc8098': No capacity "
+            "available for model gemini-3.1-pro-preview on the server "
+            "(code=500)"
+        )
+        assert is_transient_error(msg) is True
+        assert is_quota_error(msg) is False

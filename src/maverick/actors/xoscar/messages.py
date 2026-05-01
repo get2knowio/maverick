@@ -131,11 +131,27 @@ class BeadsCreatedResult:
 @dataclass(frozen=True, slots=True)
 class PromptError:
     """Agent's ACP call failed — reported to the supervisor via an
-    in-pool RPC so the supervisor can requeue, re-nudge, or escalate."""
+    in-pool RPC so the supervisor can requeue, re-nudge, or escalate.
+
+    Attributes:
+        phase: The agent phase that failed (``"review"``, ``"implement"``,
+            ``"fix"``, etc.). The supervisor uses this to pick its
+            handling path.
+        error: Stringified failure reason from the actor.
+        quota_exhausted: Provider quota / rate limit exhausted. Non-retryable
+            against the same provider until reset; the supervisor abandons
+            the run.
+        transient: Transient provider failure (HTTP 5xx, "no capacity",
+            "service unavailable"). Worth a single retry on the same
+            tier, then escalation to a higher tier if the retry also
+            fails. Mutually exclusive with ``quota_exhausted``.
+        unit_id: Bead / unit ID this prompt belonged to, when applicable.
+    """
 
     phase: str
     error: str
     quota_exhausted: bool = False
+    transient: bool = False
     unit_id: str | None = None
 
 

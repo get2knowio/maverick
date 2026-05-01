@@ -145,7 +145,8 @@ class RefuelMaverickWorkflow(PythonWorkflow):
             raise
         finally:
             run_id = ctx.get("run_id", "unknown")
-            run_dir = ctx.get("run_dir", Path.cwd() / ".maverick" / "runs" / run_id)
+            ctx_cwd: Path = ctx.get("cwd") or Path.cwd()
+            run_dir = ctx.get("run_dir", ctx_cwd / ".maverick" / "runs" / run_id)
             report = RefuelReport(
                 plan_name=ctx.get("plan_name", ""),
                 flight_plan_path=inputs.get("flight_plan_path", ""),
@@ -189,16 +190,21 @@ class RefuelMaverickWorkflow(PythonWorkflow):
             raise WorkflowError("'flight_plan_path' input is required")
         skip_briefing: bool = bool(inputs.get("skip_briefing", False))
         auto_commit: bool = bool(inputs.get("auto_commit", False))
+        # Architecture A workspace path. None means "fall back to process
+        # cwd" so unit tests without a workspace continue to work.
+        cwd_input: str | None = inputs.get("cwd")
+        ws_cwd: Path = Path(cwd_input) if cwd_input else Path.cwd()
+        ctx["cwd"] = ws_cwd
 
         flight_plan_path = Path(flight_plan_path_str)
 
-        # Generate run_id and create run directory
+        # Generate run_id and create run directory (inside workspace).
         import uuid as _uuid
 
         from maverick.runway.run_metadata import RunMetadata, write_metadata
 
         run_id = _uuid.uuid4().hex[:8]
-        run_dir = Path.cwd() / ".maverick" / "runs" / run_id
+        run_dir = ws_cwd / ".maverick" / "runs" / run_id
         run_dir.mkdir(parents=True, exist_ok=True)
         ctx["run_id"] = run_id
         ctx["run_dir"] = run_dir
@@ -425,7 +431,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
                 epic_id="",
                 max_passages=5,
                 max_context_chars=3000,
-                cwd=str(Path.cwd()),
+                cwd=str(ws_cwd),
             )
             if runway_result.context_text:
                 runway_context_text = runway_result.context_text
@@ -444,6 +450,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
             run_dir=run_dir,
             skip_briefing=skip_briefing,
             ctx=ctx,
+            ws_cwd=ws_cwd,
         )
         briefing_path_str: str | None = None
         suggested_deps: tuple[str, ...] = ()
@@ -458,8 +465,8 @@ class RefuelMaverickWorkflow(PythonWorkflow):
         if decomposition is None:
             raise WorkflowError("Decomposition loop exited without producing a result")
 
-        # Determine output directory (colocated with flight plan)
-        work_units_dir = Path.cwd() / ".maverick" / "plans" / flight_plan.name
+        # Determine output directory (colocated with flight plan in workspace)
+        work_units_dir = ws_cwd / ".maverick" / "plans" / flight_plan.name
 
         # Convert specs to WorkUnit models
         work_units = convert_specs_to_work_units(
@@ -583,7 +590,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
             from maverick.beads.client import BeadClient
             from maverick.beads.models import BeadDependency
 
-            _bead_client = BeadClient(cwd=Path.cwd())
+            _bead_client = BeadClient(cwd=ws_cwd)
             new_epic_id = bead_result.epic["bd_id"]
 
             try:
@@ -749,13 +756,11 @@ class RefuelMaverickWorkflow(PythonWorkflow):
         # output (.maverick/plans, .beads/issues.jsonl, etc.). Failure
         # here is non-fatal — refuel itself succeeded.
         if auto_commit:
-            from maverick.library.actions.git import snapshot_uncommitted_changes
+            from maverick.library.actions.jj import jj_snapshot_changes
 
-            await self.emit_step_started(
-                COMMIT_OUTPUT, display_label="Committing refuel output"
-            )
+            await self.emit_step_started(COMMIT_OUTPUT, display_label="Committing refuel output")
             try:
-                snap = await snapshot_uncommitted_changes(
+                snap = await jj_snapshot_changes(
                     message=f"chore: refuel {flight_plan.name}",
                 )
                 if snap.success and snap.committed:
@@ -765,9 +770,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
                         f"Committed refuel output ({sha_preview})",
                     )
                     if snap.warning:
-                        await self.emit_output(
-                            COMMIT_OUTPUT, snap.warning, level="warning"
-                        )
+                        await self.emit_output(COMMIT_OUTPUT, snap.warning, level="warning")
                     await self.emit_step_completed(
                         COMMIT_OUTPUT,
                         {"committed": True, "commit_sha": snap.commit_sha},
@@ -777,9 +780,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
                         COMMIT_OUTPUT,
                         "Working directory clean — nothing to commit",
                     )
-                    await self.emit_step_completed(
-                        COMMIT_OUTPUT, {"committed": False}
-                    )
+                    await self.emit_step_completed(COMMIT_OUTPUT, {"committed": False})
                 else:
                     await self.emit_output(
                         COMMIT_OUTPUT,
@@ -829,6 +830,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
         run_dir: Path | None,
         skip_briefing: bool = False,
         ctx: dict[str, Any] | None = None,
+        ws_cwd: Path | None = None,
     ) -> Any:
         """Run briefing + decomposition via xoscar supervisor.
 
@@ -855,7 +857,8 @@ class RefuelMaverickWorkflow(PythonWorkflow):
         # Check for cached briefing from a previous run
         import json as _json
 
-        plan_dir = Path.cwd() / ".maverick" / "plans" / flight_plan.name
+        cache_root = ws_cwd or Path.cwd()
+        plan_dir = cache_root / ".maverick" / "plans" / flight_plan.name
         briefing_cache_path = plan_dir / "refuel-briefing.json"
         outline_cache_path = plan_dir / "refuel-outline.json"
         detail_cache_dir = plan_dir / "refuel-details"
@@ -1053,7 +1056,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
             )
 
         supervisor_inputs = RefuelInputs(
-            cwd=str(Path.cwd()),
+            cwd=str(cache_root),
             flight_plan=flight_plan,
             initial_payload=initial_payload,
             config=decompose_config,

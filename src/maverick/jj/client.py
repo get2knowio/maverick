@@ -305,6 +305,35 @@ class JjClient:
         logger.debug("jj_described", revision=revision, message=message[:80])
         return JjDescribeResult(success=True, message=message)
 
+    async def _resolve_change_id(self, revision: str) -> str:
+        """Return the change ID for ``revision`` via templated ``jj log``.
+
+        ``jj new`` and ``jj commit`` print human-readable summaries
+        whose format varies by jj version, locale, and config — parsing
+        the last whitespace-separated token off stdout is fragile and
+        sometimes returns the description text rather than a change ID.
+
+        This helper instead asks jj for *just* the change ID via a
+        template expression (``-T 'change_id'``) with ``--no-graph`` so
+        there's nothing else in stdout. Returns the trimmed ID, or an
+        empty string if the lookup fails (caller falls back to the
+        existing ``or '?'`` display path rather than crashing).
+        """
+        try:
+            stdout = await self._run_jj_stdout(
+                ["jj", "log", "-r", revision, "--no-graph", "-T", "change_id"],
+                error_msg="jj log failed",
+                command="log",
+            )
+        except JjError as exc:
+            logger.debug(
+                "jj_resolve_change_id_failed",
+                revision=revision,
+                error=str(exc),
+            )
+            return ""
+        return stdout.strip()
+
     async def new(
         self,
         parents: list[str] | None = None,
@@ -317,7 +346,7 @@ class JjClient:
             message: Optional description for the new change.
 
         Returns:
-            :class:`JjNewResult`.
+            :class:`JjNewResult` with the new change's stable ID.
         """
         cmd: list[str] = ["jj", "new"]
         if parents:
@@ -326,13 +355,13 @@ class JjClient:
         if message:
             cmd.extend(["-m", message])
 
-        stdout = await self._run_jj_stdout(
+        await self._run_jj(
             cmd,
             error_msg="jj new failed",
             command="new",
         )
-        # jj new prints the new change ID in some configurations
-        change_id = stdout.strip().split()[-1] if stdout.strip() else ""
+        # The newly-created change is the working copy after jj new.
+        change_id = await self._resolve_change_id("@")
         logger.debug("jj_new_created", parents=parents, change_id=change_id)
         return JjNewResult(success=True, change_id=change_id)
 
@@ -340,7 +369,9 @@ class JjClient:
         """Commit the current working-copy change (``jj commit``).
 
         This finalizes the current change and creates a new empty working
-        copy on top.
+        copy on top. The returned ``change_id`` is the **finalized**
+        change, not the new empty WIP — i.e. the SHA the user expects
+        to see in "bead complete (xxx)" output.
 
         Args:
             message: Commit message.
@@ -348,12 +379,14 @@ class JjClient:
         Returns:
             :class:`JjCommitResult`.
         """
-        stdout = await self._run_jj_stdout(
+        await self._run_jj(
             ["jj", "commit", "-m", message],
             error_msg="jj commit failed",
             command="commit",
         )
-        change_id = stdout.strip().split()[-1] if stdout.strip() else ""
+        # After ``jj commit``, the just-finalized change is the parent
+        # of the new working copy (``@-``).
+        change_id = await self._resolve_change_id("@-")
         logger.info("jj_committed", message=message[:80], change_id=change_id)
         return JjCommitResult(success=True, change_id=change_id)
 

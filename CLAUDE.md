@@ -569,6 +569,33 @@ When splitting a public module, preserve import stability:
 
 These “truisms” are required to preserve the clarity and layer boundaries described in `.specify/memory/constitution.md` and the Slidev training. If a change would violate any item below, stop and refactor the design before proceeding.
 
+### 0. Architecture A — Maverick operates in a workspace; the user repo is its remote
+
+Long-running operations (`plan generate`, `refuel`, `fly`) run inside a hidden jj workspace under `~/.maverick/workspaces/<project>/`. The user's repo is treated like a remote: cloned-from at start, pushed-to at the natural completion of each command.
+
+**Hermetic command shape** (current model — `plan generate`, `refuel`):
+
+1. `WorkspaceManager.find_or_create()` — create workspace or attach to existing.
+2. `sync_from_origin()` — pull any user-repo edits into the workspace (handled inside `find_or_create()` on attach).
+3. Do the work inside the workspace.
+4. `WorkspaceManager.finalize(message=...)` — snapshot, push to user repo on `maverick/<project>` bookmark, merge into the user's current branch (jj rebase if colocated, `git merge` fallback), tear down the workspace.
+
+Failure during finalize preserves the workspace so the user can recover (`cd ~/.maverick/workspaces/<project> && jj git push`).
+
+**Bridged command shape** (`fly` + `land`):
+
+`fly` doesn't finalize on its own — its commits need curation, which is `land`'s job. Fly leaves the workspace alive; land curates, pushes, and tears down. This is the one remaining special case where two commands share a workspace.
+
+**Implications for new code**:
+
+- Every workflow/CLI command takes a `WorkspaceContext` (or `cwd: Path`) and threads it through every action that touches state — bd, runway, plans, run logs, jj. Default-`Path.cwd()` calls inside `src/maverick/workflows/` and `src/maverick/actors/` are a layering smell.
+- All commit-graph mutations go through `JjClient` (or actions in `src/maverick/library/actions/jj.py`). Do **not** add new `subprocess` wrappers around `git commit/push/merge/branch` in actions or workflows. The dead helpers (`git_commit`, `git_push`, `git_add`, etc.) were deleted because every layer-violation bug traced back to them — don't reintroduce them.
+- `actions/git.py` is now scoped to read-only and merge-fallback only (`git_has_changes`, `git_merge`). Reads still go through GitPython where possible.
+- The shared workspace bridging helpers live on `WorkspaceManager` — `apply_to_user_repo`, `cleanup_user_repo_branch`, `finalize`. Don't re-implement them in commands.
+- v1 stores workspace state locally — switching machines mid-flight starts a fresh workspace.
+
+Fly remains the bridged exception today (its commits need curation by `land`). The future direction toward fully hermetic per-invocation workspaces is captured in `FUTURE.md` under "Per-invocation hermetic workspaces" — don't add per-invocation workspace logic ad-hoc; it should land as one coordinated change.
+
 ### 1. Async-first means "no blocking on the event loop"
 
 - Never call `subprocess.run` from an `async def` path.
@@ -609,14 +636,15 @@ These “truisms” are required to preserve the clarity and layer boundaries de
 
 ### 7. Workspace isolation requires explicit cwd threading
 
-All DSL steps that operate inside a hidden workspace MUST receive `cwd` pointing to the
-workspace path. Without it, agents and validators silently operate on the user's working
-directory instead.
+This is the operational form of Guardrail #0. Every step operating inside the workspace MUST receive a `cwd` (or `WorkspaceContext`) pointing to the workspace path. Without it, agents, bd, runway recording, and validators silently operate on the user's working directory.
 
 - Agent steps: pass `cwd` in the step's `context` dict
-- Validate steps: pass `cwd` via the workflow/fragment `inputs` (not `kwargs` — ValidateStepRecord doesn't support kwargs)
+- Validate steps: pass `cwd` via the workflow/fragment `inputs`
 - Review actions: pass `cwd` to `gather_local_review_context()` and `run_review_fix_loop()`
 - jj actions: pass `cwd` (accepts `str | Path | None`); `_make_client` coerces with `Path(cwd)`
+- bd / runway / plan parsing: pass `cwd=ws_cwd` (or `ctx.cwd` from `BeadContext`) — never default to `Path.cwd()`
+
+A grep for `Path.cwd()` inside `src/maverick/workflows/` or `src/maverick/actors/` should return ~zero results in a clean tree; new occurrences are bugs in waiting.
 
 See `.specify/memory/constitution.md` Appendix E for the full architecture.
 

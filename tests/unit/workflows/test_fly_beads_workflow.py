@@ -419,6 +419,37 @@ class TestFlyBeadsWorkflow:
         completed = next(e for e in events if isinstance(e, WorkflowCompleted))
         assert completed.success is False
 
+    async def test_no_workspace_teardown_rollback_registered(
+        self, fly_workflow: Any
+    ) -> None:
+        """fly must NEVER register a workspace_teardown rollback.
+
+        Regression test. ``PythonWorkflow._run_with_cleanup`` runs every
+        registered rollback on ``CancelledError`` and other exceptions.
+        A workspace_teardown rollback used to ``shutil.rmtree`` the
+        hidden workspace on Ctrl-C, throwing away every bead that had
+        already finalized cleanly inside it. ``maverick land`` is the
+        canonical teardown path for the bridged fly→land flow; the
+        workspace must survive cancellation so land can curate and
+        push the completed-bead commits.
+
+        The test inspects ``_rollback_stack`` rather than simulating
+        cancellation because ``_PATCH_SPECS`` already replaces
+        ``WorkspaceManager`` itself across every fly-workflow test —
+        a behaviour assertion against the real class would fight that
+        infrastructure. If the rollback isn't registered, no
+        cancellation path can fire teardown via that mechanism.
+        """
+        with _patch_all_actions():
+            await _collect_events(fly_workflow, {"epic_id": "", "max_beads": 5})
+
+        rollback_names = [name for name, _ in fly_workflow._rollback_stack]
+        assert "workspace_teardown" not in rollback_names, (
+            "fly registered a workspace_teardown rollback again — this nukes "
+            "completed-bead commits on Ctrl-C. land is the canonical teardown "
+            "path; do not reintroduce this rollback."
+        )
+
     async def test_xoscar_path_invoked(self, fly_workflow: Any) -> None:
         """Thespian path is invoked for execution."""
         with _patch_all_actions() as mocks:

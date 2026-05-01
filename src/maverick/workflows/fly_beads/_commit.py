@@ -215,7 +215,7 @@ async def _create_followup_bead(
     followup_description = _build_followup_description(ctx, prior_failures)
 
     try:
-        runner = CommandRunner(cwd=Path.cwd())
+        runner = CommandRunner(cwd=ctx.cwd or Path.cwd())
         title = f"Address review findings from {ctx.bead_id}: {ctx.title[:80]}"
         result = await runner.run(
             [
@@ -281,7 +281,7 @@ async def _escalate_to_replan(
 
     from maverick.runners.command import CommandRunner
 
-    runner = CommandRunner(cwd=Path.cwd())
+    runner = CommandRunner(cwd=ctx.cwd or Path.cwd())
     chain = ctx.discovered_from_chain  # [root, ..., parent]
     full_chain = chain + [ctx.bead_id]
 
@@ -377,19 +377,20 @@ async def _escalate_to_replan(
         )
 
     # --- Defer beads that depend on the stuck chain ---
-    await _defer_dependent_beads(full_chain, ctx.epic_id)
+    await _defer_dependent_beads(full_chain, ctx.epic_id, cwd=ctx.cwd)
 
 
 async def _defer_dependent_beads(
     chain: list[str],
     epic_id: str,
+    cwd: Path | None = None,
 ) -> None:
     """Defer beads that are blocked by any bead in the stuck chain."""
     import json as _json
 
     from maverick.runners.command import CommandRunner
 
-    runner = CommandRunner(cwd=Path.cwd())
+    runner = CommandRunner(cwd=cwd or Path.cwd())
     deferred: set[str] = set()
 
     for bid in chain:

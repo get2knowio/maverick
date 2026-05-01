@@ -252,8 +252,6 @@ async def _approve(
             console.print("Cancelled.")
             raise SystemExit(ExitCode.SUCCESS)
 
-    repo_path = user_repo or Path.cwd().resolve()
-
     if cwd is not None:
         # Phase 1: jj push from workspace → user repo (creates local branch)
         client = JjClient(cwd=cwd)
@@ -265,13 +263,11 @@ async def _approve(
             raise SystemExit(ExitCode.FAILURE) from e
 
         # Phase 2: merge the branch into the user's current branch
-        from maverick.library.actions.git import git_merge
-
-        merge_result = await git_merge(branch_name, cwd=repo_path)
-        if not merge_result.success:
+        ok, error = await manager.apply_to_user_repo(branch_name)
+        if not ok:
             err_console.print(
                 format_error(
-                    f"Merge failed: {merge_result.error}",
+                    f"Merge failed: {error}",
                     suggestion=(
                         f"The branch '{branch_name}' exists in your local repo. "
                         "You can merge it manually with: "
@@ -282,17 +278,7 @@ async def _approve(
             raise SystemExit(ExitCode.FAILURE)
 
         # Phase 3: clean up the temporary branch
-        try:
-            from maverick.runners.command import CommandRunner
-
-            runner = CommandRunner(timeout=30.0)
-            await runner.run(
-                ["git", "branch", "-d", branch_name],
-                cwd=repo_path,
-            )
-        except Exception:
-            # Non-fatal — branch cleanup is best-effort
-            logger.debug("branch_cleanup_failed", branch=branch_name)
+        await manager.cleanup_user_repo_branch(branch_name)
     else:
         # No workspace — nothing to merge
         console.print("No workspace found — nothing to merge.")
@@ -369,7 +355,6 @@ async def _finalize(
     no_consolidate: bool = False,
 ) -> None:
     """Finalize after eject: merge preview branch into current branch, cleanup."""
-    from maverick.library.actions.git import git_merge
     from maverick.workspace.manager import WorkspaceManager
 
     user_repo = Path.cwd().resolve()
@@ -381,20 +366,10 @@ async def _finalize(
     console.print(f"Finalizing from branch [bold]{preview_branch}[/bold]...")
 
     # Merge preview branch into current branch
-    merge_result = await git_merge(preview_branch, cwd=user_repo)
-    if merge_result.success:
+    ok, error = await manager.apply_to_user_repo(preview_branch)
+    if ok:
         console.print(format_success(f"Merged {preview_branch} into local repo."))
-        # Clean up the preview branch
-        try:
-            from maverick.runners.command import CommandRunner
-
-            runner = CommandRunner(timeout=30.0)
-            await runner.run(
-                ["git", "branch", "-d", preview_branch],
-                cwd=user_repo,
-            )
-        except Exception:
-            logger.debug("preview_branch_cleanup_failed", branch=preview_branch)
+        await manager.cleanup_user_repo_branch(preview_branch)
 
         # Consolidate runway (best-effort, after merge, before teardown).
         # Runway data lives in the workspace (fly writes there).
@@ -403,7 +378,7 @@ async def _finalize(
     else:
         err_console.print(
             format_error(
-                f"Merge failed: {merge_result.error}",
+                f"Merge failed: {error}",
                 suggestion=(f"You can merge manually with: git merge {preview_branch}"),
             )
         )

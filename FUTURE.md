@@ -82,6 +82,42 @@ Relevant code and notes:
 - [src/maverick/workspace/manager.py](src/maverick/workspace/manager.py)
 - [src/maverick/actors/fly_supervisor.py](src/maverick/actors/fly_supervisor.py)
 
+### 1.1.1 Per-Invocation Hermetic Workspaces
+
+**Status:** Active (Step 2 of the Architecture A migration)
+
+Today the workspace lives at `~/.maverick/workspaces/<project>/` — one per project. Plan and refuel are hermetic (find-or-create → work → push → teardown via `WorkspaceManager.finalize`), but fly still leaves its workspace alive for `land` because fly's commits need curation. The workspace path is shared, which means:
+
+- Two concurrent `plan generate` runs on different epics would collide.
+- Two concurrent `refuel` runs would collide.
+- A second `fly --epic X` started while the first is still going would attach to the same workspace.
+
+**What should happen next:**
+
+- Make the workspace path per-invocation: `~/.maverick/workspaces/<project>/<run-id>/`.
+- Concurrent runs become first-class — each command owns its own workspace, no coordination needed.
+- Fly absorbs curation: default behaviour runs the curator agent and finalizes itself; `--no-land` opts out for human review.
+- Land becomes opt-in — used only when the user explicitly skipped fly's auto-curation.
+- `WorkspaceManager` grows registry/list/cleanup APIs (`maverick workspace list`, `maverick workspace clean --all`).
+- Cross-invocation caches (refuel briefing, fly checkpoints) move into the user repo as committed `.maverick/` artifacts so they survive workspace teardown via git/jj rather than via a persistent workspace.
+
+**Why this is its own step:**
+
+- Folding curation into fly is a real refactor of the fly supervisor — the curator agent is currently driven from `land`'s ACP path.
+- The cache-survival decision needs per-artifact thought (what's domain state vs. ephemeral).
+- Bd has implicit single-writer assumptions that need verification before two flies can write concurrently.
+- These should land as one coordinated change, not piecemeal.
+
+Until then, fly remains the bridged exception. New code should not add per-invocation workspace logic ad-hoc.
+
+Relevant code:
+
+- [src/maverick/workspace/manager.py](src/maverick/workspace/manager.py) — `find_or_create`, `finalize`, `apply_to_user_repo`, `cleanup_user_repo_branch`
+- [src/maverick/cli/commands/flight_plan/generate.py](src/maverick/cli/commands/flight_plan/generate.py) — already hermetic
+- [src/maverick/cli/commands/refuel/_group.py](src/maverick/cli/commands/refuel/_group.py) — already hermetic
+- [src/maverick/cli/commands/fly/_group.py](src/maverick/cli/commands/fly/_group.py) — still leaves workspace for land
+- [src/maverick/cli/commands/land.py](src/maverick/cli/commands/land.py) — handles fly's deferred finalize today
+
 ### 1.2 Conditional Verification In Land
 
 **Status:** Active

@@ -336,9 +336,10 @@ class DecomposerActor(AgenticActorMixin, xo.Actor):
         unit_id: str | None,
     ) -> None:
         """Forward a decomposer prompt failure to the supervisor."""
-        from maverick.exceptions.quota import is_quota_error
+        from maverick.exceptions.quota import is_quota_error, is_transient_error
 
         quota = is_quota_error(error_str)
+        transient = is_transient_error(error_str)
         logger.debug(
             "decomposer.phase_failed",
             phase=phase,
@@ -350,6 +351,7 @@ class DecomposerActor(AgenticActorMixin, xo.Actor):
                 phase=phase,
                 error=error_str,
                 quota_exhausted=quota,
+                transient=transient,
                 unit_id=unit_id,
             )
         )

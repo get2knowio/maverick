@@ -17,6 +17,7 @@ from maverick.workspace.models import (
     BootstrapResult,
     SyncResult,
     TeardownResult,
+    WorkspaceContext,
     WorkspaceInfo,
     WorkspaceState,
 )
@@ -27,6 +28,7 @@ __all__ = [
     "TeardownResult",
     "WorkspaceBootstrapError",
     "WorkspaceCloneError",
+    "WorkspaceContext",
     "WorkspaceError",
     "WorkspaceInfo",
     "WorkspaceManager",

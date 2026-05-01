@@ -140,8 +140,7 @@ async def _run_provider_checks(config: Any) -> dict[str, _ProviderResult]:
     console.print("[bold]ACP providers[/]")
 
     statuses: dict[str, dict[str, Any]] = {
-        hc.provider_name: {"state": "running", "timing": "", "detail": ""}
-        for hc in health_checks
+        hc.provider_name: {"state": "running", "timing": "", "detail": ""} for hc in health_checks
     }
     results: dict[str, _ProviderResult] = {}
 
@@ -169,14 +168,10 @@ async def _run_provider_checks(config: Any) -> dict[str, _ProviderResult]:
                     "[dim]checking…[/]",
                 )
             elif info["state"] == "ok":
-                table.add_row(
-                    f"  [green]∟[/] {name}", timing, "[green]✓[/]", "[dim]healthy[/]"
-                )
+                table.add_row(f"  [green]∟[/] {name}", timing, "[green]✓[/]", "[dim]healthy[/]")
             else:
                 detail = f"[red dim]{info['detail']}[/]" if info["detail"] else ""
-                table.add_row(
-                    f"  [red]∟[/] {name}", timing, "[red]✗[/]", detail
-                )
+                table.add_row(f"  [red]∟[/] {name}", timing, "[red]✗[/]", detail)
         return table
 
     async def _runner(hc: Any) -> tuple[str, Any, int]:

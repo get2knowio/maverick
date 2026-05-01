@@ -22,11 +22,11 @@ from maverick.jj.errors import JjError
 from maverick.jj.models import (
     JjAbsorbResult,
     JjChangeInfo,
+    JjCommitResult,
     JjDescribeResult,
     JjDiffResult,
     JjDiffStatResult,
     JjLogResult,
-    JjNewResult,
     JjRestoreResult,
     JjSnapshotResult,
     JjSquashResult,
@@ -310,28 +310,48 @@ class TestJjCommitBead:
     """Tests for jj_commit_bead action."""
 
     @pytest.mark.asyncio
-    async def test_describes_and_creates_new(self) -> None:
-        """Test describe + new is called in sequence."""
+    async def test_returns_finalized_change_id(self) -> None:
+        """Test commit returns the finalized change's ID, not the new WIP."""
         mock_client = make_mock_client()
-        mock_client.describe.return_value = JjDescribeResult(success=True)
-        mock_client.new.return_value = JjNewResult(success=True, change_id="kxyz")
+        mock_client.commit.return_value = JjCommitResult(
+            success=True,
+            change_id="kxyz",
+        )
 
         with patch(MOCK_CLIENT, return_value=mock_client):
             result = await jj_commit_bead("bead(42): add feature")
 
         assert result["success"] is True
         assert result["message"] == "bead(42): add feature"
+        # The SHA the user sees in "bead complete (xxx)" is the finalized
+        # change, which JjCommitResult.change_id now resolves via
+        # ``jj log -r @- -T 'change_id'`` rather than fragile parsing.
         assert result["change_id"] == "kxyz"
         assert result["error"] is None
-        mock_client.describe.assert_called_once_with("bead(42): add feature")
-        mock_client.new.assert_called_once()
+        mock_client.commit.assert_called_once_with("bead(42): add feature")
+
+    @pytest.mark.asyncio
+    async def test_empty_change_id_becomes_none(self) -> None:
+        """Empty string from the resolver is normalised to ``None``."""
+        mock_client = make_mock_client()
+        mock_client.commit.return_value = JjCommitResult(
+            success=True,
+            change_id="",
+        )
+
+        with patch(MOCK_CLIENT, return_value=mock_client):
+            result = await jj_commit_bead("msg")
+
+        assert result["success"] is True
+        # ``""`` in → ``None`` out so the supervisor's display path renders
+        # ``?`` consistently rather than silently producing ``()``.
+        assert result["change_id"] is None
 
     @pytest.mark.asyncio
     async def test_accepts_cwd_as_string(self) -> None:
         """Test cwd parameter works when passed as string."""
         mock_client = make_mock_client()
-        mock_client.describe.return_value = JjDescribeResult(success=True)
-        mock_client.new.return_value = JjNewResult(success=True)
+        mock_client.commit.return_value = JjCommitResult(success=True)
 
         with patch(MOCK_CLIENT, return_value=mock_client) as mock_make:
             await jj_commit_bead("msg", cwd="/tmp/workspace")
@@ -341,29 +361,17 @@ class TestJjCommitBead:
         assert call_args[0][0] == Path("/tmp/workspace")
 
     @pytest.mark.asyncio
-    async def test_handles_describe_failure(self) -> None:
-        """Test handles describe failure."""
+    async def test_handles_commit_failure(self) -> None:
+        """Test handles ``jj commit`` failure."""
         mock_client = make_mock_client()
-        mock_client.describe.side_effect = JjError("describe failed")
+        mock_client.commit.side_effect = JjError("commit failed")
 
         with patch(MOCK_CLIENT, return_value=mock_client):
             result = await jj_commit_bead("msg")
 
         assert result["success"] is False
         assert result["error"] is not None
-
-    @pytest.mark.asyncio
-    async def test_handles_new_failure(self) -> None:
-        """Test handles jj new failure."""
-        mock_client = make_mock_client()
-        mock_client.describe.return_value = JjDescribeResult(success=True)
-        mock_client.new.side_effect = JjError("new failed")
-
-        with patch(MOCK_CLIENT, return_value=mock_client):
-            result = await jj_commit_bead("msg")
-
-        assert result["success"] is False
-        assert result["error"] is not None
+        assert "commit failed" in result["error"]
 
 
 class TestCurateHistory:

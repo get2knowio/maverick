@@ -19,6 +19,28 @@ _QUOTA_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"resets\s+\d+(?:am|pm)", re.IGNORECASE),
 ]
 
+# Patterns that indicate a *transient* provider failure: the model is
+# probably fine in general but the specific request couldn't be served.
+# These are worth a single retry on the same tier and, if still failing,
+# escalation to a different tier (typically a different model).
+#
+# Distinct from quota errors — those are non-retryable on the same
+# provider until the limit resets. Transient errors are short-lived
+# capacity / network / 5xx blips.
+_TRANSIENT_PATTERNS: list[re.Pattern[str]] = [
+    re.compile(r"no capacity available", re.IGNORECASE),
+    re.compile(r"capacity\s+(?:exhausted|exceeded|unavailable)", re.IGNORECASE),
+    re.compile(r"service\s+unavailable", re.IGNORECASE),
+    re.compile(r"internal\s+server\s+error", re.IGNORECASE),
+    re.compile(r"bad\s+gateway", re.IGNORECASE),
+    re.compile(r"gateway\s+timeout", re.IGNORECASE),
+    re.compile(r"\bcode\s*=\s*5\d\d\b", re.IGNORECASE),
+    re.compile(r"\bhttp\s*5\d\d\b", re.IGNORECASE),
+    re.compile(r"\b5\d\d\s+(?:server|error)\b", re.IGNORECASE),
+    re.compile(r"connection\s+reset", re.IGNORECASE),
+    re.compile(r"temporarily\s+unavailable", re.IGNORECASE),
+]
+
 
 def is_quota_error(error_msg: str) -> bool:
     """Check whether an error message indicates provider quota exhaustion.
@@ -30,6 +52,31 @@ def is_quota_error(error_msg: str) -> bool:
         True if the message matches a known quota/rate-limit pattern.
     """
     return any(p.search(error_msg) for p in _QUOTA_PATTERNS)
+
+
+def is_transient_error(error_msg: str) -> bool:
+    """Check whether an error message indicates a transient provider failure.
+
+    Transient = retryable on the same tier (one retry, brief backoff)
+    AND escalation-worthy if the retry also fails. Examples: "No
+    capacity available for model X", HTTP 5xx, "service unavailable",
+    "connection reset". Distinct from quota errors (which are
+    non-retryable until reset) and prompt-content errors (which retry
+    won't help).
+
+    Quota errors are explicitly excluded — :func:`is_quota_error` and
+    this function are mutually exclusive in their intended handling.
+
+    Args:
+        error_msg: The error string to check.
+
+    Returns:
+        True if the message matches a known transient-failure pattern
+        AND is not a quota error.
+    """
+    if is_quota_error(error_msg):
+        return False
+    return any(p.search(error_msg) for p in _TRANSIENT_PATTERNS)
 
 
 def parse_quota_reset(error_msg: str) -> str | None:

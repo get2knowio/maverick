@@ -63,7 +63,10 @@ async def fetch_runway_context(wf: FlyBeadsWorkflow, ctx: BeadContext) -> None:
         )
 
 
-async def walk_discovered_from_chain(bead_id: str) -> list[str]:
+async def walk_discovered_from_chain(
+    bead_id: str,
+    cwd: Path | None = None,
+) -> list[str]:
     """Walk the discovered-from dependency chain back to the root.
 
     Returns a list of bead IDs from root to the bead that links to
@@ -71,12 +74,17 @@ async def walk_discovered_from_chain(bead_id: str) -> list[str]:
     ancestry (it is an original bead, not a follow-up).
 
     Capped at 10 hops to prevent infinite loops on circular deps.
+
+    Args:
+        bead_id: Bead to walk back from.
+        cwd: Directory containing the bd database. Defaults to process
+            cwd; in fly this should be the workspace path.
     """
     import json as _json
 
     from maverick.runners.command import CommandRunner
 
-    runner = CommandRunner(cwd=Path.cwd())
+    runner = CommandRunner(cwd=cwd or Path.cwd())
     chain: list[str] = []
     current = bead_id
     seen: set[str] = set()
@@ -125,7 +133,7 @@ async def resolve_provenance(ctx: BeadContext) -> None:
 
     from maverick.runners.command import CommandRunner
 
-    chain = await walk_discovered_from_chain(ctx.bead_id)
+    chain = await walk_discovered_from_chain(ctx.bead_id, cwd=ctx.cwd)
     ctx.discovered_from_chain = chain
     ctx.escalation_depth = len(chain)
 
@@ -133,7 +141,7 @@ async def resolve_provenance(ctx: BeadContext) -> None:
         return
 
     origin_id = chain[-1]  # most recent ancestor
-    runner = CommandRunner(cwd=Path.cwd())
+    runner = CommandRunner(cwd=ctx.cwd or Path.cwd())
 
     try:
         origin_result = await runner.run(

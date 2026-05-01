@@ -1,5 +1,12 @@
 """AgenticActorMixin — boilerplate for actors that own an ACP session + MCP tools.
 
+The mixin also implements the actor-level transient-error retry: when an
+ACP prompt raises a "transient" error (HTTP 5xx, "no capacity", etc.),
+the run is retried once on the same tier after a brief backoff before
+the failure is reported to the supervisor. The supervisor then handles
+*tier escalation* — retrying on a higher-tier actor — for transient
+errors that survive the actor-level retry.
+
 Encapsulation contract: an agentic actor still owns:
 
 1. **Schemas** — declared via the ``mcp_tools`` class attribute (or returned
@@ -92,6 +99,40 @@ def _extract_json_candidates(text: str) -> list[str]:
     return candidates
 
 
+def _unwrap_tool_call_envelope(
+    decoded: dict[str, Any],
+    tool_name: str,
+) -> dict[str, Any]:
+    """Unwrap common LLM tool-call envelope shapes to the bare arguments dict.
+
+    When a model misses the MCP tool but writes the call as JSON, it
+    typically wraps the arguments in a tool-call envelope rather than
+    emitting the bare payload:
+
+    * ``{"name": "submit_review", "arguments": {...}}`` — Anthropic / OpenAI
+      tool-call shape.
+    * ``{"tool": "submit_review", "input": {...}}`` — variant.
+    * ``{"submit_review": {...}}`` — single-key wrap by tool name.
+
+    Returns the inner arguments dict when one of these shapes is detected
+    (and the named tool matches ``tool_name``), or ``decoded`` unchanged
+    otherwise so the caller can validate it directly.
+    """
+    if "name" in decoded and decoded["name"] == tool_name:
+        for key in ("arguments", "input", "args", "parameters"):
+            inner = decoded.get(key)
+            if isinstance(inner, dict):
+                return inner
+    if "tool" in decoded and decoded["tool"] == tool_name:
+        for key in ("arguments", "input", "args", "parameters"):
+            inner = decoded.get(key)
+            if isinstance(inner, dict):
+                return inner
+    if list(decoded.keys()) == [tool_name] and isinstance(decoded[tool_name], dict):
+        return decoded[tool_name]
+    return decoded
+
+
 def try_parse_tool_payload_from_text(
     text: str,
     tool_name: str,
@@ -99,8 +140,9 @@ def try_parse_tool_payload_from_text(
     """Try to recover a typed mailbox payload from agent text response.
 
     Scans ``text`` for JSON candidates (fenced code blocks first, then
-    the whole response), parses each as JSON, and validates against the
-    schema for ``tool_name`` via
+    the whole response), parses each as JSON, optionally unwraps a
+    tool-call envelope (``{name, arguments}`` and friends), and validates
+    against the schema for ``tool_name`` via
     :func:`parse_supervisor_tool_payload`. Returns the first matching
     typed payload, or ``None`` if no candidate validates.
 
@@ -123,8 +165,9 @@ def try_parse_tool_payload_from_text(
             continue
         if not isinstance(decoded, dict):
             continue
+        unwrapped = _unwrap_tool_call_envelope(decoded, tool_name)
         try:
-            payload = parse_supervisor_tool_payload(tool_name, decoded)
+            payload = parse_supervisor_tool_payload(tool_name, unwrapped)
         except (SupervisorToolPayloadError, ValueError) as exc:
             logger.debug(
                 "agentic.json_fallback.schema_mismatch",
@@ -544,6 +587,61 @@ class AgenticActorMixin:
         """Return the agent's most recent text response (empty when none)."""
         return self.__dict__.get("_last_response_text", "")
 
+    async def _run_prompt_with_transient_retry(
+        self,
+        run: Callable[[], Awaitable[None]],
+        *,
+        log_prefix: str,
+        actor_tag: str,
+        backoff_seconds: float = 1.0,
+    ) -> None:
+        """Run a prompt, retrying once if the failure looks transient.
+
+        Catches the exception, classifies its message via
+        :func:`is_transient_error`, and re-runs the same callable once
+        after a brief sleep when a retry is warranted. Quota errors and
+        non-transient errors are re-raised immediately so the caller's
+        existing failure path still kicks in.
+
+        The retry is intentionally single-shot: longer transient outages
+        get handled by the supervisor's tier escalation path. The backoff
+        is short (default 1s) so we don't burn the bead's overall budget
+        on a per-prompt blip.
+        """
+        import asyncio as _asyncio
+
+        from maverick.exceptions.quota import is_transient_error
+
+        try:
+            await run()
+            return
+        except Exception as exc:  # noqa: BLE001 — let caller decide on terminal failure
+            err_str = str(exc)
+            if not is_transient_error(err_str):
+                raise
+
+        logger.warning(
+            f"{log_prefix}.transient_error_retrying",
+            actor=actor_tag,
+            error=err_str[:300],
+            backoff_seconds=backoff_seconds,
+        )
+        await _asyncio.sleep(backoff_seconds)
+        try:
+            await run()
+        except Exception as retry_exc:  # noqa: BLE001
+            logger.warning(
+                f"{log_prefix}.transient_error_retry_failed",
+                actor=actor_tag,
+                first_error=err_str[:200],
+                retry_error=str(retry_exc)[:200],
+            )
+            raise
+        logger.info(
+            f"{log_prefix}.transient_error_retry_recovered",
+            actor=actor_tag,
+        )
+
     async def _run_with_self_nudge(
         self,
         *,
@@ -585,7 +683,11 @@ class AgenticActorMixin:
         actor_tag = getattr(self, "_actor_tag", type(self).__name__)
 
         try:
-            await run_prompt()
+            await self._run_prompt_with_transient_retry(
+                run_prompt,
+                log_prefix=log_prefix,
+                actor_tag=actor_tag,
+            )
         except Exception as exc:  # noqa: BLE001 — actor-level reporter wraps
             await on_failure(str(exc))
             return
@@ -602,7 +704,11 @@ class AgenticActorMixin:
             response_preview=_preview(first_response),
         )
         try:
-            await run_nudge()
+            await self._run_prompt_with_transient_retry(
+                run_nudge,
+                log_prefix=log_prefix,
+                actor_tag=actor_tag,
+            )
         except Exception as exc:  # noqa: BLE001
             await on_failure(str(exc))
             return

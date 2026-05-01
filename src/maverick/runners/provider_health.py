@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import asyncio.subprocess as aio_subprocess
+import collections
 import contextlib
 import importlib.metadata
 import os
@@ -15,7 +17,13 @@ from maverick.config import AgentProviderConfig
 from maverick.logging import get_logger
 from maverick.runners.preflight import ValidationResult
 
-__all__ = ["AcpProviderHealthCheck", "build_provider_health_checks"]
+__all__ = [
+    "AcpProviderHealthCheck",
+    "build_provider_health_checks",
+    "providers_for_fly",
+    "providers_referenced_by_actors",
+    "providers_referenced_by_agents",
+]
 
 logger = get_logger(__name__)
 
@@ -58,6 +66,113 @@ def _install_uvicorn_noise_filter() -> None:
 _install_uvicorn_noise_filter()
 
 
+# Ring buffer for capturing a provider subprocess's stderr tail. When a
+# health check fails — especially when it times out — the bridge has
+# usually printed something useful right before going silent (auth
+# errors, "model not found", "rate limited", "waiting for OAuth"). We
+# tee the subprocess stderr into this buffer and append its tail to the
+# error message so the user sees the actual cause instead of a bare
+# "timed out" line.
+_STDERR_TAIL_MAX_LINES = 40
+_STDERR_TAIL_MAX_CHARS_PER_LINE = 400
+
+
+class _StderrTail:
+    """Bounded ring buffer of recent stderr lines from a provider subprocess."""
+
+    def __init__(
+        self,
+        *,
+        max_lines: int = _STDERR_TAIL_MAX_LINES,
+        max_chars_per_line: int = _STDERR_TAIL_MAX_CHARS_PER_LINE,
+    ) -> None:
+        self._lines: collections.deque[str] = collections.deque(maxlen=max_lines)
+        self._max_chars = max_chars_per_line
+
+    def append(self, line: str) -> None:
+        text = line.rstrip("\r\n")
+        if not text:
+            return
+        if len(text) > self._max_chars:
+            text = text[: self._max_chars] + "…"
+        self._lines.append(text)
+
+    def snapshot(self) -> list[str]:
+        return list(self._lines)
+
+    def __bool__(self) -> bool:
+        return bool(self._lines)
+
+
+async def _drain_stderr(proc: aio_subprocess.Process, tail: _StderrTail) -> None:
+    """Drain ``proc.stderr`` line-by-line into ``tail`` until EOF or cancel.
+
+    Defensive on every front: cancellation, EOF, decode errors, and
+    line-overrun all just cause the drainer to exit quietly. The drainer
+    is best-effort context — it must never break the health check.
+    """
+    stream = proc.stderr
+    if stream is None or not isinstance(stream, asyncio.StreamReader):
+        return
+    while True:
+        try:
+            chunk = await stream.readline()
+        except asyncio.CancelledError:
+            return
+        except (asyncio.LimitOverrunError, ValueError):
+            try:
+                chunk = await stream.read(_STDERR_TAIL_MAX_CHARS_PER_LINE)
+            except (asyncio.CancelledError, Exception):  # noqa: BLE001
+                return
+            if not chunk:
+                return
+        except Exception:  # noqa: BLE001
+            return
+        if not chunk:
+            return
+        try:
+            tail.append(chunk.decode("utf-8", errors="replace"))
+        except Exception:  # noqa: BLE001 — append failure must not stop the drainer
+            continue
+
+
+def _augment_with_stderr(message: str, tail: _StderrTail) -> str:
+    """Append the captured stderr tail to ``message`` when non-empty."""
+    snapshot = tail.snapshot()
+    if not snapshot:
+        return message
+    indented = "\n".join(f"  {line}" for line in snapshot)
+    return f"{message}\n\nProvider stderr (last {len(snapshot)} lines):\n{indented}"
+
+
+async def _stop_drainer_task(
+    drainer: asyncio.Task[None] | None,
+    *,
+    drain_grace_seconds: float = 0.2,
+) -> None:
+    """Stop a stderr-drainer task, preferring natural EOF over cancel.
+
+    When the bridge subprocess has been torn down, its stderr pipe hits
+    EOF and the drainer exits cleanly — capturing every last line. We
+    give it ``drain_grace_seconds`` to finish that way before we
+    forcibly cancel; otherwise lines that were buffered but not yet read
+    end up dropped from the error message.
+    """
+    if drainer is None:
+        return
+    if not drainer.done():
+        try:
+            await asyncio.wait_for(asyncio.shield(drainer), timeout=drain_grace_seconds)
+        except TimeoutError:
+            drainer.cancel()
+        except (asyncio.CancelledError, Exception):  # noqa: BLE001
+            pass
+    try:
+        await drainer
+    except (asyncio.CancelledError, Exception):  # noqa: BLE001
+        pass
+
+
 #: Per-provider health-check timeout when the MCP tool-call probe is
 #: enabled. The probe stacks two ACP sessions (basic prompt + tool
 #: call) on top of spawn/initialize/teardown — each prompt has a
@@ -73,6 +188,7 @@ def build_provider_health_checks(
     *,
     timeout: float | None = None,
     test_mcp_tool_call: bool = False,
+    provider_filter: set[str] | frozenset[str] | None = None,
 ) -> list[AcpProviderHealthCheck]:
     """Build one ``AcpProviderHealthCheck`` per configured provider.
 
@@ -93,6 +209,12 @@ def build_provider_health_checks(
             ``test_mcp_tool_call`` is enabled (the MCP probe stacks
             an extra session + tool-call round trip on the basic
             prompt test).
+        provider_filter: When non-``None``, only providers whose name is
+            in the set are included. Used by per-command preflights
+            (e.g. ``fly``) to skip providers the command doesn't touch
+            even though they're configured. ``None`` keeps the legacy
+            behaviour: every configured provider is checked (this is
+            what ``maverick doctor`` wants).
 
     Returns:
         Health checks ordered by provider name (stable for display).
@@ -144,7 +266,114 @@ def build_provider_health_checks(
             test_mcp_tool_call=test_mcp_tool_call,
         )
         for name, provider_cfg in sorted(registry.items())
+        if provider_filter is None or name in provider_filter
     ]
+
+
+# ---------------------------------------------------------------------------
+# Per-command provider extraction
+# ---------------------------------------------------------------------------
+#
+# Subcommand preflights (``fly`` today; ``refuel`` / ``plan generate`` in
+# the future) only need to validate providers their workflow can actually
+# route through. The helpers below walk the three config surfaces where a
+# provider name can appear — ``actors.<workflow>.<actor>`` (and its
+# ``tiers`` overrides), legacy ``agents.<name>``, and the default-marked
+# entry in ``agent_providers`` — and return the union as a set the caller
+# can hand to :func:`build_provider_health_checks` as ``provider_filter``.
+#
+# ``maverick doctor`` deliberately skips this filtering: it reports on
+# *all* configured providers as a diagnostic surface.
+
+
+def _default_provider_name(config: Any) -> str | None:
+    """Return the name of the default provider in ``config.agent_providers``."""
+    providers = getattr(config, "agent_providers", None) or {}
+    for name, pcfg in providers.items():
+        if getattr(pcfg, "default", False):
+            return name
+    if providers:
+        return next(iter(providers))
+    return None
+
+
+def providers_referenced_by_actors(
+    config: Any,
+    workflow: str,
+) -> set[str]:
+    """Return provider names referenced by ``actors.<workflow>.*`` and tiers.
+
+    Walks each actor's top-level ``provider`` plus any per-tier
+    overrides (``tiers.{trivial,simple,moderate,complex}.provider``).
+    Drops ``None`` and missing entries silently — those fall through
+    to the default provider, which the caller adds separately.
+    """
+    seen: set[str] = set()
+    actors_root = getattr(config, "actors", None) or {}
+    workflow_actors = actors_root.get(workflow, {}) if isinstance(actors_root, dict) else {}
+    if not isinstance(workflow_actors, dict):
+        return seen
+
+    for actor_cfg in workflow_actors.values():
+        if not isinstance(actor_cfg, dict):
+            continue
+        if isinstance(actor_cfg.get("provider"), str):
+            seen.add(actor_cfg["provider"])
+        tiers = actor_cfg.get("tiers")
+        if isinstance(tiers, dict):
+            for tier_cfg in tiers.values():
+                if isinstance(tier_cfg, dict) and isinstance(tier_cfg.get("provider"), str):
+                    seen.add(tier_cfg["provider"])
+    return seen
+
+
+def providers_referenced_by_agents(
+    config: Any,
+    agent_names: tuple[str, ...] | list[str],
+) -> set[str]:
+    """Return provider names referenced by the named entries in ``agents:``.
+
+    Reads the legacy top-level ``agents.<name>.provider`` only — agent
+    tier overrides live under ``actors.<workflow>.<actor>.tiers`` (see
+    :func:`providers_referenced_by_actors`).
+    """
+    seen: set[str] = set()
+    agents = getattr(config, "agents", None) or {}
+    for name in agent_names:
+        agent_cfg = agents.get(name)
+        provider = getattr(agent_cfg, "provider", None) if agent_cfg else None
+        if isinstance(provider, str):
+            seen.add(provider)
+    return seen
+
+
+#: Agent roles fly's bead loop instantiates, used by :func:`providers_for_fly`.
+#: Kept narrow on purpose: deterministic actors (gate, committer) don't run
+#: agents, so they can't surface a provider failure here.
+_FLY_AGENT_ROLES: tuple[str, ...] = ("implementer", "reviewer", "briefing")
+
+
+def providers_for_fly(config: Any) -> set[str]:
+    """Return the set of provider names ``maverick fly`` may route through.
+
+    Union of:
+
+    * ``actors.fly.*.provider`` and ``actors.fly.*.tiers.<tier>.provider``
+    * ``agents.{implementer,reviewer,briefing}.provider`` (legacy surface)
+    * The default provider — every agent that doesn't override falls back
+      to it, and provider resolution always checks it.
+
+    Used by ``run_preflight_checks(provider_filter=...)`` so a ``fly``
+    invocation doesn't waste preflight time validating a provider only
+    other commands touch.
+    """
+    seen: set[str] = set()
+    seen |= providers_referenced_by_actors(config, "fly")
+    seen |= providers_referenced_by_agents(config, _FLY_AGENT_ROLES)
+    default = _default_provider_name(config)
+    if default:
+        seen.add(default)
+    return seen
 
 
 @dataclass(frozen=True, slots=True)
@@ -207,25 +436,34 @@ class AcpProviderHealthCheck:
                 duration_ms=int((time.monotonic() - start_time) * 1000),
             )
 
-        # Step 2: Spawn process and run ACP initialize handshake
+        # Step 2: Spawn process and run ACP initialize handshake.
+        #
+        # ``stderr_tail`` lives in this scope so it survives the outer
+        # ``wait_for`` cancellation: ``_spawn_and_initialize``'s finally
+        # block stops the drainer (and therefore flushes whatever lines
+        # the bridge wrote before going silent) before TimeoutError
+        # propagates up. We then surface that tail in the timeout
+        # message so the user sees the actual cause.
+        stderr_tail = _StderrTail()
         try:
             result = await asyncio.wait_for(
-                self._spawn_and_initialize(),
+                self._spawn_and_initialize(stderr_tail=stderr_tail),
                 timeout=self.timeout,
             )
             return result
         except TimeoutError:
+            base_msg = (
+                f"Provider '{self.provider_name}' health check timed out "
+                f"after {self.timeout}s"
+            )
             return ValidationResult(
                 success=False,
                 component=component,
-                errors=(
-                    f"Provider '{self.provider_name}' health check timed out "
-                    f"after {self.timeout}s",
-                ),
+                errors=(_augment_with_stderr(base_msg, stderr_tail),),
                 duration_ms=int((time.monotonic() - start_time) * 1000),
             )
 
-    async def _spawn_and_initialize(self) -> ValidationResult:
+    async def _spawn_and_initialize(self, *, stderr_tail: _StderrTail) -> ValidationResult:
         """Spawn the ACP subprocess and run the initialize handshake."""
         from acp import PROTOCOL_VERSION, spawn_agent_process
         from acp.schema import ClientCapabilities, Implementation
@@ -289,6 +527,14 @@ class AcpProviderHealthCheck:
                 duration_ms=int((time.monotonic() - start_time) * 1000),
             )
 
+        # Start draining the bridge's stderr into the caller-supplied
+        # buffer. This task runs alongside the protocol work; the finally
+        # block below stops it (and therefore flushes any final lines)
+        # before this coroutine returns or is cancelled.
+        stderr_drainer: asyncio.Task[None] | None = None
+        if isinstance(_proc.stderr, asyncio.StreamReader):
+            stderr_drainer = asyncio.create_task(_drain_stderr(_proc, stderr_tail))
+
         try:
             await conn.initialize(
                 protocol_version=PROTOCOL_VERSION,
@@ -299,12 +545,15 @@ class AcpProviderHealthCheck:
             # Teardown on failure
             with contextlib.suppress(Exception):
                 await ctx.__aexit__(None, None, None)
+            await _stop_drainer_task(stderr_drainer)
+            base_msg = (
+                f"ACP initialize handshake failed for provider "
+                f"'{self.provider_name}': {exc}"
+            )
             return ValidationResult(
                 success=False,
                 component=component,
-                errors=(
-                    f"ACP initialize handshake failed for provider '{self.provider_name}': {exc}",
-                ),
+                errors=(_augment_with_stderr(base_msg, stderr_tail),),
                 duration_ms=int((time.monotonic() - start_time) * 1000),
             )
 
@@ -363,25 +612,34 @@ class AcpProviderHealthCheck:
                     )
                 except TimeoutError:
                     errors.append(
-                        f"Provider '{self.provider_name}' prompt test "
-                        f"timed out after 20s. The provider negotiated "
-                        f"the protocol but never produced a response — "
-                        f"likely hung waiting for auth, or rate-limited."
+                        _augment_with_stderr(
+                            f"Provider '{self.provider_name}' prompt test "
+                            f"timed out after 20s. The provider negotiated "
+                            f"the protocol but never produced a response — "
+                            f"likely hung waiting for auth, or rate-limited.",
+                            stderr_tail,
+                        )
                     )
                 except Exception as prompt_exc:
                     errors.append(
-                        f"Provider '{self.provider_name}' prompt test "
-                        f"failed: {prompt_exc}"
+                        _augment_with_stderr(
+                            f"Provider '{self.provider_name}' prompt test failed: "
+                            f"{prompt_exc}",
+                            stderr_tail,
+                        )
                     )
                 else:
                     accumulated = client.get_accumulated_text().strip()
                     if not accumulated:
                         errors.append(
-                            f"Provider '{self.provider_name}' accepted "
-                            f"the prompt but returned no content. Likely "
-                            f"cause: provider needs authentication "
-                            f"(e.g. set GEMINI_API_KEY for gemini, or "
-                            f"run `copilot auth login`)."
+                            _augment_with_stderr(
+                                f"Provider '{self.provider_name}' accepted "
+                                f"the prompt but returned no content. Likely "
+                                f"cause: provider needs authentication "
+                                f"(e.g. set GEMINI_API_KEY for gemini, or "
+                                f"run `copilot auth login`).",
+                                stderr_tail,
+                            )
                         )
 
             # 3c: MCP tool-call probe (opt-in). Catches bridges that
@@ -396,7 +654,7 @@ class AcpProviderHealthCheck:
                     session_to_cancel=session,
                 )
                 if mcp_error:
-                    errors.append(mcp_error)
+                    errors.append(_augment_with_stderr(mcp_error, stderr_tail))
         except Exception as exc:
             logger.debug(
                 "provider_health.session_check_error",
@@ -404,8 +662,10 @@ class AcpProviderHealthCheck:
                 error=str(exc),
             )
             errors.append(
-                f"Provider '{self.provider_name}' session creation "
-                f"failed: {exc}"
+                _augment_with_stderr(
+                    f"Provider '{self.provider_name}' session creation failed: {exc}",
+                    stderr_tail,
+                )
             )
         finally:
             if session is not None:
@@ -446,6 +706,7 @@ class AcpProviderHealthCheck:
                     await asyncio.wait_for(_proc.wait(), timeout=1.0)
             except Exception:
                 pass
+            await _stop_drainer_task(stderr_drainer)
         finally:
             _root.setLevel(_prev)
 
@@ -554,16 +815,12 @@ class AcpProviderHealthCheck:
                     f"The bridge may have dropped the MCP server attachment."
                 )
             except Exception as exc:
-                return (
-                    f"Provider '{self.provider_name}' MCP probe: prompt "
-                    f"failed: {exc}"
-                )
+                return f"Provider '{self.provider_name}' MCP probe: prompt failed: {exc}"
 
             if not called_tools:
                 accumulated = client.get_accumulated_text().strip()
                 hint = (
-                    "agent produced text but no tool call — bridge probably "
-                    "dropped the MCP server"
+                    "agent produced text but no tool call — bridge probably dropped the MCP server"
                     if accumulated
                     else "agent produced no output at all — bridge may have "
                     "ignored mcp_servers entirely"

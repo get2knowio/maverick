@@ -29,14 +29,8 @@ from maverick.library.actions.beads import (
 from maverick.library.actions.dependencies import sync_dependencies
 from maverick.library.actions.dry_run import log_dry_run
 from maverick.library.actions.git import (
-    create_git_branch,
-    git_add,
-    git_check_and_stage,
-    git_commit,
     git_has_changes,
     git_merge,
-    git_push,
-    git_stage_all,
 )
 from maverick.library.actions.github import (
     create_github_pr,
@@ -87,15 +81,9 @@ __all__ = [
     "create_fly_workspace",
     # Dependency actions
     "sync_dependencies",
-    # Git actions
-    "git_add",
-    "git_commit",
-    "git_push",
-    "git_check_and_stage",
+    # Git actions (read-only and merge fallback only — writes go through jj)
     "git_has_changes",
     "git_merge",
-    "git_stage_all",
-    "create_git_branch",
     # jj-specific actions
     "jj_commit_bead",
     "jj_describe",

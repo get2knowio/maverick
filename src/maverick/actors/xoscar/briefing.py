@@ -137,21 +137,24 @@ class BriefingActor(AgenticActorMixin, xo.Actor):
 
     async def _report_briefing_failure(self, error_str: str) -> None:
         """Send a ``PromptError`` to the supervisor for this briefing actor."""
-        from maverick.exceptions.quota import is_quota_error
+        from maverick.exceptions.quota import is_quota_error, is_transient_error
 
         quota = is_quota_error(error_str)
+        transient = is_transient_error(error_str)
         logger.debug(
             "briefing.prompt_failed",
             actor=self._actor_tag,
             tool=self._mcp_tool,
             error=error_str,
             quota=quota,
+            transient=transient,
         )
         await self._supervisor_ref.prompt_error(
             PromptError(
                 phase="briefing",
                 error=error_str,
                 quota_exhausted=quota,
+                transient=transient,
                 unit_id=self._agent_name,
             )
         )

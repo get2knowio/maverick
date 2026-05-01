@@ -109,7 +109,7 @@ class GeneratorActor(AgenticActorMixin, xo.Actor):
         )
 
     async def _report_generator_failure(self, error_str: str) -> None:
-        from maverick.exceptions.quota import is_quota_error
+        from maverick.exceptions.quota import is_quota_error, is_transient_error
 
         logger.debug("generator.prompt_failed", error=error_str)
         await self._supervisor_ref.prompt_error(
@@ -117,6 +117,7 @@ class GeneratorActor(AgenticActorMixin, xo.Actor):
                 phase="generate",
                 error=error_str,
                 quota_exhausted=is_quota_error(error_str),
+                transient=is_transient_error(error_str),
             )
         )
 

@@ -8,12 +8,14 @@ from pathlib import Path
 from typing import Any
 
 from maverick.exceptions import WorkflowError
-from maverick.library.actions.git import git_has_changes, snapshot_uncommitted_changes
+from maverick.library.actions.git import git_has_changes
 from maverick.library.actions.git_models import GitStatusResult
+from maverick.library.actions.jj import jj_snapshot_changes
 from maverick.library.actions.preflight import run_preflight_checks
 from maverick.library.actions.validation import run_independent_gate
 from maverick.library.actions.workspace import create_fly_workspace
 from maverick.logging import get_logger
+from maverick.runners.provider_health import providers_for_fly
 from maverick.workflows.base import PythonWorkflow
 from maverick.workflows.fly_beads.constants import (
     BASELINE_GATE,
@@ -24,7 +26,6 @@ from maverick.workflows.fly_beads.constants import (
     WORKFLOW_NAME,
 )
 from maverick.workflows.fly_beads.models import FlyBeadsResult
-from maverick.workspace.manager import WorkspaceManager
 
 logger = get_logger(__name__)
 
@@ -222,6 +223,7 @@ class FlyBeadsWorkflow(PythonWorkflow):
                     check_validation_tools=False,
                     fail_on_error=True,
                     config=self._config,
+                    provider_filter=providers_for_fly(self._config),
                 )
             except Exception as exc:
                 await self.emit_step_failed(PREFLIGHT, str(exc))
@@ -239,7 +241,9 @@ class FlyBeadsWorkflow(PythonWorkflow):
             change_status = await git_has_changes()
             if change_status.has_any:
                 if auto_commit:
-                    snap = await snapshot_uncommitted_changes()
+                    snap = await jj_snapshot_changes(
+                        message="chore: snapshot uncommitted changes before fly",
+                    )
                     if not snap.success:
                         err = snap.error or "commit failed"
                         await self.emit_step_failed(SNAPSHOT_UNCOMMITTED, err)
@@ -269,8 +273,7 @@ class FlyBeadsWorkflow(PythonWorkflow):
                     raise WorkflowError(
                         "Uncommitted changes detected in the working directory. "
                         "The workspace clone will not include these changes. "
-                        "Please commit them first or re-run with --auto-commit.\n"
-                        + file_list,
+                        "Please commit them first or re-run with --auto-commit.\n" + file_list,
                         workflow_name=WORKFLOW_NAME,
                     )
             else:
@@ -310,13 +313,14 @@ class FlyBeadsWorkflow(PythonWorkflow):
         # Initialize runway in workspace so recording works
         await _init_workspace_runway(workspace_path)
 
-        # Register workspace teardown as rollback
-        ws_manager = WorkspaceManager(user_repo_path=Path.cwd())
-
-        async def _teardown() -> None:
-            await ws_manager.teardown()
-
-        self.register_rollback("workspace_teardown", _teardown)
+        # NOTE: deliberately *not* registering a workspace-teardown
+        # rollback. Fly is part of the bridged fly→land flow — the
+        # workspace must survive past fly so ``maverick land`` can
+        # curate and push the completed-bead commits. Rolling back on
+        # cancellation (Ctrl-C) or mid-run failure used to ``rmtree``
+        # the workspace, throwing away every bead that had finalized
+        # cleanly. ``land`` is the canonical teardown path; users can
+        # also run ``maverick workspace clean`` for explicit cleanup.
 
         # ----------------------------------------------------------------
         # Step 3.5: Baseline validation gate

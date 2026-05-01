@@ -6,6 +6,10 @@ iterates: implement, validate, review, commit, close, repeat.
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
+import signal as _signal
+from collections.abc import AsyncIterator
 from pathlib import Path
 
 import click
@@ -30,6 +34,62 @@ from maverick.workflows.fly_beads.constants import (
     SNAPSHOT_UNCOMMITTED,
     WORKFLOW_NAME,
 )
+from maverick.workflows.fly_beads.graceful_stop import (
+    request_graceful_stop,
+    reset_graceful_stop,
+)
+
+
+@contextlib.asynccontextmanager
+async def _graceful_sigint() -> AsyncIterator[None]:
+    """Two-stage SIGINT handler for ``maverick fly``.
+
+    * **First Ctrl-C**: set the graceful-stop flag so the supervisor
+      exits cleanly after the current bead. Print a hint that a second
+      Ctrl-C will bail immediately.
+    * **Second Ctrl-C**: cancel the awaiting task so ``CancelledError``
+      propagates and tears the run down. The workspace survives because
+      fly no longer registers a teardown rollback (see
+      ``workflows/fly_beads/workflow.py``), so completed beads remain
+      available for ``maverick land``.
+
+    Falls back to a no-op on platforms without
+    ``loop.add_signal_handler`` support (Windows).
+    """
+    loop = asyncio.get_running_loop()
+    current_task = asyncio.current_task()
+    state: dict[str, int] = {"count": 0}
+
+    def _on_sigint() -> None:
+        state["count"] += 1
+        if state["count"] == 1:
+            request_graceful_stop()
+            console.print()
+            console.print(
+                "[yellow]Stopping after current bead completes. "
+                "Press Ctrl-C again to bail immediately.[/]"
+            )
+        else:
+            console.print()
+            console.print("[red]Aborting now.[/]")
+            if current_task is not None:
+                current_task.cancel()
+
+    try:
+        loop.add_signal_handler(_signal.SIGINT, _on_sigint)
+    except NotImplementedError:
+        # Windows: no add_signal_handler. Default Ctrl-C behaviour
+        # (KeyboardInterrupt) is the only fallback available.
+        yield
+        return
+
+    try:
+        yield
+    finally:
+        with contextlib.suppress(NotImplementedError, ValueError, RuntimeError):
+            loop.remove_signal_handler(_signal.SIGINT)
+        reset_graceful_stop()
+
 
 # Ordered list of fly-beads steps for --list-steps display.
 _FLY_BEADS_STEPS = [
@@ -155,18 +215,19 @@ async def fly(
 
         verify_bd_ready()
 
-    await execute_python_workflow(
-        ctx,
-        PythonWorkflowRunConfig(
-            workflow_class=FlyBeadsWorkflow,
-            inputs={
-                "epic_id": epic or "",
-                "max_beads": max_beads,
-                "auto_commit": auto_commit,
-                "watch": watch,
-                "watch_interval": watch_interval,
-                "skip_preflight": skip_preflight,
-            },
-            session_log_path=session_log,
-        ),
-    )
+    async with _graceful_sigint():
+        await execute_python_workflow(
+            ctx,
+            PythonWorkflowRunConfig(
+                workflow_class=FlyBeadsWorkflow,
+                inputs={
+                    "epic_id": epic or "",
+                    "max_beads": max_beads,
+                    "auto_commit": auto_commit,
+                    "watch": watch,
+                    "watch_interval": watch_interval,
+                    "skip_preflight": skip_preflight,
+                },
+                session_log_path=session_log,
+            ),
+        )

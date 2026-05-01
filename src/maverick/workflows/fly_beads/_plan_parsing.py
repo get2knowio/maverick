@@ -103,6 +103,7 @@ def _parse_verification_commands(
 
 def load_work_unit_files(
     flight_plan_name: str | None,
+    cwd: Path | None = None,
 ) -> dict[str, str]:
     """Load all work unit markdown files from the plan directory.
 
@@ -110,11 +111,18 @@ def load_work_unit_files(
     the full markdown body (after frontmatter). Used to enrich bead
     descriptions with structured sections (File Scope, Acceptance
     Criteria, etc.) that the bead database truncates.
+
+    Args:
+        flight_plan_name: Plan directory name under ``.maverick/plans/``.
+        cwd: Repo root containing ``.maverick/plans/``. Defaults to
+            process cwd; under Architecture A this should be the
+            workspace path.
     """
     result: dict[str, str] = {}
     if not flight_plan_name:
         return result
-    plan_dir = Path.cwd() / ".maverick" / "plans" / flight_plan_name
+    base = cwd or Path.cwd()
+    plan_dir = base / ".maverick" / "plans" / flight_plan_name
     if not plan_dir.is_dir():
         return result
 
@@ -165,15 +173,24 @@ def match_bead_to_work_unit(
     return None
 
 
-def load_briefing_context(flight_plan_name: str | None) -> str | None:
+def load_briefing_context(
+    flight_plan_name: str | None,
+    cwd: Path | None = None,
+) -> str | None:
     """Read briefing markdown from plan directory.
+
+    Args:
+        flight_plan_name: Plan directory name under ``.maverick/plans/``.
+        cwd: Repo root containing ``.maverick/plans/``. Defaults to
+            process cwd.
 
     Returns:
         Briefing text or None if not found.
     """
     if not flight_plan_name:
         return None
-    plan_dir = Path.cwd() / ".maverick" / "plans" / flight_plan_name
+    base = cwd or Path.cwd()
+    plan_dir = base / ".maverick" / "plans" / flight_plan_name
     for candidate in ("refuel-briefing.md", "briefing.md"):
         briefing_path = plan_dir / candidate
         if briefing_path.is_file():

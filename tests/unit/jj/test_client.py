@@ -194,29 +194,57 @@ class TestNew:
 
     @pytest.mark.asyncio
     async def test_new_default(self, jj_client: JjClient, mock_runner: AsyncMock) -> None:
-        mock_runner.run.return_value = make_result(stdout="Working copy now at: kxyz")
+        # Two calls: the ``jj new`` itself, then ``jj log -T change_id``
+        # to resolve the new change's stable ID.
+        mock_runner.run.side_effect = [
+            make_result(stdout="Working copy now at: kxyz"),
+            make_result(stdout="kxyz123"),
+        ]
         result = await jj_client.new()
         assert result.success is True
+        assert result.change_id == "kxyz123"
 
-        cmd = mock_runner.run.call_args[0][0]
-        assert cmd == ["jj", "new"]
+        first_cmd = mock_runner.run.call_args_list[0][0][0]
+        assert first_cmd == ["jj", "new"]
+        # Resolver targets the new working copy.
+        second_cmd = mock_runner.run.call_args_list[1][0][0]
+        assert second_cmd == ["jj", "log", "-r", "@", "--no-graph", "-T", "change_id"]
 
     @pytest.mark.asyncio
     async def test_new_with_parents(self, jj_client: JjClient, mock_runner: AsyncMock) -> None:
-        mock_runner.run.return_value = make_result(stdout="kxyz")
-        await jj_client.new(parents=["main", "feature"])
+        mock_runner.run.side_effect = [
+            make_result(stdout="kxyz"),
+            make_result(stdout="kxyz999"),
+        ]
+        result = await jj_client.new(parents=["main", "feature"])
+        assert result.change_id == "kxyz999"
 
-        cmd = mock_runner.run.call_args[0][0]
-        assert cmd == ["jj", "new", "-r", "main", "-r", "feature"]
+        first_cmd = mock_runner.run.call_args_list[0][0][0]
+        assert first_cmd == ["jj", "new", "-r", "main", "-r", "feature"]
 
     @pytest.mark.asyncio
     async def test_new_with_message(self, jj_client: JjClient, mock_runner: AsyncMock) -> None:
-        mock_runner.run.return_value = make_result()
+        mock_runner.run.side_effect = [make_result(), make_result(stdout="abc")]
         await jj_client.new(message="start work")
 
-        cmd = mock_runner.run.call_args[0][0]
-        assert "-m" in cmd
-        assert "start work" in cmd
+        first_cmd = mock_runner.run.call_args_list[0][0][0]
+        assert "-m" in first_cmd
+        assert "start work" in first_cmd
+
+    @pytest.mark.asyncio
+    async def test_new_change_id_lookup_failure_returns_empty(
+        self,
+        jj_client: JjClient,
+        mock_runner: AsyncMock,
+    ) -> None:
+        """Resolver failures surface as ``change_id=''`` (caller renders ``?``)."""
+        mock_runner.run.side_effect = [
+            make_result(),  # jj new succeeds
+            make_result(returncode=1, stderr="not found"),  # log fails
+        ]
+        result = await jj_client.new()
+        assert result.success is True
+        assert result.change_id == ""
 
 
 class TestCommit:
@@ -224,18 +252,41 @@ class TestCommit:
 
     @pytest.mark.asyncio
     async def test_commit_success(self, jj_client: JjClient, mock_runner: AsyncMock) -> None:
-        mock_runner.run.return_value = make_result(stdout="kxyz")
+        # Resolver looks up @- (the just-finalized change), not @ (the new
+        # empty WIP) — that's the SHA the user wants in "bead complete (xxx)".
+        mock_runner.run.side_effect = [
+            make_result(stdout="Working copy now at: kxyz"),
+            make_result(stdout="finalized-id"),
+        ]
         result = await jj_client.commit("feat: add feature")
         assert result.success is True
+        assert result.change_id == "finalized-id"
 
-        cmd = mock_runner.run.call_args[0][0]
-        assert cmd == ["jj", "commit", "-m", "feat: add feature"]
+        first_cmd = mock_runner.run.call_args_list[0][0][0]
+        assert first_cmd == ["jj", "commit", "-m", "feat: add feature"]
+        second_cmd = mock_runner.run.call_args_list[1][0][0]
+        assert second_cmd == ["jj", "log", "-r", "@-", "--no-graph", "-T", "change_id"]
 
     @pytest.mark.asyncio
     async def test_commit_failure(self, jj_client: JjClient, mock_runner: AsyncMock) -> None:
         mock_runner.run.return_value = make_result(returncode=1, stderr="nothing to commit")
         with pytest.raises(JjError, match="jj commit failed"):
             await jj_client.commit("msg")
+
+    @pytest.mark.asyncio
+    async def test_commit_change_id_lookup_failure_returns_empty(
+        self,
+        jj_client: JjClient,
+        mock_runner: AsyncMock,
+    ) -> None:
+        """Resolver failures surface as ``change_id=''`` rather than crashing."""
+        mock_runner.run.side_effect = [
+            make_result(),  # jj commit succeeds
+            make_result(returncode=1, stderr="boom"),  # resolver fails
+        ]
+        result = await jj_client.commit("msg")
+        assert result.success is True
+        assert result.change_id == ""
 
 
 # =========================================================================

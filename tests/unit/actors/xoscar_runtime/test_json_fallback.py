@@ -158,6 +158,92 @@ def test_returns_none_for_schema_mismatch() -> None:
     assert try_parse_tool_payload_from_text(text, "submit_details") is None
 
 
+# ---------------------------------------------------------------------------
+# Tool-call envelope unwrapping
+# ---------------------------------------------------------------------------
+#
+# Models that miss the MCP tool but write the call as JSON tend to wrap
+# the arguments in a tool-call envelope (``{name, arguments}``) rather
+# than emitting the bare payload. Without unwrapping, the validator sees
+# only ``{name, arguments}`` and rejects the candidate.
+
+
+def test_unwraps_anthropic_style_envelope() -> None:
+    """``{"name": ..., "arguments": {...}}`` envelope unwraps to arguments."""
+    from maverick.tools.agent_inbox.models import SubmitReviewPayload
+
+    text = json.dumps(
+        {
+            "name": "submit_review",
+            "arguments": {"approved": True, "findings": []},
+        }
+    )
+    payload = try_parse_tool_payload_from_text(text, "submit_review")
+    assert isinstance(payload, SubmitReviewPayload)
+    assert payload.approved is True
+
+
+def test_unwraps_envelope_in_fenced_block() -> None:
+    """Same shape but inside ```json ... ``` fences (typical model output)."""
+    from maverick.tools.agent_inbox.models import SubmitReviewPayload
+
+    body = json.dumps(
+        {
+            "name": "submit_review",
+            "arguments": {
+                "approved": False,
+                "findings": [
+                    {"severity": "critical", "issue": "math is wrong"},
+                ],
+            },
+        }
+    )
+    text = f"Here's the review:\n```json\n{body}\n```\n"
+    payload = try_parse_tool_payload_from_text(text, "submit_review")
+    assert isinstance(payload, SubmitReviewPayload)
+    assert payload.approved is False
+    assert len(payload.findings) == 1
+
+
+def test_unwraps_tool_input_envelope() -> None:
+    """``{"tool": ..., "input": {...}}`` envelope variant also unwraps."""
+    from maverick.tools.agent_inbox.models import SubmitReviewPayload
+
+    text = json.dumps(
+        {
+            "tool": "submit_review",
+            "input": {"approved": True, "findings": []},
+        }
+    )
+    payload = try_parse_tool_payload_from_text(text, "submit_review")
+    assert isinstance(payload, SubmitReviewPayload)
+
+
+def test_unwraps_single_key_envelope() -> None:
+    """``{"submit_review": {...}}`` single-key wrap unwraps to the inner dict."""
+    from maverick.tools.agent_inbox.models import SubmitReviewPayload
+
+    text = json.dumps(
+        {
+            "submit_review": {"approved": True, "findings": []},
+        }
+    )
+    payload = try_parse_tool_payload_from_text(text, "submit_review")
+    assert isinstance(payload, SubmitReviewPayload)
+
+
+def test_envelope_with_wrong_tool_name_is_not_unwrapped() -> None:
+    """When ``name`` doesn't match the expected tool, validation runs on the
+    outer dict (which won't match) and we return None."""
+    text = json.dumps(
+        {
+            "name": "different_tool",
+            "arguments": {"approved": True, "findings": []},
+        }
+    )
+    assert try_parse_tool_payload_from_text(text, "submit_review") is None
+
+
 def test_skips_invalid_candidate_continues_to_next() -> None:
     """First fenced block is invalid JSON; second is valid. We pick the second."""
     valid_body = json.dumps({"details": []})

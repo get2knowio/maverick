@@ -439,9 +439,13 @@ async def _ensure_gitignore_entries(project_path: Path, verbose: bool) -> bool:
         if existing_text and not existing_text.endswith("\n"):
             prefix = "\n"
 
-        block = prefix + "\n".join(
-            ["# maverick", *to_append],
-        ) + "\n"
+        block = (
+            prefix
+            + "\n".join(
+                ["# maverick", *to_append],
+            )
+            + "\n"
+        )
 
         with gitignore_path.open("a", encoding="utf-8") as fp:
             fp.write(block)

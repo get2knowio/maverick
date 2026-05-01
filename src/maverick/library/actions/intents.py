@@ -23,15 +23,9 @@ ACTION_INTENTS: dict[str, str] = {
     "sync_dependencies": (
         "Synchronize project dependencies by running the configured install command."
     ),
-    # Git
-    "git_add": ("Stage specified files in the git index for the next commit."),
-    "git_commit": ("Create a git commit with the specified message in the working directory."),
-    "git_push": ("Push local commits to the configured remote git repository."),
-    "git_check_and_stage": ("Check for uncommitted changes and stage them for commit."),
+    # Git (read-only and merge fallback only — writes go through jj)
     "git_has_changes": ("Detect whether the working directory has uncommitted changes."),
-    "git_stage_all": ("Stage all modified and untracked files in the git index."),
-    "git_merge": ("Merge the specified branch into the current branch."),
-    "create_git_branch": ("Create and check out a new git branch with the given name."),
+    "git_merge": ("Merge the specified branch into the current branch (plain-git user repo)."),
     # jj
     "jj_commit_bead": ("Create a jj commit for the current bead with the specified message."),
     "jj_describe": ("Update the description of a jj revision."),

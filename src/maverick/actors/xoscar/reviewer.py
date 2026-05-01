@@ -31,6 +31,8 @@ from maverick.actors.step_config import (
 from maverick.actors.xoscar._agentic import (
     AgenticActorMixin,
     build_tool_required_nudge_prompt,
+    build_tool_required_prompt,
+    try_parse_tool_payload_from_text,
 )
 from maverick.actors.xoscar._agentic import (
     extract_text_output as _extract_text_output,
@@ -133,16 +135,24 @@ class ReviewerActor(AgenticActorMixin, xo.Actor):
         async def _failure(error_str: str) -> None:
             await self._report_review_failure(error_str, bead_id=request.bead_id)
 
+        async def _json_fallback(response_text: str) -> bool:
+            payload = try_parse_tool_payload_from_text(response_text, REVIEWER_MCP_TOOL)
+            if not isinstance(payload, SubmitReviewPayload):
+                return False
+            await self._supervisor_ref.review_ready(payload)
+            return True
+
         await self._run_with_self_nudge(
             expected_tool=REVIEWER_MCP_TOOL,
             run_prompt=lambda: self._send_review_prompt(request),
             run_nudge=lambda: self._send_nudge_prompt(phase="review"),
             on_failure=_failure,
             log_prefix="reviewer",
+            json_fallback=_json_fallback,
         )
 
     async def _report_review_failure(self, error_str: str, *, bead_id: str) -> None:
-        from maverick.exceptions.quota import is_quota_error
+        from maverick.exceptions.quota import is_quota_error, is_transient_error
 
         logger.debug("reviewer.review_failed", error=error_str)
         await self._supervisor_ref.prompt_error(
@@ -150,6 +160,7 @@ class ReviewerActor(AgenticActorMixin, xo.Actor):
                 phase="review",
                 error=error_str,
                 quota_exhausted=is_quota_error(error_str),
+                transient=is_transient_error(error_str),
                 unit_id=bead_id,
             )
         )
@@ -174,12 +185,20 @@ class ReviewerActor(AgenticActorMixin, xo.Actor):
             logger.error("reviewer.aggregate_failed", error=error_str)
             await self._supervisor_ref.payload_parse_error("aggregate_review", error_str)
 
+        async def _json_fallback(response_text: str) -> bool:
+            payload = try_parse_tool_payload_from_text(response_text, REVIEWER_MCP_TOOL)
+            if not isinstance(payload, SubmitReviewPayload):
+                return False
+            await self._supervisor_ref.aggregate_review_ready(payload)
+            return True
+
         await self._run_with_self_nudge(
             expected_tool=REVIEWER_MCP_TOOL,
             run_prompt=lambda: self._send_aggregate_prompt(request),
             run_nudge=lambda: self._send_nudge_prompt(phase="aggregate_review"),
             on_failure=_failure,
             log_prefix="reviewer",
+            json_fallback=_json_fallback,
         )
         logger.debug("reviewer.aggregate_completed")
 
@@ -249,48 +268,57 @@ class ReviewerActor(AgenticActorMixin, xo.Actor):
             await self._new_session()
 
         if self._review_count == 1:
-            parts: list[str] = [
-                "Review the code changes in the working directory.\n",
-            ]
+            user_parts: list[str] = []
             if request.work_unit_md:
-                parts.append(f"## Work Unit Specification\n\n{request.work_unit_md}\n")
+                user_parts.append(f"## Work Unit Specification\n\n{request.work_unit_md}")
             else:
-                parts.append(f"## Task Description\n\n{request.bead_description}\n")
+                user_parts.append(f"## Task Description\n\n{request.bead_description}")
 
             if request.briefing_context:
                 briefing_excerpt = request.briefing_context[:4000]
-                parts.append(
-                    f"## Pre-Flight Briefing (risks & contrarian findings)\n\n{briefing_excerpt}\n"
+                user_parts.append(
+                    f"## Pre-Flight Briefing (risks & contrarian findings)\n\n{briefing_excerpt}"
                 )
 
-            parts.append(
-                "## Historical Context (Runway)\n\n"
-                "Check `.maverick/runway/` for project knowledge:\n"
-                "- `episodic/review-findings.jsonl` — prior review findings "
-                "and resolutions\n"
-                "- `episodic/bead-outcomes.jsonl` — what worked and what didn't\n"
-                "- `semantic/` — architecture notes and decision records\n\n"
-                "Read these if they exist — they may reveal recurring issues "
-                "or architectural decisions relevant to this review.\n\n"
-                "## Review Instructions\n\n"
-                "1. Check that the implementation satisfies ALL acceptance "
-                "criteria listed in the work unit specification above.\n"
-                "2. Check for bugs, security issues, and correctness.\n"
-                "3. Verify the approach aligns with the briefing's risk "
-                "assessment and contrarian findings.\n"
-                "4. Only flag CRITICAL or MAJOR issues.\n\n"
-                "## REQUIRED: Submit via tool call\n"
-                "Call the `submit_review` tool. Set approved=true if "
-                "no critical/major issues."
+            user_content = "\n\n".join(user_parts)
+
+            review_role_intro = (
+                "You are the REVIEWER, NOT the implementer. The implementation "
+                "is already complete in the working directory. Read the existing "
+                "code and judge it against the work unit specification below — "
+                "do NOT write or edit code. The 'Implement X' instructions in "
+                "the spec were directed at the implementer (already done), not "
+                "at you.\n\n"
+                "Also consult `.maverick/runway/` for project context if it "
+                "exists (`episodic/review-findings.jsonl`, "
+                "`episodic/bead-outcomes.jsonl`, `semantic/`).\n\n"
+                "Review checklist:\n"
+                "1. Does the implementation satisfy ALL acceptance criteria in "
+                "the work unit spec?\n"
+                "2. Are there bugs, security issues, or correctness problems?\n"
+                "3. Does the approach align with the briefing's risk assessment "
+                "and contrarian findings?\n"
+                "4. Only flag CRITICAL or MAJOR issues."
             )
-            prompt = "\n".join(parts)
+
+            prompt = build_tool_required_prompt(
+                expected_tool=REVIEWER_MCP_TOOL,
+                user_content=user_content,
+                user_content_label="Review context (work unit spec + briefing)",
+                empty_result_guidance=(
+                    "Set approved=true with an empty findings array if no "
+                    "critical/major issues."
+                ),
+                role_intro=review_role_intro,
+            )
         else:
             prompt = (
-                "The implementer has made changes. Review ONLY whether "
-                "your previous findings were addressed.\n"
-                "Do NOT introduce new findings.\n\n"
-                "## REQUIRED: Submit via tool call\n"
-                "Call the `submit_review` tool."
+                "# Maverick framework instruction\n\n"
+                "(Framework message.) The implementer has made changes since "
+                "your previous review. Review ONLY whether your previous "
+                "findings were addressed; do NOT introduce new findings.\n\n"
+                f"You MUST submit your result by calling the `{REVIEWER_MCP_TOOL}` "
+                "MCP tool. Text-only responses are dropped."
             )
 
         result = await self._executor.prompt_session(

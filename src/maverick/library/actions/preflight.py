@@ -108,6 +108,7 @@ async def run_preflight_checks(
     fail_on_error: bool = True,
     event_callback: Any | None = None,
     config: MaverickConfig | None = None,
+    provider_filter: set[str] | frozenset[str] | None = None,
 ) -> PreflightCheckResult:
     """Run preflight validation checks before workflow execution.
 
@@ -128,6 +129,11 @@ async def run_preflight_checks(
         fail_on_error: If True (default), raise PreflightError when checks fail
             instead of returning a result with success=False. This causes the
             workflow to stop immediately with a clear error message.
+        provider_filter: When non-``None``, restrict provider health checks to
+            providers whose name is in the set. Used by per-command preflights
+            (e.g. ``fly``) so a configured-but-unused provider doesn't make
+            a healthy command run fail at the gate. ``None`` keeps the
+            legacy behaviour: every configured provider is checked.
 
     Returns:
         PreflightCheckResult with success status and any errors/warnings.
@@ -174,7 +180,10 @@ async def run_preflight_checks(
         from maverick.runners.provider_health import build_provider_health_checks
 
         logger.info("Checking ACP provider health...")
-        health_checks = build_provider_health_checks(config)
+        health_checks = build_provider_health_checks(
+            config,
+            provider_filter=provider_filter,
+        )
 
         results = await asyncio.gather(
             *(hc.validate() for hc in health_checks),
