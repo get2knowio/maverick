@@ -499,39 +499,9 @@ async def test_generator_actor_self_nudges(pool_address: str) -> None:
         await xo.destroy_actor(sup)
 
 
-@pytest.mark.asyncio
-async def test_implementer_actor_self_nudges(pool_address: str) -> None:
-    sup = await xo.create_actor(_Recorder, address=pool_address, uid="i-sup")
-    actor = await xo.create_actor(
-        ImplementerActor,
-        sup,
-        cwd="/tmp",
-        config=None,
-        address=pool_address,
-        uid="i-actor",
-    )
-
-    async def _silent(self: ImplementerActor, *args: Any, **_: Any) -> None:
-        return None
-
-    async def _nudge_calls_tool(self: ImplementerActor, expected_tool: str, *, phase: str) -> None:
-        await self.on_tool_call(expected_tool, _VALID_IMPLEMENTATION)
-
-    try:
-        with (
-            patch.object(ImplementerActor, "_send_prompt", new=_silent),
-            patch.object(ImplementerActor, "_send_nudge_prompt", new=_nudge_calls_tool),
-            patch.object(ImplementerActor, "_end_turn", new=_noop_end_turn_one_arg),
-        ):
-            await actor.send_implement(ImplementRequest(prompt="implement", bead_id="bd-1"))
-
-        payloads = await sup.payloads()
-        errors = await sup.errors()
-        assert [kind for kind, _ in payloads] == ["implementation"]
-        assert errors == []
-    finally:
-        await xo.destroy_actor(actor)
-        await xo.destroy_actor(sup)
+# NOTE: ImplementerActor migrated to OpenCodeAgentMixin (Phase 4).
+# Coverage of the new pattern lives in
+# tests/unit/actors/xoscar_runtime/test_implementer_reviewer_inbox.py.
 
 
 @pytest.mark.asyncio
