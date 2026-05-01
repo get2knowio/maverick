@@ -419,9 +419,7 @@ class TestFlyBeadsWorkflow:
         completed = next(e for e in events if isinstance(e, WorkflowCompleted))
         assert completed.success is False
 
-    async def test_no_workspace_teardown_rollback_registered(
-        self, fly_workflow: Any
-    ) -> None:
+    async def test_no_workspace_teardown_rollback_registered(self, fly_workflow: Any) -> None:
         """fly must NEVER register a workspace_teardown rollback.
 
         Regression test. ``PythonWorkflow._run_with_cleanup`` runs every

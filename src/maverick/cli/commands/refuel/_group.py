@@ -177,8 +177,7 @@ async def refuel(
     if workflow_cwd is not None:
         await ws_manager.finalize(message=f"chore: refuel {name}")
         console.print(
-            f"[green]✓[/] Beads published to user repo "
-            f"(branch: maverick/{user_repo.name})"
+            f"[green]✓[/] Beads published to user repo (branch: maverick/{user_repo.name})"
         )
 
     # Surface the "what next" command. The workflow writes the bd epic id

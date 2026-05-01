@@ -306,8 +306,7 @@ class ReviewerActor(AgenticActorMixin, xo.Actor):
                 user_content=user_content,
                 user_content_label="Review context (work unit spec + briefing)",
                 empty_result_guidance=(
-                    "Set approved=true with an empty findings array if no "
-                    "critical/major issues."
+                    "Set approved=true with an empty findings array if no critical/major issues."
                 ),
                 role_intro=review_role_intro,
             )

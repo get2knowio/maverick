@@ -453,8 +453,7 @@ class AcpProviderHealthCheck:
             return result
         except TimeoutError:
             base_msg = (
-                f"Provider '{self.provider_name}' health check timed out "
-                f"after {self.timeout}s"
+                f"Provider '{self.provider_name}' health check timed out after {self.timeout}s"
             )
             return ValidationResult(
                 success=False,
@@ -547,8 +546,7 @@ class AcpProviderHealthCheck:
                 await ctx.__aexit__(None, None, None)
             await _stop_drainer_task(stderr_drainer)
             base_msg = (
-                f"ACP initialize handshake failed for provider "
-                f"'{self.provider_name}': {exc}"
+                f"ACP initialize handshake failed for provider '{self.provider_name}': {exc}"
             )
             return ValidationResult(
                 success=False,
@@ -623,8 +621,7 @@ class AcpProviderHealthCheck:
                 except Exception as prompt_exc:
                     errors.append(
                         _augment_with_stderr(
-                            f"Provider '{self.provider_name}' prompt test failed: "
-                            f"{prompt_exc}",
+                            f"Provider '{self.provider_name}' prompt test failed: {prompt_exc}",
                             stderr_tail,
                         )
                     )

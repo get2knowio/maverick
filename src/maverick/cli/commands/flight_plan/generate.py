@@ -183,6 +183,5 @@ async def generate(
     if workflow_cwd is not None:
         await ws_manager.finalize(message=f"chore: add flight plan for {name}")
         console.print(
-            f"[green]✓[/] Plan published to user repo "
-            f"(branch: maverick/{user_repo.name})"
+            f"[green]✓[/] Plan published to user repo (branch: maverick/{user_repo.name})"
         )

@@ -1161,9 +1161,7 @@ class TestProvidersReferencedByAgents:
                 # 'reviewer' missing entirely
             },
         )
-        assert (
-            providers_referenced_by_agents(config, ("implementer", "reviewer")) == set()
-        )
+        assert providers_referenced_by_agents(config, ("implementer", "reviewer")) == set()
 
 
 class TestProvidersForFly:

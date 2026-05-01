@@ -213,9 +213,7 @@ async def test_transient_retry_recovers_after_blip() -> None:
         calls.append(1)
         if len(calls) == 1:
             # Real-world capacity-error string from the gemini ACP path.
-            raise RuntimeError(
-                "ACP prompt failed: No capacity available for model X (code=500)"
-            )
+            raise RuntimeError("ACP prompt failed: No capacity available for model X (code=500)")
 
     await m._run_prompt_with_transient_retry(
         _flaky,

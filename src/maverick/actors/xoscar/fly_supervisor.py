@@ -572,8 +572,7 @@ class FlySupervisor(xo.Actor):
             if is_graceful_stop_requested():
                 await self._emit_output(
                     "fly",
-                    f"Graceful stop requested — exiting after "
-                    f"{processed} bead(s)",
+                    f"Graceful stop requested — exiting after {processed} bead(s)",
                     level="warning",
                 )
                 return
@@ -973,8 +972,7 @@ class FlySupervisor(xo.Actor):
             if round_n >= MAX_REVIEW_ROUNDS:
                 return (rounds_with_findings, False)
             finding_text = "\n".join(
-                f"- [{f.severity}] {f.issue} ({f.file}:{f.line})"
-                for f in review.findings
+                f"- [{f.severity}] {f.issue} ({f.file}:{f.line})" for f in review.findings
             )
             if not await self._send_fix(
                 bead_id, phase="review", context=finding_text, round=round_n
@@ -1414,11 +1412,7 @@ class FlySupervisor(xo.Actor):
         # Transient review failure: hand off to the review loop.
         # The loop tries one tier higher and only declares the bead
         # failed when escalation is exhausted.
-        if (
-            error.phase == "review"
-            and error.transient
-            and not error.quota_exhausted
-        ):
+        if error.phase == "review" and error.transient and not error.quota_exhausted:
             self._last_review_prompt_error = error
             await self._emit_output(
                 "fly",
