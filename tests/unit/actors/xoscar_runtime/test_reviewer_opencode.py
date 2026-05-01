@@ -28,7 +28,7 @@ from maverick.actors.xoscar.messages import (
     ReviewRequest,
 )
 from maverick.actors.xoscar.pool import create_pool
-from maverick.actors.xoscar.reviewer_opencode import OpenCodeReviewerActor
+from maverick.actors.xoscar.reviewer import ReviewerActor
 from maverick.runtime.opencode import (
     OpenCodeAuthError,
     OpenCodeServerHandle,
@@ -157,7 +157,7 @@ class _StubClient:
         self.closed = True
 
 
-class _PatchedReviewer(OpenCodeReviewerActor):
+class _PatchedReviewer(ReviewerActor):
     """Reviewer with a pre-installed stub client."""
 
     def __init__(

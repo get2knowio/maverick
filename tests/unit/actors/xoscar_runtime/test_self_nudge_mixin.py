@@ -19,21 +19,7 @@ import pytest
 import xoscar as xo
 
 from maverick.actors.xoscar._agentic import AgenticActorMixin
-from maverick.actors.xoscar.briefing import BriefingActor
-from maverick.actors.xoscar.generator import GENERATOR_MCP_TOOL, GeneratorActor
-from maverick.actors.xoscar.implementer import ImplementerActor
-from maverick.actors.xoscar.messages import (
-    BriefingRequest,
-    GenerateRequest,
-    ImplementRequest,
-    PromptError,
-    ReviewRequest,
-)
-from maverick.actors.xoscar.reviewer import REVIEWER_MCP_TOOL, ReviewerActor
 from maverick.tools.agent_inbox.models import (
-    SubmitFlightPlanPayload,
-    SubmitImplementationPayload,
-    SubmitReviewPayload,
     SupervisorInboxPayload,
 )
 
@@ -384,119 +370,14 @@ _VALID_REVIEW: dict[str, Any] = {
 }
 
 
-@pytest.mark.asyncio
-async def test_briefing_actor_self_nudges(pool_address: str) -> None:
-    """BriefingActor: silent first prompt → nudge → tool delivered → success."""
-    sup = await xo.create_actor(_Recorder, address=pool_address, uid="b-sup")
-    actor = await xo.create_actor(
-        BriefingActor,
-        sup,
-        agent_name="navigator",
-        mcp_tool="submit_navigator_brief",
-        forward_method="briefing_ready",
-        cwd="/tmp",
-        config=None,
-        address=pool_address,
-        uid="b-actor",
-    )
-
-    async def _silent(self: BriefingActor, request: Any) -> None:
-        return None
-
-    async def _nudge_calls_tool(self: BriefingActor) -> None:
-        await self.on_tool_call(
-            "submit_navigator_brief",
-            {"architecture_decisions": [], "summary": "ok"},
-        )
-
-    try:
-        with (
-            patch.object(BriefingActor, "_send_prompt", new=_silent),
-            patch.object(BriefingActor, "_send_nudge_prompt", new=_nudge_calls_tool),
-            patch.object(BriefingActor, "_end_turn", new=_noop_end_turn_one_arg),
-        ):
-            await actor.send_briefing(BriefingRequest(agent_name="navigator", prompt="x"))
-
-        payloads = await sup.payloads()
-        errors = await sup.errors()
-        assert len(payloads) == 1
-        assert payloads[0][0] == "briefing"
-        assert errors == []
-    finally:
-        await xo.destroy_actor(actor)
-        await xo.destroy_actor(sup)
+# NOTE: BriefingActor migrated to OpenCodeAgentMixin (Phase 4.3).
+# Coverage of the new pattern lives in
+# tests/unit/actors/xoscar_runtime/test_briefing_inbox.py.
 
 
-@pytest.mark.asyncio
-async def test_briefing_actor_reports_after_nudge_silence(pool_address: str) -> None:
-    sup = await xo.create_actor(_Recorder, address=pool_address, uid="b-sup-fail")
-    actor = await xo.create_actor(
-        BriefingActor,
-        sup,
-        agent_name="navigator",
-        mcp_tool="submit_navigator_brief",
-        forward_method="briefing_ready",
-        cwd="/tmp",
-        config=None,
-        address=pool_address,
-        uid="b-actor-fail",
-    )
-
-    async def _silent(self: BriefingActor, *args: Any, **_: Any) -> None:
-        return None
-
-    try:
-        with (
-            patch.object(BriefingActor, "_send_prompt", new=_silent),
-            patch.object(BriefingActor, "_send_nudge_prompt", new=_silent),
-            patch.object(BriefingActor, "_end_turn", new=_noop_end_turn_one_arg),
-        ):
-            await actor.send_briefing(BriefingRequest(agent_name="navigator", prompt="x"))
-
-        payloads = await sup.payloads()
-        errors = await sup.errors()
-        assert payloads == []
-        assert len(errors) == 1
-        assert errors[0].phase == "briefing"
-        assert "submit_navigator_brief" in errors[0].error
-    finally:
-        await xo.destroy_actor(actor)
-        await xo.destroy_actor(sup)
-
-
-@pytest.mark.asyncio
-async def test_generator_actor_self_nudges(pool_address: str) -> None:
-    sup = await xo.create_actor(_Recorder, address=pool_address, uid="g-sup")
-    actor = await xo.create_actor(
-        GeneratorActor,
-        sup,
-        cwd="/tmp",
-        config=None,
-        address=pool_address,
-        uid="g-actor",
-    )
-
-    async def _silent(self: GeneratorActor, *args: Any, **_: Any) -> None:
-        return None
-
-    async def _nudge_calls_tool(self: GeneratorActor) -> None:
-        await self.on_tool_call(GENERATOR_MCP_TOOL, _VALID_FLIGHT_PLAN)
-
-    try:
-        with (
-            patch.object(GeneratorActor, "_send_prompt", new=_silent),
-            patch.object(GeneratorActor, "_send_nudge_prompt", new=_nudge_calls_tool),
-            patch.object(GeneratorActor, "_end_turn", new=_noop_end_turn_one_arg),
-        ):
-            await actor.send_generate(GenerateRequest(prompt="hi"))
-
-        payloads = await sup.payloads()
-        errors = await sup.errors()
-        assert [kind for kind, _ in payloads] == ["flight_plan"]
-        assert errors == []
-    finally:
-        await xo.destroy_actor(actor)
-        await xo.destroy_actor(sup)
+# NOTE: GeneratorActor migrated to OpenCodeAgentMixin (Phase 4.2).
+# Coverage of the new pattern lives in
+# tests/unit/actors/xoscar_runtime/test_plan_actors.py.
 
 
 # NOTE: ImplementerActor migrated to OpenCodeAgentMixin (Phase 4).
@@ -504,41 +385,7 @@ async def test_generator_actor_self_nudges(pool_address: str) -> None:
 # tests/unit/actors/xoscar_runtime/test_implementer_reviewer_inbox.py.
 
 
-@pytest.mark.asyncio
-async def test_reviewer_actor_self_nudges(pool_address: str) -> None:
-    sup = await xo.create_actor(_Recorder, address=pool_address, uid="r-sup")
-    actor = await xo.create_actor(
-        ReviewerActor,
-        sup,
-        cwd="/tmp",
-        config=None,
-        address=pool_address,
-        uid="r-actor",
-    )
-
-    async def _silent(self: ReviewerActor, *args: Any, **_: Any) -> None:
-        return None
-
-    async def _nudge_calls_tool(self: ReviewerActor, *, phase: str) -> None:
-        await self.on_tool_call(REVIEWER_MCP_TOOL, _VALID_REVIEW)
-
-    try:
-        with (
-            patch.object(ReviewerActor, "_send_review_prompt", new=_silent),
-            patch.object(ReviewerActor, "_send_nudge_prompt", new=_nudge_calls_tool),
-            patch.object(ReviewerActor, "_end_turn", new=_noop_end_turn_one_arg),
-        ):
-            await actor.send_review(ReviewRequest(bead_id="bd-1"))
-
-        payloads = await sup.payloads()
-        errors = await sup.errors()
-        assert [kind for kind, _ in payloads] == ["review"]
-        assert errors == []
-    finally:
-        await xo.destroy_actor(actor)
-        await xo.destroy_actor(sup)
-
-
-async def _noop_end_turn_one_arg(self: Any) -> None:
-    """No-op _end_turn — there's no real ACP session in these tests."""
-    return None
+# NOTE: ReviewerActor migrated to OpenCodeAgentMixin (Phase 4.5).
+# Coverage of the new pattern lives in
+# tests/unit/actors/xoscar_runtime/test_reviewer_opencode.py and
+# tests/unit/actors/xoscar_runtime/test_implementer_reviewer_inbox.py.

@@ -24,7 +24,7 @@ from maverick.actors.xoscar.messages import (
     PromptError,
 )
 from maverick.actors.xoscar.pool import create_pool
-from maverick.actors.xoscar.reviewer_opencode import OpenCodeReviewerActor
+from maverick.actors.xoscar.reviewer import ReviewerActor
 from maverick.runtime.opencode import (
     OpenCodeAuthError,
     OpenCodeServerHandle,
@@ -193,7 +193,7 @@ class _PatchedImplementer(ImplementerActor):
         return list(self.stub_client.send_calls) if self.stub_client else []
 
 
-class _PatchedReviewer(OpenCodeReviewerActor):
+class _PatchedReviewer(ReviewerActor):
     def __init__(
         self,
         supervisor_ref: xo.ActorRef,

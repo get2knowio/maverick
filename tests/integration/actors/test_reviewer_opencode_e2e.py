@@ -1,4 +1,4 @@
-"""End-to-end test: ``OpenCodeReviewerActor`` against a real OpenCode server.
+"""End-to-end test: ``ReviewerActor`` against a real OpenCode server.
 
 Spawns OpenCode, points the actor at a real provider/model, sends a
 synthetic review request, and asserts the supervisor receives a typed
@@ -30,7 +30,7 @@ from maverick.actors.xoscar.messages import (
     ReviewRequest,
 )
 from maverick.actors.xoscar.pool import actor_pool
-from maverick.actors.xoscar.reviewer_opencode import OpenCodeReviewerActor
+from maverick.actors.xoscar.reviewer import ReviewerActor
 from maverick.executor.config import StepConfig
 from maverick.tools.agent_inbox.models import SubmitReviewPayload
 
@@ -120,7 +120,7 @@ async def test_reviewer_against_real_opencode_returns_typed_payload(tmp_path: Pa
     async with actor_pool(with_opencode=True) as (_pool, address):
         sup = await xo.create_actor(_CapturingSupervisor, address=address, uid="sup-e2e")
         reviewer = await xo.create_actor(
-            OpenCodeReviewerActor,
+            ReviewerActor,
             sup,
             cwd=str(cwd),
             config=config.model_dump(),

@@ -1,46 +1,31 @@
-"""xoscar DecomposerActor — agent actor with shared-gateway inbox registration.
+"""xoscar DecomposerActor — OpenCode-backed decomposition agent.
 
-Two method groups, matching Design Decision #3 in the migration plan:
+Three phases — ``send_outline``, ``send_detail``, ``send_fix`` — each
+returning a typed payload to a different supervisor method
+(``outline_ready``, ``detail_ready``, ``fix_ready``). The
+``StructuredOutput`` tool forces the model to comply on the first turn,
+so the legacy two-turn self-nudge loop and JSON-in-text fallback are
+gone.
 
-* **Supervisor → agent (ACP kickoff):** ``set_context``, ``send_outline``,
-  ``send_detail``, ``send_fix``, ``send_nudge``. Each prompts the agent's
-  ACP session and returns when the prompt completes. Results flow back
-  to the supervisor via this actor's own MCP inbox — **not** via the
-  return value of these methods.
-
-* **MCP gateway → agent (this actor's inbox):** ``on_tool_call``
-  parses the tools this actor owns (``submit_outline``, ``submit_details``,
-  ``submit_fix``) into ``SupervisorInboxPayload`` objects and forwards
-  them to the supervisor via typed in-pool RPC
-  (``await self._supervisor_ref.outline_ready(payload)``).
+Session-mode rotation (``_ensure_mode_session``) is preserved: detail
+and fix phases reuse the same OpenCode session across multiple turns to
+keep the seeded context (flight plan + outline JSON) cached, rotating
+when the mode changes or the per-mode turn budget is exhausted.
 
 Two roles:
 
-* ``primary`` — outline + detail + fix; owns all three tools.
-* ``pool`` — detail-only worker; owns ``submit_details`` only.
-
-Tool transport: shared :class:`AgentToolGateway` HTTP server (one per
-workflow run, owned by the actor pool). The actor still owns its schemas,
-handler, session state, and ACP executor — only MCP transport lives in
-shared infrastructure.
+* ``primary`` — outline + detail + fix.
+* ``pool`` — detail-only worker.
 """
 
 from __future__ import annotations
 
-from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import xoscar as xo
+from pydantic import BaseModel
 
-from maverick.actors.step_config import load_step_config, step_config_with_timeout
-from maverick.actors.xoscar._agentic import (
-    AgenticActorMixin,
-    build_tool_required_nudge_prompt,
-    build_tool_required_prompt,
-)
-from maverick.actors.xoscar._agentic import (
-    extract_text_output as _extract_text_output,
-)
+from maverick.actors.step_config import load_step_config
 from maverick.actors.xoscar.messages import (
     DecomposerContext,
     DetailRequest,
@@ -49,14 +34,13 @@ from maverick.actors.xoscar.messages import (
     OutlineRequest,
     PromptError,
 )
-from maverick.agents.tools import PLANNER_TOOLS
+from maverick.actors.xoscar.opencode_mixin import OpenCodeAgentMixin
 from maverick.logging import get_logger
+from maverick.runtime.opencode import OpenCodeError
 from maverick.tools.agent_inbox.models import (
     SubmitDetailsPayload,
     SubmitFixPayload,
     SubmitOutlinePayload,
-    SupervisorToolPayloadError,
-    parse_supervisor_tool_payload,
 )
 
 if TYPE_CHECKING:
@@ -64,20 +48,18 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
-READ_ONLY_DECOMPOSER_TOOLS: tuple[str, ...] = tuple(sorted(PLANNER_TOOLS))
-PRIMARY_DECOMPOSER_MCP_TOOLS: tuple[str, ...] = (
-    "submit_outline",
-    "submit_details",
-    "submit_fix",
-)
-POOL_DECOMPOSER_MCP_TOOLS: tuple[str, ...] = ("submit_details",)
 
 DETAIL_TIMEOUT_SECONDS = 1200
 DEFAULT_PROMPT_TIMEOUT_SECONDS = 1800
 
 
-class DecomposerActor(AgenticActorMixin, xo.Actor):
-    """Sends ACP prompts for decomposition phases and owns its inbox registration."""
+class DecomposerActor(OpenCodeAgentMixin, xo.Actor):
+    """Sends structured prompts for decomposition phases."""
+
+    # Outline is the most common entry; subclassed phases pass their own
+    # schema explicitly via ``_send_structured(schema=...)``.
+    result_model: ClassVar[type[BaseModel]] = SubmitOutlinePayload
+    provider_tier: ClassVar[str] = "decompose"
 
     def __init__(
         self,
@@ -99,27 +81,12 @@ class DecomposerActor(AgenticActorMixin, xo.Actor):
         self._detail_session_max_turns = max(1, int(detail_session_max_turns))
         self._fix_session_max_turns = max(1, int(fix_session_max_turns))
 
-        if role == "pool":
-            self._mcp_tool_names = POOL_DECOMPOSER_MCP_TOOLS
-        else:
-            self._mcp_tool_names = PRIMARY_DECOMPOSER_MCP_TOOLS
-
-    def _mcp_tools(self) -> tuple[str, ...]:
-        return self._mcp_tool_names
-
-    async def __post_create__(self) -> None:
-        self._actor_tag = f"decomposer[{self._role}:{self.uid.decode()}]"
-        self._executor: Any = None
-        self._session_id: str | None = None
+        # Session-mode bookkeeping (preserved from the legacy actor so we
+        # keep the seeded prompt-cache benefit across detail turns).
         self._session_mode: str | None = None
         self._session_turns_in_mode = 0
 
-        # Self-nudge tool-delivery tracking lives on AgenticActorMixin;
-        # see :meth:`AgenticActorMixin._mark_tool_delivered` and
-        # :meth:`AgenticActorMixin._run_with_self_nudge`.
-
-        # Bulk context broadcast once per detail phase — keeps per-unit
-        # detail_request messages tiny.
+        # Seeded-context for detail / fix prompts.
         self._detail_outline_json: str = "{}"
         self._detail_flight_plan: str = ""
         self._detail_verification: str = ""
@@ -130,25 +97,12 @@ class DecomposerActor(AgenticActorMixin, xo.Actor):
         self._fix_verification: str = ""
         self._fix_seed_stale = True
 
-        await self._register_with_gateway()
+    async def __post_create__(self) -> None:
+        self._actor_tag = f"decomposer[{self._role}:{self.uid.decode()}]"
+        await self._opencode_post_create()
 
     async def __pre_destroy__(self) -> None:
-        """Unregister inbox routing and kill the ACP subprocess on teardown.
-
-        Best-effort: log and swallow.
-        """
-
-        await self._unregister_from_gateway()
-        if self._executor is None:
-            return
-        try:
-            await self._executor.cleanup()
-        except Exception as exc:  # noqa: BLE001 — teardown must not raise
-            logger.debug(
-                "decomposer.cleanup_failed",
-                actor=self._actor_tag,
-                error=str(exc),
-            )
+        await self._opencode_pre_destroy()
 
     # ------------------------------------------------------------------
     # Supervisor → agent surface
@@ -161,219 +115,118 @@ class DecomposerActor(AgenticActorMixin, xo.Actor):
         self._detail_verification = context.verification_properties
         self._detail_seed_stale = True
 
+    @xo.no_lock
     async def send_outline(self, request: OutlineRequest) -> None:
-        """Send the outline prompt. Result arrives via on_tool_call.
-
-        Returns once ``submit_outline`` has been delivered to the supervisor.
-        Self-nudges once if the agent finishes its turn without calling the
-        tool. Raises (via the supervisor's prompt_error path) if both
-        attempts come up empty.
-        """
-        await self._run_prompt(
-            self._send_outline_prompt(request),
+        """Run the outline prompt, forward :class:`SubmitOutlinePayload`."""
+        prompt = await self._build_outline_prompt(request)
+        payload = await self._run_phase(
+            prompt,
             phase="outline",
-            expected_tool="submit_outline",
+            schema=SubmitOutlinePayload,
+            mode="outline",
+            seed_stale=True,
+            max_turns=1,
+            timeout=DEFAULT_PROMPT_TIMEOUT_SECONDS,
         )
-
-    async def send_detail(self, request: DetailRequest) -> None:
-        """Send a detail prompt for one work unit. Result arrives via
-        on_tool_call (or, when the agent forgets to call the tool but
-        emits JSON inline, via the json-fallback path below).
-
-        The detail phase already has a fan-out retry loop in the supervisor,
-        so a missing tool that ALSO has no recoverable JSON falls through
-        to that path — no self-nudge.
-        """
-        from maverick.actors.xoscar._agentic import (
-            try_parse_tool_payload_from_text,
-        )
-        from maverick.tools.agent_inbox.models import SubmitDetailsPayload
-
-        unit_id = request.unit_ids[0] if request.unit_ids else None
-        # Reset delivery tracking so the post-prompt fallback can tell
-        # whether on_tool_call already forwarded a payload.
-        self._reset_tool_tracking("submit_details")
-        await self._run_prompt(
-            self._send_detail_prompt(request),
-            phase="detail",
-            unit_id=unit_id,
-        )
-        if self._was_tool_delivered("submit_details"):
+        if payload is None:
             return
-        # Tool wasn't called. Try the json-in-text fallback before
-        # leaving the supervisor's per-unit retry / escalation paths to
-        # handle it. This recovers ~30% haiku misses and ~5% gpt-5.4
-        # misses observed in 2026-04-28 runs — the models that miss the
-        # tool call usually still write the JSON inline in their text
-        # response.
-        response_text = self._get_last_response()
-        payload = try_parse_tool_payload_from_text(response_text, "submit_details")
-        if isinstance(payload, SubmitDetailsPayload):
-            logger.info(
-                "decomposer.detail_recovered_from_json_fallback",
-                actor=self._actor_tag,
-                unit_id=unit_id,
-                detail_count=len(payload.details),
+        if isinstance(payload, SubmitOutlinePayload):
+            await self._supervisor_ref.outline_ready(payload)
+        else:
+            await self._supervisor_ref.payload_parse_error(
+                "submit_outline",
+                f"DecomposerActor expected SubmitOutlinePayload, "
+                f"got {type(payload).__name__}",
             )
-            await self._supervisor_ref.detail_ready(payload)
-            self._mark_tool_delivered("submit_details")
-
-    async def send_fix(self, request: FixRequest) -> None:
-        """Send a fix prompt with updated coverage gaps / overloaded units.
-
-        Same self-nudge guarantee as ``send_outline``.
-        """
-        self._fix_outline_json = request.outline_json or self._fix_outline_json
-        self._fix_details_json = request.details_json or self._fix_details_json
-        self._fix_verification = request.verification_properties or self._fix_verification
-        self._fix_seed_stale = True
-        await self._run_prompt(
-            self._send_fix_prompt(request),
-            phase="fix",
-            expected_tool="submit_fix",
-        )
-
-    async def send_nudge(self, request: NudgeRequest) -> None:
-        """Re-prompt when a previous turn didn't call the expected tool.
-
-        Used by the supervisor when payload validation rejects a submission.
-        Distinct from the actor-internal self-nudge used by send_outline /
-        send_fix, which fires when the tool was never called at all.
-        """
-        await self._run_prompt(
-            self._send_nudge_prompt(request),
-            phase="nudge",
-            unit_id=request.unit_id,
-        )
-
-    async def _run_prompt(
-        self,
-        coro: Any,
-        *,
-        phase: str,
-        unit_id: str | None = None,
-        expected_tool: str | None = None,
-    ) -> None:
-        """Run an ACP-driving coroutine and route results to the supervisor.
-
-        When ``expected_tool`` is set, delegates to
-        :meth:`AgenticActorMixin._run_with_self_nudge` so the supervisor
-        only sees a typed callback (success) or a ``PromptError`` (failure)
-        — no post-hoc "did the tool fire" inspection across the boundary.
-        Outline / fix paths additionally pass a ``json_fallback`` so a
-        missed tool call with a JSON-in-text response still recovers
-        without needing the supervisor's escalation budget.
-
-        When ``expected_tool`` is ``None`` (e.g., the detail phase, where
-        the supervisor's per-unit fan-out retry covers missing tools),
-        we just translate exceptions into a ``PromptError``. The detail
-        phase's own JSON fallback lives in :meth:`send_detail`.
-        """
-        from maverick.actors.xoscar._agentic import (
-            try_parse_tool_payload_from_text,
-        )
-        from maverick.tools.agent_inbox.models import (
-            SubmitFixPayload,
-            SubmitOutlinePayload,
-        )
-
-        logger.debug("decomposer.phase_starting", phase=phase, unit_id=unit_id)
-
-        async def _failure(error_str: str) -> None:
-            await self._report_decomposer_failure(error_str, phase=phase, unit_id=unit_id)
-
-        if expected_tool is None:
-            try:
-                await coro
-            except Exception as exc:  # noqa: BLE001
-                await _failure(str(exc))
-                return
-            logger.debug("decomposer.phase_completed", phase=phase, unit_id=unit_id)
-            return
-
-        async def _nudge() -> None:
-            await self._send_nudge_prompt(
-                NudgeRequest(
-                    expected_tool=expected_tool,
-                    reason=(
-                        f"Your previous turn finished without calling "
-                        f"`{expected_tool}`. You MUST submit your result via "
-                        "that MCP tool — text-only responses are dropped."
-                    ),
-                    unit_id=unit_id,
-                )
-            )
-
-        async def _json_fallback(response_text: str) -> bool:
-            """Try to recover from a missed tool call by parsing JSON in
-            the agent's text response. Returns True iff a valid payload
-            was found and forwarded to the supervisor."""
-            payload = try_parse_tool_payload_from_text(response_text, expected_tool)
-            if payload is None:
-                return False
-            if expected_tool == "submit_outline" and isinstance(payload, SubmitOutlinePayload):
-                await self._supervisor_ref.outline_ready(payload)
-                return True
-            if expected_tool == "submit_fix" and isinstance(payload, SubmitFixPayload):
-                await self._supervisor_ref.fix_ready(payload)
-                return True
-            return False
-
-        await self._run_with_self_nudge(
-            expected_tool=expected_tool,
-            run_prompt=lambda: coro,
-            run_nudge=_nudge,
-            on_failure=_failure,
-            log_prefix="decomposer",
-            json_fallback=_json_fallback,
-        )
-
-    async def _report_decomposer_failure(
-        self,
-        error_str: str,
-        *,
-        phase: str,
-        unit_id: str | None,
-    ) -> None:
-        """Forward a decomposer prompt failure to the supervisor."""
-        from maverick.exceptions.quota import is_quota_error, is_transient_error
-
-        quota = is_quota_error(error_str)
-        transient = is_transient_error(error_str)
-        logger.debug(
-            "decomposer.phase_failed",
-            phase=phase,
-            unit_id=unit_id,
-            error=error_str,
-        )
-        await self._supervisor_ref.prompt_error(
-            PromptError(
-                phase=phase,
-                error=error_str,
-                quota_exhausted=quota,
-                transient=transient,
-                unit_id=unit_id,
-            )
-        )
-
-    # ------------------------------------------------------------------
-    # MCP subprocess → agent inbox
-    # ------------------------------------------------------------------
 
     @xo.no_lock
-    async def on_tool_call(self, tool: str, args: dict[str, Any]) -> str:
-        """Parse an MCP tool call and forward the typed result to the
-        supervisor via in-pool RPC.
+    async def send_detail(self, request: DetailRequest) -> None:
+        """Run a detail-pass prompt for one or more units."""
+        unit_id = request.unit_ids[0] if request.unit_ids else None
+        prompt, refreshed_seed = await self._build_detail_prompt(request)
+        payload = await self._run_phase(
+            prompt,
+            phase="detail",
+            schema=SubmitDetailsPayload,
+            mode="detail",
+            seed_stale=refreshed_seed,
+            max_turns=self._detail_session_max_turns,
+            timeout=DETAIL_TIMEOUT_SECONDS,
+            unit_id=unit_id,
+        )
+        if payload is None:
+            return
+        if isinstance(payload, SubmitDetailsPayload):
+            await self._supervisor_ref.detail_ready(payload)
+        else:
+            await self._supervisor_ref.payload_parse_error(
+                "submit_details",
+                f"DecomposerActor expected SubmitDetailsPayload, "
+                f"got {type(payload).__name__}",
+            )
+        # The detail-mode seed has been delivered with this turn; future
+        # turns within the same session reuse it.
+        self._detail_seed_stale = False
+        if self._session_mode == "detail":
+            self._session_turns_in_mode += 1
 
-        Only handles tools this agent owns (primary: outline/details/fix;
-        pool: details). Unknown tools are reported to the supervisor as
-        a payload error so it can surface the misrouted call in the CLI.
-        """
+    @xo.no_lock
+    async def send_fix(self, request: FixRequest) -> None:
+        """Run the fix-pass prompt, forward :class:`SubmitFixPayload`."""
+        self._fix_outline_json = request.outline_json or self._fix_outline_json
+        self._fix_details_json = request.details_json or self._fix_details_json
+        self._fix_verification = (
+            request.verification_properties or self._fix_verification
+        )
+        prompt, refreshed_seed = await self._build_fix_prompt(request)
+        payload = await self._run_phase(
+            prompt,
+            phase="fix",
+            schema=SubmitFixPayload,
+            mode="fix",
+            seed_stale=refreshed_seed,
+            max_turns=self._fix_session_max_turns,
+            timeout=DEFAULT_PROMPT_TIMEOUT_SECONDS,
+        )
+        if payload is None:
+            return
+        if isinstance(payload, SubmitFixPayload):
+            await self._supervisor_ref.fix_ready(payload)
+        else:
+            await self._supervisor_ref.payload_parse_error(
+                "submit_fix",
+                f"DecomposerActor expected SubmitFixPayload, "
+                f"got {type(payload).__name__}",
+            )
+        self._fix_seed_stale = False
+        if self._session_mode == "fix":
+            self._session_turns_in_mode += 1
+
+    @xo.no_lock
+    async def send_nudge(self, request: NudgeRequest) -> None:
+        """Re-prompt when the supervisor rejected a previous payload."""
+        prompt = self._build_nudge_prompt(request)
+        # Pick the schema matching the expected tool.
+        schema_map: dict[str, type[BaseModel]] = {
+            "submit_outline": SubmitOutlinePayload,
+            "submit_details": SubmitDetailsPayload,
+            "submit_fix": SubmitFixPayload,
+        }
+        schema = schema_map.get(request.expected_tool, SubmitOutlinePayload)
         try:
-            payload = parse_supervisor_tool_payload(tool, args)
-        except (SupervisorToolPayloadError, ValueError) as exc:
-            await self._supervisor_ref.payload_parse_error(tool, str(exc))
-            return "error"
+            payload = await self._send_structured(
+                prompt, schema=schema, timeout=DEFAULT_PROMPT_TIMEOUT_SECONDS
+            )
+        except OpenCodeError as exc:
+            await self._report_failure(
+                str(exc), phase="nudge", unit_id=request.unit_id
+            )
+            return
+        except Exception as exc:  # noqa: BLE001
+            await self._report_failure(
+                str(exc), phase="nudge", unit_id=request.unit_id
+            )
+            return
 
         if isinstance(payload, SubmitOutlinePayload):
             await self._supervisor_ref.outline_ready(payload)
@@ -382,152 +235,109 @@ class DecomposerActor(AgenticActorMixin, xo.Actor):
         elif isinstance(payload, SubmitFixPayload):
             await self._supervisor_ref.fix_ready(payload)
         else:
-            # Defensive: a tool name this agent advertises but this
-            # module didn't branch on. Tell the supervisor so the
-            # misconfiguration surfaces instead of being silently dropped.
             await self._supervisor_ref.payload_parse_error(
-                tool, f"Decomposer has no handler for tool {tool!r}"
+                request.expected_tool,
+                f"DecomposerActor nudge produced unexpected "
+                f"{type(payload).__name__}",
             )
-            return "error"
-        # Mark this tool as delivered so the actor's _run_prompt loop knows
-        # the prompt produced a real submission and doesn't self-nudge.
-        self._mark_tool_delivered(tool)
-        # Payload forwarded to supervisor; end the ACP turn so the
-        # agent does not keep generating wrap-up text. The session
-        # stays alive for the next mode/turn.
-        await self._end_turn()
-        return "ok"
-
-    async def _end_turn(self) -> None:
-        """Cancel the current ACP turn after a successful MCP submission."""
-        if self._session_id and self._executor is not None:
-            try:
-                await self._executor.cancel_session(self._session_id)
-            except Exception as exc:  # noqa: BLE001
-                logger.debug(
-                    "decomposer.cancel_after_submit_failed",
-                    actor=self._actor_tag,
-                    error=str(exc),
-                )
 
     # ------------------------------------------------------------------
-    # ACP session plumbing (internal)
+    # Phase runner
     # ------------------------------------------------------------------
 
-    async def _ensure_executor(self) -> None:
-        if self._executor is not None:
-            return
-        logger.info(
-            "decomposer.acp_connection_new",
-            actor=self._actor_tag,
-            role=self._role,
-        )
-        self._executor = await self._build_quota_aware_executor()
-
-    async def _create_session(self) -> None:
-        await self._ensure_executor()
-
-        cwd = Path(self._cwd)
-        allowed_tools = [*READ_ONLY_DECOMPOSER_TOOLS, *self._mcp_tool_names]
-
-        self._session_id = await self._executor.create_session(
-            provider=self._step_config.provider if self._step_config else None,
-            config=self._step_config,
-            step_name="decompose",
-            agent_name="decomposer",
-            cwd=cwd,
-            allowed_tools=allowed_tools,
-            mcp_servers=[self.mcp_server_config()],
-        )
-
-    async def _ensure_mode_session(
+    async def _run_phase(
         self,
-        mode: str,
+        prompt: str,
         *,
-        max_turns: int,
+        phase: str,
+        schema: type[BaseModel],
+        mode: str,
         seed_stale: bool,
-    ) -> bool:
-        """Ensure a seeded-session mode has a usable ACP session.
+        max_turns: int,
+        timeout: int,
+        unit_id: str | None = None,
+    ) -> BaseModel | None:
+        """Drive the structured send and route failures to ``prompt_error``."""
+        logger.debug(
+            "decomposer.phase_starting",
+            phase=phase,
+            unit_id=unit_id,
+            mode=mode,
+            seed_stale=seed_stale,
+            max_turns=max_turns,
+        )
+        await self._maybe_rotate_session(
+            mode=mode, seed_stale=seed_stale, max_turns=max_turns
+        )
+        try:
+            return await self._send_structured(
+                prompt, schema=schema, timeout=timeout
+            )
+        except OpenCodeError as exc:
+            await self._report_failure(str(exc), phase=phase, unit_id=unit_id)
+            return None
+        except Exception as exc:  # noqa: BLE001 — supervisor decides retry policy
+            await self._report_failure(str(exc), phase=phase, unit_id=unit_id)
+            return None
 
-        Returns ``True`` when a new session was created and the next
-        prompt should include the large seed context.
-        """
-        previous_session = self._session_id
-        previous_mode = self._session_mode
-        previous_turns = self._session_turns_in_mode
-
-        if not previous_session:
-            reason = "initial"
-        elif previous_mode != mode:
-            reason = "mode_change"
-        elif previous_turns >= max(1, max_turns):
-            reason = "turn_limit"
-        elif seed_stale:
-            reason = "seed_stale"
-        else:
-            return False
-
-        if previous_session:
+    async def _maybe_rotate_session(
+        self, *, mode: str, seed_stale: bool, max_turns: int
+    ) -> None:
+        """Rotate the OpenCode session when the mode changes or the budget is hit."""
+        if self._session_id is None:
+            self._session_mode = mode
+            self._session_turns_in_mode = 0
+            return
+        if (
+            self._session_mode != mode
+            or self._session_turns_in_mode >= max(1, max_turns)
+            or seed_stale
+        ):
+            reason = (
+                "mode_change"
+                if self._session_mode != mode
+                else "turn_limit"
+                if self._session_turns_in_mode >= max(1, max_turns)
+                else "seed_stale"
+            )
             logger.info(
                 "decomposer.session_rotated",
                 actor=self._actor_tag,
                 role=self._role,
                 mode=mode,
                 reason=reason,
-                previous_session=previous_session,
-                previous_mode=previous_mode,
-                previous_turns=previous_turns,
+                previous_session=self._session_id,
+                previous_mode=self._session_mode,
+                previous_turns=self._session_turns_in_mode,
                 max_turns=max_turns,
             )
+            await self._rotate_session()
+            self._session_mode = mode
+            self._session_turns_in_mode = 0
 
-        await self._create_session()
-        self._session_mode = mode
-        self._session_turns_in_mode = 0
-        logger.info(
-            "decomposer.session_created",
-            actor=self._actor_tag,
-            role=self._role,
-            mode=mode,
-            reason=reason,
-            session_id=self._session_id,
-            max_turns=max_turns,
-        )
-        return True
-
-    async def _ensure_agent(self) -> None:
-        if self._session_id:
-            return
-        await self._create_session()
-
-    async def _mark_turn_completed(self, mode: str) -> None:
-        if self._session_mode == mode:
-            self._session_turns_in_mode += 1
-
-    async def _prompt(
-        self,
-        prompt_text: str,
-        step_name: str = "decompose",
-        *,
-        timeout_seconds: int = DEFAULT_PROMPT_TIMEOUT_SECONDS,
+    async def _report_failure(
+        self, error: str, *, phase: str, unit_id: str | None
     ) -> None:
-        await self._ensure_agent()
-        result = await self._executor.prompt_session(
-            session_id=self._session_id,
-            prompt_text=prompt_text,
-            provider=self._step_config.provider if self._step_config else None,
-            config=step_config_with_timeout(self._step_config, timeout_seconds),
-            step_name=step_name,
-            agent_name="decomposer",
+        from maverick.exceptions.quota import is_quota_error, is_transient_error
+
+        logger.debug(
+            "decomposer.phase_failed", phase=phase, unit_id=unit_id, error=error
         )
-        # Capture the agent's text response so the mixin can surface it
-        # in tool-missing logs and the next nudge can quote it.
-        self._record_last_response(_extract_text_output(result))
+        await self._supervisor_ref.prompt_error(
+            PromptError(
+                phase=phase,
+                error=error,
+                quota_exhausted=is_quota_error(error),
+                transient=is_transient_error(error),
+                unit_id=unit_id,
+            )
+        )
 
     # ------------------------------------------------------------------
-    # Prompt builders (mirror the Thespian implementation)
+    # Prompt builders (delegate to the existing decompose helpers)
     # ------------------------------------------------------------------
 
-    async def _send_outline_prompt(self, request: OutlineRequest) -> None:
+    async def _build_outline_prompt(self, request: OutlineRequest) -> str:
         from maverick.library.actions.decompose import build_outline_prompt
 
         body = build_outline_prompt(
@@ -536,47 +346,30 @@ class DecomposerActor(AgenticActorMixin, xo.Actor):
             briefing=request.briefing,
             runway_context=request.runway_context,
         )
-
         if request.validation_feedback:
             body += (
                 "\n\n## PREVIOUS ATTEMPT FAILED VALIDATION\n"
                 f"{request.validation_feedback}\n"
                 "Fix these issues in your new decomposition."
             )
-
-        prompt_text = build_tool_required_prompt(
-            expected_tool="submit_outline",
-            user_content=body,
-            user_content_label="Decomposition input (flight plan + briefing)",
-            role_intro="You are the decomposer's outline pass.",
+        return (
+            "You are the decomposer's outline pass.\n\n"
+            "# Decomposition input (flight plan + briefing)\n\n"
+            f"{body}"
         )
 
-        await self._ensure_agent()
-        logger.info(
-            "decomposer.prompt_seeded",
-            actor=self._actor_tag,
-            role=self._role,
-            mode="outline",
-            session_id=self._session_id,
-            prompt_chars=len(prompt_text),
-        )
-        await self._prompt(prompt_text, "decompose_outline")
-
-    async def _send_detail_prompt(self, request: DetailRequest) -> None:
+    async def _build_detail_prompt(
+        self, request: DetailRequest
+    ) -> tuple[str, bool]:
         from maverick.library.actions.decompose import (
             build_detail_seed_prompt,
             build_detail_turn_prompt,
         )
 
         unit_ids = list(request.unit_ids)
-
-        needs_seed = await self._ensure_mode_session(
-            "detail",
-            max_turns=self._detail_session_max_turns,
-            seed_stale=self._detail_seed_stale,
-        )
-        if needs_seed:
-            self._detail_seed_stale = True
+        # Always include the seed when the cache is stale; the session
+        # rotation logic below decides whether the in-session cache hits.
+        needs_seed = self._detail_seed_stale or self._session_mode != "detail"
         prompt_parts: list[str] = []
         if needs_seed:
             prompt_parts.append(
@@ -588,54 +381,20 @@ class DecomposerActor(AgenticActorMixin, xo.Actor):
             )
         prompt_parts.append(build_detail_turn_prompt(unit_ids=unit_ids))
         body = "\n\n".join(prompt_parts)
-
-        prompt_text = build_tool_required_prompt(
-            expected_tool="submit_details",
-            user_content=body,
-            user_content_label="Decomposition input (outline + details turn)",
-            role_intro="You are the decomposer's detail pass.",
+        return (
+            "You are the decomposer's detail pass.\n\n"
+            "# Decomposition input (outline + details turn)\n\n"
+            f"{body}",
+            needs_seed,
         )
 
-        if needs_seed:
-            logger.info(
-                "decomposer.prompt_seeded",
-                actor=self._actor_tag,
-                role=self._role,
-                mode="detail",
-                session_id=self._session_id,
-                prompt_chars=len(prompt_text),
-                unit_ids=unit_ids,
-            )
-        else:
-            logger.info(
-                "decomposer.prompt_reused",
-                actor=self._actor_tag,
-                role=self._role,
-                mode="detail",
-                session_id=self._session_id,
-                turn=self._session_turns_in_mode + 1,
-                max_turns=self._detail_session_max_turns,
-                prompt_chars=len(prompt_text),
-                unit_ids=unit_ids,
-            )
-
-        await self._prompt(prompt_text, "decompose_detail", timeout_seconds=DETAIL_TIMEOUT_SECONDS)
-        self._detail_seed_stale = False
-        await self._mark_turn_completed("detail")
-
-    async def _send_fix_prompt(self, request: FixRequest) -> None:
+    async def _build_fix_prompt(self, request: FixRequest) -> tuple[str, bool]:
         from maverick.library.actions.decompose import (
             build_fix_seed_prompt,
             build_fix_turn_prompt,
         )
 
-        needs_seed = await self._ensure_mode_session(
-            "fix",
-            max_turns=self._fix_session_max_turns,
-            seed_stale=self._fix_seed_stale,
-        )
-        if needs_seed:
-            self._fix_seed_stale = True
+        needs_seed = self._fix_seed_stale or self._session_mode != "fix"
         prompt_parts: list[str] = []
         if needs_seed:
             prompt_parts.append(
@@ -652,57 +411,23 @@ class DecomposerActor(AgenticActorMixin, xo.Actor):
             )
         )
         body = "\n\n".join(prompt_parts)
-        fix_prompt_text = build_tool_required_prompt(
-            expected_tool="submit_fix",
-            user_content=body,
-            user_content_label="Decomposition input (fix turn)",
-            role_intro="You are the decomposer's fix pass.",
-            empty_result_guidance=(
-                "Submit the COMPLETE updated work_units and details, not just the changes."
-            ),
-        )
-        if needs_seed:
-            logger.info(
-                "decomposer.prompt_seeded",
-                actor=self._actor_tag,
-                role=self._role,
-                mode="fix",
-                session_id=self._session_id,
-                prompt_chars=len(fix_prompt_text),
-            )
-        else:
-            logger.info(
-                "decomposer.prompt_reused",
-                actor=self._actor_tag,
-                role=self._role,
-                mode="fix",
-                session_id=self._session_id,
-                turn=self._session_turns_in_mode + 1,
-                max_turns=self._fix_session_max_turns,
-                prompt_chars=len(fix_prompt_text),
-            )
-
-        await self._prompt(fix_prompt_text, "decompose_fix")
-        self._fix_seed_stale = False
-        await self._mark_turn_completed("fix")
-
-    async def _send_nudge_prompt(self, request: NudgeRequest) -> None:
-        tool_name = request.expected_tool
-        unit_id = request.unit_id
-        reason = request.reason
-
-        guidance_parts: list[str] = []
-        if tool_name == "submit_details" and unit_id:
-            guidance_parts.append(f"Provide a complete entry for `{unit_id}`.")
-        else:
-            guidance_parts.append("Submit even partial results rather than refusing.")
-        if reason:
-            guidance_parts.append(f"Reason: {reason}")
-
-        prompt_text = build_tool_required_nudge_prompt(
-            expected_tool=tool_name,
-            previous_response=self._get_last_response(),
-            empty_result_guidance=" ".join(guidance_parts),
+        return (
+            "You are the decomposer's fix pass. Submit the COMPLETE updated "
+            "work_units and details, not just the changes.\n\n"
+            "# Decomposition input (fix turn)\n\n"
+            f"{body}",
+            needs_seed,
         )
 
-        await self._prompt(prompt_text, f"decompose_nudge_{tool_name}")
+    def _build_nudge_prompt(self, request: NudgeRequest) -> str:
+        guidance: list[str] = []
+        if request.expected_tool == "submit_details" and request.unit_id:
+            guidance.append(f"Provide a complete entry for `{request.unit_id}`.")
+        else:
+            guidance.append("Submit even partial results rather than refusing.")
+        if request.reason:
+            guidance.append(f"Reason: {request.reason}")
+        return (
+            "Re-submit your previous response with the corrected payload.\n\n"
+            f"{' '.join(guidance)}"
+        )

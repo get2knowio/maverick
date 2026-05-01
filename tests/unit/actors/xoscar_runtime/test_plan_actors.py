@@ -131,57 +131,115 @@ class _PlanRecorder(xo.Actor):
         return list(self._calls)
 
 
+class _StubGenerator(GeneratorActor):
+    """GeneratorActor with the OpenCode client replaced by a stub."""
+
+    def __init__(
+        self,
+        supervisor_ref: xo.ActorRef,
+        *,
+        cwd: str = "/tmp",
+        scripted_payload: dict | None = None,
+        scripted_error: BaseException | None = None,
+    ) -> None:
+        super().__init__(supervisor_ref, cwd=cwd)
+        self._scripted_payload = scripted_payload
+        self._scripted_error = scripted_error
+
+    async def _build_client(self) -> Any:  # type: ignore[override]
+        from maverick.runtime.opencode import SendResult
+
+        scripted_payload = self._scripted_payload
+        scripted_error = self._scripted_error
+
+        class _Client:
+            base_url = "http://stub"
+
+            async def list_providers(self) -> dict[str, Any]:
+                return {"all": [], "connected": []}
+
+            async def create_session(self, *, title: str | None = None, **_: Any) -> str:
+                return "ses_1"
+
+            async def delete_session(self, session_id: str) -> bool:
+                return True
+
+            async def send_with_event_watch(self, *args: Any, **kwargs: Any) -> SendResult:
+                if scripted_error is not None:
+                    raise scripted_error
+                payload = scripted_payload
+                return SendResult(
+                    message={"info": {"structured": payload}, "parts": []},
+                    text="",
+                    structured=payload,
+                    valid=True,
+                    info={},
+                )
+
+            async def aclose(self) -> None:
+                return None
+
+        return _Client()
+
+
 @pytest.mark.asyncio
 async def test_generator_forwards_flight_plan(pool_address: str) -> None:
     sup = await xo.create_actor(_PlanRecorder, address=pool_address, uid="gen-sup")
+    payload = {
+        "objective": "Ship feature X",
+        "success_criteria": [{"description": "SC1", "verification": "echo ok"}],
+        "in_scope": ["a"],
+        "out_of_scope": [],
+        "context": "",
+        "tags": [],
+    }
     gen = await xo.create_actor(
-        GeneratorActor,
+        _StubGenerator,
         sup,
         cwd="/tmp",
+        scripted_payload=payload,
         address=pool_address,
         uid="gen-1",
     )
     try:
-        args = {
-            "objective": "Ship feature X",
-            "success_criteria": [{"description": "SC1", "verification": "echo ok"}],
-            "in_scope": ["a"],
-            "out_of_scope": [],
-            "context": "",
-            "tags": [],
-        }
-        result = await gen.on_tool_call("submit_flight_plan", args)
-        assert result == "ok"
+        from maverick.actors.xoscar.messages import GenerateRequest
+
+        await gen.send_generate(GenerateRequest(prompt="prd"))
         calls = await sup.calls()
         assert len(calls) == 1
-        kind, payload = calls[0]
+        kind, delivered = calls[0]
         assert kind == "flight_plan_ready"
-        assert isinstance(payload, SubmitFlightPlanPayload)
-        assert payload.objective == "Ship feature X"
+        assert isinstance(delivered, SubmitFlightPlanPayload)
+        assert delivered.objective == "Ship feature X"
     finally:
         await xo.destroy_actor(gen)
         await xo.destroy_actor(sup)
 
 
 @pytest.mark.asyncio
-async def test_generator_rejects_unowned_tool(pool_address: str) -> None:
-    sup = await xo.create_actor(_PlanRecorder, address=pool_address, uid="gen-sup-rej")
+async def test_generator_routes_send_error_to_prompt_error(pool_address: str) -> None:
+    from maverick.runtime.opencode import OpenCodeAuthError
+
+    sup = await xo.create_actor(_PlanRecorder, address=pool_address, uid="gen-sup-err")
     gen = await xo.create_actor(
-        GeneratorActor,
+        _StubGenerator,
         sup,
         cwd="/tmp",
+        scripted_error=OpenCodeAuthError("bad key"),
         address=pool_address,
-        uid="gen-rej",
+        uid="gen-err",
     )
     try:
-        result = await gen.on_tool_call("submit_review", {"approved": True})
-        assert result == "error"
+        from maverick.actors.xoscar.messages import GenerateRequest
+
+        await gen.send_generate(GenerateRequest(prompt="x"))
         calls = await sup.calls()
-        assert len(calls) == 1
-        kind, detail = calls[0]
-        assert kind == "payload_parse_error"
-        tool, _msg = detail
-        assert tool == "submit_review"
+        kinds = [k for k, _ in calls]
+        assert "prompt_error" in kinds
+        # The supervisor recorder stores PromptError dataclasses; pull
+        # the first one off and assert its phase.
+        prompt_err = next(detail for k, detail in calls if k == "prompt_error")
+        assert prompt_err.phase == "generate"
     finally:
         await xo.destroy_actor(gen)
         await xo.destroy_actor(sup)

@@ -1,8 +1,7 @@
-"""Tests for ``DecomposerActor.on_tool_call`` — the MCP inbox surface.
+"""Tests for DecomposerActor under the OpenCode runtime.
 
-Validates Design Decision #3: each agent owns its own MCP inbox,
-parses only the tools it advertises, and forwards typed results to
-the supervisor via in-pool RPC.
+Covers the three phases (outline / detail / fix) plus the nudge path,
+error routing through ``prompt_error``, and session-mode rotation.
 """
 
 from __future__ import annotations
@@ -13,6 +12,14 @@ import pytest
 import xoscar as xo
 
 from maverick.actors.xoscar.decomposer import DecomposerActor
+from maverick.actors.xoscar.messages import (
+    DetailRequest,
+    FixRequest,
+    NudgeRequest,
+    OutlineRequest,
+    PromptError,
+)
+from maverick.runtime.opencode import OpenCodeAuthError, SendResult
 from maverick.tools.agent_inbox.models import (
     SubmitDetailsPayload,
     SubmitFixPayload,
@@ -20,165 +27,254 @@ from maverick.tools.agent_inbox.models import (
 )
 
 
-class _StubSupervisor(xo.Actor):
-    """Records every typed domain call the decomposer forwards."""
-
+class _DecomposerRecorder(xo.Actor):
     async def __post_create__(self) -> None:
         self._calls: list[tuple[str, Any]] = []
 
+    @xo.no_lock
     async def outline_ready(self, payload: SubmitOutlinePayload) -> None:
         self._calls.append(("outline_ready", payload))
 
+    @xo.no_lock
     async def detail_ready(self, payload: SubmitDetailsPayload) -> None:
         self._calls.append(("detail_ready", payload))
 
+    @xo.no_lock
     async def fix_ready(self, payload: SubmitFixPayload) -> None:
         self._calls.append(("fix_ready", payload))
 
-    async def prompt_error(self, error: Any) -> None:
-        self._calls.append(("prompt_error", error))
-
+    @xo.no_lock
     async def payload_parse_error(self, tool: str, message: str) -> None:
         self._calls.append(("payload_parse_error", (tool, message)))
+
+    @xo.no_lock
+    async def prompt_error(self, error: PromptError) -> None:
+        self._calls.append(("prompt_error", error))
 
     async def calls(self) -> list[tuple[str, Any]]:
         return list(self._calls)
 
 
-async def _build(pool_address: str, role: str = "primary") -> tuple[xo.ActorRef, xo.ActorRef]:
-    supervisor = await xo.create_actor(
-        _StubSupervisor, address=pool_address, uid=f"supervisor-{role}"
+class _StubDecomposer(DecomposerActor):
+    """Decomposer with a scripted client. ``send_results`` is consumed FIFO;
+    ``send_error`` short-circuits with the named exception."""
+
+    def __init__(
+        self,
+        supervisor_ref: xo.ActorRef,
+        *,
+        cwd: str = "/tmp",
+        send_results: list[SendResult] | None = None,
+        send_error: BaseException | None = None,
+        role: str = "primary",
+    ) -> None:
+        super().__init__(supervisor_ref, cwd=cwd, role=role)
+        self._scripted_results = list(send_results or [])
+        self._scripted_error = send_error
+
+    async def _build_client(self) -> Any:  # type: ignore[override]
+        scripted_results = self._scripted_results
+        scripted_error = self._scripted_error
+
+        class _Client:
+            base_url = "http://stub"
+
+            async def list_providers(self) -> dict[str, Any]:
+                return {"all": [], "connected": []}
+
+            async def create_session(self, *, title: str | None = None, **_: Any) -> str:
+                return f"ses_{id(self)}"
+
+            async def delete_session(self, session_id: str) -> bool:
+                return True
+
+            async def send_with_event_watch(self, *args: Any, **kwargs: Any) -> SendResult:
+                if scripted_error is not None:
+                    raise scripted_error
+                if not scripted_results:
+                    return SendResult(message={}, text="", structured=None, valid=False)
+                return scripted_results.pop(0)
+
+            async def aclose(self) -> None:
+                return None
+
+        return _Client()
+
+
+def _structured(payload: dict[str, Any]) -> SendResult:
+    return SendResult(
+        message={"info": {"structured": payload}, "parts": []},
+        text="",
+        structured=payload,
+        valid=True,
+        info={},
     )
-    decomposer = await xo.create_actor(
-        DecomposerActor,
-        supervisor,
+
+
+# ---------------------------------------------------------------------------
+# Outline / detail / fix happy paths
+# ---------------------------------------------------------------------------
+
+
+def _empty_context() -> Any:
+    """Build an empty CodebaseContext suitable for prompt-building."""
+    from maverick.library.actions.decompose import CodebaseContext
+
+    return CodebaseContext(files=(), missing_files=(), total_size=0)
+
+
+async def test_outline_forwards_to_supervisor(pool_address: str) -> None:
+    sup = await xo.create_actor(_DecomposerRecorder, address=pool_address, uid="dec-sup-1")
+    payload = {"work_units": []}
+    dec = await xo.create_actor(
+        _StubDecomposer,
+        sup,
         cwd="/tmp",
-        config=None,
-        role=role,
+        send_results=[_structured(payload)],
         address=pool_address,
-        uid=f"decomposer-{role}",
+        uid="dec-1",
     )
-    return supervisor, decomposer
-
-
-@pytest.mark.asyncio
-async def test_submit_outline_forwards_to_supervisor(pool_address: str) -> None:
-    supervisor, decomposer = await _build(pool_address, role="primary")
     try:
-        args = {
-            "work_units": [
-                {"id": "wu-1", "task": "Do a"},
-                {"id": "wu-2", "task": "Do b"},
-            ],
-            "rationale": "split a and b",
-        }
-        result = await decomposer.on_tool_call("submit_outline", args)
-        assert result == "ok"
-
-        calls = await supervisor.calls()
-        assert len(calls) == 1
-        kind, payload = calls[0]
-        assert kind == "outline_ready"
-        assert isinstance(payload, SubmitOutlinePayload)
-        assert [wu.id for wu in payload.work_units] == ["wu-1", "wu-2"]
+        await dec.send_outline(
+            OutlineRequest(flight_plan_content="plan", codebase_context=_empty_context())
+        )
+        calls = await sup.calls()
+        kinds = [k for k, _ in calls]
+        assert kinds == ["outline_ready"]
     finally:
-        await xo.destroy_actor(decomposer)
-        await xo.destroy_actor(supervisor)
+        await xo.destroy_actor(dec)
+        await xo.destroy_actor(sup)
 
 
-@pytest.mark.asyncio
-async def test_submit_details_forwards_to_supervisor(pool_address: str) -> None:
-    supervisor, decomposer = await _build(pool_address, role="pool")
+async def test_detail_forwards_to_supervisor(pool_address: str) -> None:
+    sup = await xo.create_actor(_DecomposerRecorder, address=pool_address, uid="dec-sup-2")
+    payload = {
+        "details": [
+            {
+                "id": "wu-1",
+                "instructions": "do x",
+                "files": [],
+            }
+        ]
+    }
+    dec = await xo.create_actor(
+        _StubDecomposer,
+        sup,
+        cwd="/tmp",
+        role="pool",
+        send_results=[_structured(payload)],
+        address=pool_address,
+        uid="dec-2",
+    )
     try:
-        args = {
-            "details": [
-                {
-                    "id": "wu-1",
-                    "instructions": "Write code",
-                    "acceptance_criteria": [{"text": "Works", "trace_ref": "AC-001"}],
-                    "verification": ["unit test"],
-                }
-            ]
-        }
-        result = await decomposer.on_tool_call("submit_details", args)
-        assert result == "ok"
-
-        calls = await supervisor.calls()
-        assert len(calls) == 1
-        kind, payload = calls[0]
-        assert kind == "detail_ready"
-        assert isinstance(payload, SubmitDetailsPayload)
-        assert [d.id for d in payload.details] == ["wu-1"]
+        await dec.send_detail(DetailRequest(unit_ids=("wu-1",)))
+        calls = await sup.calls()
+        assert [k for k, _ in calls] == ["detail_ready"]
     finally:
-        await xo.destroy_actor(decomposer)
-        await xo.destroy_actor(supervisor)
+        await xo.destroy_actor(dec)
+        await xo.destroy_actor(sup)
 
 
-@pytest.mark.asyncio
-async def test_submit_fix_forwards_to_supervisor(pool_address: str) -> None:
-    supervisor, decomposer = await _build(pool_address, role="primary")
+async def test_fix_forwards_to_supervisor(pool_address: str) -> None:
+    sup = await xo.create_actor(_DecomposerRecorder, address=pool_address, uid="dec-sup-3")
+    payload = {"work_units": [], "details": []}
+    dec = await xo.create_actor(
+        _StubDecomposer,
+        sup,
+        cwd="/tmp",
+        send_results=[_structured(payload)],
+        address=pool_address,
+        uid="dec-3",
+    )
     try:
-        args = {
-            "work_units": [{"id": "wu-1", "task": "Do a"}],
-            "details": [
-                {
-                    "id": "wu-1",
-                    "instructions": "Fixed",
-                    "acceptance_criteria": [{"text": "OK", "trace_ref": "AC-001"}],
-                    "verification": ["unit test"],
-                }
-            ],
-        }
-        result = await decomposer.on_tool_call("submit_fix", args)
-        assert result == "ok"
-
-        calls = await supervisor.calls()
-        assert len(calls) == 1
-        kind, payload = calls[0]
-        assert kind == "fix_ready"
-        assert isinstance(payload, SubmitFixPayload)
+        await dec.send_fix(FixRequest())
+        calls = await sup.calls()
+        assert [k for k, _ in calls] == ["fix_ready"]
     finally:
-        await xo.destroy_actor(decomposer)
-        await xo.destroy_actor(supervisor)
+        await xo.destroy_actor(dec)
+        await xo.destroy_actor(sup)
 
 
-@pytest.mark.asyncio
-async def test_invalid_payload_is_reported(pool_address: str) -> None:
-    supervisor, decomposer = await _build(pool_address, role="primary")
+# ---------------------------------------------------------------------------
+# Error routing
+# ---------------------------------------------------------------------------
+
+
+async def test_outline_failure_routes_to_prompt_error(pool_address: str) -> None:
+    sup = await xo.create_actor(_DecomposerRecorder, address=pool_address, uid="dec-sup-4")
+    dec = await xo.create_actor(
+        _StubDecomposer,
+        sup,
+        cwd="/tmp",
+        send_error=OpenCodeAuthError("bad key"),
+        address=pool_address,
+        uid="dec-4",
+    )
     try:
-        # Missing required "work_units" field
-        result = await decomposer.on_tool_call("submit_outline", {"rationale": "oops"})
-        assert result == "error"
-
-        calls = await supervisor.calls()
-        assert len(calls) == 1
-        kind, detail = calls[0]
-        assert kind == "payload_parse_error"
-        tool, message = detail
-        assert tool == "submit_outline"
-        assert message  # non-empty reason string
+        await dec.send_outline(
+            OutlineRequest(flight_plan_content="plan", codebase_context=_empty_context())
+        )
+        calls = await sup.calls()
+        kinds = [k for k, _ in calls]
+        assert kinds == ["prompt_error"]
+        err: PromptError = calls[0][1]
+        assert err.phase == "outline"
+        assert "bad key" in err.error
     finally:
-        await xo.destroy_actor(decomposer)
-        await xo.destroy_actor(supervisor)
+        await xo.destroy_actor(dec)
+        await xo.destroy_actor(sup)
 
 
-@pytest.mark.asyncio
-async def test_unknown_tool_is_reported(pool_address: str) -> None:
-    supervisor, decomposer = await _build(pool_address, role="primary")
+async def test_detail_failure_includes_unit_id(pool_address: str) -> None:
+    sup = await xo.create_actor(_DecomposerRecorder, address=pool_address, uid="dec-sup-5")
+    dec = await xo.create_actor(
+        _StubDecomposer,
+        sup,
+        cwd="/tmp",
+        role="pool",
+        send_error=OpenCodeAuthError("auth"),
+        address=pool_address,
+        uid="dec-5",
+    )
     try:
-        # submit_review is a real tool elsewhere, but the decomposer
-        # does not own it — expect an error report to the supervisor.
-        result = await decomposer.on_tool_call("submit_review", {"approved": True, "findings": []})
-        assert result == "error"
-
-        calls = await supervisor.calls()
-        assert len(calls) == 1
-        kind, detail = calls[0]
-        # The parser raises for a tool-name it doesn't know, which
-        # lands in the parse_error branch.
-        assert kind == "payload_parse_error"
-        tool, _message = detail
-        assert tool == "submit_review"
+        await dec.send_detail(DetailRequest(unit_ids=("wu-3",)))
+        calls = await sup.calls()
+        kinds = [k for k, _ in calls]
+        assert kinds == ["prompt_error"]
+        err: PromptError = calls[0][1]
+        assert err.phase == "detail"
+        assert err.unit_id == "wu-3"
     finally:
-        await xo.destroy_actor(decomposer)
-        await xo.destroy_actor(supervisor)
+        await xo.destroy_actor(dec)
+        await xo.destroy_actor(sup)
+
+
+# ---------------------------------------------------------------------------
+# Nudge
+# ---------------------------------------------------------------------------
+
+
+async def test_nudge_dispatches_by_expected_tool(pool_address: str) -> None:
+    sup = await xo.create_actor(_DecomposerRecorder, address=pool_address, uid="dec-sup-6")
+    payload = {
+        "details": [
+            {"id": "wu-7", "instructions": "do x", "files": []}
+        ]
+    }
+    dec = await xo.create_actor(
+        _StubDecomposer,
+        sup,
+        cwd="/tmp",
+        send_results=[_structured(payload)],
+        address=pool_address,
+        uid="dec-6",
+    )
+    try:
+        await dec.send_nudge(
+            NudgeRequest(expected_tool="submit_details", unit_id="wu-7", reason="retry")
+        )
+        calls = await sup.calls()
+        assert [k for k, _ in calls] == ["detail_ready"]
+    finally:
+        await xo.destroy_actor(dec)
+        await xo.destroy_actor(sup)

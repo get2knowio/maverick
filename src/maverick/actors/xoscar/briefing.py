@@ -1,42 +1,30 @@
-"""xoscar BriefingActor — generic one-shot briefing agent.
+"""xoscar BriefingActor — OpenCode-backed generic briefing agent.
 
 Used by both refuel (navigator/structuralist/recon/contrarian) and plan
 (scopist/analyst/criteria/contrarian) workflows. Each instance owns one
-MCP tool and forwards the parsed payload to a single typed method on
-the supervisor (``forward_method`` passed at construction).
+result schema (looked up at construction time from the legacy mcp_tool
+name) and forwards the parsed payload to a single typed method on the
+supervisor (``forward_method`` passed at construction).
 
-Tool transport: shared :class:`AgentToolGateway` HTTP server (one per
-workflow run, owned by the actor pool). The actor still owns its schemas,
-handler, session state, and ACP executor — only MCP transport lives in
-shared infrastructure.
+The legacy MCP-gateway path is gone — OpenCode's StructuredOutput tool
+forces the model to return the typed payload on the first turn, so the
+self-nudge loop and JSON-in-text fallback are no longer needed.
 """
 
 from __future__ import annotations
 
-from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import xoscar as xo
+from pydantic import BaseModel
 
-from maverick.actors.step_config import (
-    load_step_config,
-    step_allowed_tools,
-    step_config_with_timeout,
-)
-from maverick.actors.xoscar._agentic import (
-    AgenticActorMixin,
-    build_tool_required_nudge_prompt,
-    build_tool_required_prompt,
-    try_parse_tool_payload_from_text,
-)
-from maverick.actors.xoscar._agentic import (
-    extract_text_output as _extract_text_output,
-)
+from maverick.actors.step_config import load_step_config
 from maverick.actors.xoscar.messages import BriefingRequest, PromptError
+from maverick.actors.xoscar.opencode_mixin import OpenCodeAgentMixin
 from maverick.logging import get_logger
+from maverick.runtime.opencode import OpenCodeError
 from maverick.tools.agent_inbox.models import (
-    SupervisorToolPayloadError,
-    parse_supervisor_tool_payload,
+    SUPERVISOR_TOOL_PAYLOAD_MODELS,
 )
 
 if TYPE_CHECKING:
@@ -47,22 +35,29 @@ logger = get_logger(__name__)
 BRIEFING_TIMEOUT_SECONDS = 1200
 
 
-class BriefingActor(AgenticActorMixin, xo.Actor):
-    """One briefing agent with its own ACP session and inbox registration.
+class BriefingActor(OpenCodeAgentMixin, xo.Actor):
+    """One briefing agent backed by OpenCode HTTP + structured output.
 
     Constructor params:
 
-    * ``supervisor_ref`` — the supervisor's ActorRef; the target of
-      typed result-forwarding and error-reporting calls.
-    * ``agent_name`` — logical name ("navigator", "scopist", etc.);
-      used in logs and as the prompt-session ``agent_name`` field.
-    * ``mcp_tool`` — the single MCP tool this briefing owns
-      (e.g., ``"submit_navigator_brief"``).
-    * ``forward_method`` — the supervisor method to call with the parsed
-      typed payload (e.g., ``"navigator_brief_ready"``).
-    * ``cwd`` — working directory for the ACP subprocess.
+    * ``supervisor_ref`` — supervisor's ActorRef.
+    * ``agent_name`` — logical name ("navigator", "scopist", etc.); used
+      in logs and as the OpenCode agent label.
+    * ``mcp_tool`` — legacy tool name (e.g., ``"submit_navigator_brief"``);
+      used here only to look up the result schema.
+    * ``forward_method`` — supervisor method to call with the parsed payload.
+    * ``cwd`` — working directory.
     * ``config`` — optional ``StepConfig`` override.
+
+    The instance overrides :attr:`result_model` from the class default to
+    match the per-instance schema lookup; the mixin still treats it as
+    the per-call default schema.
     """
+
+    # Will be replaced per-instance in __init__; the class-level default
+    # is BaseModel so type checkers see a valid type.
+    result_model: ClassVar[type[BaseModel]] = BaseModel
+    provider_tier: ClassVar[str] = "briefing"
 
     def __init__(
         self,
@@ -81,233 +76,88 @@ class BriefingActor(AgenticActorMixin, xo.Actor):
             raise ValueError("BriefingActor requires 'mcp_tool'")
         if not forward_method:
             raise ValueError("BriefingActor requires 'forward_method'")
+        schema = SUPERVISOR_TOOL_PAYLOAD_MODELS.get(mcp_tool)
+        if schema is None:
+            raise ValueError(
+                f"BriefingActor: unknown payload tool {mcp_tool!r}; "
+                "add an entry to SUPERVISOR_TOOL_PAYLOAD_MODELS first."
+            )
         self._supervisor_ref = supervisor_ref
         self._agent_name = agent_name
         self._mcp_tool = mcp_tool
         self._forward_method = forward_method
         self._cwd = cwd
         self._step_config = load_step_config(config)
-
-    def _mcp_tools(self) -> tuple[str, ...]:
-        return (self._mcp_tool,)
+        # Per-instance schema — used by _send_structured below.
+        self._schema: type[BaseModel] = schema
 
     async def __post_create__(self) -> None:
         self._actor_tag = f"briefing[{self._agent_name}:{self.uid.decode()}]"
-        self._executor: Any = None
-        self._session_id: str | None = None
-        await self._register_with_gateway()
+        await self._opencode_post_create()
 
     async def __pre_destroy__(self) -> None:
-        await self._unregister_from_gateway()
-        if self._executor is None:
-            return
-        try:
-            await self._executor.cleanup()
-        except Exception as exc:  # noqa: BLE001 — best-effort teardown
-            logger.debug(
-                "briefing.cleanup_failed",
-                actor=self._actor_tag,
-                error=str(exc),
-            )
+        await self._opencode_pre_destroy()
 
     # ------------------------------------------------------------------
     # Supervisor → agent surface
     # ------------------------------------------------------------------
 
+    @xo.no_lock
     async def send_briefing(self, request: BriefingRequest) -> None:
-        """Run the briefing prompt. The typed result arrives on the
-        supervisor via this actor's own ``on_tool_call``.
-
-        Self-nudge contract (see AgenticActorMixin._run_with_self_nudge):
-        returns once the agent's MCP tool has been delivered to the
-        supervisor's forward method, OR routes a ``PromptError`` if
-        both the initial prompt and the nudge come up empty.
-
-        Also wires the JSON-in-text fallback: if the agent skipped the
-        MCP tool but emitted the payload as inline JSON (or as a
-        ``{"name": ..., "arguments": ...}`` envelope, handled by the
-        unwrapper), the fallback parses it and forwards to the
-        supervisor as if the tool had fired. Recovers Copilot- and
-        Gemini-routed briefings whose ACP bridges miss MCP tool calls.
-        """
+        """Run the briefing prompt and forward the typed payload."""
         logger.debug(
             "briefing.prompt_starting",
             actor=self._actor_tag,
             tool=self._mcp_tool,
         )
-
-        async def _json_fallback(response_text: str) -> bool:
-            payload = try_parse_tool_payload_from_text(response_text, self._mcp_tool)
-            if payload is None:
-                return False
-            forward = getattr(self._supervisor_ref, self._forward_method, None)
-            if forward is None:
-                return False
-            await forward(payload)
-            return True
-
-        await self._run_with_self_nudge(
-            expected_tool=self._mcp_tool,
-            run_prompt=lambda: self._send_prompt(request),
-            run_nudge=lambda: self._send_nudge_prompt(),
-            on_failure=self._report_briefing_failure,
-            log_prefix="briefing",
-            json_fallback=_json_fallback,
+        prompt = (
+            f"You are the {self._agent_name} briefing agent.\n\n"
+            "If your analysis surfaces no findings (e.g. greenfield project "
+            "with no existing code), set empty arrays / minimal required "
+            "fields rather than refusing.\n\n"
+            "# Briefing input\n\n"
+            f"{request.prompt}"
         )
+        try:
+            payload = await self._send_structured(
+                prompt,
+                schema=self._schema,
+                timeout=BRIEFING_TIMEOUT_SECONDS,
+            )
+        except OpenCodeError as exc:
+            await self._report_briefing_failure(str(exc))
+            return
+        except Exception as exc:  # noqa: BLE001 — supervisor decides retry policy
+            await self._report_briefing_failure(str(exc))
+            return
 
-    async def _report_briefing_failure(self, error_str: str) -> None:
-        """Send a ``PromptError`` to the supervisor for this briefing actor."""
+        # xoscar's __getattr__ returns an ActorRefMethod proxy regardless of
+        # whether the method exists; the failure surfaces only on call. We
+        # rely on the supervisor being correctly wired by its constructor —
+        # forward-method mismatches are a programmer error, not a runtime
+        # failure mode worth handling silently.
+        forward = getattr(self._supervisor_ref, self._forward_method)
+        await forward(payload)
+
+    async def _report_briefing_failure(self, error: str) -> None:
         from maverick.exceptions.quota import is_quota_error, is_transient_error
 
-        quota = is_quota_error(error_str)
-        transient = is_transient_error(error_str)
+        quota = is_quota_error(error)
+        transient = is_transient_error(error)
         logger.debug(
             "briefing.prompt_failed",
             actor=self._actor_tag,
             tool=self._mcp_tool,
-            error=error_str,
+            error=error,
             quota=quota,
             transient=transient,
         )
         await self._supervisor_ref.prompt_error(
             PromptError(
                 phase="briefing",
-                error=error_str,
+                error=error,
                 quota_exhausted=quota,
                 transient=transient,
                 unit_id=self._agent_name,
             )
         )
-
-    # ------------------------------------------------------------------
-    # MCP gateway → agent inbox
-    # ------------------------------------------------------------------
-
-    @xo.no_lock
-    async def on_tool_call(self, tool: str, args: dict[str, Any]) -> str:
-        if tool != self._mcp_tool:
-            await self._supervisor_ref.payload_parse_error(
-                tool,
-                f"{self._actor_tag} advertises {self._mcp_tool!r}, got {tool!r}",
-            )
-            return "error"
-        try:
-            payload = parse_supervisor_tool_payload(tool, args)
-        except (SupervisorToolPayloadError, ValueError) as exc:
-            await self._supervisor_ref.payload_parse_error(tool, str(exc))
-            return "error"
-
-        forward = getattr(self._supervisor_ref, self._forward_method, None)
-        if forward is None:
-            await self._supervisor_ref.payload_parse_error(
-                tool, f"supervisor has no method {self._forward_method!r}"
-            )
-            return "error"
-        await forward(payload)
-        # Mark the tool delivered so send_briefing's self-nudge loop
-        # knows the prompt produced a real submission.
-        self._mark_tool_delivered(tool)
-        # Payload is safely in the supervisor; end the ACP turn so
-        # send_briefing returns. If we didn't, the agent would keep
-        # generating post-submission wrap-up text and the briefing
-        # phase would drag long past the point of no useful work.
-        await self._end_turn()
-        return "ok"
-
-    async def _end_turn(self) -> None:
-        """Cancel the current ACP turn after the MCP submission is
-        safely forwarded to the supervisor. Best-effort: a failure to
-        cancel is not fatal — the agent will just finish its turn
-        naturally."""
-        if self._session_id and self._executor is not None:
-            try:
-                await self._executor.cancel_session(self._session_id)
-            except Exception as exc:  # noqa: BLE001
-                logger.debug(
-                    "briefing.cancel_after_submit_failed",
-                    actor=self._actor_tag,
-                    error=str(exc),
-                )
-
-    # ------------------------------------------------------------------
-    # ACP plumbing (internal)
-    # ------------------------------------------------------------------
-
-    async def _ensure_executor(self) -> None:
-        if self._executor is None:
-            self._executor = await self._build_quota_aware_executor()
-
-    async def _new_session(self) -> None:
-        await self._ensure_executor()
-
-        cwd = Path(self._cwd)
-        self._session_id = await self._executor.create_session(
-            provider=self._step_config.provider if self._step_config else None,
-            config=self._step_config,
-            step_name=f"briefing_{self._agent_name}",
-            agent_name=self._agent_name,
-            cwd=cwd,
-            allowed_tools=step_allowed_tools(self._step_config),
-            mcp_servers=[self.mcp_server_config()],
-        )
-
-    async def _send_prompt(self, request: BriefingRequest) -> None:
-        await self._ensure_executor()
-        if not self._session_id:
-            await self._new_session()
-
-        prompt_text = build_tool_required_prompt(
-            expected_tool=self._mcp_tool,
-            user_content=request.prompt,
-            user_content_label="Briefing input",
-            role_intro=(f"You are the {self._agent_name} briefing agent."),
-            empty_result_guidance=(
-                "If your analysis surfaces no findings (e.g. greenfield "
-                "project with no existing code), call the tool with "
-                "empty arrays / minimal required fields. Do NOT refuse "
-                "and do NOT respond with text — that is dropped."
-            ),
-        )
-
-        result = await self._executor.prompt_session(
-            session_id=self._session_id,
-            prompt_text=prompt_text,
-            provider=self._step_config.provider if self._step_config else None,
-            config=step_config_with_timeout(self._step_config, BRIEFING_TIMEOUT_SECONDS),
-            step_name=f"briefing_{self._agent_name}",
-            agent_name=self._agent_name,
-        )
-        self._record_last_response(_extract_text_output(result))
-
-    async def _send_nudge_prompt(self) -> None:
-        """Send a follow-up prompt asking the agent to call its tool.
-
-        Re-uses the same ACP session so the agent has full conversation
-        context — the agent already saw the original prompt, the nudge
-        just reminds it to deliver via the tool. Quotes the agent's
-        previous text response so the LLM is forced to convert it into
-        a tool call instead of repeating the same refusal.
-        """
-        await self._ensure_executor()
-        if not self._session_id:
-            # Should not happen — _send_prompt would have created one.
-            await self._new_session()
-
-        prompt_text = build_tool_required_nudge_prompt(
-            expected_tool=self._mcp_tool,
-            previous_response=self._get_last_response(),
-            empty_result_guidance=(
-                "If the analysis is 'nothing to report' (e.g. greenfield "
-                "project), call the tool with empty arrays."
-            ),
-        )
-
-        result = await self._executor.prompt_session(
-            session_id=self._session_id,
-            prompt_text=prompt_text,
-            provider=self._step_config.provider if self._step_config else None,
-            config=step_config_with_timeout(self._step_config, BRIEFING_TIMEOUT_SECONDS),
-            step_name=f"briefing_{self._agent_name}_nudge",
-            agent_name=self._agent_name,
-        )
-        self._record_last_response(_extract_text_output(result))
