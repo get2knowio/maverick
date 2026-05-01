@@ -27,9 +27,12 @@ import xoscar as xo
 from maverick.logging import get_logger
 from maverick.runtime.opencode import (
     OpenCodeServerHandle,
+    Tier,
     register_opencode_handle,
+    register_tier_overrides,
     spawn_opencode_server,
     unregister_opencode_handle,
+    unregister_tier_overrides,
 )
 
 if TYPE_CHECKING:
@@ -88,6 +91,7 @@ async def actor_pool(
     *,
     with_opencode: bool = True,
     opencode_handle: OpenCodeServerHandle | None = None,
+    provider_tiers: dict[str, Tier] | None = None,
 ) -> AsyncIterator[tuple[MainActorPoolType, str]]:
     """Context manager for a short-lived actor pool + OpenCode server.
 
@@ -107,6 +111,11 @@ async def actor_pool(
         opencode_handle: Pre-spawned OpenCode server handle. When given,
             the pool registers it but does not spawn or terminate it
             (caller owns the lifecycle).
+        provider_tiers: Optional ``{tier_name: Tier}`` map registered on
+            the pool address so :class:`OpenCodeAgentMixin`-based actors
+            pick up user-config tier overrides without each constructor
+            taking it as an argument. ``None`` (the default) leaves the
+            runtime on :data:`DEFAULT_TIERS`.
 
     Typical use::
 
@@ -141,9 +150,19 @@ async def actor_pool(
             owns=owns_opencode,
         )
 
+    if provider_tiers:
+        register_tier_overrides(external_address, provider_tiers)
+        logger.debug(
+            "xoscar.tier_overrides_bound",
+            pool=external_address,
+            tiers=sorted(provider_tiers.keys()),
+        )
+
     try:
         yield pool, external_address
     finally:
+        if provider_tiers:
+            unregister_tier_overrides(external_address)
         if bound_opencode is not None:
             unregister_opencode_handle(external_address)
             if owns_opencode:

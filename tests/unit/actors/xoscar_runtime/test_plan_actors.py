@@ -134,6 +134,9 @@ class _PlanRecorder(xo.Actor):
 class _StubGenerator(GeneratorActor):
     """GeneratorActor with the OpenCode client replaced by a stub."""
 
+    # Bypass the tier cascade — stub doesn't surface real /provider data.
+    provider_tier = None  # type: ignore[assignment]
+
     def __init__(
         self,
         supervisor_ref: xo.ActorRef,

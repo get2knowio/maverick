@@ -55,6 +55,8 @@ class _BriefingRecorder(xo.Actor):
 class _StubBriefing(BriefingActor):
     """BriefingActor with the OpenCode client replaced by a scripted stub."""
 
+    provider_tier = None  # type: ignore[assignment]
+
     def __init__(
         self,
         supervisor_ref: xo.ActorRef,

@@ -58,6 +58,8 @@ class _StubDecomposer(DecomposerActor):
     """Decomposer with a scripted client. ``send_results`` is consumed FIFO;
     ``send_error`` short-circuits with the named exception."""
 
+    provider_tier = None  # type: ignore[assignment]
+
     def __init__(
         self,
         supervisor_ref: xo.ActorRef,

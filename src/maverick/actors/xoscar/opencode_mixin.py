@@ -37,11 +37,19 @@ from pydantic import BaseModel, ValidationError
 
 from maverick.logging import get_logger
 from maverick.runtime.opencode import (
+    CascadeOutcome,
+    CostRecord,
     OpenCodeClient,
     OpenCodeError,
     OpenCodeStructuredOutputError,
+    ProviderModel,
     SendResult,
+    Tier,
+    cascade_send,
+    cost_record_from_send,
     opencode_handle_for,
+    resolve_tier,
+    tier_overrides_for,
     validate_model_id,
 )
 
@@ -98,9 +106,6 @@ class OpenCodeAgentMixin:
     # Per-instance lazy state (set in __post_create__ or first send).
     _client: OpenCodeClient | None = None
     _session_id: str | None = None
-    _opencode_provider_id: str | None = None
-    _opencode_model_id: str | None = None
-    _model_validated: bool = False
 
     # Subclasses are expected to set these in __init__.
     _cwd: str | None = None
@@ -108,6 +113,15 @@ class OpenCodeAgentMixin:
 
     # Logging tag — defaults to the class name when not set.
     _actor_tag: str | None = None
+
+    # Tier-cascade state (initialised in ``_opencode_post_create``).
+    _validated_bindings: set[ProviderModel]
+    _failed_bindings: set[ProviderModel]
+    _last_cost_record: CostRecord | None
+    # Optional override for the per-actor tier table — populated from
+    # config in :meth:`_opencode_post_create` when the actor's pool
+    # supplies one.
+    _tier_overrides: dict[str, Tier] | None = None
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -122,7 +136,9 @@ class OpenCodeAgentMixin:
         """
         self._client = None
         self._session_id = None
-        self._model_validated = False
+        self._validated_bindings = set()
+        self._failed_bindings = set()
+        self._last_cost_record = None
         if self._actor_tag is None:
             uid = getattr(self, "uid", b"?")
             uid_str = uid.decode() if isinstance(uid, bytes) else str(uid)
@@ -259,10 +275,14 @@ class OpenCodeAgentMixin:
     async def _build_client(self) -> OpenCodeClient:
         """Create the per-actor :class:`OpenCodeClient`.
 
-        Looks up the pool-scoped server handle via :func:`opencode_handle_for`.
+        Also picks up the pool-scoped tier overrides (if any) so the
+        cascade resolver sees user config without each actor reaching
+        into ``MaverickConfig`` itself.
         """
         pool_address: str = self.address  # type: ignore[attr-defined]
         handle = opencode_handle_for(pool_address)
+        if self._tier_overrides is None:
+            self._tier_overrides = tier_overrides_for(pool_address)
         return OpenCodeClient(base_url=handle.base_url, password=handle.password)
 
     async def _create_session(self, client: OpenCodeClient) -> str:
@@ -285,36 +305,117 @@ class OpenCodeAgentMixin:
         timeout: float,
         system: str | None,
     ) -> SendResult:
-        """Common path for both structured and text sends."""
-        provider_id, model_id = self._resolve_model_binding()
-        if provider_id and model_id and not self._model_validated:
-            await validate_model_id(client, provider_id, model_id)
-            self._model_validated = True
+        """Send the prompt, falling over to lower-tier bindings on failure.
 
-        model_block: dict[str, str] | None = None
-        if provider_id and model_id:
-            model_block = {"providerID": provider_id, "modelID": model_id}
+        Picks bindings from the actor's tier (via :func:`resolve_tier`)
+        with explicit ``StepConfig.provider/model_id`` taking priority
+        when set. Validates each binding against ``GET /provider`` once
+        before its first use, then caches.
 
-        return await client.send_with_event_watch(
-            session_id,
-            prompt,
-            model=model_block,
-            format=format,
-            system=system,
-            timeout=timeout,
+        On a cascadable error (auth / model-not-found / transient /
+        structured-output) the next binding in the tier is tried. On
+        success the binding is "sticky" — subsequent sends on this
+        actor reuse it without re-traversing the tier from the top.
+
+        Records cost telemetry from each successful send via
+        :func:`cost_record_from_send`; callers can inspect
+        ``self._last_cost_record`` for the most recent record.
+        """
+        bindings = self._resolve_cascade_bindings()
+        if not bindings:
+            # No tier resolved — let OpenCode use its server default.
+            result = await client.send_with_event_watch(
+                session_id,
+                prompt,
+                model=None,
+                format=format,
+                system=system,
+                timeout=timeout,
+            )
+            self._last_cost_record = cost_record_from_send(result)
+            self._record_cost(result)
+            return result
+
+        async def _send(binding: ProviderModel) -> SendResult:
+            if binding not in self._validated_bindings:
+                await validate_model_id(client, binding.provider_id, binding.model_id)
+                self._validated_bindings.add(binding)
+            return await client.send_with_event_watch(
+                session_id,
+                prompt,
+                model=binding.to_dict(),
+                format=format,
+                system=system,
+                timeout=timeout,
+            )
+
+        tier = Tier(name=self._tier_name_or_inline(), bindings=tuple(bindings))
+        outcome: CascadeOutcome = await cascade_send(
+            tier,
+            _send,
+            skip=set(self._failed_bindings),
         )
+        # Mark every cascade-failed binding so future sends skip them
+        # without paying the latency to retry.
+        for failed_binding, _why in outcome.failed_bindings:
+            self._failed_bindings.add(failed_binding)
+        self._last_cost_record = cost_record_from_send(outcome.result)
+        self._record_cost(outcome.result, binding=outcome.binding)
+        return outcome.result
 
-    def _resolve_model_binding(self) -> tuple[str | None, str | None]:
-        """Pull (provider_id, model_id) from this actor's :class:`StepConfig`.
+    def _resolve_cascade_bindings(self) -> list[ProviderModel]:
+        """Build the ordered list of bindings the cascade should try.
 
-        Returns ``(None, None)`` when neither is set; OpenCode then falls
-        back to its server-side default. Phase 5 will override this with
-        the tier resolver.
+        Priority:
+
+        1. An explicit ``StepConfig.provider+model_id`` pair (single
+           binding, no fallback — explicit user override).
+        2. The configured tier for ``self.provider_tier`` (default
+           bindings unless overridden in :attr:`_tier_overrides`).
+        3. Empty — server default.
         """
         cfg = self._step_config
-        if cfg is None:
-            return None, None
-        return cfg.provider, cfg.model_id
+        if cfg is not None and cfg.provider and cfg.model_id:
+            return [ProviderModel(cfg.provider, cfg.model_id)]
+        tier_name = self.provider_tier
+        if tier_name is None:
+            return []
+        try:
+            tier = resolve_tier(tier_name, override=self._tier_overrides)
+        except KeyError:
+            logger.debug(
+                "opencode_actor.unknown_tier_falling_back_to_default",
+                actor=self._actor_tag,
+                tier=tier_name,
+            )
+            return []
+        return list(tier.bindings)
+
+    def _tier_name_or_inline(self) -> str:
+        """Return a human-meaningful tier name for log/telemetry use."""
+        return self.provider_tier or "inline"
+
+    def _record_cost(
+        self,
+        result: SendResult,
+        *,
+        binding: ProviderModel | None = None,
+    ) -> None:
+        """Emit a structured-log row for the cost of this send.
+
+        Subclasses can override to forward to a runway sink or similar
+        aggregator. The default implementation just logs at info level.
+        """
+        record = self._last_cost_record
+        if record is None:
+            return
+        logger.info(
+            "opencode_actor.cost",
+            actor=self._actor_tag,
+            tier=self._tier_name_or_inline(),
+            binding=binding.label if binding else None,
+            **record.to_dict(),
+        )
 
     def _coerce_payload(self, result: SendResult, schema: type[BaseModel]) -> BaseModel:
         """Validate the unwrapped structured payload against ``schema``."""

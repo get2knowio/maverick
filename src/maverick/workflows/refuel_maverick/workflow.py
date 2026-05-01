@@ -1080,7 +1080,11 @@ class RefuelMaverickWorkflow(PythonWorkflow):
             outline_cache_schema_version=OUTLINE_CACHE_SCHEMA_VERSION,
         )
 
-        async with actor_pool() as (_pool, address):
+        from maverick.runtime.opencode import tiers_from_config
+
+        async with actor_pool(
+            provider_tiers=tiers_from_config(self._config),
+        ) as (_pool, address):
             supervisor = await xo.create_actor(
                 RefuelSupervisor,
                 supervisor_inputs,

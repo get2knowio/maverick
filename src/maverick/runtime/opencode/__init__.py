@@ -53,7 +53,10 @@ from maverick.runtime.opencode.executor import OpenCodeStepExecutor
 from maverick.runtime.opencode.registry import (
     opencode_handle_for,
     register_opencode_handle,
+    register_tier_overrides,
+    tier_overrides_for,
     unregister_opencode_handle,
+    unregister_tier_overrides,
 )
 from maverick.runtime.opencode.server import (
     DEFAULT_HOST,
@@ -63,6 +66,18 @@ from maverick.runtime.opencode.server import (
     client_for,
     opencode_server,
     spawn_opencode_server,
+)
+from maverick.runtime.opencode.tiers import (
+    CASCADE_ERRORS,
+    DEFAULT_TIERS,
+    CascadeOutcome,
+    CostRecord,
+    ProviderModel,
+    Tier,
+    cascade_send,
+    cost_record_from_send,
+    resolve_tier,
+    tiers_from_config,
 )
 from maverick.runtime.opencode.validation import (
     DEFAULT_CACHE_TTL_SECONDS,
@@ -114,7 +129,21 @@ __all__ = [
     # registry
     "opencode_handle_for",
     "register_opencode_handle",
+    "register_tier_overrides",
+    "tier_overrides_for",
     "unregister_opencode_handle",
+    "unregister_tier_overrides",
     # executor
     "OpenCodeStepExecutor",
+    # tiers
+    "CASCADE_ERRORS",
+    "DEFAULT_TIERS",
+    "CascadeOutcome",
+    "CostRecord",
+    "ProviderModel",
+    "Tier",
+    "cascade_send",
+    "cost_record_from_send",
+    "resolve_tier",
+    "tiers_from_config",
 ]

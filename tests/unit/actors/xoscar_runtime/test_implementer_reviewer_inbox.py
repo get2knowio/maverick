@@ -168,6 +168,9 @@ class _StubClient:
 class _PatchedImplementer(ImplementerActor):
     """Implementer that uses an in-process stub client."""
 
+    # Bypass the tier cascade — these tests don't ship a real /provider response.
+    provider_tier = None  # type: ignore[assignment]
+
     def __init__(
         self,
         supervisor_ref: xo.ActorRef,
@@ -193,6 +196,8 @@ class _PatchedImplementer(ImplementerActor):
 
 
 class _PatchedReviewer(ReviewerActor):
+    provider_tier = None  # type: ignore[assignment]
+
     def __init__(
         self,
         supervisor_ref: xo.ActorRef,

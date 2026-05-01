@@ -43,6 +43,8 @@ __all__ = [
     "ActorConfig",
     "ACTOR_WORKFLOW_KEY_MAP",
     "lookup_actor_config",
+    "ProviderModelEntry",
+    "ProviderTiersConfig",
     "RunwayConfig",
     "RunwayConsolidationConfig",
     "RunwayRetrievalConfig",
@@ -460,6 +462,43 @@ class AgentConfig(BaseModel):
     temperature: float | None = Field(default=None, ge=0.0, le=1.0)
 
 
+class ProviderModelEntry(BaseModel, frozen=True):
+    """One ``(provider_id, model_id)`` binding within a provider tier.
+
+    Mirrors :class:`maverick.runtime.opencode.tiers.ProviderModel` so
+    user config and runtime types stay aligned.
+    """
+
+    provider: str = Field(..., min_length=1)
+    model_id: str = Field(..., min_length=1)
+
+
+class ProviderTiersConfig(BaseModel):
+    """User-configurable per-tier model lists for the OpenCode runtime.
+
+    Keyed by tier name (matches each actor's ``provider_tier`` ClassVar
+    — e.g. ``review``, ``implement``, ``decompose``, ``briefing``,
+    ``generate``). Each entry is an ordered cascade: the runtime tries
+    the first ``(provider, model_id)`` and falls over to subsequent
+    bindings on auth / model-not-found / structured-output / sustained-
+    transient errors.
+
+    When empty (the default), the runtime uses
+    :data:`maverick.runtime.opencode.tiers.DEFAULT_TIERS`.
+
+    Example ``maverick.yaml``::
+
+        provider_tiers:
+          review:
+            - {provider: openrouter, model_id: anthropic/claude-haiku-4.5}
+            - {provider: openrouter, model_id: qwen/qwen3-coder}
+          implement:
+            - {provider: openrouter, model_id: openai/gpt-4o-mini}
+    """
+
+    tiers: dict[str, list[ProviderModelEntry]] = Field(default_factory=dict)
+
+
 class ActorConfig(BaseModel):
     """Per-actor configuration override under ``actors.<workflow>.<actor>``.
 
@@ -610,6 +649,13 @@ class MaverickConfig(BaseSettings):
     actors: dict[str, dict[str, Any]] = Field(
         default_factory=dict,
         description="Actor configurations grouped by workflow (plan/refuel/fly/land).",
+    )
+    provider_tiers: ProviderTiersConfig = Field(
+        default_factory=ProviderTiersConfig,
+        description=(
+            "Per-tier (provider, model_id) cascades for OpenCode-backed "
+            "actors. Empty (default) means use the curated DEFAULT_TIERS."
+        ),
     )
     steps: dict[str, StepConfig] = Field(
         default_factory=dict,

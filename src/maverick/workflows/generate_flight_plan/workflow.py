@@ -277,7 +277,11 @@ class GenerateFlightPlanWorkflow(PythonWorkflow):
             max_briefing_agents=self._config.parallel.max_briefing_agents,
         )
 
-        async with actor_pool() as (_pool, address):
+        from maverick.runtime.opencode import tiers_from_config
+
+        async with actor_pool(
+            provider_tiers=tiers_from_config(self._config),
+        ) as (_pool, address):
             supervisor = await xo.create_actor(
                 PlanSupervisor,
                 supervisor_inputs,

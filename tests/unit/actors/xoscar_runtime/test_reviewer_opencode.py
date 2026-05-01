@@ -160,6 +160,8 @@ class _StubClient:
 class _PatchedReviewer(ReviewerActor):
     """Reviewer with a pre-installed stub client."""
 
+    provider_tier = None  # type: ignore[assignment]
+
     def __init__(
         self,
         supervisor_ref: xo.ActorRef,
