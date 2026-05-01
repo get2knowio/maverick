@@ -27,6 +27,7 @@ from maverick.actors.xoscar._agentic import (
     AgenticActorMixin,
     build_tool_required_nudge_prompt,
     build_tool_required_prompt,
+    try_parse_tool_payload_from_text,
 )
 from maverick.actors.xoscar._agentic import (
     extract_text_output as _extract_text_output,
@@ -121,18 +122,37 @@ class BriefingActor(AgenticActorMixin, xo.Actor):
         returns once the agent's MCP tool has been delivered to the
         supervisor's forward method, OR routes a ``PromptError`` if
         both the initial prompt and the nudge come up empty.
+
+        Also wires the JSON-in-text fallback: if the agent skipped the
+        MCP tool but emitted the payload as inline JSON (or as a
+        ``{"name": ..., "arguments": ...}`` envelope, handled by the
+        unwrapper), the fallback parses it and forwards to the
+        supervisor as if the tool had fired. Recovers Copilot- and
+        Gemini-routed briefings whose ACP bridges miss MCP tool calls.
         """
         logger.debug(
             "briefing.prompt_starting",
             actor=self._actor_tag,
             tool=self._mcp_tool,
         )
+
+        async def _json_fallback(response_text: str) -> bool:
+            payload = try_parse_tool_payload_from_text(response_text, self._mcp_tool)
+            if payload is None:
+                return False
+            forward = getattr(self._supervisor_ref, self._forward_method, None)
+            if forward is None:
+                return False
+            await forward(payload)
+            return True
+
         await self._run_with_self_nudge(
             expected_tool=self._mcp_tool,
             run_prompt=lambda: self._send_prompt(request),
             run_nudge=lambda: self._send_nudge_prompt(),
             on_failure=self._report_briefing_failure,
             log_prefix="briefing",
+            json_fallback=_json_fallback,
         )
 
     async def _report_briefing_failure(self, error_str: str) -> None:
