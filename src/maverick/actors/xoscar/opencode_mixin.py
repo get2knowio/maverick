@@ -30,6 +30,7 @@ it up by ``self.address``.
 
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING, Any, ClassVar
 
 import xoscar as xo
@@ -39,6 +40,7 @@ from maverick.logging import get_logger
 from maverick.runtime.opencode import (
     CascadeOutcome,
     CostRecord,
+    CostSink,
     OpenCodeClient,
     OpenCodeError,
     OpenCodeStructuredOutputError,
@@ -47,6 +49,7 @@ from maverick.runtime.opencode import (
     Tier,
     cascade_send,
     cost_record_from_send,
+    cost_sink_for,
     opencode_handle_for,
     resolve_tier,
     tier_overrides_for,
@@ -122,6 +125,13 @@ class OpenCodeAgentMixin:
     # config in :meth:`_opencode_post_create` when the actor's pool
     # supplies one.
     _tier_overrides: dict[str, Tier] | None = None
+    # Pool-scoped cost sink (set lazily on first send). When None, the
+    # mixin falls back to structured-log emission only.
+    _cost_sink: CostSink | None = None
+    _cost_sink_resolved: bool = False
+    # Optional bead identifier — set by subclasses when the workflow
+    # context knows which bead a send belongs to. Empty otherwise.
+    _current_bead_id: str = ""
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -139,6 +149,9 @@ class OpenCodeAgentMixin:
         self._validated_bindings = set()
         self._failed_bindings = set()
         self._last_cost_record = None
+        self._cost_sink = None
+        self._cost_sink_resolved = False
+        self._current_bead_id = ""
         if self._actor_tag is None:
             uid = getattr(self, "uid", b"?")
             uid_str = uid.decode() if isinstance(uid, bytes) else str(uid)
@@ -401,10 +414,13 @@ class OpenCodeAgentMixin:
         *,
         binding: ProviderModel | None = None,
     ) -> None:
-        """Emit a structured-log row for the cost of this send.
+        """Emit a structured-log row + (when configured) JSONL append.
 
-        Subclasses can override to forward to a runway sink or similar
-        aggregator. The default implementation just logs at info level.
+        Always logs at info level. When a pool-scoped cost sink is
+        registered (typically by the workflow's
+        ``register_cost_sink(address, ...)`` call), also schedules a
+        :class:`CostEntry` append against the sink — fire-and-forget so
+        the send path is never blocked on I/O.
         """
         record = self._last_cost_record
         if record is None:
@@ -416,6 +432,51 @@ class OpenCodeAgentMixin:
             binding=binding.label if binding else None,
             **record.to_dict(),
         )
+        sink = self._resolve_cost_sink()
+        if sink is None:
+            return
+        from maverick.runway.models import CostEntry
+
+        entry = CostEntry(
+            actor=self._actor_tag or type(self).__name__,
+            tier=self._tier_name_or_inline(),
+            provider_id=record.provider_id,
+            model_id=record.model_id,
+            cost_usd=record.cost_usd,
+            input_tokens=record.input_tokens,
+            output_tokens=record.output_tokens,
+            cache_read_tokens=record.cache_read_tokens,
+            cache_write_tokens=record.cache_write_tokens,
+            finish=record.finish,
+            bead_id=self._current_bead_id,
+        )
+        # Schedule the append asynchronously — the send path must not
+        # block on JSONL I/O. Failures bubble to the structlog only.
+        asyncio.create_task(self._flush_cost_entry(sink, entry))
+
+    def _resolve_cost_sink(self) -> CostSink | None:
+        """Lazily look up the pool-scoped cost sink (cached per actor)."""
+        if self._cost_sink_resolved:
+            return self._cost_sink
+        try:
+            pool_address: str = self.address  # type: ignore[attr-defined]
+        except AttributeError:
+            self._cost_sink_resolved = True
+            return None
+        self._cost_sink = cost_sink_for(pool_address)
+        self._cost_sink_resolved = True
+        return self._cost_sink
+
+    async def _flush_cost_entry(self, sink: CostSink, entry: Any) -> None:
+        """Best-effort delivery to the cost sink. Never raises."""
+        try:
+            await sink(entry)
+        except Exception as exc:  # noqa: BLE001 — sink failures must not break sends
+            logger.debug(
+                "opencode_actor.cost_sink_failed",
+                actor=self._actor_tag,
+                error=str(exc)[:200],
+            )
 
     def _coerce_payload(self, result: SendResult, schema: type[BaseModel]) -> BaseModel:
         """Validate the unwrapped structured payload against ``schema``."""

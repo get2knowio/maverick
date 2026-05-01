@@ -602,13 +602,23 @@ class InitConfig(BaseModel):
         default_factory=dict,
         description="Actor configurations grouped by workflow (plan/refuel/fly/land).",
     )
+    provider_tiers: dict[str, Any] = Field(
+        default_factory=lambda: {
+            "tiers": _starter_provider_tiers(),
+        },
+        description="OpenCode-runtime tier cascades. Edit to override defaults.",
+    )
     verbosity: str = "warning"
 
     def to_yaml(self) -> str:
         """Serialize configuration to YAML string.
 
-        Empty ``agent_providers`` is omitted from the output so that
-        zero-config behaviour is preserved when no providers are discovered.
+        Empty ``agent_providers`` and ``actors`` are dropped so the
+        zero-config experience stays clean. ``provider_tiers`` is
+        always emitted so users discover the cascade configuration
+        surface — its default value mirrors a curated subset of the
+        runtime's :data:`DEFAULT_TIERS`. A short comment explaining the
+        block is injected above it.
 
         Returns:
             YAML-formatted configuration string.
@@ -618,11 +628,62 @@ class InitConfig(BaseModel):
             data.pop("agent_providers", None)
         if not data.get("actors"):
             data.pop("actors", None)
-        return yaml.dump(
+        body = yaml.dump(
             data,
             default_flow_style=False,
             sort_keys=False,
         )
+        return _annotate_provider_tiers(body)
+
+
+def _starter_provider_tiers() -> dict[str, list[dict[str, str]]]:
+    """Return the curated starter ``provider_tiers.tiers`` map.
+
+    Mirrors a subset of :data:`maverick.runtime.opencode.tiers.DEFAULT_TIERS`
+    so a freshly-init'd repo has a discoverable, working tier setup.
+    Roles not listed here fall through to the runtime defaults at
+    runtime — users can add `briefing` / `decompose` / `generate` later
+    if they want per-role overrides.
+    """
+    return {
+        "review": [
+            {"provider": "openrouter", "model_id": "anthropic/claude-haiku-4.5"},
+            {"provider": "openrouter", "model_id": "qwen/qwen3-coder"},
+        ],
+        "implement": [
+            {"provider": "openrouter", "model_id": "anthropic/claude-haiku-4.5"},
+            {"provider": "openrouter", "model_id": "qwen/qwen3-coder"},
+            {"provider": "openrouter", "model_id": "anthropic/claude-sonnet-4.5"},
+        ],
+    }
+
+
+_PROVIDER_TIERS_COMMENT = """
+# OpenCode-runtime tier cascades. Each role lists ``(provider, model_id)``
+# bindings tried in order; the runtime falls over on auth /
+# model-not-found / sustained transient failures. Roles omitted here
+# fall through to the curated DEFAULT_TIERS baked into the runtime
+# (see ``maverick.runtime.opencode.tiers.DEFAULT_TIERS``).
+"""
+
+
+def _annotate_provider_tiers(yaml_body: str) -> str:
+    """Inject a docstring comment block above ``provider_tiers:``.
+
+    PyYAML doesn't preserve comments through ``yaml.dump``, so we patch
+    them in via string substitution. Idempotent: skips when the comment
+    is already present.
+    """
+    if "# OpenCode-runtime tier cascades." in yaml_body:
+        return yaml_body
+    needle = "\nprovider_tiers:"
+    if needle not in yaml_body:
+        return yaml_body
+    return yaml_body.replace(
+        needle,
+        _PROVIDER_TIERS_COMMENT.rstrip() + needle,
+        1,
+    )
 
 
 @dataclass(frozen=True, slots=True)

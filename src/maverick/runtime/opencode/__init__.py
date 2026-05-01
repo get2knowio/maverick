@@ -51,10 +51,14 @@ from maverick.runtime.opencode.events import (
 )
 from maverick.runtime.opencode.executor import OpenCodeStepExecutor
 from maverick.runtime.opencode.registry import (
+    CostSink,
+    cost_sink_for,
     opencode_handle_for,
+    register_cost_sink,
     register_opencode_handle,
     register_tier_overrides,
     tier_overrides_for,
+    unregister_cost_sink,
     unregister_opencode_handle,
     unregister_tier_overrides,
 )
@@ -127,10 +131,14 @@ __all__ = [
     "list_connected_providers",
     "validate_model_id",
     # registry
+    "CostSink",
+    "cost_sink_for",
     "opencode_handle_for",
+    "register_cost_sink",
     "register_opencode_handle",
     "register_tier_overrides",
     "tier_overrides_for",
+    "unregister_cost_sink",
     "unregister_opencode_handle",
     "unregister_tier_overrides",
     # executor

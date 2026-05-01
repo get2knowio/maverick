@@ -548,6 +548,7 @@ class FlyBeadsWorkflow(PythonWorkflow):
 
         async with actor_pool(
             provider_tiers=tiers_from_config(self._config),
+            cost_sink=_cost_sink_for_workspace(workspace_path),
         ) as (_pool, address):
             supervisor = await xo.create_actor(
                 FlySupervisor,
@@ -629,6 +630,25 @@ class FlyBeadsWorkflow(PythonWorkflow):
         result.setdefault("beads_failed", 0)
         result.setdefault("beads_skipped", 0)
         return result
+
+
+def _cost_sink_for_workspace(workspace_path: Path | None) -> Any:
+    """Return a :class:`CostSink` appender for the workspace's runway store.
+
+    Returns ``None`` when no workspace is in play (callers fall back to
+    structured-log only). The sink closes over the :class:`RunwayStore`
+    so the actor mixin can fire-and-forget without touching workflow
+    state.
+    """
+    if workspace_path is None:
+        return None
+    from maverick.runway.store import RunwayStore, make_cost_sink
+
+    runway_path = workspace_path / ".maverick" / "runway"
+    store = RunwayStore(runway_path)
+    if not store.is_initialized:
+        return None
+    return make_cost_sink(store)
 
 
 async def _init_workspace_runway(workspace_path: Path) -> None:

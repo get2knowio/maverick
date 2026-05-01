@@ -1,34 +1,49 @@
-"""Per-actor-pool registry of running OpenCode server handles + tier overrides.
+"""Per-actor-pool registry of OpenCode runtime, tier overrides, and cost sink.
 
 Mirrors the legacy ``agent_tool_gateway_for`` lookup pattern so
 :class:`OpenCodeAgentMixin` can pull pool-scoped runtime + config by
 ``self.address`` rather than threading them through every constructor.
-Two registries live here:
+Three registries live here, each indexed by the pool's external address:
 
-* OpenCode server handles (per pool) — mandatory.
-* Provider-tier overrides (per pool) — optional. When a workflow's
-  ``actor_pool()`` context registers tier overrides, the mixin uses
-  them; otherwise the runtime falls back to
-  :data:`maverick.runtime.opencode.tiers.DEFAULT_TIERS`.
+* OpenCode server handles — mandatory; spawned by ``actor_pool()``.
+* Provider-tier overrides — optional; ``None`` means use ``DEFAULT_TIERS``.
+* Cost sinks — optional; when a workflow registers one (typically a
+  :class:`RunwayStore`-backed appender), every successful mailbox send
+  flushes a :class:`CostEntry` to it.
 """
 
 from __future__ import annotations
+
+from collections.abc import Awaitable, Callable
+from typing import Any
 
 from maverick.runtime.opencode.server import OpenCodeServerHandle
 from maverick.runtime.opencode.tiers import Tier
 
 __all__ = [
+    "CostSink",
     "opencode_handle_for",
     "register_opencode_handle",
     "unregister_opencode_handle",
     "tier_overrides_for",
     "register_tier_overrides",
     "unregister_tier_overrides",
+    "cost_sink_for",
+    "register_cost_sink",
+    "unregister_cost_sink",
 ]
+
+
+# Async callable that accepts a :class:`runway.models.CostEntry`-shaped
+# dataclass. Typed as ``Any`` here to avoid pulling runway into the
+# runtime package — the mixin imports CostEntry locally and the
+# workflow registers an appender that closes over a RunwayStore.
+CostSink = Callable[[Any], Awaitable[None]]
 
 
 _handle_by_pool: dict[str, OpenCodeServerHandle] = {}
 _tier_overrides_by_pool: dict[str, dict[str, Tier]] = {}
+_cost_sink_by_pool: dict[str, CostSink] = {}
 
 
 def opencode_handle_for(pool_address: str) -> OpenCodeServerHandle:
@@ -79,3 +94,26 @@ def register_tier_overrides(pool_address: str, overrides: dict[str, Tier] | None
 def unregister_tier_overrides(pool_address: str) -> None:
     """Remove tier overrides for a pool address. No-op when missing."""
     _tier_overrides_by_pool.pop(pool_address, None)
+
+
+def cost_sink_for(pool_address: str) -> CostSink | None:
+    """Return the cost sink for ``pool_address`` or ``None`` when none set.
+
+    Mailbox actors use this to forward each successful send's
+    :class:`CostEntry` to the workflow's chosen aggregator (typically
+    a :class:`RunwayStore`-backed appender).
+    """
+    return _cost_sink_by_pool.get(pool_address)
+
+
+def register_cost_sink(pool_address: str, sink: CostSink | None) -> None:
+    """Bind a cost sink to a pool address. ``None`` clears."""
+    if sink is None:
+        _cost_sink_by_pool.pop(pool_address, None)
+        return
+    _cost_sink_by_pool[pool_address] = sink
+
+
+def unregister_cost_sink(pool_address: str) -> None:
+    """Remove the cost sink for a pool address. No-op when missing."""
+    _cost_sink_by_pool.pop(pool_address, None)

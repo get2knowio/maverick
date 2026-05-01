@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from maverick.runway.models import (
     BeadOutcome,
+    CostEntry,
     FixAttemptRecord,
     RunwayIndex,
     RunwayPassage,
@@ -23,6 +24,7 @@ from maverick.runway.store import RunwayStore
 
 __all__ = [
     "BeadOutcome",
+    "CostEntry",
     "FixAttemptRecord",
     "RunwayIndex",
     "RunwayPassage",

@@ -1081,9 +1081,11 @@ class RefuelMaverickWorkflow(PythonWorkflow):
         )
 
         from maverick.runtime.opencode import tiers_from_config
+        from maverick.workflows.fly_beads.workflow import _cost_sink_for_workspace
 
         async with actor_pool(
             provider_tiers=tiers_from_config(self._config),
+            cost_sink=_cost_sink_for_workspace(ws_cwd),
         ) as (_pool, address):
             supervisor = await xo.create_actor(
                 RefuelSupervisor,

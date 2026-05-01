@@ -6,6 +6,8 @@ defined in src/maverick/init/models.py.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 import yaml
 
@@ -1178,6 +1180,37 @@ class TestInitConfig:
         github_pos = yaml_output.find("github:")
         verbosity_pos = yaml_output.find("verbosity:")
         assert github_pos < verbosity_pos
+
+    def test_to_yaml_emits_provider_tiers_block(self) -> None:
+        """Fresh init writes a discoverable provider_tiers cascade.
+
+        Users find the tier configuration surface by reading their
+        generated maverick.yaml, not by digging through docs.
+        """
+        config = InitConfig()
+        yaml_output = config.to_yaml()
+        assert "provider_tiers:" in yaml_output
+        assert "review" in yaml_output
+        assert "openrouter" in yaml_output
+
+    def test_to_yaml_provider_tiers_round_trips(self, tmp_path: Path) -> None:
+        """The emitted YAML parses back into the runtime config shape."""
+        from maverick.config import load_config
+
+        config = InitConfig()
+        cfg_path = tmp_path / "maverick.yaml"
+        cfg_path.write_text(config.to_yaml())
+        loaded = load_config(cfg_path)
+        assert "review" in loaded.provider_tiers.tiers
+        review = loaded.provider_tiers.tiers["review"]
+        assert review[0].provider == "openrouter"
+
+    def test_to_yaml_includes_tier_comment_block(self) -> None:
+        """Comment lines explaining the tier surface are injected by hand
+        (PyYAML's dump can't emit comments)."""
+        config = InitConfig()
+        yaml_output = config.to_yaml()
+        assert "# OpenCode-runtime tier cascades." in yaml_output
 
 
 # =============================================================================
