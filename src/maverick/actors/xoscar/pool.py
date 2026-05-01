@@ -29,6 +29,12 @@ from typing import TYPE_CHECKING
 import xoscar as xo
 
 from maverick.logging import get_logger
+from maverick.runtime.opencode import (
+    OpenCodeServerHandle,
+    register_opencode_handle,
+    spawn_opencode_server,
+    unregister_opencode_handle,
+)
 from maverick.tools.agent_inbox.gateway import (
     AgentToolGateway,
     register_agent_tool_gateway,
@@ -90,6 +96,8 @@ async def actor_pool(
     address: str = DEFAULT_POOL_ADDRESS,
     *,
     max_subprocesses: int | None = None,
+    with_opencode: bool = False,
+    opencode_handle: OpenCodeServerHandle | None = None,
 ) -> AsyncIterator[tuple[MainActorPoolType, str]]:
     """Context manager for a short-lived actor pool with shared MCP gateway.
 
@@ -114,6 +122,16 @@ async def actor_pool(
             :class:`SubprocessQuota` enforces it via LRU eviction of
             idle actors. ``None`` disables enforcement (legacy
             behaviour — each actor spawns freely).
+        with_opencode: When ``True``, spawn an OpenCode HTTP server for
+            this pool's lifetime. The handle is registered via
+            :func:`register_opencode_handle` so :class:`OpenCodeAgentMixin`-
+            based actors can look it up by ``self.address``. Pass
+            ``opencode_handle`` instead to reuse an externally-managed
+            server (useful for tests). Defaults to ``False`` so the
+            legacy ACP path is unaffected.
+        opencode_handle: Pre-spawned OpenCode server handle. When given,
+            ``with_opencode`` is implied; the pool registers the handle
+            but does not spawn or terminate it.
 
     Typical use::
 
@@ -139,9 +157,42 @@ async def actor_pool(
     register_agent_tool_gateway(external_address, gateway)
     logger.debug("xoscar.gateway_bound", pool=external_address, gateway=gateway.base_url)
 
+    owns_opencode = False
+    bound_opencode: OpenCodeServerHandle | None = opencode_handle
+    if bound_opencode is None and with_opencode:
+        try:
+            bound_opencode = await spawn_opencode_server()
+            owns_opencode = True
+        except Exception:  # noqa: BLE001 — surface spawn failures to the caller
+            unregister_agent_tool_gateway(external_address)
+            try:
+                await gateway.stop()
+            except Exception as gw_exc:  # noqa: BLE001 — diagnostic only
+                logger.debug("xoscar.gateway_stop_failed_during_unwind", error=str(gw_exc))
+            try:
+                await pool.stop()
+            except Exception as stop_exc:  # noqa: BLE001 — diagnostic only
+                logger.debug("xoscar.pool_stop_failed_during_unwind", error=str(stop_exc))
+            raise
+    if bound_opencode is not None:
+        register_opencode_handle(external_address, bound_opencode)
+        logger.debug(
+            "xoscar.opencode_bound",
+            pool=external_address,
+            opencode=bound_opencode.base_url,
+            owns=owns_opencode,
+        )
+
     try:
         yield pool, external_address
     finally:
+        if bound_opencode is not None:
+            unregister_opencode_handle(external_address)
+            if owns_opencode:
+                try:
+                    await bound_opencode.stop()
+                except Exception as exc:  # noqa: BLE001 — exit must not raise
+                    logger.debug("xoscar.opencode_stop_failed", error=str(exc))
         unregister_agent_tool_gateway(external_address)
         try:
             await gateway.stop()

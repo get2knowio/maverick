@@ -49,6 +49,11 @@ from maverick.runtime.opencode.events import (
     first_error,
     session_idle_signal,
 )
+from maverick.runtime.opencode.registry import (
+    opencode_handle_for,
+    register_opencode_handle,
+    unregister_opencode_handle,
+)
 from maverick.runtime.opencode.server import (
     DEFAULT_HOST,
     DEFAULT_SHUTDOWN_TIMEOUT,
@@ -105,4 +110,8 @@ __all__ = [
     "invalidate_cache",
     "list_connected_providers",
     "validate_model_id",
+    # registry
+    "opencode_handle_for",
+    "register_opencode_handle",
+    "unregister_opencode_handle",
 ]

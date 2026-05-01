@@ -47,11 +47,21 @@ async def _get_provider_snapshot(
 
     raw = await client.list_providers()
     providers: dict[str, set[str]] = {}
-    # OpenCode's /provider response shape:
-    #   { "providers": [ { "id": "...", "models": { "<modelId>": {...}, ... } }, ... ] }
-    for prov in raw.get("providers", []) or []:
+    # OpenCode's /provider response shape (1.14.x):
+    #   { "all": [ { "id": "...", "models": {...}, ... }, ... ],
+    #     "connected": ["openrouter", "opencode", ...],
+    #     "default":  { "openrouter": "<modelId>", ... } }
+    # The legacy spike used "providers" — we tolerate both for forward-
+    # compatibility with future schema changes. "connected" is the
+    # authoritative list of usable providers; we filter "all" through it.
+    connected = set(raw.get("connected") or [])
+    raw_list = raw.get("all") or raw.get("providers") or []
+    for prov in raw_list:
         pid = prov.get("id")
         if not pid:
+            continue
+        # When a "connected" filter is present, drop any provider not in it.
+        if connected and pid not in connected:
             continue
         models = prov.get("models") or {}
         if isinstance(models, dict):
