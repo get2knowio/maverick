@@ -18,12 +18,12 @@ from maverick.actors.xoscar.messages import (
     OutlineRequest,
     PromptError,
 )
-from maverick.runtime.opencode import OpenCodeAuthError, SendResult
-from maverick.tools.agent_inbox.models import (
+from maverick.payloads import (
     SubmitDetailsPayload,
     SubmitFixPayload,
     SubmitOutlinePayload,
 )
+from maverick.runtime.opencode import OpenCodeAuthError, SendResult
 
 
 class _DecomposerRecorder(xo.Actor):

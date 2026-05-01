@@ -19,7 +19,7 @@ from maverick.flight.models import (
     WorkUnit,
 )
 from maverick.flight.serializer import serialize_work_unit
-from maverick.tools.agent_inbox.models import (
+from maverick.payloads import (
     SubmitOutlinePayload,
     WorkUnitOutlinePayload,
 )

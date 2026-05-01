@@ -22,7 +22,7 @@ from maverick.actors.xoscar.messages import (
 from maverick.actors.xoscar.plan_supervisor import PlanInputs, PlanSupervisor
 from maverick.actors.xoscar.plan_validator import PlanValidatorActor
 from maverick.actors.xoscar.plan_writer import PlanWriterActor
-from maverick.tools.agent_inbox.models import (
+from maverick.payloads import (
     SubmitFlightPlanPayload,
 )
 

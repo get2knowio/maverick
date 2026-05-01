@@ -18,8 +18,8 @@ from maverick.actors.step_config import load_step_config
 from maverick.actors.xoscar.messages import GenerateRequest, PromptError
 from maverick.actors.xoscar.opencode_mixin import OpenCodeAgentMixin
 from maverick.logging import get_logger
+from maverick.payloads import SubmitFlightPlanPayload
 from maverick.runtime.opencode import OpenCodeError
-from maverick.tools.agent_inbox.models import SubmitFlightPlanPayload
 
 if TYPE_CHECKING:
     from maverick.executor.config import StepConfig

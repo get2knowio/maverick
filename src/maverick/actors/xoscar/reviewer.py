@@ -27,8 +27,8 @@ from maverick.actors.xoscar.messages import (
 )
 from maverick.actors.xoscar.opencode_mixin import OpenCodeAgentMixin
 from maverick.logging import get_logger
+from maverick.payloads import SubmitReviewPayload
 from maverick.runtime.opencode import OpenCodeError
-from maverick.tools.agent_inbox.models import SubmitReviewPayload
 
 if TYPE_CHECKING:
     from maverick.executor.config import StepConfig

@@ -29,6 +29,7 @@ from maverick.actors.xoscar.messages import (
 )
 from maverick.actors.xoscar.pool import create_pool
 from maverick.actors.xoscar.reviewer import ReviewerActor
+from maverick.payloads import ReviewFindingPayload, SubmitReviewPayload
 from maverick.runtime.opencode import (
     OpenCodeAuthError,
     OpenCodeServerHandle,
@@ -37,7 +38,6 @@ from maverick.runtime.opencode import (
     register_opencode_handle,
     unregister_opencode_handle,
 )
-from maverick.tools.agent_inbox.models import ReviewFindingPayload, SubmitReviewPayload
 
 # ---------------------------------------------------------------------------
 # Fakes

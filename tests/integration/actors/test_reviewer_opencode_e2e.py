@@ -32,7 +32,7 @@ from maverick.actors.xoscar.messages import (
 from maverick.actors.xoscar.pool import actor_pool
 from maverick.actors.xoscar.reviewer import ReviewerActor
 from maverick.executor.config import StepConfig
-from maverick.tools.agent_inbox.models import SubmitReviewPayload
+from maverick.payloads import SubmitReviewPayload
 
 pytestmark = [pytest.mark.integration, pytest.mark.slow]
 

@@ -14,7 +14,7 @@ import xoscar as xo
 
 from maverick.actors.xoscar.messages import PlanValidateRequest, PlanValidateResult
 from maverick.logging import get_logger
-from maverick.tools.agent_inbox.models import SubmitFlightPlanPayload
+from maverick.payloads import SubmitFlightPlanPayload
 from maverick.workflows.generate_flight_plan.markdown import (
     render_flight_plan_markdown,
 )

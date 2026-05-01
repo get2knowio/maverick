@@ -23,7 +23,7 @@ from maverick.actors.xoscar.refuel_supervisor import (
     RefuelInputs,
     RefuelSupervisor,
 )
-from maverick.tools.agent_inbox.models import (
+from maverick.payloads import (
     SubmitDetailsPayload,
     SubmitOutlinePayload,
     WorkUnitDetailPayload,
@@ -335,7 +335,7 @@ async def test_fix_ready_writes_outline_and_details_to_cache(
     """fix_ready must persist the corrected outline and details so a
     re-run picks up the post-fix state instead of re-loading the
     pre-fix version and burning the fix loop again."""
-    from maverick.tools.agent_inbox.models import (
+    from maverick.payloads import (
         AcceptanceCriterionPayload,
         SubmitFixPayload,
         WorkUnitDetailPayload,
@@ -409,7 +409,7 @@ async def test_fix_ready_merges_partial_payload_with_existing_state(
     observed-in-the-wild bug where a 42-unit run with a missing
     trace_ref produced 4 created beads after the fix overwrote 41
     untouched units."""
-    from maverick.tools.agent_inbox.models import (
+    from maverick.payloads import (
         AcceptanceCriterionPayload,
         SubmitDetailsPayload,
         SubmitFixPayload,
@@ -539,7 +539,7 @@ def test_merge_to_specs_skips_unparseable_specs() -> None:
     from types import SimpleNamespace
 
     from maverick.actors.xoscar.refuel_supervisor import RefuelSupervisor
-    from maverick.tools.agent_inbox.models import (
+    from maverick.payloads import (
         AcceptanceCriterionPayload,
         SubmitDetailsPayload,
         SubmitOutlinePayload,
@@ -592,7 +592,7 @@ def test_merge_to_specs_skips_units_without_detail() -> None:
     from types import SimpleNamespace
 
     from maverick.actors.xoscar.refuel_supervisor import RefuelSupervisor
-    from maverick.tools.agent_inbox.models import (
+    from maverick.payloads import (
         AcceptanceCriterionPayload,
         SubmitDetailsPayload,
         SubmitOutlinePayload,

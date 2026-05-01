@@ -7,7 +7,7 @@ spec compliance, human escalation, and commit curation autonomously.
 ## What is Maverick?
 
 Maverick is a Python CLI that orchestrates the complete development lifecycle
-using the Agent Client Protocol (ACP). From a PRD, it generates a flight plan,
+on top of the [OpenCode](https://opencode.ai) HTTP runtime. From a PRD, it generates a flight plan,
 decomposes it into work units, implements them with AI agents, validates against
 project conventions, reviews code, escalates to humans when needed, and curates
 clean commit history — all driven by a **bead-based work graph** where humans
@@ -40,15 +40,19 @@ correction tasks all live in the same dependency graph.
 - **Cross-epic dependency wiring** — New epics automatically depend on
   existing open epics, serializing execution while allowing tasks within
   each epic to parallelize
-- **Multi-provider routing** — Distribute work across Claude, Copilot, and
-  Gemini with per-actor provider/model configuration
+- **Multi-provider routing** — Per-role provider tier cascades route every
+  agent to the right model for the job (qwen3-coder for cheap-and-fast,
+  claude-haiku for typical work, claude-sonnet for frontier reasoning).
+  Configurable per role in `maverick.yaml`; falls over automatically on
+  auth or model-availability failures.
 - **Runway knowledge store** — Episodic records of bead outcomes, review
   findings, and fix attempts build project-specific context. Agents
   progressively discover this context via the `.maverick/runway/` directory
-- **Thespian actor system** — All workflows use Thespian `multiprocTCPBase`
-  for cross-process actor messaging. Supervisors route messages. Agent actors
-  hold persistent ACP sessions. MCP tool calls deliver results directly to
-  the supervisor's inbox
+- **xoscar actor system** — All workflows run on a single xoscar pool
+  (`n_process=0`, in-pool coroutines) plus one OpenCode HTTP server
+  spawned per workflow run. Mailbox actors return typed payloads via
+  OpenCode's structured-output tool — no per-agent MCP gateway, no per-
+  provider ACP bridge subprocess.
 - **Jujutsu (jj) VCS** — Write operations use jj for snapshot/rollback
   safety. Curation skips immutable commits gracefully
 - **Workspace isolation** — All fly work happens in a hidden workspace;
@@ -63,8 +67,8 @@ correction tasks all live in the same dependency graph.
 - [GitHub CLI](https://cli.github.com/) (`gh`)
 - [Jujutsu](https://martinvonz.github.io/jj/) (`jj`)
 - [bd](https://beads.dev/) for bead/work-item management
-- [claude-agent-acp](https://www.npmjs.com/package/@agentclientprotocol/claude-agent-acp) — ACP agent subprocess
-- Claude API access (set `ANTHROPIC_API_KEY`)
+- [opencode](https://opencode.ai) — agent runtime (`opencode auth login <provider>` to authenticate)
+- An OpenRouter, Anthropic, or compatible API key (configured via `opencode auth`)
 - Git repository with remote origin
 
 ### Installation
@@ -231,9 +235,10 @@ into semantic summaries.
 
 ### `maverick init` — Project Setup
 
-Initializes `maverick.yaml`, discovers ACP providers on PATH, probes for
-available models, distributes models across actors by capability, and writes
-MCP server configs for Copilot and Gemini.
+Initializes `maverick.yaml`, detects available providers via OpenCode's
+`/provider` endpoint, and writes a starter config wired to the curated
+default tiers (`review`, `implement`, `briefing`, `decompose`,
+`generate`).
 
 ## Configuration
 
@@ -251,34 +256,30 @@ validation:
   test_cmd: [make, test-nextest-fast]
   timeout_seconds: 600
 
-agent_providers:
-  claude:
-    default: true
-  copilot:
-    default: false
+# Provider tier cascades — one entry per role. Each binding is tried in
+# order; the runtime falls over on auth/model-not-found/transient errors.
+# Omit a role to use the curated DEFAULT_TIERS.
+provider_tiers:
+  tiers:
+    review:
+      - {provider: openrouter, model_id: anthropic/claude-haiku-4.5}
+      - {provider: openrouter, model_id: qwen/qwen3-coder}
+    implement:
+      - {provider: openrouter, model_id: anthropic/claude-haiku-4.5}
+      - {provider: openrouter, model_id: qwen/qwen3-coder}
+      - {provider: openrouter, model_id: anthropic/claude-sonnet-4.5}
+    briefing:
+      - {provider: openrouter, model_id: qwen/qwen3-coder}
+    decompose:
+      - {provider: openrouter, model_id: anthropic/claude-sonnet-4.5}
 
-# Per-actor provider/model overrides
+# Per-actor StepConfig overrides still work — they take priority over the
+# tier cascade for a single (provider, model_id) binding.
 actors:
-  plan:
-    scopist:
-      provider: copilot
-      model_id: gpt-5.4
-    contrarian:
-      provider: claude
-      model_id: sonnet
   fly:
     implementer:
-      provider: copilot
-      model_id: gpt-5.3-codex
-      timeout: 1800
-    reviewer:
-      provider: claude
-      model_id: sonnet
-      timeout: 600
-  refuel:
-    decomposer:
-      provider: claude
-      model_id: sonnet
+      provider: openrouter
+      model_id: anthropic/claude-haiku-4.5
       timeout: 1800
 ```
 
@@ -288,36 +289,37 @@ actors:
 CLI (Click)
   │
 Workflow Layer (async Python)
-  │ Creates Thespian ActorSystem, sends "start", waits for "complete"
+  │ Opens an actor pool (xoscar, n_process=0) which spawns one OpenCode
+  │ HTTP server, registers the handle + tier overrides on the pool address.
   │
-Thespian Actor Layer (multiprocTCPBase — each actor in own OS process)
+xoscar Actor Layer (in-pool coroutines, ephemeral 127.0.0.1:0 binding)
   │
-  ├── Supervisors (typed RPC fan-out via xoscar)
+  ├── Supervisors (typed RPC fan-out)
   │   FlySupervisor, RefuelSupervisor, PlanSupervisor
   │
-  ├── Agent actors (persistent ACP sessions)
-  │   Implementer, Reviewer, Decomposer, Briefing agents
+  ├── Mailbox actors (one OpenCode session each)
+  │   ImplementerActor, ReviewerActor, DecomposerActor,
+  │   GeneratorActor, BriefingActor
   │
-  ├── Deterministic actors (pure Python, no LLM)
-  │   Gate, SpecCheck, ACCheck, Committer, Validator
+  └── Deterministic actors (pure Python, no LLM)
+      Gate, SpecCheck, ACCheck, Committer, Validator
   │
-  └── MCP Agent Tool Gateway (in-process HTTP, 127.0.0.1:0)
-      Agent → MCP tool call → jsonschema validation → typed actor RPC
-      Built-in tools (Read/Write) = work; MCP tools = messaging
-  │
-ACP Executor (spawns agent subprocesses over stdio)
-  claude-agent-acp applies claude_code preset + reads CLAUDE.md automatically
+OpenCode Runtime (one HTTP server per workflow run)
+  POST /session/:id/message  +  format=json_schema  →  typed payload
+  Errors (auth/model/context) classified via /event SSE drain
+  Tier cascade: try first binding, fall over on recoverable errors
 ```
 
 ### How Agents Communicate
 
-Agents don't return structured data in their text response. Instead, they
-call MCP tools (`submit_outline`, `submit_review`, `submit_implementation`)
-which deliver schema-validated messages to the shared HTTP gateway. The
-gateway routes each call to the originating actor's ``on_tool_call``
-handler, which forwards a typed payload to the supervisor via xoscar
-RPC. Built-in tools (Read, Write, Bash) are for doing work; MCP tools
-are for reporting results.
+Mailbox actors invoke `_send_structured(prompt)` on their mixin, which
+pushes the prompt to OpenCode with `format=json_schema` derived from the
+actor's `result_model`. OpenCode synthesizes a `StructuredOutput` tool
+the model is forced to call; the runtime unwraps Claude's envelope shape
+(`{input: {...}}` etc.) and validates against the Pydantic model. The
+typed payload flows back through `_send_structured` → forward to the
+supervisor via xoscar RPC. Built-in tools (Read, Write, Bash) are for
+doing work; the `StructuredOutput` tool is for reporting results.
 
 ## Technology Stack
 
@@ -325,9 +327,10 @@ are for reporting results.
 |----------|-----------|
 | Language | Python 3.11+ |
 | Package Manager | uv |
-| AI/Agents | Agent Client Protocol (ACP) via `@agentclientprotocol/claude-agent-acp` |
-| Actor Framework | Thespian (`multiprocTCPBase`) |
-| MCP Tools | MCP SDK with jsonschema validation |
+| Agent Runtime | [OpenCode](https://opencode.ai) HTTP (one server per workflow run) |
+| HTTP Client | httpx |
+| Actor Framework | xoscar (`n_process=0`, in-pool coroutines) |
+| Structured Output | Pydantic + `format=json_schema` |
 | CLI | Click + Rich |
 | VCS (writes) | Jujutsu (jj) in colocated mode |
 | VCS (reads) | GitPython |

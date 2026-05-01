@@ -1,17 +1,25 @@
-"""Typed intake models for supervisor inbox MCP tool payloads.
+"""Typed payloads returned by mailbox actors via OpenCode structured output.
 
-The MCP tool schemas remain the agent-facing contract. These models sit on the
-Python side of that boundary so supervisors can validate and normalize tool
-arguments immediately after receipt instead of threading raw ``dict[str, Any]``
-through downstream workflow code.
+Each :class:`SupervisorInboxPayload` subclass is the result schema for
+one actor role. The OpenCode runtime forces the model to call the
+synthesized ``StructuredOutput`` tool with arguments matching the
+schema (Phase 4 of the OpenCode migration); these models then validate
+the returned dict before it flows to the supervisor's typed domain
+methods.
 
 The models are intentionally permissive:
-- they mirror the mailbox tool schemas closely,
-- they accept legacy/alternate field names where the runtime already does,
-- they allow additional properties so schema-compatible extensions are not lost.
+- they accept legacy/alternate field names where prior runs emitted them,
+- they allow additional properties so schema-compatible extensions are
+  not lost.
 
-Stricter workflow/domain models should still be applied deeper in the pipeline
-where business invariants matter.
+Stricter workflow/domain models should still be applied deeper in the
+pipeline where business invariants matter.
+
+Naming note: ``SUPERVISOR_TOOL_PAYLOAD_MODELS`` and the ``submit_*`` keys
+are kept verbatim from the legacy MCP-tool world so prior call sites
+(briefing actor's ``mcp_tool`` lookup, decomposer phase routing) keep
+working without renaming. The "tool" here is now OpenCode's synthesized
+``StructuredOutput`` tool, not an MCP tool.
 """
 
 from __future__ import annotations

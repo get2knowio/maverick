@@ -36,12 +36,12 @@ from maverick.actors.xoscar.messages import (
 )
 from maverick.actors.xoscar.opencode_mixin import OpenCodeAgentMixin
 from maverick.logging import get_logger
-from maverick.runtime.opencode import OpenCodeError
-from maverick.tools.agent_inbox.models import (
+from maverick.payloads import (
     SubmitDetailsPayload,
     SubmitFixPayload,
     SubmitOutlinePayload,
 )
+from maverick.runtime.opencode import OpenCodeError
 
 if TYPE_CHECKING:
     from maverick.executor.config import StepConfig

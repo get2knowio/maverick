@@ -20,11 +20,11 @@ import xoscar as xo
 
 from maverick.actors.xoscar.briefing import BriefingActor
 from maverick.actors.xoscar.messages import BriefingRequest, PromptError
+from maverick.payloads import SubmitNavigatorBriefPayload
 from maverick.runtime.opencode import (
     OpenCodeAuthError,
     SendResult,
 )
-from maverick.tools.agent_inbox.models import SubmitNavigatorBriefPayload
 
 
 class _BriefingRecorder(xo.Actor):

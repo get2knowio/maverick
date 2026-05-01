@@ -22,10 +22,10 @@ from maverick.actors.step_config import load_step_config
 from maverick.actors.xoscar.messages import BriefingRequest, PromptError
 from maverick.actors.xoscar.opencode_mixin import OpenCodeAgentMixin
 from maverick.logging import get_logger
-from maverick.runtime.opencode import OpenCodeError
-from maverick.tools.agent_inbox.models import (
+from maverick.payloads import (
     SUPERVISOR_TOOL_PAYLOAD_MODELS,
 )
+from maverick.runtime.opencode import OpenCodeError
 
 if TYPE_CHECKING:
     from maverick.executor.config import StepConfig

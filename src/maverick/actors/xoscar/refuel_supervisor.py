@@ -59,7 +59,7 @@ from maverick.events import (
     StepStarted,
 )
 from maverick.logging import get_logger
-from maverick.tools.agent_inbox.models import (
+from maverick.payloads import (
     SubmitContrarianBriefPayload,
     SubmitDetailsPayload,
     SubmitFixPayload,
@@ -393,7 +393,7 @@ class RefuelSupervisor(xo.Actor):
         # Seed outline from cache if pre-populated by workflow.
         cached_outline = self._inputs.initial_payload.get("outline")
         if isinstance(cached_outline, dict):
-            from maverick.tools.agent_inbox.models import (
+            from maverick.payloads import (
                 SupervisorToolPayloadError,
                 parse_supervisor_tool_payload,
             )
