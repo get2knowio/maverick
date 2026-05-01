@@ -5,19 +5,15 @@ legacy Thespian runtime used, so there is no stale-daemon problem and
 no port-coordination problem between concurrent workflows.
 
 Single-process model (``n_process=0``) is intentional — all actors run
-as coroutines in the pool's event loop, which skips pickling ACP
-executors and matches the in-process semantics used by
-``src/maverick/workflows/fly_beads/actors/``. Process isolation
-continues to come from the ACP agent subprocess each agent actor owns,
-not from the actor runtime.
+as coroutines in the pool's event loop, so process isolation comes from
+the OpenCode subprocess rather than the actor runtime.
 
-The actor-pool wrapper also owns a process-level
-:class:`AgentToolGateway`: a single shared HTTP MCP server that fronts
-every agent actor's tool calls via ``/mcp/<uid>`` routing. Agent actors
-register with the gateway in ``__post_create__`` (via
-:class:`AgenticActorMixin`) and unregister in ``__pre_destroy__``. The
-gateway lifetime brackets the pool's: it starts after the pool is up
-and stops before the pool tears down.
+The actor-pool wrapper spawns one OpenCode HTTP server per workflow run
+(via :func:`spawn_opencode_server`) and registers its handle against the
+pool address so :class:`OpenCodeAgentMixin`-based actors can look it up
+via ``opencode_handle_for(self.address)``. Spawn defaults to ON since
+every mailbox actor now uses OpenCode; pass ``with_opencode=False`` for
+tests or special workflows that don't need the runtime.
 """
 
 from __future__ import annotations
@@ -34,11 +30,6 @@ from maverick.runtime.opencode import (
     register_opencode_handle,
     spawn_opencode_server,
     unregister_opencode_handle,
-)
-from maverick.tools.agent_inbox.gateway import (
-    AgentToolGateway,
-    register_agent_tool_gateway,
-    unregister_agent_tool_gateway,
 )
 
 if TYPE_CHECKING:
@@ -71,8 +62,8 @@ async def teardown_pool(
     """Tear down an actor pool, running ``__pre_destroy__`` for each ref.
 
     ``pool.stop()`` alone does not invoke ``__pre_destroy__`` per actor
-    (verified against xoscar 0.9.5 source), so agent actors that need to
-    reap ACP subprocesses must be destroyed explicitly first. Each
+    (verified against xoscar 0.9.5 source), so agent actors that need
+    to release resources must be destroyed explicitly first. Each
     ``destroy_actor`` failure is logged and swallowed so teardown is
     always best-effort.
     """
@@ -95,11 +86,10 @@ async def teardown_pool(
 async def actor_pool(
     address: str = DEFAULT_POOL_ADDRESS,
     *,
-    max_subprocesses: int | None = None,
-    with_opencode: bool = False,
+    with_opencode: bool = True,
     opencode_handle: OpenCodeServerHandle | None = None,
 ) -> AsyncIterator[tuple[MainActorPoolType, str]]:
-    """Context manager for a short-lived actor pool with shared MCP gateway.
+    """Context manager for a short-lived actor pool + OpenCode server.
 
     Yields ``(pool, external_address)``. The pool is stopped on exit,
     but actor refs are NOT destroyed automatically — the caller is
@@ -107,31 +97,16 @@ async def actor_pool(
     ``teardown_pool`` (or calling ``xo.destroy_actor`` in reverse order)
     before the context exits so each actor's ``__pre_destroy__`` runs.
 
-    A pool-scoped :class:`AgentToolGateway` is started before the body
-    and bound to the pool's external address via
-    ``register_agent_tool_gateway``; agentic actors look it up via
-    ``agent_tool_gateway_for(self.address)`` and register their tool
-    subset on creation. The gateway is shut down after the body, after
-    the pool has stopped.
-
     Args:
         address: xoscar pool bind address. Default picks an ephemeral
             port on loopback.
-        max_subprocesses: Optional global cap on live ACP agent
-            subprocesses across the pool. When set, the gateway's
-            :class:`SubprocessQuota` enforces it via LRU eviction of
-            idle actors. ``None`` disables enforcement (legacy
-            behaviour — each actor spawns freely).
-        with_opencode: When ``True``, spawn an OpenCode HTTP server for
-            this pool's lifetime. The handle is registered via
-            :func:`register_opencode_handle` so :class:`OpenCodeAgentMixin`-
-            based actors can look it up by ``self.address``. Pass
-            ``opencode_handle`` instead to reuse an externally-managed
-            server (useful for tests). Defaults to ``False`` so the
-            legacy ACP path is unaffected.
+        with_opencode: When ``True`` (default), spawn an OpenCode HTTP
+            server for this pool's lifetime and register its handle so
+            mailbox actors can use it. Set to ``False`` for tests or
+            workflows that don't need the runtime.
         opencode_handle: Pre-spawned OpenCode server handle. When given,
-            ``with_opencode`` is implied; the pool registers the handle
-            but does not spawn or terminate it.
+            the pool registers it but does not spawn or terminate it
+            (caller owns the lifecycle).
 
     Typical use::
 
@@ -145,18 +120,6 @@ async def actor_pool(
     """
     pool, external_address = await create_pool(address)
 
-    gateway = AgentToolGateway(max_subprocesses=max_subprocesses)
-    try:
-        await gateway.start()
-    except Exception:  # noqa: BLE001 — surface gateway failures to the caller
-        try:
-            await pool.stop()
-        except Exception as stop_exc:  # noqa: BLE001 — diagnostic only
-            logger.debug("xoscar.pool_stop_failed_during_unwind", error=str(stop_exc))
-        raise
-    register_agent_tool_gateway(external_address, gateway)
-    logger.debug("xoscar.gateway_bound", pool=external_address, gateway=gateway.base_url)
-
     owns_opencode = False
     bound_opencode: OpenCodeServerHandle | None = opencode_handle
     if bound_opencode is None and with_opencode:
@@ -164,11 +127,6 @@ async def actor_pool(
             bound_opencode = await spawn_opencode_server()
             owns_opencode = True
         except Exception:  # noqa: BLE001 — surface spawn failures to the caller
-            unregister_agent_tool_gateway(external_address)
-            try:
-                await gateway.stop()
-            except Exception as gw_exc:  # noqa: BLE001 — diagnostic only
-                logger.debug("xoscar.gateway_stop_failed_during_unwind", error=str(gw_exc))
             try:
                 await pool.stop()
             except Exception as stop_exc:  # noqa: BLE001 — diagnostic only
@@ -193,11 +151,6 @@ async def actor_pool(
                     await bound_opencode.stop()
                 except Exception as exc:  # noqa: BLE001 — exit must not raise
                     logger.debug("xoscar.opencode_stop_failed", error=str(exc))
-        unregister_agent_tool_gateway(external_address)
-        try:
-            await gateway.stop()
-        except Exception as exc:  # noqa: BLE001 — exit must not raise
-            logger.debug("xoscar.gateway_stop_failed", error=str(exc))
         try:
             await pool.stop()
         except Exception as exc:  # noqa: BLE001 — context exit must not raise

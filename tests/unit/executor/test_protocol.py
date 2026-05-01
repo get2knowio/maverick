@@ -69,16 +69,12 @@ class TestStepExecutorProtocol:
         # This would raise TypeError if not runtime_checkable
         assert isinstance(_ConformingExecutor(), StepExecutor)
 
-    def test_acp_executor_satisfies_protocol(self) -> None:
-        """AcpStepExecutor satisfies isinstance(executor, StepExecutor)."""
-        from maverick.executor.acp import AcpStepExecutor
-        from maverick.executor.provider_registry import AgentProviderRegistry
+    def test_opencode_executor_satisfies_protocol(self) -> None:
+        """OpenCodeStepExecutor satisfies isinstance(executor, StepExecutor)."""
         from maverick.registry import ComponentRegistry
+        from maverick.runtime.opencode import OpenCodeStepExecutor
 
-        executor = AcpStepExecutor(
-            provider_registry=AgentProviderRegistry.from_config({}),
-            agent_registry=ComponentRegistry(),
-        )
+        executor = OpenCodeStepExecutor(agent_registry=ComponentRegistry())
         assert isinstance(executor, StepExecutor)
 
     def test_protocol_has_execute_method(self) -> None:

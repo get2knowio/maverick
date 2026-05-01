@@ -49,7 +49,7 @@ def _reap_if_running(proc: asyncio.subprocess.Process | None) -> None:
     """
     if proc is None or proc.returncode is not None:
         return
-    from maverick.executor._subprocess import kill_process_group
+    from maverick.runners.process_group import kill_process_group
 
     kill_process_group(proc.pid)
 

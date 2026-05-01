@@ -1,19 +1,28 @@
 """StepExecutor protocol package — public API for maverick.executor.
 
-Exports the complete public API for agent step execution:
-- StepExecutor: Provider-agnostic @runtime_checkable Protocol
-- AcpStepExecutor: ACP-based executor (primary)
-- AgentProviderRegistry: ACP provider registry
-- ExecutorResult, UsageMetadata: Result types
-- StepExecutorConfig, RetryPolicy: Configuration types
-- DEFAULT_EXECUTOR_CONFIG: Default 300s timeout config
+Exports the public surface for agent step execution under the OpenCode
+runtime. The legacy :class:`AcpStepExecutor` and its supporting modules
+(``acp.py``, ``acp_client.py``, ``_connection_pool.py``,
+``_subprocess.py``) were deleted in the OpenCode migration; the
+canonical implementation now lives in
+:class:`maverick.runtime.opencode.OpenCodeStepExecutor`.
+
+Public API:
+
+* :class:`StepExecutor`: Provider-agnostic ``@runtime_checkable`` Protocol.
+* :class:`OpenCodeStepExecutor`: OpenCode-backed implementation.
+* :class:`AgentProviderRegistry`: Provider registry (kept for source
+  compatibility; the OpenCode executor doesn't use it directly).
+* :class:`ExecutorResult`, :class:`UsageMetadata`: Result types.
+* :class:`StepExecutorConfig`, :class:`RetryPolicy`, :class:`StepConfig`:
+  Configuration types.
+* :data:`DEFAULT_EXECUTOR_CONFIG`: Default 300s timeout config.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-from maverick.executor.acp import AcpStepExecutor
 from maverick.executor.config import (
     DEFAULT_EXECUTOR_CONFIG,
     IMPLEMENTER_AGENT_NAME,
@@ -33,7 +42,6 @@ __all__ = [
     "StepExecutorConfig",
     "RetryPolicy",
     "UsageMetadata",
-    "AcpStepExecutor",
     "AgentProviderRegistry",
     "DEFAULT_EXECUTOR_CONFIG",
     "IMPLEMENTER_AGENT_NAME",
@@ -47,56 +55,15 @@ __all__ = [
 
 def create_default_executor(
     *,
-    subprocess_quota: Any = None,
-    actor_uid: str | None = None,
-) -> AcpStepExecutor:
-    """Create an AcpStepExecutor with default config and registries.
-
-    Loads the application config, builds an AgentProviderRegistry from
-    ``config.agent_providers``, and constructs the default agent registry via
-    ``create_registered_registry()``.
-
-    Args:
-        subprocess_quota: Optional :class:`SubprocessQuota` to bound the
-            global ACP subprocess count across the actor pool. Pair with
-            ``actor_uid`` so the executor can acquire/release the right
-            slot. ``None`` disables quota enforcement.
-        actor_uid: The owning actor's uid (lease key for the quota).
-
-    Returns:
-        A ready-to-use AcpStepExecutor instance.
-    """
-    from maverick.cli.common import create_registered_registry
-    from maverick.config import load_config
-
-    config = load_config()
-    provider_registry = AgentProviderRegistry.from_config(config.agent_providers)
-    registry = create_registered_registry()
-    return AcpStepExecutor(
-        provider_registry=provider_registry,
-        agent_registry=registry,
-        global_max_tokens=config.model.max_tokens,
-        subprocess_quota=subprocess_quota,
-        actor_uid=actor_uid,
-    )
-
-
-def create_opencode_executor(
-    *,
     server_handle: Any = None,
 ) -> Any:
-    """Create an :class:`OpenCodeStepExecutor` wired to the default agent registry.
+    """Return the default :class:`StepExecutor` (OpenCode-backed).
 
-    Use this for non-mailbox call sites (one-shot ``execute()``) during
-    the ACP → OpenCode transition. Mailbox actors continue to receive an
-    :class:`AcpStepExecutor` from :func:`create_default_executor` until
-    Phase 4 finishes the bulk migration.
-
-    Args:
-        server_handle: Pre-spawned :class:`OpenCodeServerHandle` (e.g.
-            from a pool's ``actor_pool(with_opencode=True)`` context).
-            When ``None``, the executor lazily spawns its own server on
-            first use and tears it down via :meth:`cleanup`.
+    Was historically an :class:`AcpStepExecutor`; the OpenCode migration
+    flipped the default. Callers that need a custom server handle (e.g.
+    when invoked inside an :func:`actor_pool` context) pass it via
+    ``server_handle``; otherwise the executor lazily spawns its own
+    OpenCode subprocess and tears it down on :meth:`cleanup`.
     """
     from maverick.cli.common import create_registered_registry
     from maverick.config import load_config
@@ -109,3 +76,7 @@ def create_opencode_executor(
         global_max_tokens=config.model.max_tokens,
         server_handle=server_handle,
     )
+
+
+# Alias retained for callers that explicitly want the OpenCode executor.
+create_opencode_executor = create_default_executor

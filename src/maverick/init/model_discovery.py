@@ -116,50 +116,13 @@ async def probe_provider_models(
 
 
 async def _probe_claude_models() -> ProviderModels:
-    """Probe Claude for available models via ACP session."""
-    try:
-        from maverick.executor import create_default_executor
-        from maverick.executor._model_resolver import get_available_model_ids
+    """Return the static default Claude model list.
 
-        executor = create_default_executor()
-        await executor.create_session(
-            provider="claude",
-            step_name="model_probe",
-            agent_name="probe",
-        )
-
-        # Read models from cached connection
-        cached = executor._pool.cache.get("claude")
-        if cached:
-            # Re-create session to get fresh model list
-            session = await cached.conn.new_session(cwd=".", mcp_servers=[])
-            get_available_model_ids(session)
-
-            # Get display names
-            models_info = []
-            models_state = getattr(session, "models", None)
-            if models_state:
-                for m in getattr(models_state, "available_models", []):
-                    mid = getattr(m, "model_id", None)
-                    if mid:
-                        models_info.append(mid)
-
-            await executor.cleanup()
-
-            if models_info:
-                return ProviderModels(
-                    provider="claude",
-                    models=models_info,
-                    default_model=models_info[0],
-                    source="probe",
-                )
-
-        await executor.cleanup()
-
-    except Exception as exc:
-        logger.debug("model_probe.claude_failed", error=str(exc))
-
-    # Fallback to defaults
+    The legacy implementation probed the ACP bridge for available models;
+    that path was removed with the OpenCode migration. Phase 6 will
+    rewrite this against OpenCode's ``GET /provider`` so we can again
+    surface the live catalogue. Until then, return the curated defaults.
+    """
     defaults = DEFAULT_MODELS["claude"]
     return ProviderModels(
         provider="claude",

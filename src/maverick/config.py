@@ -301,26 +301,17 @@ class ParallelConfig(BaseModel):
     """Settings for concurrency limits.
 
     Attributes:
-        max_agents: Hard cap on simultaneously live ACP agent subprocesses
-            across the workflow run. Enforced by the
-            :class:`SubprocessQuota` on the pool-scoped
-            :class:`AgentToolGateway`: when the cap is reached, fresh
-            spawns wait for a slot. Idle actors (not mid-prompt) get
-            evicted LRU to free a slot, costing them a ~200ms ACP
-            handshake and any conversation context held in their ACP
-            session. Per-phase knobs below remain *soft ideals* — they
-            describe how much fan-out a phase wants; this is the hard
-            ceiling. Tune up on richer hosts (more RAM, more CPU);
-            keep low on dev containers.
+        max_agents: Soft cap on simultaneously running mailbox actors.
+            Currently advisory — actors share one OpenCode HTTP server
+            per workflow run rather than spawning per-actor subprocesses,
+            so subprocess-quota eviction is no longer a thing. Per-phase
+            knobs below describe how much fan-out a phase wants; tune
+            them per host.
         max_tasks: Reserved task fan-out cap. Currently advisory.
         decomposer_pool_size: Number of pool workers for the refuel
-            detail phase. Default ``3`` matches the legacy hardcoded value
-            (``DECOMPOSER_POOL_SIZE = 4`` minus the one primary decomposer).
-            Each pool worker holds its own long-lived ``claude-agent-acp``
-            subprocess. Lower this on resource-constrained hosts (e.g. dev
-            containers): ``decomposer_pool_size: 1`` runs one pool worker
-            plus one primary, capping live ACP subprocesses at 2 during the
-            detail phase.
+            detail phase. Default ``3`` matches the legacy hardcoded
+            value. Lower this on resource-constrained hosts (e.g. dev
+            containers).
         max_briefing_agents: Cap on briefing agents running in parallel
             during refuel and plan generation. Default ``3`` matches the
             current behaviour (navigator/structuralist/recon — or

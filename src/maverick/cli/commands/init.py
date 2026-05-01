@@ -313,13 +313,11 @@ async def init(
                 )
                 raise SystemExit(ExitCode.SUCCESS)
 
-            # Resolve provider list for subsequent model discovery. Static
-            # per-provider MCP config files (Copilot/Gemini) no longer apply:
-            # the xoscar runtime uses an ephemeral pool address per run, and
-            # one shared HTTP MCP gateway (``AgentToolGateway``) serves every
-            # agentic actor via ``/mcp/<actor-uid>``. Providers that don't
-            # support dynamic MCP attachment via ACP (Copilot, Gemini) fall
-            # back to text output.
+            # Resolve provider list for subsequent model discovery. The
+            # xoscar runtime now spawns one OpenCode HTTP server per
+            # workflow run, so per-provider MCP config files no longer
+            # apply — every mailbox actor talks structured output via
+            # OpenCode's ``StructuredOutput`` tool.
             provider_list = (
                 [p.strip() for p in providers.split(",") if p.strip()]
                 if providers

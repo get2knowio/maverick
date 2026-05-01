@@ -8,7 +8,6 @@ from __future__ import annotations
 
 from typing import Any
 
-import pytest
 import xoscar as xo
 
 from maverick.actors.xoscar.decomposer import DecomposerActor
@@ -256,11 +255,7 @@ async def test_detail_failure_includes_unit_id(pool_address: str) -> None:
 
 async def test_nudge_dispatches_by_expected_tool(pool_address: str) -> None:
     sup = await xo.create_actor(_DecomposerRecorder, address=pool_address, uid="dec-sup-6")
-    payload = {
-        "details": [
-            {"id": "wu-7", "instructions": "do x", "files": []}
-        ]
-    }
+    payload = {"details": [{"id": "wu-7", "instructions": "do x", "files": []}]}
     dec = await xo.create_actor(
         _StubDecomposer,
         sup,

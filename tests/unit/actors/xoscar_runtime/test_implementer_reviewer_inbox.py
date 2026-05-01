@@ -10,11 +10,10 @@ can script exact :class:`SendResult` instances per send.
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
-from typing import Any, ClassVar
+from typing import Any
 
 import pytest
 import xoscar as xo
-from pydantic import BaseModel
 
 from maverick.actors.xoscar.implementer import ImplementerActor
 from maverick.actors.xoscar.messages import (

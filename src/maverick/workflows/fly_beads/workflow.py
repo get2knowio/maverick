@@ -544,9 +544,7 @@ class FlyBeadsWorkflow(PythonWorkflow):
             level="info",
         )
 
-        async with actor_pool(
-            max_subprocesses=self._config.parallel.max_agents,
-        ) as (_pool, address):
+        async with actor_pool() as (_pool, address):
             supervisor = await xo.create_actor(
                 FlySupervisor,
                 supervisor_inputs,

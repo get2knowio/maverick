@@ -73,15 +73,9 @@ class GeneratorActor(OpenCodeAgentMixin, xo.Actor):
     async def send_generate(self, request: GenerateRequest) -> None:
         """Run the flight-plan generation prompt and forward the typed payload."""
         logger.debug("generator.prompt_starting")
-        prompt = (
-            f"{_GENERATOR_ROLE_INTRO}\n\n"
-            "# PRD and briefing\n\n"
-            f"{request.prompt}"
-        )
+        prompt = f"{_GENERATOR_ROLE_INTRO}\n\n# PRD and briefing\n\n{request.prompt}"
         try:
-            payload = await self._send_structured(
-                prompt, timeout=GENERATOR_PROMPT_TIMEOUT_SECONDS
-            )
+            payload = await self._send_structured(prompt, timeout=GENERATOR_PROMPT_TIMEOUT_SECONDS)
         except OpenCodeError as exc:
             await self._report_prompt_error(str(exc))
             return
@@ -92,8 +86,7 @@ class GeneratorActor(OpenCodeAgentMixin, xo.Actor):
         if not isinstance(payload, SubmitFlightPlanPayload):
             await self._supervisor_ref.payload_parse_error(
                 "submit_flight_plan",
-                f"GeneratorActor expected SubmitFlightPlanPayload, "
-                f"got {type(payload).__name__}",
+                f"GeneratorActor expected SubmitFlightPlanPayload, got {type(payload).__name__}",
             )
             return
 

@@ -100,9 +100,7 @@ class ReviewerActor(OpenCodeAgentMixin, xo.Actor):
         )
 
         try:
-            payload = await self._send_structured(
-                prompt, timeout=REVIEW_PROMPT_TIMEOUT_SECONDS
-            )
+            payload = await self._send_structured(prompt, timeout=REVIEW_PROMPT_TIMEOUT_SECONDS)
         except OpenCodeError as exc:
             await self._report_prompt_error(
                 phase="review", error=str(exc), bead_id=request.bead_id
@@ -117,8 +115,7 @@ class ReviewerActor(OpenCodeAgentMixin, xo.Actor):
         if not isinstance(payload, SubmitReviewPayload):
             await self._supervisor_ref.payload_parse_error(
                 "submit_review",
-                f"ReviewerActor expected SubmitReviewPayload, got "
-                f"{type(payload).__name__}",
+                f"ReviewerActor expected SubmitReviewPayload, got {type(payload).__name__}",
             )
             return
 
@@ -138,28 +135,21 @@ class ReviewerActor(OpenCodeAgentMixin, xo.Actor):
             await self._rotate_session()
         except Exception as exc:  # noqa: BLE001
             logger.error("reviewer.aggregate_session_rotate_failed", error=str(exc))
-            await self._supervisor_ref.payload_parse_error(
-                "aggregate_review", str(exc)
-            )
+            await self._supervisor_ref.payload_parse_error("aggregate_review", str(exc))
             return
 
         prompt = self._build_aggregate_prompt(request)
         try:
-            payload = await self._send_structured(
-                prompt, timeout=AGGREGATE_REVIEW_TIMEOUT_SECONDS
-            )
+            payload = await self._send_structured(prompt, timeout=AGGREGATE_REVIEW_TIMEOUT_SECONDS)
         except Exception as exc:  # noqa: BLE001
             logger.error("reviewer.aggregate_failed", error=str(exc))
-            await self._supervisor_ref.payload_parse_error(
-                "aggregate_review", str(exc)
-            )
+            await self._supervisor_ref.payload_parse_error("aggregate_review", str(exc))
             return
 
         if not isinstance(payload, SubmitReviewPayload):
             await self._supervisor_ref.payload_parse_error(
                 "aggregate_review",
-                f"ReviewerActor expected SubmitReviewPayload, got "
-                f"{type(payload).__name__}",
+                f"ReviewerActor expected SubmitReviewPayload, got {type(payload).__name__}",
             )
             return
 
@@ -170,9 +160,7 @@ class ReviewerActor(OpenCodeAgentMixin, xo.Actor):
     # Helpers
     # ------------------------------------------------------------------
 
-    async def _report_prompt_error(
-        self, *, phase: str, error: str, bead_id: str
-    ) -> None:
+    async def _report_prompt_error(self, *, phase: str, error: str, bead_id: str) -> None:
         from maverick.exceptions.quota import is_quota_error, is_transient_error
 
         logger.debug("reviewer.prompt_error", phase=phase, error=error)
@@ -196,8 +184,7 @@ class ReviewerActor(OpenCodeAgentMixin, xo.Actor):
             if request.briefing_context:
                 briefing_excerpt = request.briefing_context[:4000]
                 sections.append(
-                    "## Pre-Flight Briefing (risks & contrarian findings)\n\n"
-                    f"{briefing_excerpt}"
+                    f"## Pre-Flight Briefing (risks & contrarian findings)\n\n{briefing_excerpt}"
                 )
             user_content = "\n\n".join(sections)
 

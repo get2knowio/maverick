@@ -132,14 +132,10 @@ class ImplementerActor(OpenCodeAgentMixin, xo.Actor):
                 timeout=IMPLEMENTER_PROMPT_TIMEOUT_SECONDS,
             )
         except OpenCodeError as exc:
-            await self._report_prompt_error(
-                phase=phase, error=str(exc), bead_id=bead_id
-            )
+            await self._report_prompt_error(phase=phase, error=str(exc), bead_id=bead_id)
             return
         except Exception as exc:  # noqa: BLE001 — supervisor decides retry policy
-            await self._report_prompt_error(
-                phase=phase, error=str(exc), bead_id=bead_id
-            )
+            await self._report_prompt_error(phase=phase, error=str(exc), bead_id=bead_id)
             return
 
         if isinstance(payload, SubmitImplementationPayload):
@@ -149,18 +145,13 @@ class ImplementerActor(OpenCodeAgentMixin, xo.Actor):
         else:
             await self._supervisor_ref.payload_parse_error(
                 schema.__name__,
-                f"ImplementerActor expected {schema.__name__}, "
-                f"got {type(payload).__name__}",
+                f"ImplementerActor expected {schema.__name__}, got {type(payload).__name__}",
             )
 
-    async def _report_prompt_error(
-        self, *, phase: str, error: str, bead_id: str
-    ) -> None:
+    async def _report_prompt_error(self, *, phase: str, error: str, bead_id: str) -> None:
         from maverick.exceptions.quota import is_quota_error, is_transient_error
 
-        logger.debug(
-            "implementer.phase_failed", phase=phase, bead_id=bead_id, error=error
-        )
+        logger.debug("implementer.phase_failed", phase=phase, bead_id=bead_id, error=error)
         await self._supervisor_ref.prompt_error(
             PromptError(
                 phase=phase,

@@ -277,9 +277,7 @@ class GenerateFlightPlanWorkflow(PythonWorkflow):
             max_briefing_agents=self._config.parallel.max_briefing_agents,
         )
 
-        async with actor_pool(
-            max_subprocesses=self._config.parallel.max_agents,
-        ) as (_pool, address):
+        async with actor_pool() as (_pool, address):
             supervisor = await xo.create_actor(
                 PlanSupervisor,
                 supervisor_inputs,

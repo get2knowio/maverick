@@ -135,8 +135,7 @@ class DecomposerActor(OpenCodeAgentMixin, xo.Actor):
         else:
             await self._supervisor_ref.payload_parse_error(
                 "submit_outline",
-                f"DecomposerActor expected SubmitOutlinePayload, "
-                f"got {type(payload).__name__}",
+                f"DecomposerActor expected SubmitOutlinePayload, got {type(payload).__name__}",
             )
 
     @xo.no_lock
@@ -161,8 +160,7 @@ class DecomposerActor(OpenCodeAgentMixin, xo.Actor):
         else:
             await self._supervisor_ref.payload_parse_error(
                 "submit_details",
-                f"DecomposerActor expected SubmitDetailsPayload, "
-                f"got {type(payload).__name__}",
+                f"DecomposerActor expected SubmitDetailsPayload, got {type(payload).__name__}",
             )
         # The detail-mode seed has been delivered with this turn; future
         # turns within the same session reuse it.
@@ -175,9 +173,7 @@ class DecomposerActor(OpenCodeAgentMixin, xo.Actor):
         """Run the fix-pass prompt, forward :class:`SubmitFixPayload`."""
         self._fix_outline_json = request.outline_json or self._fix_outline_json
         self._fix_details_json = request.details_json or self._fix_details_json
-        self._fix_verification = (
-            request.verification_properties or self._fix_verification
-        )
+        self._fix_verification = request.verification_properties or self._fix_verification
         prompt, refreshed_seed = await self._build_fix_prompt(request)
         payload = await self._run_phase(
             prompt,
@@ -195,8 +191,7 @@ class DecomposerActor(OpenCodeAgentMixin, xo.Actor):
         else:
             await self._supervisor_ref.payload_parse_error(
                 "submit_fix",
-                f"DecomposerActor expected SubmitFixPayload, "
-                f"got {type(payload).__name__}",
+                f"DecomposerActor expected SubmitFixPayload, got {type(payload).__name__}",
             )
         self._fix_seed_stale = False
         if self._session_mode == "fix":
@@ -218,14 +213,10 @@ class DecomposerActor(OpenCodeAgentMixin, xo.Actor):
                 prompt, schema=schema, timeout=DEFAULT_PROMPT_TIMEOUT_SECONDS
             )
         except OpenCodeError as exc:
-            await self._report_failure(
-                str(exc), phase="nudge", unit_id=request.unit_id
-            )
+            await self._report_failure(str(exc), phase="nudge", unit_id=request.unit_id)
             return
         except Exception as exc:  # noqa: BLE001
-            await self._report_failure(
-                str(exc), phase="nudge", unit_id=request.unit_id
-            )
+            await self._report_failure(str(exc), phase="nudge", unit_id=request.unit_id)
             return
 
         if isinstance(payload, SubmitOutlinePayload):
@@ -237,8 +228,7 @@ class DecomposerActor(OpenCodeAgentMixin, xo.Actor):
         else:
             await self._supervisor_ref.payload_parse_error(
                 request.expected_tool,
-                f"DecomposerActor nudge produced unexpected "
-                f"{type(payload).__name__}",
+                f"DecomposerActor nudge produced unexpected {type(payload).__name__}",
             )
 
     # ------------------------------------------------------------------
@@ -266,13 +256,9 @@ class DecomposerActor(OpenCodeAgentMixin, xo.Actor):
             seed_stale=seed_stale,
             max_turns=max_turns,
         )
-        await self._maybe_rotate_session(
-            mode=mode, seed_stale=seed_stale, max_turns=max_turns
-        )
+        await self._maybe_rotate_session(mode=mode, seed_stale=seed_stale, max_turns=max_turns)
         try:
-            return await self._send_structured(
-                prompt, schema=schema, timeout=timeout
-            )
+            return await self._send_structured(prompt, schema=schema, timeout=timeout)
         except OpenCodeError as exc:
             await self._report_failure(str(exc), phase=phase, unit_id=unit_id)
             return None
@@ -280,9 +266,7 @@ class DecomposerActor(OpenCodeAgentMixin, xo.Actor):
             await self._report_failure(str(exc), phase=phase, unit_id=unit_id)
             return None
 
-    async def _maybe_rotate_session(
-        self, *, mode: str, seed_stale: bool, max_turns: int
-    ) -> None:
+    async def _maybe_rotate_session(self, *, mode: str, seed_stale: bool, max_turns: int) -> None:
         """Rotate the OpenCode session when the mode changes or the budget is hit."""
         if self._session_id is None:
             self._session_mode = mode
@@ -315,14 +299,10 @@ class DecomposerActor(OpenCodeAgentMixin, xo.Actor):
             self._session_mode = mode
             self._session_turns_in_mode = 0
 
-    async def _report_failure(
-        self, error: str, *, phase: str, unit_id: str | None
-    ) -> None:
+    async def _report_failure(self, error: str, *, phase: str, unit_id: str | None) -> None:
         from maverick.exceptions.quota import is_quota_error, is_transient_error
 
-        logger.debug(
-            "decomposer.phase_failed", phase=phase, unit_id=unit_id, error=error
-        )
+        logger.debug("decomposer.phase_failed", phase=phase, unit_id=unit_id, error=error)
         await self._supervisor_ref.prompt_error(
             PromptError(
                 phase=phase,
@@ -358,9 +338,7 @@ class DecomposerActor(OpenCodeAgentMixin, xo.Actor):
             f"{body}"
         )
 
-    async def _build_detail_prompt(
-        self, request: DetailRequest
-    ) -> tuple[str, bool]:
+    async def _build_detail_prompt(self, request: DetailRequest) -> tuple[str, bool]:
         from maverick.library.actions.decompose import (
             build_detail_seed_prompt,
             build_detail_turn_prompt,
@@ -428,6 +406,5 @@ class DecomposerActor(OpenCodeAgentMixin, xo.Actor):
         if request.reason:
             guidance.append(f"Reason: {request.reason}")
         return (
-            "Re-submit your previous response with the corrected payload.\n\n"
-            f"{' '.join(guidance)}"
+            f"Re-submit your previous response with the corrected payload.\n\n{' '.join(guidance)}"
         )
