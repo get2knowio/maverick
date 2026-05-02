@@ -16,10 +16,8 @@ from maverick.events import (
 )
 from maverick.library.actions.git_models import GitStatusResult, SnapshotResult
 from maverick.library.actions.types import (
-    CheckEpicDoneResult,
     MarkBeadCompleteResult,
     SelectNextBeadResult,
-    VerifyBeadCompletionResult,
 )
 
 # ---------------------------------------------------------------------------
@@ -55,11 +53,6 @@ def _make_select_result(
     )
 
 
-def _make_verify_result(*, passed: bool = True) -> VerifyBeadCompletionResult:
-    reasons = () if passed else ("Validation failed: lint",)
-    return VerifyBeadCompletionResult(passed=passed, reasons=reasons)
-
-
 def _done_select_result() -> SelectNextBeadResult:
     return SelectNextBeadResult(
         found=False,
@@ -75,8 +68,6 @@ def _done_select_result() -> SelectNextBeadResult:
 def _make_mock_actions(
     *,
     select_side_effect: list[Any] | None = None,
-    verify_result: VerifyBeadCompletionResult | None = None,
-    check_done_result: CheckEpicDoneResult | None = None,
 ) -> dict[str, Any]:
     """Build a dict of mock return values/side_effects for all actions."""
     from maverick.library.actions.preflight import PreflightCheckResult
@@ -89,18 +80,6 @@ def _make_mock_actions(
             _make_select_result(),
             _done_select_result(),
         ]
-
-    if verify_result is None:
-        verify_result = _make_verify_result(passed=True)
-
-    if check_done_result is None:
-        check_done_result = CheckEpicDoneResult(
-            done=True,
-            remaining_count=0,
-            all_children_closed=True,
-            total_children=1,
-            closed_children=1,
-        )
 
     mark_complete = MarkBeadCompleteResult(success=True, bead_id="b1", error=None)
 
@@ -140,14 +119,12 @@ def _make_mock_actions(
             }
         ),
         "create_findings_return": MagicMock(created_count=0),
-        "verify_return": verify_result,
         "commit_return": {
             "success": True,
             "message": "bead(b1): Test bead",
             "error": None,
         },
         "mark_complete_return": mark_complete,
-        "check_done_return": check_done_result,
         "xoscar_return": {
             "beads_completed": 1,
             "completed_bead_ids": ["b1"],
@@ -195,7 +172,6 @@ _PATCH_SPECS: list[tuple[str, str, str | None, str]] = [
         _RV,
     ),
     ("mark_complete", f"{_WF_MOD}.mark_bead_complete", "mark_complete_return", _RV),
-    ("check_done", f"{_WF_MOD}.check_epic_done", "check_done_return", _RV),
     ("restore", f"{_COMMIT_MOD}.jj_restore_operation", None, _RV),
     ("ws_manager", "maverick.workspace.manager.WorkspaceManager", None, _RV),
     (
@@ -493,13 +469,6 @@ class TestFlyBeadsWorkflow:
         ]
         mv = _make_mock_actions(
             select_side_effect=select_side_effect,
-            check_done_result=CheckEpicDoneResult(
-                done=False,
-                remaining_count=5,
-                all_children_closed=False,
-                total_children=10,
-                closed_children=5,
-            ),
         )
 
         mv["xoscar_return"] = {
@@ -542,15 +511,7 @@ class TestFlyBeadsWorkflow:
 
     async def test_epic_not_closed_when_children_still_open(self, fly_workflow: Any) -> None:
         """Epic bead stays open when some children are blocked."""
-        mv = _make_mock_actions(
-            check_done_result=CheckEpicDoneResult(
-                done=True,
-                remaining_count=0,
-                all_children_closed=False,
-                total_children=2,
-                closed_children=1,
-            ),
-        )
+        mv = _make_mock_actions()
 
         with _patch_all_actions(mv) as mocks:
             async for _ in fly_workflow.execute({"epic_id": "epic-99", "max_beads": 5}):
@@ -563,15 +524,7 @@ class TestFlyBeadsWorkflow:
 
     async def test_epic_not_closed_without_epic_id(self, fly_workflow: Any) -> None:
         """Epic is not closed when no epic_id was provided."""
-        mv = _make_mock_actions(
-            check_done_result=CheckEpicDoneResult(
-                done=True,
-                remaining_count=0,
-                all_children_closed=True,
-                total_children=1,
-                closed_children=1,
-            ),
-        )
+        mv = _make_mock_actions()
 
         with _patch_all_actions(mv) as mocks:
             async for _ in fly_workflow.execute({"epic_id": "", "max_beads": 5}):

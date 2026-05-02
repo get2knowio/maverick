@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -20,7 +19,6 @@ from maverick.workflows.refuel_maverick.constants import (
     FIX_SESSION_MAX_TURNS,
     GATHER_CONTEXT,
     PARSE_FLIGHT_PLAN,
-    WIRE_DEPS,
     WORKFLOW_NAME,
     WRITE_WORK_UNITS,
 )
@@ -37,15 +35,16 @@ from tests.unit.workflows.refuel_maverick.conftest import (
 
 _MODULE = "maverick.workflows.refuel_maverick.workflow"
 
-# Step order constants — decompose + validate now run inside the Thespian
-# supervisor (_run_with_xoscar) so their events are not visible
-# when that method is mocked.
+# Step order constants — decompose + validate now run inside the xoscar
+# supervisor (_run_with_xoscar) so their events are not visible when
+# that method is mocked. WIRE_DEPS is no longer emitted by the workflow
+# (the supervisor's BeadCreatorActor wires deps inline) so it's not in
+# this list.
 _OUTER_STEPS = [
     PARSE_FLIGHT_PLAN,
     GATHER_CONTEXT,
     WRITE_WORK_UNITS,
     CREATE_BEADS,
-    WIRE_DEPS,
 ]
 _EMPTY_CONTEXT = CodebaseContext(files=(), missing_files=(), total_size=0)
 
@@ -75,9 +74,7 @@ class TestRefuelMaverickWorkflowHappyPath:
                 f"{_MODULE}.gather_codebase_context",
                 new=AsyncMock(return_value=_EMPTY_CONTEXT),
             ),
-            patch(f"{_MODULE}.create_beads", new=AsyncMock(return_value=bead_result)),
-            patch(f"{_MODULE}.wire_dependencies", new=AsyncMock(return_value=wire_result)),
-            patch_decompose_supervisor(),
+            patch_decompose_supervisor(bead_result=bead_result, dep_result=wire_result),
         ):
             events, result = await collect_events(
                 workflow,
@@ -111,9 +108,7 @@ class TestRefuelMaverickWorkflowHappyPath:
                 f"{_MODULE}.gather_codebase_context",
                 new=AsyncMock(return_value=_EMPTY_CONTEXT),
             ),
-            patch(f"{_MODULE}.create_beads", new=AsyncMock(return_value=bead_result)),
-            patch(f"{_MODULE}.wire_dependencies", new=AsyncMock(return_value=wire_result)),
-            patch_decompose_supervisor(),
+            patch_decompose_supervisor(bead_result=bead_result, dep_result=wire_result),
         ):
             _events, workflow_result = await collect_events(
                 workflow,
@@ -140,11 +135,24 @@ class TestRefuelMaverickWorkflowHappyPath:
         bead_result = make_bead_result()
         wire_result = make_wire_result()
 
-        mock_decompose = AsyncMock(
-            return_value=__import__(
-                "tests.unit.workflows.refuel_maverick.conftest", fromlist=["x"]
-            ).make_simple_decomposition_output()
-        )
+        decomp = make_simple_decomposition_output()
+        call_record: dict[str, int] = {"calls": 0}
+
+        async def mock_decompose(
+            *args: Any,
+            ctx: dict[str, Any] | None = None,
+            **kwargs: Any,
+        ) -> Any:
+            call_record["calls"] += 1
+            if ctx is not None:
+                ctx["fix_rounds"] = 0
+                ctx["supervisor_epic"] = bead_result.epic
+                ctx["supervisor_epic_id"] = bead_result.epic["bd_id"] if bead_result.epic else ""
+                ctx["supervisor_work_beads"] = list(bead_result.work_beads)
+                ctx["supervisor_created_map"] = dict(bead_result.created_map)
+                ctx["supervisor_dependencies"] = list(wire_result.dependencies)
+                ctx["supervisor_deps_wired"] = len(wire_result.dependencies)
+            return decomp
 
         with (
             patch_cwd(tmp_path),
@@ -152,8 +160,6 @@ class TestRefuelMaverickWorkflowHappyPath:
                 f"{_MODULE}.gather_codebase_context",
                 new=AsyncMock(return_value=_EMPTY_CONTEXT),
             ),
-            patch(f"{_MODULE}.create_beads", new=AsyncMock(return_value=bead_result)),
-            patch(f"{_MODULE}.wire_dependencies", new=AsyncMock(return_value=wire_result)),
             patch.object(workflow, "_run_with_xoscar", new=mock_decompose),
         ):
             await collect_events(
@@ -161,7 +167,7 @@ class TestRefuelMaverickWorkflowHappyPath:
                 {"flight_plan_path": str(fp), "skip_briefing": True},
             )
 
-        mock_decompose.assert_called_once()
+        assert call_record["calls"] == 1
 
     async def test_xoscar_supervisor_receives_typed_inputs(
         self,
@@ -171,11 +177,12 @@ class TestRefuelMaverickWorkflowHappyPath:
         """The xoscar supervisor receives a ``RefuelInputs`` carrying the
         resolved ``StepConfig`` and the internal detail/fix session
         thresholds. Replaces the two Thespian-specific init-dict tests."""
-        from maverick.config import AgentConfig, AgentProviderConfig
+        from maverick.config import AgentProviderConfig
 
-        mock_config.steps = {}
-        mock_config.agents = {
-            "decomposer": AgentConfig(provider="claude", model_id="opus"),
+        mock_config.actors = {
+            "refuel": {
+                "decomposer": {"provider": "claude", "model_id": "opus"},
+            }
         }
         mock_config.agent_providers = {
             "claude": AgentProviderConfig(
@@ -255,8 +262,6 @@ class TestRefuelMaverickWorkflowHappyPath:
         the decomposer's config."""
         from maverick.config import AgentProviderConfig
 
-        mock_config.steps = {}
-        mock_config.agents = {}
         mock_config.actors = {
             "refuel": {
                 "navigator": {"provider": "gemini", "model_id": "gemini-3.1-pro-preview"},
@@ -358,9 +363,7 @@ class TestRefuelMaverickWorkflowHappyPath:
                 f"{_MODULE}.gather_codebase_context",
                 new=AsyncMock(return_value=_EMPTY_CONTEXT),
             ),
-            patch(f"{_MODULE}.create_beads", new=AsyncMock(return_value=bead_result)),
-            patch(f"{_MODULE}.wire_dependencies", new=AsyncMock(return_value=wire_result)),
-            patch_decompose_supervisor(),
+            patch_decompose_supervisor(bead_result=bead_result, dep_result=wire_result),
         ):
             await collect_events(
                 workflow,
@@ -401,9 +404,7 @@ class TestRefuelMaverickWorkflowHappyPath:
                 f"{_MODULE}.gather_codebase_context",
                 new=AsyncMock(return_value=_EMPTY_CONTEXT),
             ),
-            patch(f"{_MODULE}.create_beads", new=AsyncMock(return_value=bead_result)),
-            patch(f"{_MODULE}.wire_dependencies", new=AsyncMock(return_value=wire_result)),
-            patch_decompose_supervisor(),
+            patch_decompose_supervisor(bead_result=bead_result, dep_result=wire_result),
         ):
             events, result = await collect_events(
                 workflow,
@@ -415,47 +416,12 @@ class TestRefuelMaverickWorkflowHappyPath:
         assert isinstance(events[-1], WorkflowCompleted)
         assert events[-1].success is True
 
-    async def test_wire_dependencies_receives_extracted_deps_from_work_units(
-        self,
-        mock_config: MagicMock,
-        tmp_path: Path,
-    ) -> None:
-        """wire_dependencies is called with extracted_deps built from depends_on."""
-        fp = make_simple_flight_plan(tmp_path)
-        workflow = make_workflow(mock_config)
-        bead_result = make_bead_result()
-        wire_result = make_wire_result()
-
-        mock_wire = AsyncMock(return_value=wire_result)
-        with (
-            patch_cwd(tmp_path),
-            patch(
-                f"{_MODULE}.gather_codebase_context",
-                new=AsyncMock(return_value=_EMPTY_CONTEXT),
-            ),
-            patch(f"{_MODULE}.create_beads", new=AsyncMock(return_value=bead_result)),
-            patch(f"{_MODULE}.wire_dependencies", new=mock_wire),
-            patch_decompose_supervisor(),
-        ):
-            await collect_events(
-                workflow,
-                {"flight_plan_path": str(fp), "skip_briefing": True},
-            )
-
-        mock_wire.assert_called_once()
-        call_kwargs = mock_wire.call_args.kwargs
-        extracted = call_kwargs["extracted_deps"]
-        assert extracted, "extracted_deps should not be empty"
-
-        dep_pairs = json.loads(extracted)
-        # The conftest fixture has 3 dependency relationships:
-        # add-registration-endpoint -> add-user-model
-        # add-login-endpoint -> add-user-model
-        # add-auth-middleware -> add-login-endpoint
-        assert len(dep_pairs) == 3
-        assert ["add-registration-endpoint", "add-user-model"] in dep_pairs
-        assert ["add-login-endpoint", "add-user-model"] in dep_pairs
-        assert ["add-auth-middleware", "add-login-endpoint"] in dep_pairs
+    # NOTE: ``test_wire_dependencies_receives_extracted_deps_from_work_units``
+    # was deleted alongside the duplicate-epic fix. The workflow no longer
+    # calls ``wire_dependencies`` directly — the xoscar supervisor's
+    # ``BeadCreatorActor`` extracts deps from ``spec.depends_on`` and wires
+    # them inside its ``create_beads`` call. The equivalent assertion
+    # belongs in supervisor-level tests, not the workflow test file.
 
 
 # ---------------------------------------------------------------------------

@@ -15,9 +15,9 @@ from maverick.init.models import (
     ProjectDetectionResult,
     ProjectType,
 )
-from maverick.init.provider_discovery import (
-    ProviderDiscoveryResult,
-    ProviderProbeResult,
+from maverick.init.opencode_discovery import (
+    ConnectedProvider,
+    OpenCodeDiscoveryResult,
 )
 
 
@@ -170,15 +170,15 @@ class TestGenerateConfig:
         assert config.model.temperature == 0.0
 
     def test_generate_config_with_provider_discovery(self) -> None:
-        """Provider discovery populates agent_providers in config."""
+        """OpenCode provider discovery populates agent_providers in config."""
         git_info = GitRemoteInfo(owner="acme", repo="project")
-        discovery = ProviderDiscoveryResult(
+        discovery = OpenCodeDiscoveryResult(
             providers=(
-                ProviderProbeResult("claude", "Claude", "claude-agent-acp", True),
-                ProviderProbeResult("copilot", "GitHub Copilot", "copilot", True),
-                ProviderProbeResult("gemini", "Gemini", "gemini", False),
+                ConnectedProvider("github-copilot", "GitHub Copilot", "claude-sonnet-4.6", 17),
+                ConnectedProvider("openai", "OpenAI", "gpt-5.5", 9),
+                ConnectedProvider("openrouter", "OpenRouter", "google/gemini-3-pro-preview", 180),
             ),
-            default_provider="claude",
+            default_provider_id="github-copilot",
         )
 
         config = generate_config(
@@ -187,24 +187,25 @@ class TestGenerateConfig:
             provider_discovery=discovery,
         )
 
-        assert "claude" in config.agent_providers
-        assert config.agent_providers["claude"]["default"] is True
-        assert "copilot" in config.agent_providers
-        assert config.agent_providers["copilot"]["default"] is False
-        assert "gemini" not in config.agent_providers
+        assert "github-copilot" in config.agent_providers
+        assert config.agent_providers["github-copilot"]["default"] is True
+        assert "openai" in config.agent_providers
+        assert config.agent_providers["openai"]["default"] is False
+        assert "openrouter" in config.agent_providers
+        assert config.agent_providers["openrouter"]["default"] is False
 
     def test_generate_config_no_discovery(self) -> None:
-        """No discovery result means empty agent_providers (backward compat)."""
+        """No discovery result means empty agent_providers."""
         git_info = GitRemoteInfo()
         config = generate_config(git_info=git_info, detection=None)
         assert config.agent_providers == {}
 
     def test_generate_config_empty_discovery(self) -> None:
-        """Discovery with no found providers yields empty agent_providers."""
+        """Discovery with no connected providers yields empty agent_providers."""
         git_info = GitRemoteInfo()
-        discovery = ProviderDiscoveryResult(
-            providers=(ProviderProbeResult("claude", "Claude", "claude-agent-acp", False),),
-            default_provider=None,
+        discovery = OpenCodeDiscoveryResult(
+            providers=(),
+            default_provider_id=None,
         )
         config = generate_config(
             git_info=git_info,

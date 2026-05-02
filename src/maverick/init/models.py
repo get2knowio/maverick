@@ -14,7 +14,7 @@ from enum import Enum
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from maverick.init.provider_discovery import ProviderDiscoveryResult
+    from maverick.init.opencode_discovery import OpenCodeDiscoveryResult
 
 import yaml
 from pydantic import BaseModel, Field
@@ -637,24 +637,22 @@ class InitConfig(BaseModel):
 
 
 def _starter_provider_tiers() -> dict[str, list[dict[str, str]]]:
-    """Return the curated starter ``provider_tiers.tiers`` map.
+    """Return the canonical starter ``provider_tiers.tiers`` map.
 
-    Mirrors a subset of :data:`maverick.runtime.opencode.tiers.DEFAULT_TIERS`
-    so a freshly-init'd repo has a discoverable, working tier setup.
-    Roles not listed here fall through to the runtime defaults at
-    runtime — users can add `briefing` / `decompose` / `generate` later
-    if they want per-role overrides.
+    Mirrors :data:`maverick.runtime.opencode.tiers.DEFAULT_TIERS` so a
+    freshly-init'd repo carries the same routing the runtime uses
+    when no per-project override is set. Edit
+    ``maverick.yaml::provider_tiers.tiers.<role>`` to override per
+    project; edit ``DEFAULT_TIERS`` to override globally.
     """
+    # Local import: importing the runtime at module load time would
+    # pull the OpenCode HTTP client + xoscar onto the init code path,
+    # which is otherwise pure stdlib + Pydantic.
+    from maverick.runtime.opencode import DEFAULT_TIERS
+
     return {
-        "review": [
-            {"provider": "openrouter", "model_id": "anthropic/claude-haiku-4.5"},
-            {"provider": "openrouter", "model_id": "qwen/qwen3-coder"},
-        ],
-        "implement": [
-            {"provider": "openrouter", "model_id": "anthropic/claude-haiku-4.5"},
-            {"provider": "openrouter", "model_id": "qwen/qwen3-coder"},
-            {"provider": "openrouter", "model_id": "anthropic/claude-sonnet-4.5"},
-        ],
+        name: [{"provider": b.provider_id, "model_id": b.model_id} for b in tier.bindings]
+        for name, tier in DEFAULT_TIERS.items()
     }
 
 
@@ -717,7 +715,7 @@ class InitResult:
     findings_printed: bool = False
     beads_initialized: bool = False
     runway_initialized: bool = False
-    provider_discovery: ProviderDiscoveryResult | None = None
+    provider_discovery: OpenCodeDiscoveryResult | None = None
     config_existed: bool = False
 
     def to_dict(self) -> dict[str, Any]:

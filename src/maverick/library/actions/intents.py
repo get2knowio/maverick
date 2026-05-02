@@ -67,16 +67,7 @@ ACTION_INTENTS: dict[str, str] = {
     "mark_bead_complete": (
         "Mark the specified bead as completed after successful implementation."
     ),
-    "check_epic_done": ("Check whether all beads in the epic have been completed."),
-    "create_beads_from_failures": (
-        "Create new beads from validation or test failures for follow-up fixes."
-    ),
-    "create_beads_from_findings": (
-        "Create new beads from review findings that require separate work items."
-    ),
-    "verify_bead_completion": (
-        "Verify that a bead's implementation satisfies its acceptance criteria."
-    ),
+    "defer_bead": ("Mark a bead as deferred so it stops appearing in `bd ready` output."),
     # Dry-run
     "log_dry_run": (
         "Log a dry-run message indicating what would be executed without performing the action."

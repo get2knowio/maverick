@@ -10,7 +10,7 @@ methods rather than redefining them here.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 # ---------------------------------------------------------------------------
@@ -121,6 +121,10 @@ class BeadsCreatedResult:
     bead_count: int = 0
     deps_wired: int = 0
     error: str = ""
+    epic: dict[str, Any] | None = None
+    work_beads: tuple[dict[str, Any], ...] = ()
+    created_map: dict[str, str] = field(default_factory=dict)
+    dependencies: tuple[dict[str, Any], ...] = ()
 
 
 # ---------------------------------------------------------------------------

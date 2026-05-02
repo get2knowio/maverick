@@ -5,13 +5,13 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from maverick.exceptions import WorkflowError
 from maverick.flight.loader import FlightPlanFile
 from maverick.flight.serializer import serialize_work_unit
-from maverick.library.actions.beads import create_beads, wire_dependencies
 from maverick.library.actions.cross_plan_deps import (
     resolve_plan_epic_ids,
     wire_cross_plan_dependencies,
@@ -39,13 +39,35 @@ from maverick.workflows.refuel_maverick.constants import (
     GATHER_CONTEXT,
     PARSE_FLIGHT_PLAN,
     WIRE_CROSS_PLAN_DEPS,
-    WIRE_DEPS,
     WORKFLOW_NAME,
     WRITE_WORK_UNITS,
 )
 from maverick.workflows.refuel_maverick.models import RefuelMaverickResult
 
 logger = get_logger(__name__)
+
+
+@dataclass(frozen=True, slots=True)
+class _SyntheticBeadResult:
+    """Adopts the supervisor's bead-creation outputs into the shape the
+    downstream workflow code expects (cross-plan dep wiring, the final
+    :class:`RefuelMaverickResult`). Replaces the result the deleted
+    in-workflow ``create_beads`` call used to produce."""
+
+    epic: dict[str, Any] | None
+    work_beads: tuple[dict[str, Any], ...]
+    created_map: dict[str, str]
+    dependencies: tuple[dict[str, Any], ...]
+    errors: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class _SyntheticWireResult:
+    """Stand-in for the deleted in-workflow ``wire_dependencies`` result.
+    Carries only the field downstream consumers read."""
+
+    dependencies: tuple[dict[str, Any], ...]
+
 
 #: Bumped when the on-disk cache layout changes so stale caches with
 #: the old schema get invalidated instead of silently misinterpreted.
@@ -534,155 +556,138 @@ class RefuelMaverickWorkflow(PythonWorkflow):
         )
 
         # ------------------------------------------------------------------
-        # Steps 6-7: Create beads and wire deps
+        # Steps 6-7: Consume the supervisor's bead-creation outputs.
+        #
+        # ``RefuelSupervisor._run_decompose`` already created the epic +
+        # work beads via :class:`BeadCreatorActor` and wired
+        # ``depends_on`` deps inside the same call. Re-running
+        # ``create_beads`` here would fabricate a duplicate epic with
+        # identical children — that was the historical bug. Instead, we
+        # adopt the supervisor's outputs from ``ctx`` (stashed in
+        # ``_run_with_xoscar``) and only run the post-creation
+        # bookkeeping the supervisor doesn't own (run-meta update,
+        # ``flight_plan_name`` state attachment, cross-epic dep wiring).
         # ------------------------------------------------------------------
-        bead_result = None
-        wire_result = None
+        supervisor_epic: dict[str, Any] | None = ctx.get("supervisor_epic")
+        supervisor_epic_id: str = ctx.get("supervisor_epic_id", "") or ""
+        supervisor_work_beads: list[dict[str, Any]] = list(ctx.get("supervisor_work_beads") or ())
+        supervisor_created_map: dict[str, str] = dict(ctx.get("supervisor_created_map") or {})
+        supervisor_dependencies: list[dict[str, Any]] = list(
+            ctx.get("supervisor_dependencies") or ()
+        )
 
-        # Step 6: Create beads
-        await self.emit_step_started(CREATE_BEADS, display_label="Creating beads")
-        try:
-            # Build epic and work definitions
-            epic_definition = {
-                "title": flight_plan.name,
-                "bead_type": "epic",
-                "priority": 1,
-                "category": "foundation",
-                "description": flight_plan.objective,
-                "phase_names": [],
-                "task_ids": [wu.id for wu in work_units],
-            }
-            work_definitions = [
-                {
-                    "title": wu.id if len(wu.task) > 200 else wu.task[:200],
-                    "bead_type": "task",
-                    "priority": 2,
-                    "category": "user_story",
-                    "description": (wu.instructions[:500] if wu.instructions else wu.task),
-                    "phase_names": [],
-                    "user_story_id": wu.id,
-                    "task_ids": [wu.id],
-                }
-                for wu in work_units
-            ]
+        await self.emit_step_started(CREATE_BEADS, display_label="Recording bead creation")
 
-            bead_result = await create_beads(
-                epic_definition=epic_definition,
-                work_definitions=work_definitions,
-                dry_run=False,
+        if not supervisor_epic_id:
+            await self.emit_step_failed(
+                CREATE_BEADS,
+                "supervisor returned no epic_id; bead creation must have failed",
             )
-        except Exception as exc:
-            await self.emit_step_failed(CREATE_BEADS, str(exc))
-            raise
+            raise WorkflowError("Supervisor produced no epic; aborting refuel")
 
-        # Update run metadata with epic ID
-        if bead_result.epic:
-            run_meta.epic_id = bead_result.epic["bd_id"]
-            run_meta.status = "refueled"
-            write_metadata(run_dir, run_meta)
-            ctx["epic_id"] = bead_result.epic["bd_id"]
-            ctx["bead_ids"] = [b["bd_id"] for b in bead_result.work_beads if b.get("bd_id")]
+        if not supervisor_epic:
+            # Synthesize a minimal epic dict so downstream consumers
+            # (cross-plan deps, RefuelMaverickResult) keep their
+            # ``epic["bd_id"]`` access pattern. The supervisor returns
+            # the full dict in the happy path; this fallback handles
+            # older cached supervisor payloads.
+            supervisor_epic = {"bd_id": supervisor_epic_id, "title": flight_plan.name}
+
+        run_meta.epic_id = supervisor_epic_id
+        run_meta.status = "refueled"
+        write_metadata(run_dir, run_meta)
+        ctx["epic_id"] = supervisor_epic_id
+        ctx["bead_ids"] = [
+            b["bd_id"] for b in supervisor_work_beads if isinstance(b, dict) and b.get("bd_id")
+        ]
 
         # Attach flight_plan_name to the epic for downstream lookup,
         # and wire cross-epic dependencies so new epics wait for
         # existing open epics to complete first.
-        if bead_result.epic:
-            from maverick.beads.client import BeadClient
-            from maverick.beads.models import BeadDependency
+        from maverick.beads.client import BeadClient
+        from maverick.beads.models import BeadDependency
 
-            _bead_client = BeadClient(cwd=ws_cwd)
-            new_epic_id = bead_result.epic["bd_id"]
-
-            try:
-                await _bead_client.set_state(
-                    new_epic_id,
-                    {"flight_plan_name": flight_plan.name},
-                    reason="refuel: link epic to flight plan",
-                )
-            except Exception as exc:
-                logger.warning(
-                    "set_flight_plan_state_failed",
-                    epic_id=new_epic_id,
-                    error=str(exc),
-                )
-
-            # Wire cross-epic dependency: new epic is blocked by the
-            # most recent existing open epic (the tail of the chain).
-            # This serializes epics without creating redundant fan-in
-            # dependencies — if A→B already exists, C only needs B→C.
-            try:
-                all_beads = await _bead_client.query("type=epic AND status=open")
-                existing_epics = [b for b in all_beads if b.id != new_epic_id]
-                if existing_epics:
-                    # Use the last one (most recently created = tail)
-                    tail_epic = existing_epics[-1]
-                    await _bead_client.add_dependency(
-                        BeadDependency(
-                            blocker_id=tail_epic.id,
-                            blocked_id=new_epic_id,
-                        )
-                    )
-                    logger.info(
-                        "cross_epic_dep_wired",
-                        blocker=tail_epic.id,
-                        blocked=new_epic_id,
-                    )
-                    await self.emit_output(
-                        CREATE_BEADS,
-                        f"New epic blocked by {tail_epic.id} "
-                        f"— tasks start when prior epic completes",
-                    )
-            except Exception as exc:
-                logger.warning(
-                    "cross_epic_dep_failed",
-                    epic_id=new_epic_id,
-                    error=str(exc),
-                )
-
-        if bead_result.errors:
-            for error in bead_result.errors:
-                await self.emit_output(
-                    CREATE_BEADS,
-                    error,
-                    level="error",
-                )
-            raise WorkflowError(f"Failed to create {len(bead_result.errors)} beads")
-
-        await self.emit_output(
-            CREATE_BEADS,
-            f"Created epic: {flight_plan.name}",
-        )
-        await self.emit_output(
-            CREATE_BEADS,
-            f"Created {len(bead_result.work_beads)} task beads",
-        )
-        await self.emit_step_completed(CREATE_BEADS, output=bead_result.to_dict())
-
-        # Step 7: Wire dependencies
-        await self.emit_step_started(WIRE_DEPS, display_label="Wiring dependencies")
-        dep_pairs: list[list[str]] = []
-        for wu in work_units:
-            for dep_id in wu.depends_on:
-                dep_pairs.append([wu.id, dep_id])
-        extracted_deps = json.dumps(dep_pairs) if dep_pairs else ""
+        _bead_client = BeadClient(cwd=ws_cwd)
 
         try:
-            wire_result = await wire_dependencies(
-                work_definitions=work_definitions,
-                created_map=bead_result.created_map,
-                tasks_content=f"# Flight Plan: {flight_plan.name}\n",
-                extracted_deps=extracted_deps,
-                dry_run=False,
+            await _bead_client.set_state(
+                supervisor_epic_id,
+                {"flight_plan_name": flight_plan.name},
+                reason="refuel: link epic to flight plan",
             )
         except Exception as exc:
-            await self.emit_step_failed(WIRE_DEPS, str(exc))
-            raise
+            logger.warning(
+                "set_flight_plan_state_failed",
+                epic_id=supervisor_epic_id,
+                error=str(exc),
+            )
+
+        # Wire cross-epic dependency: new epic is blocked by the most
+        # recent existing open epic (the tail of the chain). Serializes
+        # epics without redundant fan-in dependencies — if A→B already
+        # exists, C only needs B→C.
+        try:
+            all_beads = await _bead_client.query("type=epic AND status=open")
+            existing_epics = [b for b in all_beads if b.id != supervisor_epic_id]
+            if existing_epics:
+                tail_epic = existing_epics[-1]
+                await _bead_client.add_dependency(
+                    BeadDependency(
+                        blocker_id=tail_epic.id,
+                        blocked_id=supervisor_epic_id,
+                    )
+                )
+                logger.info(
+                    "cross_epic_dep_wired",
+                    blocker=tail_epic.id,
+                    blocked=supervisor_epic_id,
+                )
+                await self.emit_output(
+                    CREATE_BEADS,
+                    f"New epic blocked by {tail_epic.id} — tasks start when prior epic completes",
+                )
+        except Exception as exc:
+            logger.warning(
+                "cross_epic_dep_failed",
+                epic_id=supervisor_epic_id,
+                error=str(exc),
+            )
 
         await self.emit_output(
-            WIRE_DEPS,
-            f"Wired {len(wire_result.dependencies)} dependencies",
+            CREATE_BEADS,
+            f"Adopted supervisor epic {supervisor_epic_id}: {flight_plan.name}",
         )
-        await self.emit_step_completed(WIRE_DEPS, output=wire_result.to_dict())
+        await self.emit_output(
+            CREATE_BEADS,
+            f"Adopted {len(supervisor_work_beads)} supervisor-created task beads "
+            f"({len(supervisor_dependencies)} deps wired by supervisor)",
+        )
+        await self.emit_step_completed(
+            CREATE_BEADS,
+            output={
+                "epic": supervisor_epic,
+                "work_beads": supervisor_work_beads,
+                "created_map": supervisor_created_map,
+                "dependencies": supervisor_dependencies,
+                "deps_wired": ctx.get("supervisor_deps_wired", 0),
+                "errors": [],
+            },
+        )
+
+        # The legacy WIRE_DEPS step (Step 7) was redundant: ``BeadCreatorActor``
+        # already invoked ``wire_dependencies`` against ``self._extract_deps()``
+        # before returning, so re-running it here only re-wrote the same edges.
+        # Synthesize a stand-in result the rest of the workflow expects.
+        bead_result = _SyntheticBeadResult(
+            epic=supervisor_epic,
+            work_beads=tuple(supervisor_work_beads),
+            created_map=supervisor_created_map,
+            dependencies=tuple(supervisor_dependencies),
+            errors=(),
+        )
+        wire_result = _SyntheticWireResult(
+            dependencies=tuple(supervisor_dependencies),
+        )
 
         # ------------------------------------------------------------------
         # Step 8: Wire cross-plan epic dependencies
@@ -1120,6 +1125,16 @@ class RefuelMaverickWorkflow(PythonWorkflow):
         fix_rounds = result.get("fix_rounds", 0)
         if ctx is not None:
             ctx["fix_rounds"] = fix_rounds
+            # Stash the supervisor's bead-creation outputs so the
+            # workflow's post-decompose steps consume them instead of
+            # re-running ``create_beads`` (which would fabricate a
+            # duplicate epic with identical children).
+            ctx["supervisor_epic"] = result.get("epic")
+            ctx["supervisor_epic_id"] = result.get("epic_id", "")
+            ctx["supervisor_work_beads"] = list(result.get("work_beads") or ())
+            ctx["supervisor_created_map"] = dict(result.get("created_map") or {})
+            ctx["supervisor_dependencies"] = list(result.get("dependencies") or ())
+            ctx["supervisor_deps_wired"] = result.get("deps_wired", 0)
 
         decomposition = DecompositionOutput(
             work_units=work_units,

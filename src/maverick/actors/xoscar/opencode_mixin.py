@@ -31,6 +31,7 @@ it up by ``self.address``.
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, ClassVar
 
 import xoscar as xo
@@ -66,14 +67,16 @@ DEFAULT_STRUCTURED_TIMEOUT_SECONDS = 600.0
 DEFAULT_TEXT_TIMEOUT_SECONDS = 600.0
 
 
-class OpenCodePayloadValidationError(OpenCodeError):
+class OpenCodePayloadValidationError(OpenCodeStructuredOutputError):
     """Server returned a structured payload that didn't match the actor's model.
 
-    Distinct from :class:`OpenCodeStructuredOutputError` (which the server
-    raises when it gives up forcing the model to call StructuredOutput) —
-    this fires when the server *did* return a payload but our Pydantic
-    model rejected it. Almost always a prompt/schema-shape mismatch worth
-    reporting upstream.
+    Subclasses :class:`OpenCodeStructuredOutputError` so the tier cascade
+    treats schema-rejected payloads the same as server-reported
+    structured-output failures — both indicate the current binding can't
+    produce a usable response and the right recovery is to fall over to
+    the next binding. Kept as a distinct subclass so callers that care
+    about the difference (server gave up vs. our schema rejected) can
+    still discriminate via ``isinstance``.
     """
 
 
@@ -267,6 +270,16 @@ class OpenCodeAgentMixin:
             "type": "json_schema",
             "schema": target_schema.model_json_schema(),
         }
+
+        def _validate(result: SendResult) -> None:
+            # Run inside each cascade attempt so a Pydantic-rejected
+            # payload counts as a binding failure (raises a subclass of
+            # OpenCodeStructuredOutputError, which the cascade catches).
+            # Without this hook, validation would only run once outside
+            # the cascade and a single bad reply would kill the call
+            # instead of falling over to the next binding.
+            self._coerce_payload(result, target_schema)
+
         result = await self._send_with_model(
             client,
             session_id,
@@ -275,6 +288,7 @@ class OpenCodeAgentMixin:
             timeout=timeout,
             system=system,
             agent=self._resolve_opencode_agent(agent),
+            validate=_validate,
         )
         return self._coerce_payload(result, target_schema)
 
@@ -361,6 +375,7 @@ class OpenCodeAgentMixin:
         timeout: float,
         system: str | None,
         agent: str | None = None,
+        validate: Callable[[SendResult], None] | None = None,
     ) -> SendResult:
         """Send the prompt, falling over to lower-tier bindings on failure.
 
@@ -373,6 +388,17 @@ class OpenCodeAgentMixin:
         structured-output) the next binding in the tier is tried. On
         success the binding is "sticky" — subsequent sends on this
         actor reuse it without re-traversing the tier from the top.
+
+        Args:
+            validate: Optional caller-supplied hook invoked synchronously
+                inside the cascade after each successful HTTP send. When
+                it raises a :class:`OpenCodeStructuredOutputError`
+                subclass (e.g. :class:`OpenCodePayloadValidationError`),
+                the cascade treats the binding as failed and falls over
+                to the next one — so a model that returns a malformed
+                payload triggers fallover rather than killing the call.
+                Without this, validation runs only once outside the
+                cascade and a single bad reply terminates the request.
 
         Records cost telemetry from each successful send via
         :func:`cost_record_from_send`; callers can inspect
@@ -390,6 +416,8 @@ class OpenCodeAgentMixin:
                 system=system,
                 timeout=timeout,
             )
+            if validate is not None:
+                validate(result)
             self._last_cost_record = cost_record_from_send(result)
             self._record_cost(result)
             return result
@@ -398,7 +426,7 @@ class OpenCodeAgentMixin:
             if binding not in self._validated_bindings:
                 await validate_model_id(client, binding.provider_id, binding.model_id)
                 self._validated_bindings.add(binding)
-            return await client.send_with_event_watch(
+            result = await client.send_with_event_watch(
                 session_id,
                 prompt,
                 model=binding.to_dict(),
@@ -407,6 +435,11 @@ class OpenCodeAgentMixin:
                 system=system,
                 timeout=timeout,
             )
+            if validate is not None:
+                # Raises OpenCodeStructuredOutputError-derived on bad
+                # payload; cascade_send catches and falls over.
+                validate(result)
+            return result
 
         tier = Tier(name=self._tier_name_or_inline(), bindings=tuple(bindings))
         outcome: CascadeOutcome = await cascade_send(

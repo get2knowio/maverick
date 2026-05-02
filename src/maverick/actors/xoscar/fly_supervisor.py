@@ -635,7 +635,10 @@ class FlySupervisor(xo.Actor):
         from maverick.library.actions.beads import select_next_bead
 
         try:
-            result = await select_next_bead(epic_id=self._inputs.epic_id)
+            result = await select_next_bead(
+                epic_id=self._inputs.epic_id,
+                cwd=self._inputs.cwd,
+            )
             return result.to_dict()
         except Exception as exc:  # noqa: BLE001
             await self._emit_output(

@@ -1,7 +1,13 @@
-"""Bead generation actions for DSL workflow execution.
+"""Bead-creation and lifecycle actions for workflows.
 
-Actions that wrap the beads library for use in YAML workflow steps.
-Each action receives and returns JSON-serializable dicts/primitives.
+Every action takes an explicit ``cwd`` so workflows preserve workspace
+isolation (CLAUDE.md Architectural Guardrail 7). Workflows resolve
+``cwd`` from the active workspace (``ws_cwd``) and thread it through
+every call. Defaulting to ``Path.cwd()`` here would silently route bd
+writes to whatever directory the maverick CLI was launched in,
+bypassing the workspace and producing the kind of duplicate-epic /
+project-id-mismatch bugs the OpenCode-substrate migration cleanup
+removed.
 """
 
 from __future__ import annotations
@@ -12,13 +18,9 @@ from typing import Any
 
 from maverick.library.actions.types import (
     BeadCreationResult,
-    CheckEpicDoneResult,
-    CreateBeadsFromFailuresResult,
-    CreateBeadsFromFindingsResult,
     DependencyWiringResult,
     MarkBeadCompleteResult,
     SelectNextBeadResult,
-    VerifyBeadCompletionResult,
 )
 from maverick.logging import get_logger
 
@@ -28,6 +30,8 @@ logger = get_logger(__name__)
 async def create_beads(
     epic_definition: dict[str, Any],
     work_definitions: list[dict[str, Any]],
+    *,
+    cwd: Path | str,
     dry_run: bool = False,
 ) -> BeadCreationResult:
     """Create epic and work beads via the bd CLI.
@@ -35,6 +39,8 @@ async def create_beads(
     Args:
         epic_definition: Serialized BeadDefinition for the epic.
         work_definitions: Serialized BeadDefinitions for work beads.
+        cwd: Workspace directory whose ``.beads/`` receives the writes.
+            Required — see module docstring.
         dry_run: If True, return synthetic IDs without calling bd.
 
     Returns:
@@ -62,7 +68,7 @@ async def create_beads(
             errors=(),
         )
 
-    client = BeadClient(cwd=Path.cwd())
+    client = BeadClient(cwd=Path(cwd))
     errors: list[str] = []
 
     # Create epic
@@ -105,6 +111,8 @@ async def wire_dependencies(
     created_map: dict[str, str],
     tasks_content: str,
     extracted_deps: str,
+    *,
+    cwd: Path | str,
     dry_run: bool = False,
 ) -> DependencyWiringResult:
     """Compute and wire dependencies between created beads.
@@ -119,6 +127,8 @@ async def wire_dependencies(
         tasks_content: Raw tasks.md content (used for structural dep context).
         extracted_deps: JSON string from DependencyExtractor, e.g.
             '[["US3","US1"],["US7","US1"]]'.
+        cwd: Workspace directory whose ``.beads/`` receives the writes.
+            Required — see module docstring.
         dry_run: If True, compute dependencies without calling bd.
 
     Returns:
@@ -220,7 +230,7 @@ async def wire_dependencies(
         )
 
     # Wire dependencies via bd CLI
-    client = BeadClient(cwd=Path.cwd())
+    client = BeadClient(cwd=Path(cwd))
     errors: list[str] = []
     wired: list[BeadDependency] = []
 
@@ -245,10 +255,16 @@ async def wire_dependencies(
     )
 
 
-async def select_next_bead(epic_id: str = "") -> SelectNextBeadResult:
+async def select_next_bead(
+    epic_id: str = "",
+    *,
+    cwd: Path | str,
+) -> SelectNextBeadResult:
     """Select the next ready bead.
 
     Args:
+        cwd: Workspace directory whose ``.beads/`` is queried. Required —
+            see module docstring.
         epic_id: Epic bead ID to query. When empty, queries any ready bead
             across all epics.
 
@@ -257,7 +273,7 @@ async def select_next_bead(epic_id: str = "") -> SelectNextBeadResult:
     """
     from maverick.beads.client import BeadClient
 
-    client = BeadClient(cwd=Path.cwd())
+    client = BeadClient(cwd=Path(cwd))
 
     # When epic_id is provided, query by parent; otherwise query all ready beads.
     # Fetch more than 1 to allow filtering out human-assigned beads.
@@ -307,7 +323,7 @@ async def select_next_bead(epic_id: str = "") -> SelectNextBeadResult:
             description="",
             priority=0,
             epic_id=epic_id,
-            done=True,
+            done=False,
         )
 
     # Resolve the epic_id from the bead when none was specified
@@ -354,12 +370,16 @@ async def select_next_bead(epic_id: str = "") -> SelectNextBeadResult:
 
 async def mark_bead_complete(
     bead_id: str,
+    *,
+    cwd: Path | str,
     reason: str = "",
 ) -> MarkBeadCompleteResult:
     """Close a bead, marking it as complete.
 
     Args:
         bead_id: ID of the bead to close.
+        cwd: Workspace directory whose ``.beads/`` is updated. Required —
+            see module docstring.
         reason: Optional reason for closing.
 
     Returns:
@@ -367,7 +387,7 @@ async def mark_bead_complete(
     """
     from maverick.beads.client import BeadClient
 
-    client = BeadClient(cwd=Path.cwd())
+    client = BeadClient(cwd=Path(cwd))
     try:
         await client.close(bead_id, reason=reason)
         logger.info("bead_completed", bead_id=bead_id)
@@ -385,342 +405,22 @@ async def mark_bead_complete(
         )
 
 
-async def defer_bead(bead_id: str, reason: str = "") -> None:
+async def defer_bead(
+    bead_id: str,
+    *,
+    cwd: Path | str,
+    reason: str = "",
+) -> None:
     """Defer a bead so it no longer appears in ``bd ready``.
 
     Args:
         bead_id: ID of the bead to defer.
+        cwd: Workspace directory whose ``.beads/`` is updated. Required —
+            see module docstring.
         reason: Reason for deferral (logged, not passed to bd).
     """
     from maverick.runners.command import CommandRunner
 
-    runner = CommandRunner(cwd=Path.cwd())
+    runner = CommandRunner(cwd=Path(cwd))
     await runner.run(["bd", "defer", bead_id])
     logger.info("bead_deferred", bead_id=bead_id, reason=reason)
-
-
-async def check_epic_done(epic_id: str = "") -> CheckEpicDoneResult:
-    """Check if there are any remaining ready beads.
-
-    When an ``epic_id`` is provided, also queries child beads to determine
-    whether *all* children are closed (not just that none are ready — some
-    may be blocked or failed).  ``all_children_closed`` is the safe signal
-    for closing the epic itself.
-
-    Args:
-        epic_id: Epic bead ID to check. When empty, checks for any ready bead
-            across all epics.
-
-    Returns:
-        CheckEpicDoneResult with done flag, remaining count, and child
-        status breakdown.
-    """
-    from maverick.beads.client import BeadClient
-
-    client = BeadClient(cwd=Path.cwd())
-    parent = epic_id if epic_id else None
-    beads = await client.ready(parent, limit=10)
-
-    done = len(beads) == 0
-
-    # When we have a concrete epic, check whether every child is closed.
-    all_children_closed = False
-    total_children = 0
-    closed_children = 0
-
-    if epic_id:
-        try:
-            children = await client.children(epic_id)
-            total_children = len(children)
-            closed_children = sum(1 for c in children if c.status == "closed")
-            all_closed = closed_children == total_children
-            all_children_closed = total_children > 0 and all_closed
-        except Exception as exc:
-            logger.warning(
-                "check_epic_children_failed",
-                epic_id=epic_id,
-                error=str(exc),
-            )
-
-    logger.info(
-        "epic_done_check",
-        epic_id=epic_id or "(any)",
-        done=done,
-        remaining=len(beads),
-        all_children_closed=all_children_closed,
-        total_children=total_children,
-        closed_children=closed_children,
-    )
-    return CheckEpicDoneResult(
-        done=done,
-        remaining_count=len(beads),
-        all_children_closed=all_children_closed,
-        total_children=total_children,
-        closed_children=closed_children,
-    )
-
-
-# Priority constants for validation failure beads
-_PRIORITY_TEST = 1
-_PRIORITY_LINT = 3
-_PRIORITY_TYPECHECK = 3
-_PRIORITY_FORMAT = 4
-
-
-async def create_beads_from_failures(
-    epic_id: str,
-    validation_result: dict[str, Any],
-    dry_run: bool = False,
-) -> CreateBeadsFromFailuresResult:
-    """Create fix beads from validation failures.
-
-    Args:
-        epic_id: Epic bead ID to create children under.
-        validation_result: Validation output dict with ``passed`` and ``stages``.
-        dry_run: If True, return synthetic IDs without calling bd.
-
-    Returns:
-        CreateBeadsFromFailuresResult with created bead info.
-    """
-    from maverick.beads.models import BeadCategory, BeadDefinition, BeadType
-
-    if validation_result.get("passed", True):
-        return CreateBeadsFromFailuresResult(
-            created_count=0,
-            bead_ids=(),
-            errors=(),
-        )
-
-    # The validate step returns stage_results as a dict keyed by stage name,
-    # each value being a dict with 'passed', 'output', 'errors', etc.
-    stage_results = validation_result.get("stage_results", {})
-    failed_stages: list[tuple[str, dict[str, Any]]] = [
-        (name, data)
-        for name, data in stage_results.items()
-        if isinstance(data, dict) and not data.get("passed", True)
-    ]
-
-    if not failed_stages:
-        return CreateBeadsFromFailuresResult(
-            created_count=0,
-            bead_ids=(),
-            errors=(),
-        )
-
-    priority_map = {
-        "test": _PRIORITY_TEST,
-        "lint": _PRIORITY_LINT,
-        "typecheck": _PRIORITY_TYPECHECK,
-        "format": _PRIORITY_FORMAT,
-    }
-
-    definitions: list[BeadDefinition] = []
-    for stage_name, stage_data in failed_stages:
-        errors_list = stage_data.get("errors", [])
-        output_text = stage_data.get("output", "")
-        # Use output as error context when errors list is empty
-        error_text = "\n".join(str(e) for e in errors_list[:20]) or output_text
-
-        priority = priority_map.get(stage_name, 3)
-
-        definitions.append(
-            BeadDefinition(
-                title=f"Fix: {stage_name} validation failures",
-                bead_type=BeadType.TASK,
-                priority=priority,
-                category=BeadCategory.VALIDATION,
-                description=(f"Fix {stage_name} validation failures.\n\nErrors:\n{error_text}"),
-            )
-        )
-
-    if dry_run:
-        dry_ids = tuple(f"dry-run-fix-{i}" for i in range(len(definitions)))
-        return CreateBeadsFromFailuresResult(
-            created_count=len(definitions),
-            bead_ids=dry_ids,
-            errors=(),
-        )
-
-    from maverick.beads.client import BeadClient
-
-    client = BeadClient(cwd=Path.cwd())
-    created_ids: list[str] = []
-    errors: list[str] = []
-
-    for defn in definitions:
-        try:
-            created = await client.create_bead(defn, parent_id=epic_id)
-            created_ids.append(created.bd_id)
-        except Exception as e:
-            error_msg = f"Failed to create fix bead '{defn.title}': {e}"
-            logger.debug("fix_bead_creation_failed", title=defn.title, error=str(e))
-            errors.append(error_msg)
-
-    return CreateBeadsFromFailuresResult(
-        created_count=len(created_ids),
-        bead_ids=tuple(created_ids),
-        errors=tuple(errors),
-    )
-
-
-# Priority constants for review finding beads
-_PRIORITY_CRITICAL = 1
-_PRIORITY_MAJOR = 2
-_PRIORITY_MINOR = 4
-
-
-async def create_beads_from_findings(
-    epic_id: str,
-    review_result: dict[str, Any],
-    dry_run: bool = False,
-) -> CreateBeadsFromFindingsResult:
-    """Create fix beads from code review findings.
-
-    Args:
-        epic_id: Epic bead ID to create children under.
-        review_result: Review output dict with ``issues`` and ``recommendation``.
-        dry_run: If True, return synthetic IDs without calling bd.
-
-    Returns:
-        CreateBeadsFromFindingsResult with created bead info.
-    """
-    from maverick.beads.models import BeadCategory, BeadDefinition, BeadType
-
-    recommendation = review_result.get("recommendation", "")
-    issues = review_result.get("issues", [])
-
-    if not issues or recommendation == "approve":
-        return CreateBeadsFromFindingsResult(
-            created_count=0,
-            bead_ids=(),
-            errors=(),
-        )
-
-    # Group issues by file
-    file_groups: dict[str, list[dict[str, Any]]] = {}
-    for issue in issues:
-        file_path = issue.get("file_path", "general")
-        file_groups.setdefault(file_path, []).append(issue)
-
-    severity_priority = {
-        "critical": _PRIORITY_CRITICAL,
-        "major": _PRIORITY_MAJOR,
-        "minor": _PRIORITY_MINOR,
-    }
-
-    definitions: list[BeadDefinition] = []
-    for file_path, file_issues in file_groups.items():
-        # Use highest severity in group for priority
-        min_priority = min(
-            severity_priority.get(issue.get("severity", "minor"), _PRIORITY_MINOR)
-            for issue in file_issues
-        )
-        descriptions = [
-            f"- [{issue.get('severity', 'minor')}] {issue.get('description', '')}"
-            for issue in file_issues
-        ]
-        description_text = "\n".join(descriptions)
-
-        definitions.append(
-            BeadDefinition(
-                title=f"Fix review findings: {file_path}",
-                bead_type=BeadType.TASK,
-                priority=min_priority,
-                category=BeadCategory.REVIEW,
-                description=(
-                    f"Fix review findings in {file_path}.\n\nIssues:\n{description_text}"
-                ),
-            )
-        )
-
-    if dry_run:
-        dry_ids = tuple(f"dry-run-review-{i}" for i in range(len(definitions)))
-        return CreateBeadsFromFindingsResult(
-            created_count=len(definitions),
-            bead_ids=dry_ids,
-            errors=(),
-        )
-
-    from maverick.beads.client import BeadClient
-
-    client = BeadClient(cwd=Path.cwd())
-    created_ids: list[str] = []
-    errors: list[str] = []
-
-    for defn in definitions:
-        try:
-            created = await client.create_bead(defn, parent_id=epic_id)
-            created_ids.append(created.bd_id)
-        except Exception as e:
-            error_msg = f"Failed to create review bead '{defn.title}': {e}"
-            logger.debug("review_bead_creation_failed", title=defn.title, error=str(e))
-            errors.append(error_msg)
-
-    return CreateBeadsFromFindingsResult(
-        created_count=len(created_ids),
-        bead_ids=tuple(created_ids),
-        errors=tuple(errors),
-    )
-
-
-async def verify_bead_completion(
-    validation_result: dict[str, Any],
-    review_result: dict[str, Any] | None = None,
-    skip_review: bool = False,
-) -> VerifyBeadCompletionResult:
-    """Verify that a bead is ready to commit and close.
-
-    Gates commit/close on validation passing and review not requesting changes.
-    When review is skipped (via ``skip_review`` or when the DSL stores ``None``
-    for skipped steps), review checks are bypassed.
-
-    Args:
-        validation_result: Output from validate-and-fix subworkflow.
-        review_result: Output from review-fix loop (None if review was skipped).
-        skip_review: Whether review was explicitly skipped.
-
-    Returns:
-        VerifyBeadCompletionResult with passed status and failure reasons.
-    """
-    reasons: list[str] = []
-
-    # Check validation passed
-    if not validation_result.get("passed", False):
-        failed_stages: list[str] = []
-        # Support both dict-keyed stage_results (from validate step) and
-        # list-based stages (from generate_validation_report)
-        stage_results = validation_result.get("stage_results", {})
-        if isinstance(stage_results, dict) and stage_results:
-            for name, data in stage_results.items():
-                if isinstance(data, dict) and not data.get("passed", True):
-                    failed_stages.append(name)
-        else:
-            for stage in validation_result.get("stages", []):
-                if isinstance(stage, dict) and not stage.get("passed", True):
-                    failed_stages.append(stage.get("name", "unknown"))
-        stage_detail = ", ".join(failed_stages) if failed_stages else "unknown stages"
-        reasons.append(f"Validation failed: {stage_detail}")
-
-    # Check review if not skipped
-    if not skip_review and review_result is not None:
-        recommendation = review_result.get("recommendation", "")
-        if recommendation == "request_changes":
-            remaining = review_result.get("issues_remaining", 0)
-            if isinstance(remaining, list):
-                remaining = len(remaining)
-            # Only fail if there are actually unresolved issues.
-            # The review-fix loop may resolve all issues while keeping
-            # the stale "request_changes" recommendation.
-            if remaining > 0:
-                reasons.append(f"Review requests changes ({remaining} issues remaining)")
-
-    passed = len(reasons) == 0
-    if passed:
-        logger.info("bead_verification_passed")
-    else:
-        logger.warning("bead_verification_failed", reasons=reasons)
-
-    return VerifyBeadCompletionResult(
-        passed=passed,
-        reasons=tuple(reasons),
-    )

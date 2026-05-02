@@ -86,51 +86,63 @@ def _pm(provider: str, model: str) -> ProviderModel:
     return ProviderModel(provider_id=provider, model_id=model)
 
 
+#: Default tier cascades distribute load across the user's flat-rate
+#: subscriptions (github-copilot, openai/Codex, opencode-go, opencode/Zen)
+#: and reserve OpenRouter for free models only — OpenRouter is the only
+#: per-token billed provider in the OpenCode-substrate world. Front-lane
+#: ordering is empirical: claude-sonnet-4.6 leads ``generate`` because
+#: it handles nested-object structured-output most reliably; gpt-codex
+#: leads ``implement`` because Codex models are tuned for code; haiku
+#: leads ``review`` because it's the cheapest sub-second classifier.
+#:
+#: Override per-project in ``maverick.yaml::provider_tiers.tiers`` or
+#: globally by editing this map. Each binding's first failure (auth,
+#: model-not-found, structured-output, sustained transient) silently
+#: falls over to the next.
 DEFAULT_TIERS: dict[str, Tier] = {
-    # Reviewer/implementer in steady state: claude-haiku-4.5 has 100%
-    # structured-output reliability with the envelope unwrap; qwen3-coder
-    # is a cheaper open-weights fallback (also 100% in the spike).
     "review": Tier(
         "review",
         bindings=(
-            _pm("openrouter", "anthropic/claude-haiku-4.5"),
-            _pm("openrouter", "qwen/qwen3-coder"),
+            _pm("github-copilot", "claude-haiku-4.5"),
+            _pm("openai", "gpt-5.4-mini"),
+            _pm("opencode", "big-pickle"),
+            _pm("openrouter", "openai/gpt-oss-120b:free"),
         ),
     ),
     "implement": Tier(
         "implement",
         bindings=(
-            _pm("openrouter", "anthropic/claude-haiku-4.5"),
-            _pm("openrouter", "qwen/qwen3-coder"),
-            _pm("openrouter", "anthropic/claude-sonnet-4.5"),
+            _pm("github-copilot", "gpt-5.3-codex"),
+            _pm("openai", "gpt-5.3-codex"),
+            _pm("opencode-go", "qwen3.6-plus"),
+            _pm("openrouter", "qwen/qwen-2.5-coder-32b-instruct"),
         ),
     ),
-    # Briefing agents are read-only, scoped tasks — qwen3-coder handles
-    # them comfortably and is the cheapest reliable option.
     "briefing": Tier(
         "briefing",
         bindings=(
-            _pm("openrouter", "qwen/qwen3-coder"),
-            _pm("openrouter", "anthropic/claude-haiku-4.5"),
+            _pm("github-copilot", "gpt-5-mini"),
+            _pm("openai", "gpt-5.4-mini-fast"),
+            _pm("opencode", "gpt-5-nano"),
+            _pm("openrouter", "openai/gpt-oss-120b:free"),
         ),
     ),
-    # Decomposer outline + detail benefits from frontier reasoning;
-    # the seeded-context cache benefit makes the more-expensive model
-    # less impactful per call.
     "decompose": Tier(
         "decompose",
         bindings=(
-            _pm("openrouter", "anthropic/claude-sonnet-4.5"),
-            _pm("openrouter", "anthropic/claude-haiku-4.5"),
+            _pm("github-copilot", "claude-sonnet-4.6"),
+            _pm("openai", "gpt-5.5"),
+            _pm("opencode-go", "glm-5"),
+            _pm("openrouter", "nvidia/nemotron-3-super-120b-a12b:free"),
         ),
     ),
-    # Generator is a one-shot flight-plan synthesis — frontier-tier
-    # reasoning, but only one call per workflow run.
     "generate": Tier(
         "generate",
         bindings=(
-            _pm("openrouter", "anthropic/claude-sonnet-4.5"),
-            _pm("openrouter", "anthropic/claude-haiku-4.5"),
+            _pm("github-copilot", "claude-sonnet-4.6"),
+            _pm("openai", "gpt-5.5"),
+            _pm("github-copilot", "gemini-3.1-pro-preview"),
+            _pm("openrouter", "meta-llama/llama-3.3-70b-instruct:free"),
         ),
     ),
 }

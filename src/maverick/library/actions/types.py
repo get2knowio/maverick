@@ -730,83 +730,6 @@ class MarkBeadCompleteResult:
 
 
 @dataclass(frozen=True, slots=True)
-class CreateBeadsFromFailuresResult:
-    """Result of creating fix beads from validation failures.
-
-    Attributes:
-        created_count: Number of beads created.
-        bead_ids: IDs of created beads.
-        errors: Errors encountered during creation.
-    """
-
-    created_count: int
-    bead_ids: tuple[str, ...]
-    errors: tuple[str, ...]
-
-    def to_dict(self) -> dict[str, Any]:
-        """Convert to dictionary representation."""
-        return {
-            "created_count": self.created_count,
-            "bead_ids": list(self.bead_ids),
-            "errors": list(self.errors),
-        }
-
-
-@dataclass(frozen=True, slots=True)
-class CreateBeadsFromFindingsResult:
-    """Result of creating fix beads from review findings.
-
-    Attributes:
-        created_count: Number of beads created.
-        bead_ids: IDs of created beads.
-        errors: Errors encountered during creation.
-    """
-
-    created_count: int
-    bead_ids: tuple[str, ...]
-    errors: tuple[str, ...]
-
-    def to_dict(self) -> dict[str, Any]:
-        """Convert to dictionary representation."""
-        return {
-            "created_count": self.created_count,
-            "bead_ids": list(self.bead_ids),
-            "errors": list(self.errors),
-        }
-
-
-@dataclass(frozen=True, slots=True)
-class CheckEpicDoneResult:
-    """Result of checking whether an epic has remaining work.
-
-    Attributes:
-        done: Whether the epic has no more ready beads.
-        remaining_count: Number of remaining ready beads.
-        all_children_closed: Whether every child bead has status "closed".
-            True means the epic can safely be closed. False when some
-            children are still open or blocked (even if none are ready).
-        total_children: Total number of child beads under the epic.
-        closed_children: Number of child beads with status "closed".
-    """
-
-    done: bool
-    remaining_count: int
-    all_children_closed: bool = False
-    total_children: int = 0
-    closed_children: int = 0
-
-    def to_dict(self) -> dict[str, Any]:
-        """Convert to dictionary representation."""
-        return {
-            "done": self.done,
-            "remaining_count": self.remaining_count,
-            "all_children_closed": self.all_children_closed,
-            "total_children": self.total_children,
-            "closed_children": self.closed_children,
-        }
-
-
-@dataclass(frozen=True, slots=True)
 class BeadCreationResult:
     """Result of creating epic and work beads via bd CLI.
 
@@ -853,23 +776,6 @@ class DependencyWiringResult:
             "errors": list(self.errors),
             "success": self.success,
         }
-
-
-@dataclass(frozen=True, slots=True)
-class VerifyBeadCompletionResult:
-    """Result of verifying bead completion before commit/close.
-
-    Attributes:
-        passed: Whether the bead is ready to commit and close.
-        reasons: Reasons for failure (empty if passed).
-    """
-
-    passed: bool
-    reasons: tuple[str, ...]
-
-    def to_dict(self) -> dict[str, Any]:
-        """Convert to dictionary representation."""
-        return {"passed": self.passed, "reasons": list(self.reasons)}
 
 
 @dataclass(frozen=True, slots=True)

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 from maverick.executor.result import ExecutorResult
 from maverick.library.actions.types import BeadCreationResult, DependencyWiringResult
@@ -275,19 +275,47 @@ def patch_cwd(tmp_path: Path) -> Any:
 
 def patch_decompose_supervisor(
     decomp: DecompositionOutput | None = None,
+    *,
+    bead_result: BeadCreationResult | None = None,
+    dep_result: DependencyWiringResult | None = None,
 ) -> Any:
     """Return a context manager that patches _run_with_xoscar.
 
-    The Thespian actor path is now the only decomposition path.  Tests that
-    previously mocked ``executor.execute`` to return two-pass results should
-    instead use this helper so the decomposition step returns a
-    ``DecompositionOutput`` directly (bypassing the real Thespian system).
+    The xoscar actor path is now the only decomposition path AND the
+    only bead-creation path. The real ``_run_with_xoscar`` populates
+    ``ctx`` with the supervisor's bead-creation outputs (epic, work
+    beads, created_map, dependencies) so the workflow's downstream
+    steps can adopt them instead of re-running ``create_beads``. The
+    mock here mirrors that contract: it stashes ``bead_result`` and
+    ``dep_result`` into the ``ctx`` keys the workflow reads.
     """
     if decomp is None:
         decomp = make_simple_decomposition_output()
+    if bead_result is None:
+        bead_result = make_bead_result()
+    if dep_result is None:
+        dep_result = make_wire_result()
+
+    async def _fake_run_with_xoscar(
+        self: Any,
+        *args: Any,
+        ctx: dict[str, Any] | None = None,
+        **kwargs: Any,
+    ) -> DecompositionOutput:
+        if ctx is not None:
+            epic = bead_result.epic
+            ctx["fix_rounds"] = 0
+            ctx["supervisor_epic"] = epic
+            ctx["supervisor_epic_id"] = epic["bd_id"] if epic else ""
+            ctx["supervisor_work_beads"] = list(bead_result.work_beads)
+            ctx["supervisor_created_map"] = dict(bead_result.created_map)
+            ctx["supervisor_dependencies"] = list(dep_result.dependencies)
+            ctx["supervisor_deps_wired"] = len(dep_result.dependencies)
+        return decomp
+
     return patch(
         "maverick.workflows.refuel_maverick.workflow.RefuelMaverickWorkflow._run_with_xoscar",
-        new=AsyncMock(return_value=decomp),
+        new=_fake_run_with_xoscar,
     )
 
 

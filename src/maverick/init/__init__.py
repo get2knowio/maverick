@@ -43,12 +43,12 @@ from maverick.init.models import (
     ValidationCommands,
     resolve_model_id,
 )
-from maverick.init.prereqs import verify_prerequisites
-from maverick.init.provider_discovery import (
-    PROVIDER_PREFERENCE_ORDER,
-    ProviderDiscoveryResult,
-    ProviderProbeResult,
+from maverick.init.opencode_discovery import (
+    ConnectedProvider,
+    OpenCodeDiscoveryResult,
+    discover_opencode_providers,
 )
+from maverick.init.prereqs import verify_prerequisites
 from maverick.logging import get_logger
 
 __all__ = [
@@ -56,6 +56,7 @@ __all__ = [
     "run_init",
     "parse_git_remote",
     "resolve_model_id",
+    "discover_opencode_providers",
     # Enums
     "ProjectType",
     "DetectionConfidence",
@@ -64,7 +65,6 @@ __all__ = [
     "MARKER_FILE_MAP",
     "VALIDATION_DEFAULTS",
     "PYTHON_DEFAULTS",
-    "PROVIDER_PREFERENCE_ORDER",
     # Dataclasses
     "ProjectMarker",
     "ValidationCommands",
@@ -73,8 +73,8 @@ __all__ = [
     "ProjectDetectionResult",
     "InitPreflightResult",
     "InitResult",
-    "ProviderProbeResult",
-    "ProviderDiscoveryResult",
+    "ConnectedProvider",
+    "OpenCodeDiscoveryResult",
     # Pydantic models
     "InitGitHubConfig",
     "InitValidationConfig",
@@ -469,33 +469,22 @@ async def _ensure_gitignore_entries(project_path: Path, verbose: bool) -> bool:
 
 async def _maybe_discover_providers(
     verbose: bool,
-) -> ProviderDiscoveryResult | None:
-    """Discover ACP providers on PATH.
+) -> OpenCodeDiscoveryResult | None:
+    """Discover providers connected to the OpenCode runtime.
 
-    Best-effort: errors are logged but never raised.
-
-    Args:
-        verbose: Whether to log progress.
-
-    Returns:
-        Discovery result, or None if discovery failed.
+    Spawns ``opencode serve``, hits ``GET /provider``, and returns the
+    ``connected[]`` providers. Best-effort: failures are logged but
+    never raised.
     """
-    try:
-        from maverick.init.provider_discovery import discover_providers
-
-        result = await discover_providers()
-        if verbose:
-            found = [p.name for p in result.found_providers]
-            logger.info(
-                "providers_discovered",
-                found=found,
-                default=result.default_provider,
-                duration_ms=result.duration_ms,
-            )
-        return result
-    except Exception as exc:
-        logger.debug("provider_discovery_error", error=str(exc))
-        return None
+    result = await discover_opencode_providers()
+    if result is not None and verbose:
+        logger.info(
+            "providers_discovered",
+            connected=[p.provider_id for p in result.providers],
+            default=result.default_provider_id,
+            duration_ms=result.duration_ms,
+        )
+    return result
 
 
 # =============================================================================
@@ -510,7 +499,6 @@ async def run_init(
     force: bool = False,
     verbose: bool = False,
     model_id: str | None = None,
-    skip_providers: bool = False,
 ) -> InitResult:
     """Execute maverick init workflow.
 
@@ -518,8 +506,9 @@ async def run_init(
     1. Verify prerequisites (git, gh, etc.)
     2. Parse git remote information
     3. Detect project type from marker files
-    4. Generate configuration
-    5. Write maverick.yaml
+    4. Discover OpenCode-connected providers via ``GET /provider``
+    5. Generate configuration
+    6. Write maverick.yaml
 
     Args:
         project_path: Path to project root. Defaults to cwd.
@@ -527,7 +516,6 @@ async def run_init(
         force: Overwrite existing config file.
         verbose: Enable verbose output.
         model_id: Default model ID to embed in the generated config.
-        skip_providers: Skip ACP provider discovery.
 
     Returns:
         InitResult with complete execution state. When ``maverick.yaml``
@@ -658,10 +646,8 @@ async def run_init(
                 method=detection.detection_method,
             )
 
-    # Step 3.5: Discover ACP providers (best-effort)
-    provider_discovery: ProviderDiscoveryResult | None = None
-    if not skip_providers:
-        provider_discovery = await _maybe_discover_providers(verbose)
+    # Step 3.5: Discover OpenCode-connected providers (best-effort)
+    provider_discovery: OpenCodeDiscoveryResult | None = await _maybe_discover_providers(verbose)
 
     # Step 4: Generate configuration
     config = generate_config(

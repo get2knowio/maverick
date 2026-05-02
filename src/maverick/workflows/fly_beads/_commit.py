@@ -35,7 +35,9 @@ async def commit_bead(wf: FlyBeadsWorkflow, ctx: BeadContext) -> None:
     # Capture files changed by this bead (jj colocated → git diff works)
     files_changed = await _get_files_changed(ctx.cwd)
 
-    await mark_bead_complete(bead_id=ctx.bead_id)
+    if ctx.cwd is None:
+        raise RuntimeError("commit_bead requires ctx.cwd to be set")
+    await mark_bead_complete(bead_id=ctx.bead_id, cwd=ctx.cwd)
     await record_runway_outcome(wf, ctx, files_changed=files_changed)
     await wf.emit_output(
         COMMIT,
@@ -51,10 +53,9 @@ async def rollback_bead(wf: FlyBeadsWorkflow, ctx: BeadContext) -> None:
             operation_id=ctx.operation_id,
             cwd=ctx.cwd,
         )
-    reasons = "; ".join(ctx.verify_result.reasons) if ctx.verify_result else "unknown"
     await wf.emit_output(
         COMMIT,
-        f"Bead {ctx.bead_id} failed verification: {reasons}",
+        f"Bead {ctx.bead_id} failed verification",
         level="error",
     )
 
@@ -377,20 +378,22 @@ async def _escalate_to_replan(
         )
 
     # --- Defer beads that depend on the stuck chain ---
+    if ctx.cwd is None:
+        raise RuntimeError("escalate_to_replan requires ctx.cwd to be set")
     await _defer_dependent_beads(full_chain, ctx.epic_id, cwd=ctx.cwd)
 
 
 async def _defer_dependent_beads(
     chain: list[str],
     epic_id: str,
-    cwd: Path | None = None,
+    cwd: Path,
 ) -> None:
     """Defer beads that are blocked by any bead in the stuck chain."""
     import json as _json
 
     from maverick.runners.command import CommandRunner
 
-    runner = CommandRunner(cwd=cwd or Path.cwd())
+    runner = CommandRunner(cwd=cwd)
     deferred: set[str] = set()
 
     for bid in chain:
@@ -410,6 +413,7 @@ async def _defer_dependent_beads(
                         try:
                             await defer_bead(
                                 bead_id=blocked_id,
+                                cwd=cwd,
                                 reason=f"Blocked by stuck chain: {' → '.join(chain)}",
                             )
                             deferred.add(blocked_id)

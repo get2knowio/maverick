@@ -20,9 +20,10 @@ from maverick.logging import get_logger
 from maverick.types import AutonomyLevel, StepMode, StepType
 
 if TYPE_CHECKING:
-    from maverick.config import ActorConfig, AgentConfig, ModelConfig
+    from maverick.config import ActorConfig, ModelConfig
 
 logger = get_logger(__name__)
+
 
 @dataclass(frozen=True, slots=True)
 class RetryPolicy:
@@ -245,47 +246,32 @@ def resolve_step_config(
     *,
     inline_config: dict[str, Any] | None,
     actor_config: ActorConfig | None = None,
-    project_step_config: StepConfig | None,
-    agent_config: AgentConfig | None,
     global_model: ModelConfig,
     step_type: StepType,
     step_name: str,
     provider_default_model: str | None = None,
 ) -> StepConfig:
-    """Resolve per-step configuration from 6-layer precedence.
+    """Resolve per-step configuration from layered precedence.
 
     Resolution order (highest to lowest priority):
-    1. ``inline_config``: Raw dict from workflow YAML step's ``config`` field.
-    2. ``actor_config``: From ``MaverickConfig.actors[workflow][actor_name]``.
-       The current/canonical surface (xoscar actor model).
-    3. ``project_step_config``: From ``MaverickConfig.steps[step_name]``.
-       Legacy surface kept for back-compat.
-    4. ``agent_config``: From ``MaverickConfig.agents[agent_name]``.
-       Legacy surface kept for back-compat.
-    5. ``global_model``: From ``MaverickConfig.model``.
-    6. ``provider_default_model``: From ``AgentProviderConfig.default_model``.
+    1. ``inline_config``: Raw dict from workflow code (rare — most
+       Python workflows don't have inline config).
+    2. ``actor_config``: From
+       ``MaverickConfig.actors[<workflow>][<actor>]``. The canonical
+       per-step surface.
+    3. ``global_model``: From ``MaverickConfig.model`` — the
+       project-wide default model + temperature + max_tokens.
+    4. ``provider_default_model``: From the connected provider's
+       advertised default model (rarely needed).
 
-    Mode is inferred from ``step_type`` when not explicitly set by any layer.
-    Autonomy defaults to ``AutonomyLevel.OPERATOR`` when not set.
-    Provider is ``None`` when not set, allowing the executor to resolve via
-    the registry's default provider.
+    The legacy ``steps:`` and ``agents:`` config surfaces were deleted
+    in the OpenCode-substrate cleanup. Migrate any per-actor overrides
+    to the ``actors.<workflow>.<actor>`` block.
 
-    Args:
-        inline_config: Raw YAML config dict from step record.
-        actor_config: Actor-level override from the ``actors:`` block.
-        project_step_config: Project-level step default.
-        agent_config: Agent-level model overrides.
-        global_model: Global model configuration.
-        step_type: The step's type (for mode inference).
-        step_name: Step name (for error messages).
-        provider_default_model: Default model from the ACP provider config
-            (lowest precedence layer).
-
-    Returns:
-        Fully-resolved StepConfig with no None model fields.
-
-    Raises:
-        ConfigError: If mode/step_type mismatch or invalid field combinations.
+    Mode is inferred from ``step_type`` when not explicitly set.
+    Autonomy defaults to :attr:`AutonomyLevel.OPERATOR`. Provider is
+    ``None`` when not set, allowing the executor to resolve via the
+    registry's default provider.
     """
     # --- Step 1: Parse inline_config dict to StepConfig ---
     parsed_inline: StepConfig | None = None
@@ -303,7 +289,6 @@ def resolve_step_config(
                 ),
             )
         elif "model" in coerced and "model_id" in coerced:
-            # Both keys present — drop legacy key, warn
             coerced.pop("model")
             logger.warning(
                 "duplicate_model_keys",
@@ -319,26 +304,20 @@ def resolve_step_config(
         except Exception as exc:
             raise ConfigError(f"Invalid inline config for step '{step_name}': {exc}") from exc
 
-    # --- Step 2: Resolve model fields via 5-layer precedence ---
-    # For model_id, temperature, max_tokens: first non-None from
-    # inline → actor → project → agent → global
     def _first_non_none(*values: Any) -> Any:
-        """Return the first non-None value, or None if all are None."""
         for v in values:
             if v is not None:
                 return v
         return None
 
-    # Only use global_model.model_id if it was explicitly set in the config.
-    # When it's the Pydantic default, non-Claude providers won't recognize it.
+    # Only use global_model.model_id if explicitly set — the Pydantic
+    # default is a Claude alias, meaningless for non-Claude providers.
     global_model_id = (
         global_model.model_id if "model_id" in global_model.model_fields_set else None
     )
     model_id = _first_non_none(
         parsed_inline.model_id if parsed_inline else None,
         actor_config.model_id if actor_config else None,
-        project_step_config.model_id if project_step_config else None,
-        agent_config.model_id if agent_config else None,
         global_model_id,
         provider_default_model,
     )
@@ -346,78 +325,41 @@ def resolve_step_config(
     temperature = _first_non_none(
         parsed_inline.temperature if parsed_inline else None,
         actor_config.temperature if actor_config else None,
-        project_step_config.temperature if project_step_config else None,
-        agent_config.temperature if agent_config else None,
         global_model.temperature,
     )
 
     max_tokens = _first_non_none(
         parsed_inline.max_tokens if parsed_inline else None,
         actor_config.max_tokens if actor_config else None,
-        project_step_config.max_tokens if project_step_config else None,
-        agent_config.max_tokens if agent_config else None,
         global_model.max_tokens,
     )
 
-    # --- Step 3: Resolve provider (None → executor resolves via registry default) ---
     provider = _first_non_none(
         parsed_inline.provider if parsed_inline else None,
         actor_config.provider if actor_config else None,
-        project_step_config.provider if project_step_config else None,
-        agent_config.provider if agent_config else None,
     )
 
-    # --- Step 4: Resolve mode via infer_step_mode ---
-    explicit_mode = _first_non_none(
-        parsed_inline.mode if parsed_inline else None,
-        project_step_config.mode if project_step_config else None,
-    )
+    explicit_mode = parsed_inline.mode if parsed_inline else None
     try:
         mode = infer_step_mode(step_type, explicit_mode)
     except ValueError as exc:
         raise ConfigError(f"Mode/type mismatch for step '{step_name}': {exc}") from exc
 
-    # --- Step 5: Resolve autonomy (default OPERATOR) ---
-    autonomy = _first_non_none(
-        parsed_inline.autonomy if parsed_inline else None,
-        project_step_config.autonomy if project_step_config else None,
-    )
+    autonomy = parsed_inline.autonomy if parsed_inline else None
     if autonomy is None:
         autonomy = AutonomyLevel.OPERATOR
 
-    # --- Step 6: Resolve remaining fields (simple precedence) ---
     timeout = _first_non_none(
         parsed_inline.timeout if parsed_inline else None,
         actor_config.timeout if actor_config else None,
-        project_step_config.timeout if project_step_config else None,
     )
 
-    max_retries = _first_non_none(
-        parsed_inline.max_retries if parsed_inline else None,
-        project_step_config.max_retries if project_step_config else None,
-    )
+    max_retries = parsed_inline.max_retries if parsed_inline else None
+    allowed_tools = parsed_inline.allowed_tools if parsed_inline else None
+    prompt_suffix = parsed_inline.prompt_suffix if parsed_inline else None
+    prompt_file = parsed_inline.prompt_file if parsed_inline else None
+    retry_policy = parsed_inline.retry_policy if parsed_inline else None
 
-    allowed_tools = _first_non_none(
-        parsed_inline.allowed_tools if parsed_inline else None,
-        project_step_config.allowed_tools if project_step_config else None,
-    )
-
-    prompt_suffix = _first_non_none(
-        parsed_inline.prompt_suffix if parsed_inline else None,
-        project_step_config.prompt_suffix if project_step_config else None,
-    )
-
-    prompt_file = _first_non_none(
-        parsed_inline.prompt_file if parsed_inline else None,
-        project_step_config.prompt_file if project_step_config else None,
-    )
-
-    retry_policy = _first_non_none(
-        parsed_inline.retry_policy if parsed_inline else None,
-        project_step_config.retry_policy if project_step_config else None,
-    )
-
-    # --- Step 7: Build and validate resolved StepConfig ---
     try:
         return StepConfig(
             mode=mode,

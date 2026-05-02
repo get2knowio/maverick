@@ -1,7 +1,7 @@
 """``maverick doctor`` command — standalone environment validation.
 
-Runs the same checks as fly's preflight (ACP provider handshake +
-prompt verification, git / gh / bd availability) but without burning
+Runs the same checks as fly's preflight (OpenCode provider connectivity
+via ``GET /provider``, git / gh / bd availability) but without burning
 a real fly invocation. Useful when iterating on ``maverick.yaml``,
 swapping providers, or troubleshooting auth issues.
 """
@@ -24,28 +24,19 @@ from maverick.runners.provider_health import build_provider_health_checks
 
 
 @click.command()
-@click.option(
-    "--providers-only",
-    is_flag=True,
-    default=False,
-    help="Skip git / gh / jj / bd checks; only validate ACP providers.",
-)
 @click.pass_context
 @async_command
-async def doctor(ctx: click.Context, providers_only: bool) -> None:
+async def doctor(ctx: click.Context) -> None:
     """Validate the local environment.
 
     Exit code 0 if all checks pass, 1 otherwise. Provider checks run
     in parallel with a live progress table — every configured provider
-    is exercised, even if an earlier one fails. Each provider gets a
-    tiny "say ok" prompt so auth/quota issues surface here instead of
-    mid-flight.
+    is exercised against ``GET /provider`` on a one-shot OpenCode
+    server, even if an earlier one fails.
 
     Examples:
 
         maverick doctor
-
-        maverick doctor --providers-only
     """
     config = ctx.obj.get("config") if ctx.obj else None
 
@@ -54,25 +45,23 @@ async def doctor(ctx: click.Context, providers_only: bool) -> None:
 
     provider_results = await _run_provider_checks(config)
 
-    other_result = None
-    if not providers_only:
-        other_result = await run_preflight_checks(
-            check_providers=False,
-            check_git=True,
-            check_github=True,
-            check_bd=True,
-            check_jj=True,
-            check_validation_tools=False,
-            fail_on_error=False,
-            config=config,
-        )
-        for label, ok in [
-            ("git", other_result.git_available),
-            ("GitHub CLI", other_result.github_cli_available),
-            ("jj (Jujutsu)", other_result.jj_available),
-        ]:
-            icon = "[green]✓[/]" if ok else "[red]✗[/]"
-            console.print(f"{icon} {label}")
+    other_result = await run_preflight_checks(
+        check_providers=False,
+        check_git=True,
+        check_github=True,
+        check_bd=True,
+        check_jj=True,
+        check_validation_tools=False,
+        fail_on_error=False,
+        config=config,
+    )
+    for label, ok in [
+        ("git", other_result.git_available),
+        ("GitHub CLI", other_result.github_cli_available),
+        ("jj (Jujutsu)", other_result.jj_available),
+    ]:
+        icon = "[green]✓[/]" if ok else "[red]✗[/]"
+        console.print(f"{icon} {label}")
 
     # Aggregate failures across both stages.
     errors: list[str] = []
@@ -80,11 +69,11 @@ async def doctor(ctx: click.Context, providers_only: bool) -> None:
         if not ok:
             for err in errs:
                 errors.append(f"[{name}] {err}")
-    if other_result is not None and other_result.errors:
+    if other_result.errors:
         errors.extend(other_result.errors)
 
     warnings: list[str] = []
-    if other_result is not None and other_result.warnings:
+    if other_result.warnings:
         warnings.extend(other_result.warnings)
 
     if errors:
@@ -128,16 +117,16 @@ async def _run_provider_checks(config: Any) -> dict[str, _ProviderResult]:
         console.print("[yellow]No config loaded — skipping provider checks.[/]")
         return {}
 
-    # Doctor opts in to the MCP tool-call probe. The workflow preflight
-    # leaves it off (extra 2-5s/provider) — fly already exercises the
-    # MCP path during real bead work, but doctor is the right place to
-    # surface bridge bugs before the user spends real tokens.
-    health_checks = build_provider_health_checks(config, test_mcp_tool_call=True)
+    # The legacy ``test_mcp_tool_call=True`` opt-in is no-op under the
+    # OpenCode runtime (StructuredOutput tool-forcing makes a per-provider
+    # tool probe redundant). Kept on the call signature for source
+    # compatibility but doctor no longer requests it.
+    health_checks = build_provider_health_checks(config)
     if not health_checks:
-        console.print("[dim]No ACP providers configured.[/]")
+        console.print("[dim]No providers configured.[/]")
         return {}
 
-    console.print("[bold]ACP providers[/]")
+    console.print("[bold]Providers[/]")
 
     statuses: dict[str, dict[str, Any]] = {
         hc.provider_name: {"state": "running", "timing": "", "detail": ""} for hc in health_checks

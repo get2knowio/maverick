@@ -6,8 +6,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from maverick.library.actions.types import VerifyBeadCompletionResult
-
 
 @dataclass
 class BeadContext:
@@ -34,7 +32,6 @@ class BeadContext:
     # Populated by step functions as pipeline progresses
     validation_result: dict[str, Any] | None = None
     review_result: dict[str, Any] | None = None
-    verify_result: VerifyBeadCompletionResult | None = None
     gate_result: dict[str, Any] | None = None
     remediation_attempted: bool = False
 

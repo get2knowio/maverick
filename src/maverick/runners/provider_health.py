@@ -39,7 +39,6 @@ __all__ = [
     "build_provider_health_checks",
     "providers_for_fly",
     "providers_referenced_by_actors",
-    "providers_referenced_by_agents",
 ]
 
 logger = get_logger(__name__)
@@ -48,9 +47,6 @@ logger = get_logger(__name__)
 # ---------------------------------------------------------------------------
 # Provider-name extraction (no runtime deps)
 # ---------------------------------------------------------------------------
-
-
-_FLY_AGENT_ROLES: tuple[str, ...] = ("implementer", "reviewer", "briefing")
 
 
 def _default_provider_name(config: Any) -> str | None:
@@ -80,21 +76,10 @@ def providers_referenced_by_actors(config: Any, workflow: str) -> set[str]:
     return providers
 
 
-def providers_referenced_by_agents(config: Any, roles: tuple[str, ...]) -> set[str]:
-    """Return the providers named in legacy ``agents.<role>.provider``."""
-    providers: set[str] = set()
-    for role in roles:
-        agent_cfg = config.agents.get(role)
-        if agent_cfg is not None and getattr(agent_cfg, "provider", None):
-            providers.add(agent_cfg.provider)
-    return providers
-
-
 def providers_for_fly(config: Any) -> set[str]:
     """Union of every provider ``maverick fly`` may route through."""
     seen: set[str] = set()
     seen |= providers_referenced_by_actors(config, "fly")
-    seen |= providers_referenced_by_agents(config, _FLY_AGENT_ROLES)
     default = _default_provider_name(config)
     if default:
         seen.add(default)
@@ -269,9 +254,6 @@ def build_provider_health_checks(
         # for non-Claude providers.
         if "model_id" in config.model.model_fields_set and config.model.model_id:
             provider_models.setdefault(default_provider, set()).add(config.model.model_id)
-        for agent_cfg in config.agents.values():
-            if getattr(agent_cfg, "model_id", None):
-                provider_models.setdefault(default_provider, set()).add(agent_cfg.model_id)
 
     items = sorted(config.agent_providers.items())
     return [

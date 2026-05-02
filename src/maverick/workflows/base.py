@@ -260,22 +260,14 @@ class PythonWorkflow(ABC):
     ) -> StepConfig:
         """Resolve per-step configuration by merging defaults with overrides.
 
-        Uses the 6-layer resolution from maverick.executor.config:
+        Uses the layered resolution from maverick.executor.config:
 
         - inline_config: None (Python workflows have no YAML inline config)
         - actor_config: from
-          ``self._config.actors[<workflow-key>][agent_name]`` (current
-          surface; xoscar actor model)
-        - project_step_config: from ``self._config.steps[step_name]``
-          (legacy)
-        - agent_config: from ``self._config.agents[agent_name]`` when
-          provided (legacy)
+          ``self._config.actors[<workflow-key>][agent_name]`` — the
+          canonical per-step surface
         - global_model: from ``self._config.model``
         - provider_default_model: from the default provider config
-
-        ``actors:`` is the canonical surface and what ``maverick init``
-        writes; ``steps:`` and ``agents:`` are kept as fallbacks so older
-        configs and inline workflow YAML keep working.
 
         Args:
             step_name: The step name to resolve config for.
@@ -292,30 +284,12 @@ class PythonWorkflow(ABC):
             if agent_name
             else None
         )
-        agent_config = self._config.agents.get(agent_name) if agent_name else None
-        # Look up by full step name first (e.g. "briefing_scopist"), then
-        # fall back to the bare agent name so users can write either
-        # ``steps: { briefing_scopist: ... }`` or the shorter
-        # ``steps: { scopist: ... }`` in their config.
-        project_step_config = self._config.steps.get(step_name)
-        if project_step_config is None and agent_name:
-            project_step_config = self._config.steps.get(agent_name)
-        # Provider name for default-model resolution: highest-precedence
-        # explicit provider wins. Mirrors the precedence chain in
-        # _resolve_step_config exactly so the chosen provider matches the
-        # one whose default_model would apply.
-        provider_name = None
-        if actor_config is not None and actor_config.provider is not None:
-            provider_name = actor_config.provider
-        elif project_step_config is not None and project_step_config.provider is not None:
-            provider_name = project_step_config.provider
-        elif agent_config is not None and agent_config.provider is not None:
-            provider_name = agent_config.provider
+        provider_name = (
+            actor_config.provider if actor_config is not None and actor_config.provider else None
+        )
         return _resolve_step_config(
             inline_config=None,
             actor_config=actor_config,
-            project_step_config=project_step_config,
-            agent_config=agent_config,
             global_model=self._config.model,
             step_type=step_type,
             step_name=step_name,

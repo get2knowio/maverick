@@ -23,35 +23,10 @@ if not shutil.which(os.environ.get("OPENCODE_BIN") or "opencode"):
     pytest.skip("opencode binary not on PATH", allow_module_level=True)
 
 
-class _NoopAgent:
-    instructions = ""
-    allowed_tools: list[str] = []
-
-    def build_prompt(self, _: object) -> str:
-        return "smoke"
-
-
-class _NoopRegistrySection:
-    def has(self, name: str) -> bool:
-        return name == "noop"
-
-    def get(self, name: str) -> type:
-        return _NoopAgent
-
-    def list_names(self) -> list[str]:
-        return ["noop"]
-
-
-class _NoopRegistry:
-    def __init__(self) -> None:
-        self.agents = _NoopRegistrySection()
-
-
 async def test_executor_create_and_close_session_round_trip() -> None:
     """Open a session, cancel it, close it. No model invocation."""
     async with opencode_server() as handle:
         executor = OpenCodeStepExecutor(
-            agent_registry=_NoopRegistry(),
             server_handle=handle,
         )
         try:
@@ -67,7 +42,7 @@ async def test_executor_create_and_close_session_round_trip() -> None:
 async def test_executor_lazy_spawn_when_no_handle_passed() -> None:
     """When no handle is supplied, the executor spawns its own opencode and
     tears it down on cleanup."""
-    executor = OpenCodeStepExecutor(agent_registry=_NoopRegistry())
+    executor = OpenCodeStepExecutor()
     try:
         sid = await executor.create_session(step_name="lazy", agent_name="noop")
         assert sid.startswith("ses_")
@@ -82,7 +57,6 @@ async def test_executor_invalid_session_raises() -> None:
 
     async with opencode_server() as handle:
         executor = OpenCodeStepExecutor(
-            agent_registry=_NoopRegistry(),
             server_handle=handle,
         )
         try:
@@ -95,7 +69,6 @@ async def test_executor_invalid_session_raises() -> None:
 async def test_executor_cleanup_is_idempotent() -> None:
     async with opencode_server() as handle:
         executor = OpenCodeStepExecutor(
-            agent_registry=_NoopRegistry(),
             server_handle=handle,
         )
         await executor.cleanup()
@@ -107,7 +80,6 @@ async def test_executor_does_not_kill_external_handle_on_cleanup() -> None:
     """When server_handle was supplied, cleanup must not stop the server."""
     async with opencode_server() as handle:
         executor = OpenCodeStepExecutor(
-            agent_registry=_NoopRegistry(),
             server_handle=handle,
         )
         await executor.cleanup()

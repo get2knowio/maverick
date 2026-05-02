@@ -1191,7 +1191,8 @@ class TestInitConfig:
         yaml_output = config.to_yaml()
         assert "provider_tiers:" in yaml_output
         assert "review" in yaml_output
-        assert "openrouter" in yaml_output
+        # The new DEFAULT_TIERS leads with github-copilot rather than openrouter.
+        assert "github-copilot" in yaml_output
 
     def test_to_yaml_provider_tiers_round_trips(self, tmp_path: Path) -> None:
         """The emitted YAML parses back into the runtime config shape."""
@@ -1203,7 +1204,8 @@ class TestInitConfig:
         loaded = load_config(cfg_path)
         assert "review" in loaded.provider_tiers.tiers
         review = loaded.provider_tiers.tiers["review"]
-        assert review[0].provider == "openrouter"
+        # Primary review binding is github-copilot/claude-haiku-4.5.
+        assert review[0].provider == "github-copilot"
 
     def test_to_yaml_includes_tier_comment_block(self) -> None:
         """Comment lines explaining the tier surface are injected by hand
@@ -1413,17 +1415,17 @@ class TestInitResult:
 
     def test_provider_discovery_in_to_dict(self) -> None:
         """provider_discovery is serialized in to_dict when present."""
-        from maverick.init.provider_discovery import (
-            ProviderDiscoveryResult,
-            ProviderProbeResult,
+        from maverick.init.opencode_discovery import (
+            ConnectedProvider,
+            OpenCodeDiscoveryResult,
         )
 
         preflight = InitPreflightResult(success=True)
         git_info = GitRemoteInfo()
         config = InitConfig()
-        discovery = ProviderDiscoveryResult(
-            providers=(ProviderProbeResult("claude", "Claude", "claude-agent-acp", True),),
-            default_provider="claude",
+        discovery = OpenCodeDiscoveryResult(
+            providers=(ConnectedProvider("github-copilot", "GitHub Copilot", None, 17),),
+            default_provider_id="github-copilot",
         )
 
         result = InitResult(
@@ -1436,7 +1438,7 @@ class TestInitResult:
         )
         output = result.to_dict()
         assert output["provider_discovery"] is not None
-        assert output["provider_discovery"]["default_provider"] == "claude"
+        assert output["provider_discovery"]["default_provider_id"] == "github-copilot"
 
 
 # =============================================================================

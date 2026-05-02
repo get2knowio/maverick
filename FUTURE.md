@@ -56,6 +56,7 @@ It reconciles those documents against the current codebase as of 2026-04-19 and 
 | Review prompts don't emit `prompt_usage` | Implemented | `prompt_session` now logs `prompt_usage` from a `finally` block with an `exit_path` field. The log fires unconditionally across success, timeout, AcpRequestError, and circuit-breaker paths — no prompt return path can bypass it. |
 | Commit provenance for evals | Partial | Layer 1 shipped: curator now appends a `Refs:` trailer naming source bead IDs, with a deterministic safety-net post-processor. Layer 2 (per-attempt runway capture of provider/model/prompt) still active. |
 | Per-project OpenCode agent/skill overrides | Active | Bundled defaults ship with the package via `OPENCODE_CONFIG_DIR`; per-project override layer at `.maverick/opencode/` deferred. See §4.7. |
+| Substrate-swap interface | Active | Substrate concerns concentrated in ~5 modules today, but the seam is incidental rather than intentional. Define a `Substrate` Protocol so OpenCode (or any future runtime) sits behind a named boundary. See §4.8. |
 
 ## 1. Orchestration And Human Review
 
@@ -1462,6 +1463,117 @@ Relevant code (forthcoming):
 
 - `src/maverick/runtime/opencode/profile/` (bundled defaults)
 - `src/maverick/runtime/opencode/server.py` (env-injection point)
+
+### 4.8 Substrate-Swap Interface
+
+**Status:** Active
+
+The OpenCode-substrate migration shipped in
+[`7ea1028`](https://github.com/get2knowio/maverick/commit/7ea1028)
+unified every LLM invocation onto a single substrate
+(`agent="maverick.<role>"` resolved against bundled markdown personas
+via OpenCode's HTTP runtime). A side effect of the cleanup: substrate
+concerns are now concentrated in a small, well-bounded set of modules
+— `runtime/opencode/{client,executor,server,tiers,errors}.py` plus
+`actors/xoscar/opencode_mixin.py`. That's accidentally a good shape
+for a future swap to a different substrate (pi.dev, a hypothetical
+"opencode v2", a self-hosted runtime, …), but the boundary is
+*incidental*, not *intentional*.
+
+This item makes the boundary deliberate so swapping substrates is a
+mechanical refactor on five modules instead of an architecture
+question.
+
+Why now:
+
+- Designing the seam while one substrate is fresh in mind is cheaper
+  than retrofitting it later when someone has a concrete reason to
+  switch.
+- It's option-preservation, not migration. We are explicitly **not**
+  switching off OpenCode — we have no concrete pain on it. The point
+  is to keep "could swap if we needed to" within mechanical-refactor
+  reach instead of letting it drift toward "would require a rewrite."
+- The pi.dev comparison done during the migration cleanup confirmed
+  no present reason to switch, but also surfaced three trip-wires
+  that, if they ever fired, would justify a swap: structured-output
+  reliability regression on OpenCode, breaking server-protocol
+  changes upstream, or a need for embedded-library deployment
+  (single-process maverick). None are visible today; designing the
+  seam now means responding to them later is a few-day project, not
+  a few-week one.
+
+What "intentional" looks like:
+
+- **Define a `Substrate` Protocol** at `src/maverick/runtime/substrate.py`.
+  Methods should be substrate-neutral and tightly scoped:
+  - `send_named(*, agent: str, prompt: str, result_model: type[BaseModel] | None, ...) -> SubstrateResult`
+  - `create_session() / prompt_session() / cancel_session() / close_session()` for multi-turn callers
+  - `validate_model(provider: str, model_id: str) -> bool` for tier-cascade pre-flight
+- **Lift substrate-neutral types** into `runtime/`: `CostRecord`,
+  `SubstrateError` hierarchy (currently the `OpenCodeAuthError` /
+  `OpenCodeContextOverflowError` / `OpenCodeStructuredOutputError`
+  family — they describe categories, not OpenCode-specific events),
+  `StructuredOutputResult`. Keep the OpenCode-specific subclasses for
+  cases where the message text is helpful, but the supertype lives at
+  the substrate layer.
+- **`OpenCodeAgentMixin` and `OpenCodeStepExecutor` depend on the
+  Protocol**, not the concrete `OpenCodeClient`. Today the mixin
+  imports `OpenCodeClient` directly and constructs one per actor;
+  after this refactor it imports `Substrate` and is handed an
+  instance.
+- **One concrete `OpenCodeSubstrate` impl** stays in
+  `runtime/opencode/`. The three landmines mitigations
+  (envelope-unwrap, async-dispatch crash recovery, silent-error
+  detection) live inside that impl as substrate-specific concerns.
+- **Tier cascade plugs in at the Protocol layer.** Currently
+  `cascade_send` lives inside `runtime/opencode/tiers.py` and is
+  coupled to the OpenCode client. The cascade logic is substrate-
+  agnostic ("on recoverable failure, drop the binding and retry on
+  the next one") and belongs above the Substrate seam.
+- **Test-only `StubSubstrate`** in
+  `tests/fixtures/substrate.py` proves the seam works: takes a dict
+  of `{agent_name: canned_response}` mappings, returns them. Used by
+  unit tests that today have to mock `OpenCodeClient`. Validates the
+  Protocol surface is small enough to actually stub without writing
+  half a runtime.
+
+Non-goals:
+
+- Adding a second concrete substrate. We're not shipping pi support
+  or anything else; we're just keeping that door visible.
+- Feature parity. Tier cascade, three-landmine mitigation, and
+  structured-output forcing stay specific to OpenCode where they
+  belong. The Protocol exposes outcomes, not implementation.
+- Persona portability. `.md` agent files are an OpenCode convention.
+  If we ever swap, the migration includes re-shipping personas in
+  the new substrate's format. The Substrate Protocol doesn't promise
+  to abstract that away.
+
+Sequencing:
+
+1. Land the Substrate Protocol + neutral type extractions. No behavior
+   change. Existing OpenCode code starts implementing the Protocol.
+2. Refactor `OpenCodeAgentMixin` to depend on the Protocol; pool
+   wiring continues to construct a concrete `OpenCodeSubstrate`.
+3. Refactor `OpenCodeStepExecutor` likewise.
+4. Move `cascade_send` above the substrate boundary.
+5. Land `StubSubstrate` and migrate the most-mocked test sites onto
+   it as a forcing function — if the stub can't replace the mock,
+   the Protocol surface is wrong.
+
+Acceptance: a hypothetical second substrate impl could be added by
+writing one new module under `runtime/<name>/` plus a registration
+hook, with no edits to xoscar actors, the executor, the supervisor
+fan-out, or the workflow layer.
+
+Relevant code (current):
+
+- `src/maverick/runtime/opencode/client.py` (3-landmines mitigation)
+- `src/maverick/runtime/opencode/executor.py` (named-agent path + multi-turn API)
+- `src/maverick/runtime/opencode/server.py` (lifecycle + `OPENCODE_CONFIG_DIR` injection)
+- `src/maverick/runtime/opencode/tiers.py` (cascade — moves above the seam)
+- `src/maverick/runtime/opencode/errors.py` (error classification — splits into neutral + OpenCode-specific)
+- `src/maverick/actors/xoscar/opencode_mixin.py` (the `agent=` plumbing — refactors to depend on Protocol)
 
 ## 5. Reusable Workflow Building Blocks
 

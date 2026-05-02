@@ -187,22 +187,15 @@ class _ModelStub:
         self.model_fields_set = fields_set or set()
 
 
-class _AgentCfg:
-    def __init__(self, model_id: str | None = None) -> None:
-        self.model_id = model_id
-
-
 class _ConfigStub:
     def __init__(
         self,
         agent_providers: dict[str, AgentProviderConfig] | None = None,
         actors: dict | None = None,
-        agents: dict | None = None,
         model: _ModelStub | None = None,
     ) -> None:
         self.agent_providers = _ProvidersStub(agent_providers or {})
         self.actors = actors or {}
-        self.agents = agents or {}
         self.model = model or _ModelStub()
 
 
@@ -246,23 +239,20 @@ def test_build_includes_provider_default_model() -> None:
     assert checks[0].models_to_validate == frozenset({"openai/gpt-4o-mini"})
 
 
-def test_build_includes_global_and_per_agent_models_for_default_provider() -> None:
-    """Global ``model.model_id`` and per-agent overrides only apply to the
-    default provider — a global Claude alias means nothing for openrouter."""
+def test_build_includes_global_model_for_default_provider() -> None:
+    """Global ``model.model_id`` applies to the default provider only —
+    a global Claude alias means nothing for openrouter."""
     config = _ConfigStub(
         agent_providers={
             "openrouter": _provider(default=True, default_model="x"),
             "anthropic-direct": _provider(),
         },
-        agents={"reviewer": _AgentCfg(model_id="anthropic/claude-haiku-4.5")},
         model=_ModelStub(model_id="qwen/qwen3-coder", fields_set={"model_id"}),
     )
     checks = build_provider_health_checks(config)
     by_name = {c.provider_name: c for c in checks}
-    assert by_name["openrouter"].models_to_validate == frozenset(
-        {"x", "qwen/qwen3-coder", "anthropic/claude-haiku-4.5"}
-    )
-    # Non-default provider doesn't pick up the global / per-agent set.
+    assert by_name["openrouter"].models_to_validate == frozenset({"x", "qwen/qwen3-coder"})
+    # Non-default provider doesn't pick up the global set.
     assert by_name["anthropic-direct"].models_to_validate == frozenset()
 
 

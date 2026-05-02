@@ -393,18 +393,19 @@ class TestGenerateFlightPlanWorkflowXoscarConfig:
     ) -> None:
         """PlanSupervisor gets PlanInputs carrying the generator's StepConfig
         and the resolved provider labels for the briefing Rich Live table."""
-        from maverick.config import AgentConfig, AgentProviderConfig
+        from maverick.config import AgentProviderConfig
 
-        mock_config.steps = {}
-        mock_config.agents = {
-            "scopist": AgentConfig(
-                provider="gemini",
-                model_id="gemini-3.1-pro-preview",
-            ),
-            "flight_plan_generator": AgentConfig(
-                provider="claude",
-                model_id="opus",
-            ),
+        mock_config.actors = {
+            "plan": {
+                "scopist": {
+                    "provider": "gemini",
+                    "model_id": "gemini-3.1-pro-preview",
+                },
+                "flight_plan_generator": {
+                    "provider": "claude",
+                    "model_id": "opus",
+                },
+            }
         }
         mock_config.agent_providers = {
             "claude": AgentProviderConfig(
@@ -479,8 +480,6 @@ class TestGenerateFlightPlanWorkflowXoscarConfig:
         sharing claude/sonnet was caused by a single shared config."""
         from maverick.config import AgentProviderConfig
 
-        mock_config.steps = {}
-        mock_config.agents = {}
         mock_config.actors = {
             "plan": {
                 "scopist": {

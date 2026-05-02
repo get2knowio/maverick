@@ -22,13 +22,10 @@ from __future__ import annotations
 
 # Import action functions
 from maverick.library.actions.beads import (
-    check_epic_done,
     create_beads,
-    create_beads_from_failures,
-    create_beads_from_findings,
+    defer_bead,
     mark_bead_complete,
     select_next_bead,
-    verify_bead_completion,
     wire_dependencies,
 )
 from maverick.library.actions.dependencies import sync_dependencies
@@ -66,13 +63,10 @@ from maverick.library.actions.workspace import create_fly_workspace, init_worksp
 __all__ = [
     # Bead actions
     "create_beads",
+    "defer_bead",
     "wire_dependencies",
     "select_next_bead",
     "mark_bead_complete",
-    "check_epic_done",
-    "create_beads_from_failures",
-    "create_beads_from_findings",
-    "verify_bead_completion",
     # Preflight actions
     "run_preflight_checks",
     # Workspace actions

@@ -1,7 +1,23 @@
-"""Configuration generation for maverick init command.
+"""Configuration generation for ``maverick init``.
 
-This module provides functions for generating InitConfig from detection results
-and git information, and writing the configuration to disk.
+Builds an ``InitConfig`` from project detection, git remote info, and
+OpenCode provider discovery. The generator writes:
+
+* ``project_type``, ``github`` — from detection + git parsing.
+* ``validation`` — language defaults from the detected project type.
+* ``model`` — optional global default model id (rare; tier cascades
+  drive routing now).
+* ``agent_providers`` — one entry per provider returned by
+  ``GET /provider`` (the OpenCode runtime's ``connected[]`` list).
+  Used by ``maverick doctor`` for health checks.
+* ``provider_tiers`` — the cross-provider cascade ``DEFAULT_TIERS``
+  baked into the generated yaml, so users see the routing decisions
+  and can edit them per project.
+
+The legacy PATH-based ACP probe + ``actors:`` auto-distribution were
+deleted in the OpenCode-substrate cleanup. The runtime resolves
+``provider_tiers`` from the yaml directly; per-actor overrides go
+under ``actors.<workflow>.<actor>``, written manually when needed.
 """
 
 from __future__ import annotations
@@ -20,7 +36,8 @@ from maverick.init.models import (
     ProjectType,
     ValidationCommands,
 )
-from maverick.init.provider_discovery import ProviderDiscoveryResult
+from maverick.init.opencode_discovery import OpenCodeDiscoveryResult
+from maverick.runtime.opencode import DEFAULT_TIERS
 
 __all__ = [
     "generate_config",
@@ -28,75 +45,63 @@ __all__ = [
 ]
 
 
+def _provider_tiers_block() -> dict[str, list[dict[str, str]]]:
+    """Serialize :data:`DEFAULT_TIERS` into yaml-shaped dicts.
+
+    Mirrors the schema ``maverick.config::ProviderTiersConfig.tiers``
+    expects: ``{tier_name: [{provider, model_id}, ...]}``. Putting the
+    cascade in the user's yaml at init time means the user sees the
+    routing decisions and can edit them per project without spelunking
+    through the runtime defaults.
+    """
+    return {
+        name: [{"provider": b.provider_id, "model_id": b.model_id} for b in tier.bindings]
+        for name, tier in DEFAULT_TIERS.items()
+    }
+
+
 def generate_config(
     git_info: GitRemoteInfo,
     detection: ProjectDetectionResult | None,
     project_type: ProjectType | None = None,
     model_id: str | None = None,
-    provider_discovery: ProviderDiscoveryResult | None = None,
+    provider_discovery: OpenCodeDiscoveryResult | None = None,
 ) -> InitConfig:
-    """Generate InitConfig from detection results and git info.
-
-    Creates a complete InitConfig based on project detection results,
-    git remote information, and optional explicit project type.
+    """Generate :class:`InitConfig` from detection + git + provider discovery.
 
     Args:
-        git_info: Parsed git remote information containing owner/repo.
-        detection: Project detection result, or None if detection was skipped.
-        project_type: Optional explicit project type override. If provided,
-            this type's defaults are used instead of detection.primary_type.
-        model_id: Optional Claude model ID to use. If not provided, uses default.
-        provider_discovery: Optional provider discovery result. If provided and
-            providers were found, populates the ``agent_providers`` config section.
+        git_info: Parsed git remote information (owner/repo).
+        detection: Project detection result, or ``None`` if detection
+            was skipped (e.g. explicit ``project_type`` override).
+        project_type: Explicit project type override; takes precedence
+            over ``detection.primary_type``.
+        model_id: Optional global default model id to embed at
+            ``model.model_id``. Most projects leave this unset because
+            tier cascades drive routing.
+        provider_discovery: Result of querying OpenCode's
+            ``/provider`` endpoint. When present, populates the
+            ``agent_providers`` block with the connected providers and
+            flags the highest-preference one as ``default: true``.
 
     Returns:
-        Complete InitConfig ready for serialization.
-
-    Examples:
-        >>> config = generate_config(
-        ...     git_info=GitRemoteInfo(owner="acme", repo="project"),
-        ...     detection=detection_result,
-        ... )
-        >>> print(config.github.owner)
-        'acme'
-
-        >>> config = generate_config(
-        ...     git_info=GitRemoteInfo(),
-        ...     detection=None,
-        ...     project_type=ProjectType.NODEJS,
-        ... )
-        >>> print(config.validation.test_cmd)
-        ['npm', 'test']
-
-        >>> config = generate_config(
-        ...     git_info=GitRemoteInfo(),
-        ...     detection=None,
-        ...     model_id="claude-opus-4-5-20251101",
-        ... )
-        >>> print(config.model.model_id)
-        'claude-opus-4-5-20251101'
+        Complete :class:`InitConfig` ready for serialization.
     """
-    # Determine which project type to use for validation defaults
+    # Determine effective project type
     if project_type is not None:
         effective_type = project_type
     elif detection is not None:
         effective_type = detection.primary_type
     else:
-        # Fall back to Python defaults when no detection and no explicit type
         effective_type = ProjectType.PYTHON
 
-    # Get validation commands for the effective project type
     validation_commands = ValidationCommands.for_project_type(effective_type)
 
-    # Build GitHub config from git info
     github_config = InitGitHubConfig(
         owner=git_info.owner,
         repo=git_info.repo,
         default_branch="main",
     )
 
-    # Build validation config from validation commands
-    # Convert tuples to lists for Pydantic model compatibility
     validation_config = InitValidationConfig(
         sync_cmd=list(validation_commands.sync_cmd) if validation_commands.sync_cmd else None,
         format_cmd=list(validation_commands.format_cmd)
@@ -109,24 +114,27 @@ def generate_config(
         test_cmd=list(validation_commands.test_cmd) if validation_commands.test_cmd else None,
     )
 
-    # Build model config with defaults or custom model_id
     model_config = InitModelConfig(model_id=model_id) if model_id else InitModelConfig()
 
-    # Build agent_providers from discovery result
+    # agent_providers from /provider connected list. The first entry in
+    # preference order (per OpenCodeDiscoveryResult sort) becomes the
+    # default. When discovery failed (None) the block stays empty —
+    # workflows still work via the runtime DEFAULT_TIERS, doctor just
+    # has nothing to validate.
     agent_providers: dict[str, dict[str, Any]] = {}
     if provider_discovery is not None:
-        for probe in provider_discovery.found_providers:
-            agent_providers[probe.name] = {
-                "default": probe.name == provider_discovery.default_provider,
+        for prov in provider_discovery.providers:
+            agent_providers[prov.provider_id] = {
+                "default": prov.provider_id == provider_discovery.default_provider_id,
             }
 
-    # Assemble complete config
     return InitConfig(
         project_type=effective_type.value,
         github=github_config,
         validation=validation_config,
         model=model_config,
         agent_providers=agent_providers,
+        provider_tiers={"tiers": _provider_tiers_block()},
     )
 
 
@@ -135,31 +143,14 @@ def write_config(
     output_path: Path,
     force: bool = False,
 ) -> None:
-    """Write configuration to a file.
+    """Write ``config`` to ``output_path`` as YAML.
 
-    Serializes the InitConfig to YAML format and writes it to the specified path.
-    Raises ConfigExistsError if the file exists and force is False.
-
-    Args:
-        config: The configuration to write.
-        output_path: Path where the configuration file should be written.
-        force: If True, overwrite existing file. If False, raise error if exists.
-
-    Raises:
-        ConfigExistsError: If output_path exists and force is False.
-        ConfigWriteError: If writing the file fails due to I/O errors.
-
-    Examples:
-        >>> write_config(config, Path("maverick.yaml"))
-
-        >>> # Force overwrite existing file
-        >>> write_config(config, Path("maverick.yaml"), force=True)
+    Raises :class:`ConfigExistsError` when the file exists and
+    ``force=False``; :class:`ConfigWriteError` on I/O failure.
     """
-    # Check if file exists and force is not set
     if output_path.exists() and not force:
         raise ConfigExistsError(output_path)
 
-    # Write the config to file
     try:
         yaml_content = config.to_yaml()
         output_path.write_text(yaml_content)

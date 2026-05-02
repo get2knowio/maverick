@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -49,6 +50,7 @@ class TestCreateBeads:
             epic_definition=self._make_epic_def(),
             work_definitions=[self._make_work_def()],
             dry_run=True,
+            cwd=Path("/tmp"),
         )
 
         assert result.epic is not None
@@ -60,7 +62,7 @@ class TestCreateBeads:
 
     @pytest.mark.asyncio
     async def test_creates_beads_via_client(self) -> None:
-        from maverick.beads.models import BeadDefinition, CreatedBead
+        from maverick.beads.models import CreatedBead
 
         mock_client = AsyncMock()
         epic_def_obj = BeadDefinition.model_validate(self._make_epic_def())
@@ -76,6 +78,7 @@ class TestCreateBeads:
                 epic_definition=self._make_epic_def(),
                 work_definitions=[self._make_work_def()],
                 dry_run=False,
+                cwd=Path("/tmp"),
             )
 
         assert result.epic is not None
@@ -94,6 +97,7 @@ class TestCreateBeads:
                 epic_definition=self._make_epic_def(),
                 work_definitions=[self._make_work_def()],
                 dry_run=False,
+                cwd=Path("/tmp"),
             )
 
         assert result.epic is None
@@ -102,7 +106,7 @@ class TestCreateBeads:
 
     @pytest.mark.asyncio
     async def test_handles_work_bead_creation_failure(self) -> None:
-        from maverick.beads.models import BeadDefinition, CreatedBead
+        from maverick.beads.models import CreatedBead
 
         mock_client = AsyncMock()
         epic_def_obj = BeadDefinition.model_validate(self._make_epic_def())
@@ -117,6 +121,7 @@ class TestCreateBeads:
                 epic_definition=self._make_epic_def(),
                 work_definitions=[self._make_work_def()],
                 dry_run=False,
+                cwd=Path("/tmp"),
             )
 
         assert result.epic is not None
@@ -176,6 +181,7 @@ class TestWireDependencies:
             tasks_content="",
             extracted_deps="[]",
             dry_run=True,
+            cwd=Path("/tmp"),
         )
 
         assert result.success is True
@@ -218,6 +224,7 @@ class TestWireDependencies:
             tasks_content="",
             extracted_deps=extracted,
             dry_run=True,
+            cwd=Path("/tmp"),
         )
 
         dep_pairs = [(d["blocker_id"], d["blocked_id"]) for d in result.dependencies]
@@ -235,6 +242,7 @@ class TestWireDependencies:
             tasks_content="",
             extracted_deps="not valid json {{{",
             dry_run=True,
+            cwd=Path("/tmp"),
         )
 
         assert result.success is True
@@ -250,6 +258,7 @@ class TestWireDependencies:
                 tasks_content="",
                 extracted_deps="[]",
                 dry_run=False,
+                cwd=Path("/tmp"),
             )
 
         assert result.success is True
@@ -283,6 +292,7 @@ class TestWireDependencies:
             tasks_content="",
             extracted_deps="[]",
             dry_run=True,
+            cwd=Path("/tmp"),
         )
 
         dep_pairs = [(d["blocker_id"], d["blocked_id"]) for d in result.dependencies]
@@ -303,7 +313,7 @@ class TestSelectNextBead:
         ]
 
         with patch("maverick.beads.client.BeadClient", return_value=mock_client):
-            result = await select_next_bead("epic-1")
+            result = await select_next_bead("epic-1", cwd=Path("/tmp"))
 
         assert result.found is True
         assert result.bead_id == "b-1"
@@ -319,7 +329,7 @@ class TestSelectNextBead:
         mock_client.ready.return_value = []
 
         with patch("maverick.beads.client.BeadClient", return_value=mock_client):
-            result = await select_next_bead("epic-1")
+            result = await select_next_bead("epic-1", cwd=Path("/tmp"))
 
         assert result.found is False
         assert result.done is True
@@ -344,7 +354,7 @@ class TestSelectNextBead:
         ]
 
         with patch("maverick.beads.client.BeadClient", return_value=mock_client):
-            result = await select_next_bead("")
+            result = await select_next_bead("", cwd=Path("/tmp"))
 
         # Should pass None to client.ready (no parent filter)
         mock_client.ready.assert_called_once_with(None, limit=10)
@@ -385,7 +395,7 @@ class TestSelectNextBead:
         mock_client.show.side_effect = _show_side_effect
 
         with patch("maverick.beads.client.BeadClient", return_value=mock_client):
-            result = await select_next_bead("")
+            result = await select_next_bead("", cwd=Path("/tmp"))
 
         # show() called for: label check, bead description, epic flight_plan_name
         assert mock_client.show.call_count == 3
@@ -401,7 +411,7 @@ class TestSelectNextBead:
         mock_client.ready.return_value = []
 
         with patch("maverick.beads.client.BeadClient", return_value=mock_client):
-            result = await select_next_bead("")
+            result = await select_next_bead("", cwd=Path("/tmp"))
 
         mock_client.ready.assert_called_once_with(None, limit=10)
         assert result.found is False
@@ -431,7 +441,7 @@ class TestSelectNextBead:
         )
 
         with patch("maverick.beads.client.BeadClient", return_value=mock_client):
-            result = await select_next_bead("epic-42")
+            result = await select_next_bead("epic-42", cwd=Path("/tmp"))
 
         assert result.flight_plan_name == "add-user-auth"
 
@@ -458,7 +468,7 @@ class TestSelectNextBead:
         )
 
         with patch("maverick.beads.client.BeadClient", return_value=mock_client):
-            result = await select_next_bead("epic-42")
+            result = await select_next_bead("epic-42", cwd=Path("/tmp"))
 
         assert result.flight_plan_name == ""
 
@@ -477,7 +487,7 @@ class TestMarkBeadComplete:
         )
 
         with patch("maverick.beads.client.BeadClient", return_value=mock_client):
-            result = await mark_bead_complete("b-1", reason="done")
+            result = await mark_bead_complete("b-1", reason="done", cwd=Path("/tmp"))
 
         assert result.success is True
         assert result.bead_id == "b-1"
@@ -491,267 +501,7 @@ class TestMarkBeadComplete:
         mock_client.close.side_effect = RuntimeError("close failed")
 
         with patch("maverick.beads.client.BeadClient", return_value=mock_client):
-            result = await mark_bead_complete("b-1")
+            result = await mark_bead_complete("b-1", cwd=Path("/tmp"))
 
         assert result.success is False
         assert "close failed" in result.error
-
-
-class TestCheckEpicDone:
-    """Tests for check_epic_done action."""
-
-    @pytest.mark.asyncio
-    async def test_done_all_children_closed(self) -> None:
-        from maverick.beads.models import BeadSummary
-        from maverick.library.actions.beads import check_epic_done
-
-        mock_client = AsyncMock()
-        mock_client.ready.return_value = []
-        mock_client.children.return_value = [
-            BeadSummary(id="b-1", title="T1", status="closed"),
-            BeadSummary(id="b-2", title="T2", status="closed"),
-        ]
-
-        with patch("maverick.beads.client.BeadClient", return_value=mock_client):
-            result = await check_epic_done("epic-1")
-
-        assert result.done is True
-        assert result.remaining_count == 0
-        assert result.all_children_closed is True
-        assert result.total_children == 2
-        assert result.closed_children == 2
-
-    @pytest.mark.asyncio
-    async def test_done_but_children_still_open(self) -> None:
-        """No ready beads but some children are blocked/open."""
-        from maverick.beads.models import BeadSummary
-        from maverick.library.actions.beads import check_epic_done
-
-        mock_client = AsyncMock()
-        mock_client.ready.return_value = []
-        mock_client.children.return_value = [
-            BeadSummary(id="b-1", title="T1", status="closed"),
-            BeadSummary(id="b-2", title="T2", status="blocked"),
-        ]
-
-        with patch("maverick.beads.client.BeadClient", return_value=mock_client):
-            result = await check_epic_done("epic-1")
-
-        assert result.done is True
-        assert result.all_children_closed is False
-        assert result.total_children == 2
-        assert result.closed_children == 1
-
-    @pytest.mark.asyncio
-    async def test_not_done(self) -> None:
-        from maverick.beads.models import BeadSummary, ReadyBead
-        from maverick.library.actions.beads import check_epic_done
-
-        mock_client = AsyncMock()
-        mock_client.ready.return_value = [
-            ReadyBead(id="b-1", title="T1", priority=1),
-            ReadyBead(id="b-2", title="T2", priority=2),
-        ]
-        mock_client.children.return_value = [
-            BeadSummary(id="b-1", title="T1", status="open"),
-            BeadSummary(id="b-2", title="T2", status="open"),
-        ]
-
-        with patch("maverick.beads.client.BeadClient", return_value=mock_client):
-            result = await check_epic_done("epic-1")
-
-        assert result.done is False
-        assert result.remaining_count == 2
-        assert result.all_children_closed is False
-
-    @pytest.mark.asyncio
-    async def test_empty_epic_queries_all(self) -> None:
-        """When epic_id is empty, check_epic_done queries all ready beads."""
-        from maverick.library.actions.beads import check_epic_done
-
-        mock_client = AsyncMock()
-        mock_client.ready.return_value = []
-
-        with patch("maverick.beads.client.BeadClient", return_value=mock_client):
-            result = await check_epic_done("")
-
-        # Should pass None to client.ready (no parent filter)
-        mock_client.ready.assert_called_once_with(None, limit=10)
-        assert result.done is True
-        # No epic_id means children are not queried
-        mock_client.children.assert_not_called()
-        assert result.all_children_closed is False
-
-    @pytest.mark.asyncio
-    async def test_empty_epic_not_done(self) -> None:
-        """When epic_id is empty and beads exist globally, not done."""
-        from maverick.beads.models import ReadyBead
-        from maverick.library.actions.beads import check_epic_done
-
-        mock_client = AsyncMock()
-        mock_client.ready.return_value = [
-            ReadyBead(id="b-5", title="Remaining", priority=1),
-        ]
-
-        with patch("maverick.beads.client.BeadClient", return_value=mock_client):
-            result = await check_epic_done("")
-
-        mock_client.ready.assert_called_once_with(None, limit=10)
-        assert result.done is False
-        assert result.remaining_count == 1
-
-    @pytest.mark.asyncio
-    async def test_children_query_failure_graceful(self) -> None:
-        """Children query failure doesn't break check_epic_done."""
-        from maverick.library.actions.beads import check_epic_done
-
-        mock_client = AsyncMock()
-        mock_client.ready.return_value = []
-        mock_client.children.side_effect = RuntimeError("bd unavailable")
-
-        with patch("maverick.beads.client.BeadClient", return_value=mock_client):
-            result = await check_epic_done("epic-1")
-
-        assert result.done is True
-        assert result.all_children_closed is False
-        assert result.total_children == 0
-
-    @pytest.mark.asyncio
-    async def test_no_children_not_closeable(self) -> None:
-        """Epic with zero children should not be marked all_children_closed."""
-        from maverick.library.actions.beads import check_epic_done
-
-        mock_client = AsyncMock()
-        mock_client.ready.return_value = []
-        mock_client.children.return_value = []
-
-        with patch("maverick.beads.client.BeadClient", return_value=mock_client):
-            result = await check_epic_done("epic-1")
-
-        assert result.done is True
-        assert result.all_children_closed is False
-        assert result.total_children == 0
-
-
-class TestCreateBeadsFromFailures:
-    """Tests for create_beads_from_failures action."""
-
-    @pytest.mark.asyncio
-    async def test_all_passed(self) -> None:
-        from maverick.library.actions.beads import create_beads_from_failures
-
-        result = await create_beads_from_failures(
-            epic_id="epic-1",
-            validation_result={"passed": True, "stages": []},
-        )
-        assert result.created_count == 0
-
-    @pytest.mark.asyncio
-    async def test_creates_beads_dry_run(self) -> None:
-        from maverick.library.actions.beads import create_beads_from_failures
-
-        result = await create_beads_from_failures(
-            epic_id="epic-1",
-            validation_result={
-                "passed": False,
-                "stages": ["test", "lint", "format"],
-                "stage_results": {
-                    "test": {"passed": False, "errors": ["test failed"]},
-                    "lint": {"passed": False, "errors": ["lint error"]},
-                    "format": {"passed": True, "errors": []},
-                },
-            },
-            dry_run=True,
-        )
-        assert result.created_count == 2
-        assert len(result.bead_ids) == 2
-        assert result.bead_ids[0].startswith("dry-run-fix-")
-
-    @pytest.mark.asyncio
-    async def test_creates_beads_real(self) -> None:
-        from maverick.beads.models import CreatedBead
-        from maverick.library.actions.beads import create_beads_from_failures
-
-        mock_client = AsyncMock()
-        mock_client.create_bead.return_value = CreatedBead(
-            bd_id="fix-1",
-            definition=BeadDefinition(
-                title="Fix: test validation failures",
-                bead_type="task",
-                priority=1,
-                category="validation",
-            ),
-        )
-
-        with patch("maverick.beads.client.BeadClient", return_value=mock_client):
-            result = await create_beads_from_failures(
-                epic_id="epic-1",
-                validation_result={
-                    "passed": False,
-                    "stages": ["test"],
-                    "stage_results": {
-                        "test": {
-                            "passed": False,
-                            "errors": ["test failed"],
-                        },
-                    },
-                },
-            )
-        assert result.created_count == 1
-        assert mock_client.create_bead.called
-
-
-class TestCreateBeadsFromFindings:
-    """Tests for create_beads_from_findings action."""
-
-    @pytest.mark.asyncio
-    async def test_approved(self) -> None:
-        from maverick.library.actions.beads import create_beads_from_findings
-
-        result = await create_beads_from_findings(
-            epic_id="epic-1",
-            review_result={"recommendation": "approve", "issues": []},
-        )
-        assert result.created_count == 0
-
-    @pytest.mark.asyncio
-    async def test_no_issues(self) -> None:
-        from maverick.library.actions.beads import create_beads_from_findings
-
-        result = await create_beads_from_findings(
-            epic_id="epic-1",
-            review_result={"recommendation": "request_changes", "issues": []},
-        )
-        assert result.created_count == 0
-
-    @pytest.mark.asyncio
-    async def test_creates_beads_dry_run(self) -> None:
-        from maverick.library.actions.beads import create_beads_from_findings
-
-        result = await create_beads_from_findings(
-            epic_id="epic-1",
-            review_result={
-                "recommendation": "request_changes",
-                "issues": [
-                    {
-                        "file_path": "src/main.py",
-                        "severity": "critical",
-                        "description": "SQL injection",
-                    },
-                    {
-                        "file_path": "src/main.py",
-                        "severity": "minor",
-                        "description": "Unused import",
-                    },
-                    {
-                        "file_path": "src/utils.py",
-                        "severity": "major",
-                        "description": "Missing error handling",
-                    },
-                ],
-            },
-            dry_run=True,
-        )
-        # Groups by file: src/main.py (2 issues), src/utils.py (1 issue)
-        assert result.created_count == 2
-        assert len(result.bead_ids) == 2

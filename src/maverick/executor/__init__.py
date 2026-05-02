@@ -3,16 +3,16 @@
 Exports the public surface for agent step execution under the OpenCode
 runtime. The legacy :class:`AcpStepExecutor` and its supporting modules
 (``acp.py``, ``acp_client.py``, ``_connection_pool.py``,
-``_subprocess.py``) were deleted in the OpenCode migration; the
-canonical implementation now lives in
+``_subprocess.py``, plus ``provider_registry.py`` for ACP provider
+binaries and ``_model_resolver.py`` for ACP session model alias
+resolution) were deleted in the OpenCode migration; the canonical
+implementation now lives in
 :class:`maverick.runtime.opencode.OpenCodeStepExecutor`.
 
 Public API:
 
 * :class:`StepExecutor`: Provider-agnostic ``@runtime_checkable`` Protocol.
 * :class:`OpenCodeStepExecutor`: OpenCode-backed implementation.
-* :class:`AgentProviderRegistry`: Provider registry (kept for source
-  compatibility; the OpenCode executor doesn't use it directly).
 * :class:`ExecutorResult`, :class:`UsageMetadata`: Result types.
 * :class:`StepExecutorConfig`, :class:`RetryPolicy`, :class:`StepConfig`:
   Configuration types.
@@ -31,7 +31,6 @@ from maverick.executor.config import (
 )
 from maverick.executor.errors import ExecutorError, OutputSchemaValidationError
 from maverick.executor.protocol import EventCallback, StepExecutor
-from maverick.executor.provider_registry import AgentProviderRegistry
 from maverick.executor.result import ExecutorResult, UsageMetadata
 
 __all__ = [
@@ -41,7 +40,6 @@ __all__ = [
     "StepExecutorConfig",
     "RetryPolicy",
     "UsageMetadata",
-    "AgentProviderRegistry",
     "DEFAULT_EXECUTOR_CONFIG",
     "ExecutorError",
     "OutputSchemaValidationError",

@@ -3,7 +3,7 @@ from __future__ import annotations
 import contextvars
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, Self
+from typing import Any, Literal, Self
 
 import yaml
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
@@ -23,9 +23,6 @@ from maverick.constants import (
 from maverick.exceptions import ConfigError
 from maverick.logging import get_logger
 
-if TYPE_CHECKING:
-    from maverick.executor.config import StepConfig
-
 __all__ = [
     "MaverickConfig",
     "GitHubConfig",
@@ -38,7 +35,6 @@ __all__ = [
     "TuiMetricsConfig",
     "SessionLogConfig",
     "WorkspaceConfig",
-    "AgentConfig",
     "ActorConfig",
     "ACTOR_WORKFLOW_KEY_MAP",
     "lookup_actor_config",
@@ -452,15 +448,6 @@ class RunwayConfig(BaseModel):
     retrieval: RunwayRetrievalConfig = Field(default_factory=RunwayRetrievalConfig)
 
 
-class AgentConfig(BaseModel):
-    """Flat key-value configuration for agent-specific overrides."""
-
-    provider: str | None = None
-    model_id: str | None = None
-    max_tokens: int | None = Field(default=None, gt=0, le=200000)
-    temperature: float | None = Field(default=None, ge=0.0, le=1.0)
-
-
 class ProviderModelEntry(BaseModel, frozen=True):
     """One ``(provider_id, model_id)`` binding within a provider tier.
 
@@ -640,10 +627,9 @@ class MaverickConfig(BaseSettings):
     session_log: SessionLogConfig = Field(default_factory=SessionLogConfig)
     workspace: WorkspaceConfig = Field(default_factory=WorkspaceConfig)
     runway: RunwayConfig = Field(default_factory=RunwayConfig)
-    agents: dict[str, AgentConfig] = Field(default_factory=dict)
     agent_providers: dict[str, AgentProviderConfig] = Field(
         default_factory=dict,
-        description="ACP agent provider configurations keyed by provider name.",
+        description="OpenCode-connected provider configurations keyed by provider name.",
     )
     actors: dict[str, dict[str, Any]] = Field(
         default_factory=dict,
@@ -656,51 +642,11 @@ class MaverickConfig(BaseSettings):
             "actors. Empty (default) means use the curated DEFAULT_TIERS."
         ),
     )
-    steps: dict[str, StepConfig] = Field(
-        default_factory=dict,
-        description=(
-            "Legacy step configuration. Read AFTER actors: by "
-            "resolve_step_config, so a value here only takes effect when "
-            "the corresponding actors.<workflow>.<actor> entry omits the "
-            "field. Prefer actors: for new projects."
-        ),
-    )
     project_type: str = Field(
         default="unknown",
         description="Project type (python, rust, go, nodejs, etc.).",
     )
     project_conventions: str = ""
-
-    def __init__(self, **data: Any) -> None:
-        _ensure_model_rebuilt()
-        super().__init__(**data)
-
-    @field_validator("steps", mode="before")
-    @classmethod
-    def _coerce_step_configs(cls, v: Any) -> Any:
-        """Coerce dict entries to StepConfig via lazy import to avoid circular deps."""
-        if not isinstance(v, dict):
-            return v
-        from maverick.executor.config import StepConfig
-
-        result = {}
-        for key, val in v.items():
-            if isinstance(val, dict):
-                result[key] = StepConfig(**val)
-            elif isinstance(val, StepConfig):
-                result[key] = val
-            else:
-                raise ConfigError(
-                    message=(
-                        f"Invalid step config for '{key}': "
-                        f"expected dict or StepConfig, "
-                        f"got {type(val).__name__}"
-                    ),
-                    field=f"steps.{key}",
-                    value=val,
-                )
-        return result
-
     verbosity: Literal["error", "warning", "info", "debug"] = "warning"
 
     @classmethod
@@ -739,30 +685,6 @@ class MaverickConfig(BaseSettings):
         )
 
 
-_model_rebuilt = False
-
-
-def _ensure_model_rebuilt() -> None:
-    """Resolve the StepConfig forward reference on first use.
-
-    Called lazily from ``MaverickConfig.__init__`` (not at module scope)
-    to avoid circular imports.  By the time any caller instantiates the
-    model, all modules have finished loading and the import succeeds.
-    """
-    global _model_rebuilt  # noqa: PLW0603
-    if _model_rebuilt:
-        return
-
-    from maverick.executor.config import StepConfig  # noqa: F811
-
-    MaverickConfig.model_rebuild(
-        _types_namespace={
-            "StepConfig": StepConfig,
-        },
-    )
-    _model_rebuilt = True
-
-
 def get_user_config_path() -> Path:
     """Get the path to the user configuration file.
 
@@ -790,8 +712,6 @@ def load_config(config_path: Path | None = None) -> MaverickConfig:
     Raises:
         ConfigError: If configuration is invalid
     """
-    _ensure_model_rebuilt()
-
     if config_path is None:
         config_path = Path.cwd() / "maverick.yaml"
 

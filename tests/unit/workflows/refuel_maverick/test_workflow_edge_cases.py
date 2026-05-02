@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -256,14 +257,16 @@ class TestErrorHandling:
                     side_effect=WorkflowError("Circular dependency detected in decomposition")
                 ),
             ),
-            patch(f"{_MODULE}.create_beads") as mock_create,
         ):
+            # The supervisor raises before producing specs; we don't need
+            # to assert on a downstream bead-creation call site because
+            # the workflow no longer has one — the supervisor's
+            # ``BeadCreatorActor`` owns persistence, and that path never
+            # runs when the supervisor itself fails.
             with pytest.raises(WorkflowError, match="[Cc]ircular|[Dd]ependency|cycle"):
                 inputs = {"flight_plan_path": str(fp), "skip_briefing": True}
                 async for _ in workflow.execute(inputs):
                     pass
-
-            mock_create.assert_not_called()
 
     async def test_output_directory_cleared_before_writing(
         self,
@@ -289,15 +292,11 @@ class TestErrorHandling:
                     return_value=CodebaseContext(files=(), missing_files=(), total_size=0)
                 ),
             ),
-            patch(
-                f"{_MODULE}.create_beads",
-                new=AsyncMock(return_value=_make_bead_result(2)),
+            patch_decompose_supervisor(
+                _make_simple_decomp(2),
+                bead_result=_make_bead_result(2),
+                dep_result=_make_wire_result(),
             ),
-            patch(
-                f"{_MODULE}.wire_dependencies",
-                new=AsyncMock(return_value=_make_wire_result()),
-            ),
-            patch_decompose_supervisor(_make_simple_decomp(2)),
         ):
             await collect_events(
                 workflow,
@@ -362,15 +361,11 @@ Test objective.
 
         with (
             patch_cwd(tmp_path),
-            patch(
-                f"{_MODULE}.create_beads",
-                new=AsyncMock(return_value=_make_bead_result(1)),
+            patch_decompose_supervisor(
+                decomp,
+                bead_result=_make_bead_result(1),
+                dep_result=_make_wire_result(),
             ),
-            patch(
-                f"{_MODULE}.wire_dependencies",
-                new=AsyncMock(return_value=_make_wire_result()),
-            ),
-            patch_decompose_supervisor(decomp),
         ):
             events, result = await collect_events(
                 workflow,
@@ -424,9 +419,34 @@ Test objective.
         mock_config: MagicMock,
         tmp_path: Path,
     ) -> None:
-        """bd system unavailability fails the create_beads step."""
+        """bd system unavailability fails the supervisor's bead creation."""
         fp = _make_flight_plan_file(tmp_path)
         workflow = make_workflow(mock_config)
+
+        # Simulate bd being unavailable by having the supervisor return a
+        # decomposition but no epic_id (mirrors the real failure path:
+        # ``BeadCreatorActor`` catches the bd error and returns
+        # ``BeadsCreatedResult(success=False, error=...)``, which the
+        # supervisor surfaces as ``epic_id=""`` in ctx).
+        async def _fake_supervisor(
+            self_: Any,
+            *args: Any,
+            ctx: dict[str, Any] | None = None,
+            **kwargs: Any,
+        ) -> Any:
+            from tests.unit.workflows.refuel_maverick.conftest import (
+                make_simple_decomposition_output,
+            )
+
+            if ctx is not None:
+                ctx["fix_rounds"] = 0
+                ctx["supervisor_epic"] = None
+                ctx["supervisor_epic_id"] = ""
+                ctx["supervisor_work_beads"] = []
+                ctx["supervisor_created_map"] = {}
+                ctx["supervisor_dependencies"] = []
+                ctx["supervisor_deps_wired"] = 0
+            return make_simple_decomposition_output()
 
         with (
             patch_cwd(tmp_path),
@@ -436,11 +456,9 @@ Test objective.
                     return_value=CodebaseContext(files=(), missing_files=(), total_size=0)
                 ),
             ),
-            # Skip the real xoscar decompose so we reach create_beads deterministically.
-            patch_decompose_supervisor(),
             patch(
-                f"{_MODULE}.create_beads",
-                new=AsyncMock(side_effect=RuntimeError("bd: command not found")),
+                f"{_MODULE}.RefuelMaverickWorkflow._run_with_xoscar",
+                new=_fake_supervisor,
             ),
         ):
             events, result = await collect_events(
@@ -480,15 +498,11 @@ class TestParallelGroups:
                     return_value=CodebaseContext(files=(), missing_files=(), total_size=0)
                 ),
             ),
-            patch(
-                f"{_MODULE}.create_beads",
-                new=AsyncMock(return_value=_make_bead_result(4)),
+            patch_decompose_supervisor(
+                parallel_decomp,
+                bead_result=_make_bead_result(4),
+                dep_result=_make_wire_result(),
             ),
-            patch(
-                f"{_MODULE}.wire_dependencies",
-                new=AsyncMock(return_value=_make_wire_result()),
-            ),
-            patch_decompose_supervisor(parallel_decomp),
         ):
             events, result = await collect_events(
                 workflow,
@@ -563,15 +577,11 @@ class TestParallelGroups:
                     return_value=CodebaseContext(files=(), missing_files=(), total_size=0)
                 ),
             ),
-            patch(
-                f"{_MODULE}.create_beads",
-                new=AsyncMock(return_value=_make_bead_result(4)),
+            patch_decompose_supervisor(
+                parallel_decomp,
+                bead_result=_make_bead_result(4),
+                dep_result=_make_wire_result(),
             ),
-            patch(
-                f"{_MODULE}.wire_dependencies",
-                new=AsyncMock(return_value=_make_wire_result()),
-            ),
-            patch_decompose_supervisor(parallel_decomp),
         ):
             await collect_events(
                 workflow,

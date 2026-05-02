@@ -8,7 +8,7 @@ import pytest
 import yaml
 from pydantic import ValidationError as PydanticValidationError
 
-from maverick.config import ActorConfig, AgentConfig, ModelConfig
+from maverick.config import ActorConfig, ModelConfig
 from maverick.exceptions import ConfigError
 from maverick.executor.config import (
     DEFAULT_EXECUTOR_CONFIG,
@@ -475,56 +475,47 @@ class TestInferStepMode:
 
 
 class TestResolveStepConfig:
-    """Tests for resolve_step_config 4-layer precedence resolution."""
+    """Tests for resolve_step_config layered precedence resolution.
+
+    The resolver merges (highest to lowest precedence):
+      1. inline_config (workflow-internal raw dict)
+      2. actor_config (from ``actors.<workflow>.<actor>``)
+      3. global_model
+      4. provider_default_model
+    """
 
     def _make_global(self, **kwargs: Any) -> ModelConfig:
         return ModelConfig(**kwargs)
 
-    def _make_agent(self, **kwargs: Any) -> AgentConfig:
-        return AgentConfig(**kwargs)
+    def _make_actor(self, **kwargs: Any) -> ActorConfig:
+        return ActorConfig(**kwargs)
 
-    def test_inline_wins_over_project(self) -> None:
-        """Inline config takes precedence over project step config."""
+    def test_inline_wins_over_actor(self) -> None:
+        """Inline config still beats actor config (workflow-internal trumps user)."""
         result = resolve_step_config(
-            inline_config={"temperature": 0.7},
-            project_step_config=StepConfig(temperature=0.3),
-            agent_config=None,
+            inline_config={"model_id": "inline-model"},
+            actor_config=self._make_actor(model_id="actor-model"),
             global_model=self._make_global(),
             step_type=StepType.AGENT,
             step_name="test",
         )
-        assert result.temperature == 0.7
+        assert result.model_id == "inline-model"
 
-    def test_project_wins_over_agent(self) -> None:
-        """Project step config takes precedence over agent config."""
+    def test_actor_wins_over_global(self) -> None:
+        """Actor config takes precedence over global model."""
         result = resolve_step_config(
             inline_config=None,
-            project_step_config=StepConfig(model_id="project-model"),
-            agent_config=self._make_agent(model_id="agent-model"),
-            global_model=self._make_global(),
-            step_type=StepType.AGENT,
-            step_name="test",
-        )
-        assert result.model_id == "project-model"
-
-    def test_agent_wins_over_global(self) -> None:
-        """Agent config takes precedence over global model."""
-        result = resolve_step_config(
-            inline_config=None,
-            project_step_config=None,
-            agent_config=self._make_agent(model_id="agent-model"),
+            actor_config=self._make_actor(model_id="actor-model"),
             global_model=self._make_global(model_id="global-model"),
             step_type=StepType.AGENT,
             step_name="test",
         )
-        assert result.model_id == "agent-model"
+        assert result.model_id == "actor-model"
 
     def test_global_used_when_no_overrides(self) -> None:
         """Global model config used when no layers override."""
         result = resolve_step_config(
             inline_config=None,
-            project_step_config=None,
-            agent_config=None,
             global_model=self._make_global(model_id="global-model", temperature=0.5),
             step_type=StepType.AGENT,
             step_name="test",
@@ -536,8 +527,6 @@ class TestResolveStepConfig:
         """Unset model fields inherited from global (SC-004)."""
         result = resolve_step_config(
             inline_config={"temperature": 0.7},
-            project_step_config=None,
-            agent_config=None,
             global_model=self._make_global(model_id="global-model", max_tokens=8000),
             step_type=StepType.AGENT,
             step_name="test",
@@ -550,8 +539,6 @@ class TestResolveStepConfig:
         """Provider defaults to None when not set; executor resolves via registry."""
         result = resolve_step_config(
             inline_config=None,
-            project_step_config=None,
-            agent_config=None,
             global_model=self._make_global(),
             step_type=StepType.AGENT,
             step_name="test",
@@ -562,8 +549,6 @@ class TestResolveStepConfig:
         """Mode is inferred from step type when not explicitly set."""
         result = resolve_step_config(
             inline_config=None,
-            project_step_config=None,
-            agent_config=None,
             global_model=self._make_global(),
             step_type=StepType.PYTHON,
             step_name="test",
@@ -573,8 +558,6 @@ class TestResolveStepConfig:
     def test_mode_inference_agent_type(self) -> None:
         result = resolve_step_config(
             inline_config=None,
-            project_step_config=None,
-            agent_config=None,
             global_model=self._make_global(),
             step_type=StepType.AGENT,
             step_name="test",
@@ -585,8 +568,6 @@ class TestResolveStepConfig:
         """Autonomy defaults to OPERATOR when not set."""
         result = resolve_step_config(
             inline_config=None,
-            project_step_config=None,
-            agent_config=None,
             global_model=self._make_global(),
             step_type=StepType.AGENT,
             step_name="test",
@@ -597,63 +578,39 @@ class TestResolveStepConfig:
         """Legacy 'model' key in inline_config renamed to 'model_id'."""
         result = resolve_step_config(
             inline_config={"model": "claude-opus-4-6"},
-            project_step_config=None,
-            agent_config=None,
             global_model=self._make_global(),
             step_type=StepType.AGENT,
             step_name="test",
         )
         assert result.model_id == "claude-opus-4-6"
 
-    def test_all_four_layers_complete(self) -> None:
-        """Full 4-layer resolution with all layers providing different values."""
-        result = resolve_step_config(
-            inline_config={"temperature": 0.9},
-            project_step_config=StepConfig(model_id="project-model", timeout=300),
-            agent_config=self._make_agent(model_id="agent-model", max_tokens=2000),
-            global_model=self._make_global(
-                model_id="global-model", max_tokens=4000, temperature=0.1
-            ),
-            step_type=StepType.AGENT,
-            step_name="test",
-        )
-        assert result.temperature == 0.9  # inline
-        assert result.model_id == "project-model"  # project (beats agent)
-        assert result.max_tokens == 2000  # agent (project max_tokens was None)
-        assert result.timeout == 300  # project
-
     def test_invalid_inline_config_raises_config_error(self) -> None:
         """Invalid inline config dict raises ConfigError."""
         with pytest.raises(ConfigError):
             resolve_step_config(
                 inline_config={"temperature": 5.0},  # out of range
-                project_step_config=None,
-                agent_config=None,
                 global_model=self._make_global(),
                 step_type=StepType.AGENT,
                 step_name="test",
             )
 
-    # --- T014: Timeout and max_retries resolution ---
+    # --- Timeout and max_retries resolution ---
 
     def test_timeout_from_inline(self):
         """Timeout resolves from inline config."""
         result = resolve_step_config(
             inline_config={"timeout": 600},
-            project_step_config=None,
-            agent_config=None,
             global_model=self._make_global(),
             step_type=StepType.AGENT,
             step_name="test",
         )
         assert result.timeout == 600
 
-    def test_timeout_from_project(self):
-        """Timeout falls back to project step config."""
+    def test_timeout_from_actor(self):
+        """Timeout falls back to actor config."""
         result = resolve_step_config(
             inline_config=None,
-            project_step_config=StepConfig(timeout=300),
-            agent_config=None,
+            actor_config=self._make_actor(timeout=300),
             global_model=self._make_global(),
             step_type=StepType.AGENT,
             step_name="test",
@@ -664,8 +621,6 @@ class TestResolveStepConfig:
         """Timeout is None when no layer sets it."""
         result = resolve_step_config(
             inline_config=None,
-            project_step_config=None,
-            agent_config=None,
             global_model=self._make_global(),
             step_type=StepType.AGENT,
             step_name="test",
@@ -676,46 +631,28 @@ class TestResolveStepConfig:
         """max_retries resolves from inline config."""
         result = resolve_step_config(
             inline_config={"max_retries": 3},
-            project_step_config=None,
-            agent_config=None,
             global_model=self._make_global(),
             step_type=StepType.AGENT,
             step_name="test",
         )
         assert result.max_retries == 3
 
-    def test_max_retries_from_project(self):
-        """max_retries falls back to project step config."""
-        result = resolve_step_config(
-            inline_config=None,
-            project_step_config=StepConfig(max_retries=5),
-            agent_config=None,
-            global_model=self._make_global(),
-            step_type=StepType.AGENT,
-            step_name="test",
-        )
-        assert result.max_retries == 5
-
     def test_max_retries_none_when_not_set(self):
         """max_retries is None when no layer sets it."""
         result = resolve_step_config(
             inline_config=None,
-            project_step_config=None,
-            agent_config=None,
             global_model=self._make_global(),
             step_type=StepType.AGENT,
             step_name="test",
         )
         assert result.max_retries is None
 
-    # --- T015: Allowed tools resolution ---
+    # --- Allowed tools resolution ---
 
     def test_allowed_tools_from_inline(self):
         """allowed_tools resolves from inline config."""
         result = resolve_step_config(
             inline_config={"allowed_tools": ["Read", "Glob", "Grep"]},
-            project_step_config=None,
-            agent_config=None,
             global_model=self._make_global(),
             step_type=StepType.AGENT,
             step_name="test",
@@ -726,8 +663,6 @@ class TestResolveStepConfig:
         """None means all tools allowed (default)."""
         result = resolve_step_config(
             inline_config=None,
-            project_step_config=None,
-            agent_config=None,
             global_model=self._make_global(),
             step_type=StepType.AGENT,
             step_name="test",
@@ -738,8 +673,6 @@ class TestResolveStepConfig:
         """Empty list means no tools allowed."""
         result = resolve_step_config(
             inline_config={"allowed_tools": []},
-            project_step_config=None,
-            agent_config=None,
             global_model=self._make_global(),
             step_type=StepType.AGENT,
             step_name="test",
@@ -751,33 +684,17 @@ class TestResolveStepConfig:
         with pytest.raises(Exception):
             resolve_step_config(
                 inline_config={"allowed_tools": ["Read"]},
-                project_step_config=None,
-                agent_config=None,
                 global_model=self._make_global(),
                 step_type=StepType.PYTHON,
                 step_name="test",
             )
 
-    def test_allowed_tools_from_project(self):
-        """allowed_tools falls back to project step config."""
-        result = resolve_step_config(
-            inline_config=None,
-            project_step_config=StepConfig(allowed_tools=["Read"]),
-            agent_config=None,
-            global_model=self._make_global(),
-            step_type=StepType.AGENT,
-            step_name="test",
-        )
-        assert result.allowed_tools == ["Read"]
-
-    # --- T016: Prompt extension resolution ---
+    # --- Prompt extension resolution ---
 
     def test_prompt_suffix_from_inline(self):
         """prompt_suffix resolves from inline config."""
         result = resolve_step_config(
             inline_config={"prompt_suffix": "Focus on security"},
-            project_step_config=None,
-            agent_config=None,
             global_model=self._make_global(),
             step_type=StepType.AGENT,
             step_name="test",
@@ -788,32 +705,16 @@ class TestResolveStepConfig:
         """prompt_file resolves from inline config."""
         result = resolve_step_config(
             inline_config={"prompt_file": "./prompts/review.md"},
-            project_step_config=None,
-            agent_config=None,
             global_model=self._make_global(),
             step_type=StepType.AGENT,
             step_name="test",
         )
         assert result.prompt_file == "./prompts/review.md"
 
-    def test_prompt_suffix_from_project(self):
-        """prompt_suffix falls back to project step config."""
-        result = resolve_step_config(
-            inline_config=None,
-            project_step_config=StepConfig(prompt_suffix="Be concise"),
-            agent_config=None,
-            global_model=self._make_global(),
-            step_type=StepType.AGENT,
-            step_name="test",
-        )
-        assert result.prompt_suffix == "Be concise"
-
     def test_neither_prompt_set(self):
         """Neither prompt_suffix nor prompt_file when not set."""
         result = resolve_step_config(
             inline_config=None,
-            project_step_config=None,
-            agent_config=None,
             global_model=self._make_global(),
             step_type=StepType.AGENT,
             step_name="test",
@@ -832,8 +733,6 @@ class TestResolveStepConfig:
         """
         result = resolve_step_config(
             inline_config=None,
-            project_step_config=None,
-            agent_config=None,
             global_model=self._make_global(),  # model_id not in model_fields_set
             step_type=StepType.AGENT,
             step_name="test",
@@ -845,8 +744,6 @@ class TestResolveStepConfig:
         """Explicitly-set model_id IS propagated even with provider default."""
         result = resolve_step_config(
             inline_config=None,
-            project_step_config=None,
-            agent_config=None,
             global_model=self._make_global(model_id="claude-opus-4-6"),
             step_type=StepType.AGENT,
             step_name="test",
@@ -856,31 +753,11 @@ class TestResolveStepConfig:
 
     # --- actor_config (the canonical actors: surface) precedence ---
 
-    def _make_actor(self, **kwargs: Any) -> ActorConfig:
-        from maverick.config import ActorConfig
-
-        return ActorConfig(**kwargs)
-
-    def test_actor_wins_over_project(self) -> None:
-        """Actor config takes precedence over project step config (legacy)."""
-        result = resolve_step_config(
-            inline_config=None,
-            actor_config=self._make_actor(model_id="actor-model"),
-            project_step_config=StepConfig(model_id="project-model"),
-            agent_config=None,
-            global_model=self._make_global(),
-            step_type=StepType.AGENT,
-            step_name="test",
-        )
-        assert result.model_id == "actor-model"
-
-    def test_actor_wins_over_agent(self) -> None:
-        """Actor config takes precedence over agent config (legacy)."""
+    def test_actor_provider_resolves(self) -> None:
+        """Actor config carries provider through the precedence chain."""
         result = resolve_step_config(
             inline_config=None,
             actor_config=self._make_actor(provider="copilot", model_id="gpt-5.4"),
-            project_step_config=None,
-            agent_config=self._make_agent(provider="claude", model_id="sonnet"),
             global_model=self._make_global(),
             step_type=StepType.AGENT,
             step_name="test",
@@ -888,55 +765,24 @@ class TestResolveStepConfig:
         assert result.provider == "copilot"
         assert result.model_id == "gpt-5.4"
 
-    def test_inline_wins_over_actor(self) -> None:
-        """Inline config still beats actor config (workflow-internal trumps user)."""
-        result = resolve_step_config(
-            inline_config={"model_id": "inline-model"},
-            actor_config=self._make_actor(model_id="actor-model"),
-            project_step_config=None,
-            agent_config=None,
-            global_model=self._make_global(),
-            step_type=StepType.AGENT,
-            step_name="test",
-        )
-        assert result.model_id == "inline-model"
-
-    def test_actor_timeout_resolves(self) -> None:
-        """Actor config carries timeout via the same precedence chain."""
-        result = resolve_step_config(
-            inline_config=None,
-            actor_config=self._make_actor(timeout=900),
-            project_step_config=StepConfig(timeout=300),
-            agent_config=None,
-            global_model=self._make_global(),
-            step_type=StepType.AGENT,
-            step_name="test",
-        )
-        assert result.timeout == 900
-
-    def test_actor_partial_falls_through_to_project(self) -> None:
-        """Fields the actor entry leaves None fall through to project_step_config."""
+    def test_actor_partial_falls_through_to_global(self) -> None:
+        """Fields the actor entry leaves None fall through to global_model."""
         result = resolve_step_config(
             inline_config=None,
             actor_config=self._make_actor(provider="copilot"),
-            project_step_config=StepConfig(model_id="sonnet", timeout=600),
-            agent_config=None,
-            global_model=self._make_global(),
+            global_model=self._make_global(model_id="sonnet"),
             step_type=StepType.AGENT,
             step_name="test",
         )
         assert result.provider == "copilot"
         assert result.model_id == "sonnet"
-        assert result.timeout == 600
 
     def test_actor_config_optional_default_none(self) -> None:
-        """The new keyword arg is optional — existing callers stay compatible."""
+        """The actor_config keyword arg is optional — callers may omit it."""
         # Call without actor_config — must still work.
         result = resolve_step_config(
             inline_config=None,
-            project_step_config=StepConfig(model_id="sonnet"),
-            agent_config=None,
-            global_model=self._make_global(),
+            global_model=self._make_global(model_id="sonnet"),
             step_type=StepType.AGENT,
             step_name="test",
         )

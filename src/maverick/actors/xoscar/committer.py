@@ -25,7 +25,7 @@ class CommitterActor(xo.Actor):
 
         try:
             commit = await jj_commit_bead(message=commit_message, cwd=request.cwd)
-            await mark_bead_complete(bead_id=request.bead_id)
+            await mark_bead_complete(bead_id=request.bead_id, cwd=request.cwd)
             return CommitResult(
                 success=bool(commit.get("success", False)),
                 commit_sha=commit.get("change_id"),

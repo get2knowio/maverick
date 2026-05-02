@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from maverick.config import AgentConfig, AgentProviderConfig, MaverickConfig, ModelConfig
+from maverick.config import AgentProviderConfig, MaverickConfig, ModelConfig
 from maverick.workflows.fly_beads.constants import WORKFLOW_NAME
 from maverick.workflows.fly_beads.workflow import FlyBeadsWorkflow
 
@@ -14,17 +14,17 @@ from maverick.workflows.fly_beads.workflow import FlyBeadsWorkflow
 def _make_workflow() -> FlyBeadsWorkflow:
     config = MagicMock(spec=MaverickConfig)
     config.model = ModelConfig()
-    config.steps = {}
-    config.actors = {}
-    config.agents = {
-        "implementer": AgentConfig(
-            provider="gemini",
-            model_id="gemini-3.1-pro-preview",
-        ),
-        "reviewer": AgentConfig(
-            provider="claude",
-            model_id="opus",
-        ),
+    config.actors = {
+        "fly": {
+            "implementer": {
+                "provider": "gemini",
+                "model_id": "gemini-3.1-pro-preview",
+            },
+            "reviewer": {
+                "provider": "claude",
+                "model_id": "opus",
+            },
+        },
     }
     config.agent_providers = {
         "claude": AgentProviderConfig(
@@ -109,7 +109,6 @@ class TestFlyBeadsWorkflowXoscarConfig:
         config to the supervisor instead of letting reviewer inherit the
         implementer's config."""
         from maverick.config import (
-            AgentConfig,
             AgentProviderConfig,
             MaverickConfig,
             ModelConfig,
@@ -117,14 +116,12 @@ class TestFlyBeadsWorkflowXoscarConfig:
 
         config = MagicMock(spec=MaverickConfig)
         config.model = ModelConfig()
-        config.steps = {}
-        config.agents = {
-            "implementer": AgentConfig(provider="copilot", model_id="gpt-5.3-codex"),
-        }
         config.actors = {
             "fly": {
-                # No reviewer entry under agents:; only under actors: —
-                # so the new precedence layer is what makes this work.
+                "implementer": {
+                    "provider": "copilot",
+                    "model_id": "gpt-5.3-codex",
+                },
                 "reviewer": {
                     "provider": "gemini",
                     "model_id": "gemini-3.1-pro-preview",
