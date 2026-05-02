@@ -22,6 +22,7 @@ __all__ = [
     "SeedFileEntry",
     "SeedOutput",
     "SeedResult",
+    "build_seed_prompt",
     "gather_seed_context",
     "run_seed",
 ]
@@ -242,6 +243,62 @@ async def gather_seed_context(
 
 
 # ---------------------------------------------------------------------------
+# Prompt building
+# ---------------------------------------------------------------------------
+
+
+def build_seed_prompt(context: SeedContext | dict[str, Any]) -> str:
+    """Build the user prompt for the ``maverick.runway-seed`` agent.
+
+    The agent's persona / system prompt comes from
+    ``runtime/opencode/profile/agents/maverick.runway-seed.md``; this
+    helper only shapes the per-call user message from gathered project
+    context.
+    """
+    if isinstance(context, dict):
+        context = SeedContext(**context)
+
+    sections: list[str] = []
+
+    # Output directory instruction
+    if context.output_dir:
+        sections.append(
+            f"## Output Directory\n\n"
+            f"Write each markdown file to: `{context.output_dir}`\n"
+            f"Create the directory if it does not exist."
+        )
+
+    # Git log
+    if context.git_log:
+        lines = [f"- {c.short_sha} {c.message} ({c.author})" for c in context.git_log]
+        sections.append("## Recent Git History\n\n" + "\n".join(lines))
+    else:
+        sections.append("## Recent Git History\n\n(No git history available)")
+
+    # Directory tree
+    if context.directory_tree:
+        sections.append("## Directory Tree\n\n```\n" + context.directory_tree + "\n```")
+
+    # Config files
+    if context.config_files:
+        parts: list[str] = []
+        for name, content in context.config_files.items():
+            parts.append(f"### {name}\n\n```\n{content}\n```")
+        sections.append("## Configuration Files\n\n" + "\n\n".join(parts))
+
+    # File type distribution
+    if context.file_type_counts:
+        top = list(context.file_type_counts.items())[:20]
+        lines = [f"- {ext}: {count}" for ext, count in top]
+        sections.append("## File Type Distribution\n\n" + "\n".join(lines))
+
+    return (
+        "Analyze the following project context and write the 4 semantic "
+        "knowledge files as described in your instructions.\n\n" + "\n\n".join(sections)
+    )
+
+
+# ---------------------------------------------------------------------------
 # Orchestration
 # ---------------------------------------------------------------------------
 
@@ -256,12 +313,14 @@ async def run_seed(
 ) -> SeedResult:
     """Seed the runway with AI-generated codebase insights.
 
-    The seed agent uses ACP with filesystem tools to explore the codebase
-    and write semantic markdown files directly to disk.
+    Runs the bundled ``maverick.runway-seed`` OpenCode agent. The agent
+    uses filesystem tools to explore the codebase and writes semantic
+    markdown files directly to disk.
 
     Args:
         project_path: Root directory of the project.
-        provider: Optional ACP provider name override.
+        provider: Optional provider name override (passed through to
+            the executor's ``StepConfig``).
         force: Overwrite existing semantic files.
         dry_run: Show what would be generated without writing.
         context: Pre-gathered seed context. If None, gathered automatically.
@@ -299,17 +358,18 @@ async def run_seed(
     if context is None:
         context = await gather_seed_context(project_path, output_dir=semantic_dir)
 
-    # Execute via ACP — the agent writes files directly to semantic_dir
+    # Execute via OpenCode — the agent writes files directly to semantic_dir
     executor = create_default_executor()
     try:
         # Seed agent explores the codebase and writes files — needs more time
         # than the default 300s timeout.
         step_config = StepConfig(provider=provider, timeout=600)
 
-        await executor.execute(
+        user_prompt = build_seed_prompt(context)
+        await executor.execute_named(
+            agent="maverick.runway-seed",
+            user_prompt=user_prompt,
             step_name="runway-seed",
-            agent_name="runway_seed",
-            prompt=context,
             config=step_config,
             cwd=project_path,
         )

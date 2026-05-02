@@ -26,6 +26,7 @@ import shutil
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from importlib.resources import as_file, files
 from typing import Any
 
 import httpx
@@ -104,6 +105,34 @@ def _resolve_executable(path_or_name: str | None) -> str:
     return resolved
 
 
+def _resolve_profile_dir() -> str | None:
+    """Return the absolute path to the bundled OpenCode profile directory.
+
+    The profile bundles maverick's persona definitions as ``agents/*.md``
+    files plus an optional ``AGENTS.md`` cross-cutting brief. OpenCode
+    discovers them additively when ``OPENCODE_CONFIG_DIR`` points at the
+    directory.
+
+    Returns ``None`` when the directory does not exist (e.g., during
+    tests where the profile may be intentionally absent), so callers can
+    skip injection without failing the spawn.
+
+    Uses :func:`importlib.resources.files` so the profile is locatable in
+    both editable installs and zipapps/wheels.
+    """
+    try:
+        traversable = files("maverick.runtime.opencode") / "profile"
+    except (ModuleNotFoundError, FileNotFoundError):
+        return None
+    try:
+        with as_file(traversable) as path:
+            if not path.is_dir():
+                return None
+            return str(path)
+    except (FileNotFoundError, NotADirectoryError):
+        return None
+
+
 async def spawn_opencode_server(
     *,
     executable: str | None = None,
@@ -140,6 +169,15 @@ async def spawn_opencode_server(
 
     env = os.environ.copy()
     env["OPENCODE_SERVER_PASSWORD"] = pwd
+    # Point OpenCode at the bundled profile so it discovers maverick's
+    # persona ``agents/*.md`` files (and any future ``AGENTS.md`` /
+    # ``skills/`` content) additively. The user's
+    # ``~/.config/opencode/`` and project-local ``.opencode/`` continue
+    # to layer on top per OpenCode's normal discovery rules.
+    if "OPENCODE_CONFIG_DIR" not in env:
+        profile_dir = _resolve_profile_dir()
+        if profile_dir is not None:
+            env["OPENCODE_CONFIG_DIR"] = profile_dir
     if extra_env:
         env.update(extra_env)
 

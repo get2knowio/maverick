@@ -696,8 +696,8 @@ class InitResult:
         success: True if init completed successfully.
         config_path: Path to maverick.yaml (generated this run, or pre-existing).
         preflight: Prerequisite check results.
-        detection: Detection result. ``None`` when ``--no-detect`` was passed
-            or when re-init skipped detection because config already existed.
+        detection: Detection result. ``None`` when re-init skipped detection
+            because config already existed.
         git_info: Git remote information.
         config: Generated configuration. ``None`` when re-init skipped
             generation because config already existed (see ``config_existed``).

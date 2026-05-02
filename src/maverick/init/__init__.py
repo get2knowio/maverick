@@ -507,7 +507,6 @@ async def run_init(
     *,
     project_path: Path | None = None,
     type_override: ProjectType | None = None,
-    use_claude: bool = True,
     force: bool = False,
     verbose: bool = False,
     model_id: str | None = None,
@@ -516,19 +515,18 @@ async def run_init(
     """Execute maverick init workflow.
 
     Orchestrates the complete init workflow:
-    1. Verify prerequisites (git, gh, API key, etc.)
+    1. Verify prerequisites (git, gh, etc.)
     2. Parse git remote information
-    3. Detect project type (with Claude or markers only)
+    3. Detect project type from marker files
     4. Generate configuration
     5. Write maverick.yaml
 
     Args:
         project_path: Path to project root. Defaults to cwd.
         type_override: Force specific project type (skips detection).
-        use_claude: Use Claude for detection (False = marker-only).
         force: Overwrite existing config file.
         verbose: Enable verbose output.
-        model_id: Claude model ID to use in config. Defaults to latest sonnet.
+        model_id: Default model ID to embed in the generated config.
         skip_providers: Skip ACP provider discovery.
 
     Returns:
@@ -647,29 +645,11 @@ async def run_init(
             validation_commands=ValidationCommands.for_project_type(type_override),
             detection_method="override",
         )
-    elif use_claude:
-        # Use Claude for detection
-        if verbose:
-            logger.info("detecting_with_claude")
-        detection = await detect_project_type(
-            effective_path,
-            use_claude=True,
-        )
-        if verbose:
-            logger.info(
-                "detection_complete",
-                primary_type=detection.primary_type.value,
-                confidence=detection.confidence.value,
-                method=detection.detection_method,
-            )
     else:
-        # Marker-only detection (no Claude)
+        # Marker-based detection (the only path post-OpenCode-substrate)
         if verbose:
             logger.info("detecting_with_markers")
-        detection = await detect_project_type(
-            effective_path,
-            use_claude=False,
-        )
+        detection = await detect_project_type(effective_path)
         if verbose:
             logger.info(
                 "detection_complete",

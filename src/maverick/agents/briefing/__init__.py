@@ -1,22 +1,14 @@
-"""Briefing Room agents — 4 specialist agents for flight plan analysis.
+"""Briefing prompt builders.
 
-Public API:
-    NavigatorAgent: Architecture, module layout, ADRs.
-    StructuralistAgent: Data models, interfaces, type contracts.
-    ReconAgent: Risks, ambiguities, testing strategy.
-    ContrarianAgent: Challenges, simplifications, consensus.
+The four briefing personas (Navigator / Structuralist / Recon / Contrarian)
+are markdown agent files under
+``runtime/opencode/profile/agents/maverick.<name>.md``, invoked by the
+xoscar :class:`maverick.actors.xoscar.briefing.BriefingActor` via
+OpenCode's per-message ``agent=`` selector. Only the prompt builders
+shared between supervisor and actor remain in
+:mod:`maverick.agents.briefing.prompts`.
 """
 
 from __future__ import annotations
 
-from maverick.agents.briefing.contrarian import ContrarianAgent
-from maverick.agents.briefing.navigator import NavigatorAgent
-from maverick.agents.briefing.recon import ReconAgent
-from maverick.agents.briefing.structuralist import StructuralistAgent
-
-__all__ = [
-    "ContrarianAgent",
-    "NavigatorAgent",
-    "ReconAgent",
-    "StructuralistAgent",
-]
+__all__: list[str] = []

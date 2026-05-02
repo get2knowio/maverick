@@ -20,7 +20,6 @@ from rich.table import Table
 
 from maverick.cli.common import (
     cli_error_handler,
-    create_registered_registry,
 )
 from maverick.cli.console import console, err_console
 from maverick.cli.context import ExitCode
@@ -543,7 +542,6 @@ async def execute_python_workflow(
         from maverick.config import load_config
 
         config = load_config()
-        registry = create_registered_registry()
         workflow_class = run_config.workflow_class
 
         # Ensure workflow_class is a class, not a string.
@@ -556,10 +554,9 @@ async def execute_python_workflow(
         checkpoint_dir = Path(".maverick/checkpoints")
         checkpoint_store = FileCheckpointStore(checkpoint_dir)
 
-        # Instantiate workflow — actors create their own ACP executors
+        # Instantiate workflow — actors create their own OpenCode executors
         wf = workflow_class(
             config=config,
-            registry=registry,
             checkpoint_store=checkpoint_store,
             workflow_name=workflow_name,
         )

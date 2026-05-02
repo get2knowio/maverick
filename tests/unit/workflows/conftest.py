@@ -61,22 +61,12 @@ def mock_config() -> MagicMock:
 
 
 @pytest.fixture
-def mock_registry() -> MagicMock:
-    """Return a MagicMock ComponentRegistry."""
-    from maverick.registry import ComponentRegistry
-
-    return MagicMock(spec=ComponentRegistry)
-
-
-@pytest.fixture
 def concrete_workflow(
     mock_config: MagicMock,
-    mock_registry: MagicMock,
 ) -> Any:
     """Return a ConcreteTestWorkflow with default no-op _run behaviour."""
     ConcreteTestWorkflow = _make_concrete_workflow_class()
     return ConcreteTestWorkflow(
         config=mock_config,
-        registry=mock_registry,
         workflow_name="test-workflow",
     )

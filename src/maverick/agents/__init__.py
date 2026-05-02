@@ -1,90 +1,21 @@
-"""Maverick Agents Module.
+"""Maverick Agents Package.
 
-This module provides the base agent abstraction layer for Maverick.
+All agentic execution flows through OpenCode markdown personas under
+``runtime/opencode/profile/agents/maverick.<name>.md``, invoked either
+by:
 
-Public API:
-    MaverickAgent: Abstract base class for all agents
-    AgentResult: Structured result from agent execution
-    AgentUsage: Usage statistics (tokens, cost, duration)
-    AgentContext: Runtime context for agent execution
-    AgentRegistry: Registry for agent discovery and instantiation
-    registry: Module-level registry singleton
-    register: Decorator for registering agent classes
-    BUILTIN_TOOLS: Set of built-in tools available to agents
-    DEFAULT_MODEL: Default Claude model for agents
-    REVIEWER_TOOLS: Read-only tools for code analysis agents
-    IMPLEMENTER_TOOLS: Code modification tools without command execution
-    FIXER_TOOLS: Minimal tools for targeted file fixes
-    ISSUE_FIXER_TOOLS: Issue resolution with file search capability
-    GENERATOR_TOOLS: Empty set for text generation agents
-    ImplementerAgent: Concrete agent for task implementation (if available)
+* :class:`maverick.actors.xoscar.opencode_mixin.OpenCodeAgentMixin`
+  (xoscar mailbox actors), or
+* :meth:`maverick.runtime.opencode.OpenCodeStepExecutor.execute_named`
+  (single-shot CLI / library actions).
 
+What remains here are the prompt-builder helpers used by xoscar
+supervisors and actors (``briefing.prompts``, ``preflight_briefing
+.prompts``). New code should pick a persona file under the OpenCode
+profile dir and route through ``execute_named`` or the actor mixin
+instead of adding modules here.
 """
 
 from __future__ import annotations
 
-# Import public API components
-from maverick.agents.base import BUILTIN_TOOLS, DEFAULT_MODEL, MaverickAgent
-from maverick.agents.context import AgentContext
-from maverick.agents.registry import AgentRegistry, register, registry
-from maverick.agents.result import AgentResult, AgentUsage
-from maverick.agents.tools import (
-    AUTONOMOUS_FIXER_TOOLS,
-    CURATOR_TOOLS,
-    FIXER_TOOLS,
-    GENERATOR_TOOLS,
-    IMPLEMENTER_TOOLS,
-    ISSUE_FIXER_TOOLS,
-    PLANNER_TOOLS,
-    REVIEWER_TOOLS,
-)
-
-# Conditional import for concrete agent implementations
-try:
-    from maverick.agents.implementer import ImplementerAgent
-except ImportError:
-    ImplementerAgent = None  # type: ignore[misc,assignment]  # Not yet implemented
-
-try:
-    from maverick.agents.fixer import FixerAgent
-except ImportError:
-    FixerAgent = None  # type: ignore[misc,assignment]  # Not yet implemented
-
-try:
-    from maverick.agents.curator import CuratorAgent
-except ImportError:
-    CuratorAgent = None  # type: ignore[misc,assignment]  # Not yet implemented
-
-__all__: list[str] = [
-    # Base class and constants
-    "BUILTIN_TOOLS",
-    "DEFAULT_MODEL",
-    "MaverickAgent",
-    # Tool permission constants
-    "AUTONOMOUS_FIXER_TOOLS",
-    "CURATOR_TOOLS",
-    "FIXER_TOOLS",
-    "GENERATOR_TOOLS",
-    "IMPLEMENTER_TOOLS",
-    "ISSUE_FIXER_TOOLS",
-    "PLANNER_TOOLS",
-    "REVIEWER_TOOLS",
-    # Result types
-    "AgentResult",
-    "AgentUsage",
-    # Context
-    "AgentContext",
-    # Registry
-    "AgentRegistry",
-    "register",
-    "registry",
-]
-
-if ImplementerAgent is not None:
-    __all__ += ["ImplementerAgent"]
-
-if FixerAgent is not None:
-    __all__ += ["FixerAgent"]
-
-if CuratorAgent is not None:
-    __all__ += ["CuratorAgent"]
+__all__: list[str] = []

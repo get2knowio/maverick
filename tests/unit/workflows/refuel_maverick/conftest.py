@@ -260,13 +260,11 @@ async def collect_events(
 
 def make_workflow(
     mock_config: MagicMock,
-    mock_registry: MagicMock,
     **_kwargs: Any,
 ) -> RefuelMaverickWorkflow:
     """Create a RefuelMaverickWorkflow with the given mocks."""
     return RefuelMaverickWorkflow(
         config=mock_config,
-        registry=mock_registry,
     )
 
 

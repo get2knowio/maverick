@@ -181,12 +181,6 @@ PROJECT_TYPE_CHOICES = [
     help="Claude model to use (opus, sonnet, haiku, or full model ID).",
 )
 @click.option(
-    "--no-detect",
-    is_flag=True,
-    default=False,
-    help="Use marker-based heuristics instead of Claude.",
-)
-@click.option(
     "--skip-providers",
     is_flag=True,
     default=False,
@@ -224,7 +218,6 @@ async def init(
     ctx: click.Context,
     project_type: str | None,
     model_name: str | None,
-    no_detect: bool,
     skip_providers: bool,
     force: bool,
     providers: str | None,
@@ -233,8 +226,9 @@ async def init(
 ) -> None:
     """Initialize maverick configuration for the current project.
 
-    Validates prerequisites, detects project type (using Claude by default),
-    and generates a maverick.yaml configuration file.
+    Validates prerequisites, detects project type from marker files
+    (pyproject.toml, package.json, go.mod, etc.), and generates a
+    maverick.yaml configuration file.
 
     Examples:
 
@@ -244,7 +238,7 @@ async def init(
 
         maverick init --model opus
 
-        maverick init --model sonnet --no-detect --force
+        maverick init --model sonnet --force
 
         maverick init -v
     """
@@ -265,16 +259,12 @@ async def init(
             err_console.print(f"[red]Error:[/red] {e}")
             raise SystemExit(ExitCode.FAILURE) from None
 
-    # Determine if we should use Claude
-    use_claude = not no_detect
-
     with cli_error_handler():
         try:
             # Run init workflow
             result = await run_init(
                 project_path=Path.cwd(),
                 type_override=type_override,
-                use_claude=use_claude,
                 force=force,
                 verbose=verbose,
                 model_id=model_id,

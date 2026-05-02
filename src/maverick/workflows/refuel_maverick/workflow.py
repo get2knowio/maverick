@@ -362,10 +362,10 @@ class RefuelMaverickWorkflow(PythonWorkflow):
                     + "\n"
                 )
                 try:
-                    vp_result = await _vp_executor.execute(
+                    vp_result = await _vp_executor.execute_named(
+                        agent="maverick.flight-plan-generator",
+                        user_prompt=vp_prompt,
                         step_name=DERIVE_VERIFICATION,
-                        agent_name="flight_plan_generator",
-                        prompt=vp_prompt,
                     )
                 except Exception as vp_exec_err:
                     logger.debug(

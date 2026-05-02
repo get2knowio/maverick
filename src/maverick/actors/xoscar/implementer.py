@@ -59,6 +59,12 @@ class ImplementerActor(OpenCodeAgentMixin, xo.Actor):
     # own schema explicitly to ``_send_structured``.
     result_model: ClassVar[type[BaseModel]] = SubmitImplementationPayload
     provider_tier: ClassVar[str] = "implement"
+    # Persona system prompt is loaded from
+    # ``runtime/opencode/profile/agents/maverick.implementer.md`` via
+    # ``OPENCODE_CONFIG_DIR``. Per-bead context (task description,
+    # validation commands, briefing/runway excerpts) is supplied by the
+    # supervisor in the user prompt.
+    opencode_agent: ClassVar[str | None] = "maverick.implementer"
 
     def __init__(
         self,

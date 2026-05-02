@@ -28,21 +28,17 @@ logger = get_logger(__name__)
 
 GENERATOR_PROMPT_TIMEOUT_SECONDS = 1200
 
-_GENERATOR_ROLE_INTRO = (
-    "You are a flight plan generator. DO NOT read files from "
-    "the filesystem. DO NOT explore the codebase. DO NOT write "
-    "code. Your sole output is a single structured response with "
-    "these fields: objective (one-line summary), success_criteria "
-    "(array of {description, verification}), in_scope, "
-    "out_of_scope, constraints, context (markdown), tags."
-)
-
 
 class GeneratorActor(OpenCodeAgentMixin, xo.Actor):
     """Generates a flight plan from PRD + briefing context."""
 
     result_model: ClassVar[type[SubmitFlightPlanPayload]] = SubmitFlightPlanPayload
     provider_tier: ClassVar[str] = "generate"
+    # Persona system prompt — including the no-tools / structured-output
+    # contract — lives in
+    # ``runtime/opencode/profile/agents/maverick.generator.md`` and is
+    # loaded by OpenCode via ``OPENCODE_CONFIG_DIR``.
+    opencode_agent: ClassVar[str | None] = "maverick.generator"
 
     def __init__(
         self,
@@ -73,7 +69,11 @@ class GeneratorActor(OpenCodeAgentMixin, xo.Actor):
     async def send_generate(self, request: GenerateRequest) -> None:
         """Run the flight-plan generation prompt and forward the typed payload."""
         logger.debug("generator.prompt_starting")
-        prompt = f"{_GENERATOR_ROLE_INTRO}\n\n# PRD and briefing\n\n{request.prompt}"
+        # Persona-level role/voice text now lives in
+        # ``maverick.generator.md`` — only the per-call user content
+        # (PRD + briefing) goes in the prompt body so the system
+        # prompt stays cacheable across runs.
+        prompt = f"# PRD and briefing\n\n{request.prompt}"
         try:
             payload = await self._send_structured(prompt, timeout=GENERATOR_PROMPT_TIMEOUT_SECONDS)
         except OpenCodeError as exc:

@@ -61,12 +61,11 @@ class TestRefuelMaverickWorkflowHappyPath:
     async def test_all_7_steps_execute(
         self,
         mock_config: MagicMock,
-        mock_registry: MagicMock,
         tmp_path: Path,
     ) -> None:
         """All 7 steps produce StepCompleted events."""
         fp = make_simple_flight_plan(tmp_path)
-        workflow = make_workflow(mock_config, mock_registry)
+        workflow = make_workflow(mock_config)
         bead_result = make_bead_result()
         wire_result = make_wire_result()
 
@@ -98,12 +97,11 @@ class TestRefuelMaverickWorkflowHappyPath:
     async def test_result_fields_populated_correctly(
         self,
         mock_config: MagicMock,
-        mock_registry: MagicMock,
         tmp_path: Path,
     ) -> None:
         """RefuelMaverickResult fields are populated correctly after a full run."""
         fp = make_simple_flight_plan(tmp_path)
-        workflow = make_workflow(mock_config, mock_registry)
+        workflow = make_workflow(mock_config)
         bead_result = make_bead_result()
         wire_result = make_wire_result()
 
@@ -134,12 +132,11 @@ class TestRefuelMaverickWorkflowHappyPath:
     async def test_decompose_supervisor_called(
         self,
         mock_config: MagicMock,
-        mock_registry: MagicMock,
         tmp_path: Path,
     ) -> None:
         """_run_with_xoscar is called during the workflow."""
         fp = make_simple_flight_plan(tmp_path)
-        workflow = make_workflow(mock_config, mock_registry)
+        workflow = make_workflow(mock_config)
         bead_result = make_bead_result()
         wire_result = make_wire_result()
 
@@ -169,7 +166,6 @@ class TestRefuelMaverickWorkflowHappyPath:
     async def test_xoscar_supervisor_receives_typed_inputs(
         self,
         mock_config: MagicMock,
-        mock_registry: MagicMock,
         tmp_path: Path,
     ) -> None:
         """The xoscar supervisor receives a ``RefuelInputs`` carrying the
@@ -190,7 +186,7 @@ class TestRefuelMaverickWorkflowHappyPath:
         }
 
         fp = make_simple_flight_plan(tmp_path)
-        workflow = make_workflow(mock_config, mock_registry)
+        workflow = make_workflow(mock_config)
         flight_plan = await __import__(
             "maverick.flight.loader",
             fromlist=["FlightPlanFile"],
@@ -252,7 +248,6 @@ class TestRefuelMaverickWorkflowHappyPath:
     async def test_refuel_briefing_configs_resolve_per_agent_from_actors_block(
         self,
         mock_config: MagicMock,
-        mock_registry: MagicMock,
         tmp_path: Path,
     ) -> None:
         """Each refuel briefing agent (navigator/structuralist/recon/contrarian)
@@ -288,7 +283,7 @@ class TestRefuelMaverickWorkflowHappyPath:
         }
 
         fp = make_simple_flight_plan(tmp_path)
-        workflow = make_workflow(mock_config, mock_registry)
+        workflow = make_workflow(mock_config)
         flight_plan = await __import__(
             "maverick.flight.loader",
             fromlist=["FlightPlanFile"],
@@ -349,12 +344,11 @@ class TestRefuelMaverickWorkflowHappyPath:
     async def test_work_unit_files_written_with_correct_naming(
         self,
         mock_config: MagicMock,
-        mock_registry: MagicMock,
         tmp_path: Path,
     ) -> None:
         """Work unit files use {seq:03d}-{id}.md naming inside .maverick/plans/."""
         fp = make_simple_flight_plan(tmp_path)
-        workflow = make_workflow(mock_config, mock_registry)
+        workflow = make_workflow(mock_config)
         bead_result = make_bead_result()
         wire_result = make_wire_result()
 
@@ -385,21 +379,19 @@ class TestRefuelMaverickWorkflowHappyPath:
     async def test_workflow_name(
         self,
         mock_config: MagicMock,
-        mock_registry: MagicMock,
     ) -> None:
         """Workflow has the correct _workflow_name constant."""
-        workflow = make_workflow(mock_config, mock_registry)
+        workflow = make_workflow(mock_config)
         assert workflow._workflow_name == WORKFLOW_NAME
 
     async def test_workflow_started_and_completed_events(
         self,
         mock_config: MagicMock,
-        mock_registry: MagicMock,
         tmp_path: Path,
     ) -> None:
         """WorkflowStarted is the first event and WorkflowCompleted is the last."""
         fp = make_simple_flight_plan(tmp_path)
-        workflow = make_workflow(mock_config, mock_registry)
+        workflow = make_workflow(mock_config)
         bead_result = make_bead_result()
         wire_result = make_wire_result()
 
@@ -426,12 +418,11 @@ class TestRefuelMaverickWorkflowHappyPath:
     async def test_wire_dependencies_receives_extracted_deps_from_work_units(
         self,
         mock_config: MagicMock,
-        mock_registry: MagicMock,
         tmp_path: Path,
     ) -> None:
         """wire_dependencies is called with extracted_deps built from depends_on."""
         fp = make_simple_flight_plan(tmp_path)
-        workflow = make_workflow(mock_config, mock_registry)
+        workflow = make_workflow(mock_config)
         bead_result = make_bead_result()
         wire_result = make_wire_result()
 
@@ -478,10 +469,9 @@ class TestErrorHandling:
     async def test_missing_flight_plan_path_fails_workflow(
         self,
         mock_config: MagicMock,
-        mock_registry: MagicMock,
     ) -> None:
         """Omitting flight_plan_path results in a failed workflow."""
-        workflow = make_workflow(mock_config, mock_registry)
+        workflow = make_workflow(mock_config)
         events, result = await collect_events(workflow, {}, ignore_exception=True)
 
         assert result is not None
@@ -492,11 +482,10 @@ class TestErrorHandling:
     async def test_nonexistent_flight_plan_fails_workflow(
         self,
         mock_config: MagicMock,
-        mock_registry: MagicMock,
         tmp_path: Path,
     ) -> None:
         """A non-existent flight plan path results in a failed parse_flight_plan step."""  # noqa: E501
-        workflow = make_workflow(mock_config, mock_registry)
+        workflow = make_workflow(mock_config)
         missing_path = tmp_path / ".maverick" / "plans" / "does-not-exist" / "flight-plan.md"
 
         events, result = await collect_events(

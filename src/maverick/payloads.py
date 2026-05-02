@@ -161,12 +161,20 @@ class SubmitFixResultPayload(SupervisorInboxPayload):
 
 
 class ReviewFindingPayload(SupervisorInboxPayload):
-    """Typed payload for an individual review finding."""
+    """Typed payload for an individual review finding.
+
+    The optional ``reviewer`` field carries provenance — set by the
+    runtime when two reviewer actors run in parallel (correctness +
+    completeness) so the supervisor can attribute findings back to the
+    lens that flagged them. Older payloads (single-reviewer flow,
+    legacy decomposer outputs) leave it ``None`` and that's fine.
+    """
 
     severity: Literal["critical", "major", "minor"]
     issue: str
     file: str = ""
     line: int | None = None
+    reviewer: Literal["correctness", "completeness"] | None = None
 
     @model_validator(mode="before")
     @classmethod

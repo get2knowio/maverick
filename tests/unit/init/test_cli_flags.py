@@ -1,8 +1,7 @@
-"""Unit tests for init CLI flags (--type, --no-detect, --force, --verbose).
+"""Unit tests for init CLI flags (--type, --force, --verbose).
 
-Tests for T041-T042:
+Tests for T041:
 - T041: Test --type flag behavior
-- T042: Test --no-detect flag behavior
 
 These tests focus on flag parsing and option validation at the CLI level.
 """
@@ -210,81 +209,6 @@ class TestTypeFlag:
 
 
 # =============================================================================
-# T042: Test --no-detect flag behavior
-# =============================================================================
-
-
-class TestNoDetectFlag:
-    """Tests for --no-detect CLI flag."""
-
-    def test_no_detect_flag_uses_markers_only(
-        self,
-        cli_runner: CliRunner,
-        git_repo: Path,
-        mock_preflight_success: InitPreflightResult,
-        mock_detection_python: ProjectDetectionResult,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        """Test --no-detect uses marker-based detection."""
-        os.chdir(git_repo)
-        monkeypatch.setattr(Path, "home", lambda: git_repo)
-
-        with (
-            patch(
-                "maverick.init.verify_prerequisites",
-                new_callable=AsyncMock,
-                return_value=mock_preflight_success,
-            ),
-            patch(
-                "maverick.init.detect_project_type",
-                new_callable=AsyncMock,
-                return_value=mock_detection_python,
-            ) as mock_detect,
-        ):
-            result = cli_runner.invoke(cli, ["init", "--no-detect"])
-
-        assert result.exit_code == 0, f"Failed: {result.output}"
-
-        # Verify detection was called with use_claude=False
-        mock_detect.assert_called_once()
-        _, kwargs = mock_detect.call_args
-        assert kwargs.get("use_claude") is False
-
-    def test_no_detect_with_type_uses_type(
-        self,
-        cli_runner: CliRunner,
-        git_repo: Path,
-        mock_preflight_success: InitPreflightResult,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        """Test --no-detect combined with --type uses type override."""
-        os.chdir(git_repo)
-        monkeypatch.setattr(Path, "home", lambda: git_repo)
-
-        with (
-            patch(
-                "maverick.init.verify_prerequisites",
-                new_callable=AsyncMock,
-                return_value=mock_preflight_success,
-            ),
-            patch(
-                "maverick.init.detect_project_type",
-                new_callable=AsyncMock,
-            ) as mock_detect,
-        ):
-            result = cli_runner.invoke(cli, ["init", "--no-detect", "--type", "go"])
-
-        assert result.exit_code == 0, f"Failed: {result.output}"
-
-        # With --type, detect_project_type should not be called at all
-        mock_detect.assert_not_called()
-
-        # Verify Go config was generated
-        config = (git_repo / "maverick.yaml").read_text()
-        assert "go" in config.lower()
-
-
-# =============================================================================
 # Combined Flag Tests
 # =============================================================================
 
@@ -359,7 +283,7 @@ class TestCombinedFlags:
         mock_preflight_success: InitPreflightResult,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """Test --type, --no-detect, --force, --verbose all together."""
+        """Test --type, --force, --verbose all together."""
         os.chdir(git_repo)
         monkeypatch.setattr(Path, "home", lambda: git_repo)
 
@@ -371,9 +295,7 @@ class TestCombinedFlags:
             new_callable=AsyncMock,
             return_value=mock_preflight_success,
         ):
-            result = cli_runner.invoke(
-                cli, ["init", "--type", "rust", "--no-detect", "--force", "-v"]
-            )
+            result = cli_runner.invoke(cli, ["init", "--type", "rust", "--force", "-v"])
 
         assert result.exit_code == 0, f"Failed: {result.output}"
 

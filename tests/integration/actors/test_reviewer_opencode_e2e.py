@@ -91,6 +91,16 @@ class _CapturingSupervisor(xo.Actor):
         self._reviews.append(payload)
 
     @xo.no_lock
+    async def correctness_review_ready(self, payload: SubmitReviewPayload) -> None:
+        # Parallel reviewer split: kind-specific inbox. Tests still
+        # observe via the legacy ``review_ready`` slot below.
+        pass
+
+    @xo.no_lock
+    async def completeness_review_ready(self, payload: SubmitReviewPayload) -> None:
+        pass
+
+    @xo.no_lock
     async def aggregate_review_ready(self, payload: SubmitReviewPayload) -> None:
         self._reviews.append(payload)
 

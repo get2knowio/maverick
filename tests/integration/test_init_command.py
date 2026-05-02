@@ -252,80 +252,6 @@ asyncio_mode = "auto"
         config_content = config_path.read_text()
         assert "npm" in config_content or "npx" in config_content
 
-    def test_init_with_no_detect_flag(
-        self,
-        cli_runner: CliRunner,
-        git_repo: Path,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        """Test init with --no-detect flag uses marker-based detection only."""
-        os.chdir(git_repo)
-        monkeypatch.setattr(Path, "home", lambda: git_repo)
-
-        # Create a mock for verify_prerequisites that skips API check
-        mock_preflight = InitPreflightResult(
-            success=True,
-            checks=(
-                PrerequisiteCheck(
-                    name="git_installed",
-                    display_name="Git",
-                    status=PreflightStatus.PASS,
-                    message="Git installed",
-                ),
-                PrerequisiteCheck(
-                    name="git_repo",
-                    display_name="Git Repository",
-                    status=PreflightStatus.PASS,
-                    message="Git repository detected",
-                ),
-                PrerequisiteCheck(
-                    name="gh_installed",
-                    display_name="GitHub CLI",
-                    status=PreflightStatus.PASS,
-                    message="GitHub CLI installed",
-                ),
-                PrerequisiteCheck(
-                    name="gh_authenticated",
-                    display_name="GitHub Auth",
-                    status=PreflightStatus.PASS,
-                    message="GitHub CLI authenticated",
-                ),
-            ),
-            total_duration_ms=100,
-        )
-
-        # Detection result from markers only
-        mock_detection = ProjectDetectionResult(
-            primary_type=ProjectType.PYTHON,
-            detected_types=(ProjectType.PYTHON,),
-            confidence=DetectionConfidence.MEDIUM,
-            findings=("pyproject.toml found",),
-            markers=(),
-            validation_commands=ValidationCommands.for_project_type(ProjectType.PYTHON),
-            detection_method="markers",
-        )
-
-        with (
-            patch(
-                "maverick.init.verify_prerequisites",
-                new_callable=AsyncMock,
-                return_value=mock_preflight,
-            ),
-            patch(
-                "maverick.init.detect_project_type",
-                new_callable=AsyncMock,
-                return_value=mock_detection,
-            ) as mock_detect,
-        ):
-            result = cli_runner.invoke(cli, ["init", "--no-detect", "-v"])
-
-        assert result.exit_code == 0, f"Exit code {result.exit_code}: {result.output}"
-
-        # Verify detect_project_type was called with use_claude=False
-        mock_detect.assert_called_once()
-        call_kwargs = mock_detect.call_args
-        assert call_kwargs[1].get("use_claude") is False
-
     def test_init_is_idempotent_when_config_exists(
         self,
         cli_runner: CliRunner,
@@ -724,10 +650,10 @@ class TestInitCommandEdgeCases:
             new_callable=AsyncMock,
             return_value=mock_success_preflight,
         ):
-            # Combine: --type, --no-detect, --force, --verbose
+            # Combine: --type, --force, --verbose
             result = cli_runner.invoke(
                 cli,
-                ["init", "--type", "go", "--no-detect", "--force", "--verbose"],
+                ["init", "--type", "go", "--force", "--verbose"],
             )
 
         assert result.exit_code == 0, f"Combined flags failed: {result.output}"

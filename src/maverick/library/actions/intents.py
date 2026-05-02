@@ -50,20 +50,6 @@ ACTION_INTENTS: dict[str, str] = {
     "create_github_pr": ("Create a pull request on the remote GitHub repository."),
     "fetch_github_issues": ("Retrieve a list of GitHub issues matching the specified filters."),
     "fetch_github_issue": ("Retrieve a single GitHub issue by number with full details."),
-    # Review (unprefixed)
-    "gather_local_review_context": (
-        "Collect local review context from working directory diff and changed files."
-    ),
-    "analyze_review_findings": (
-        "Analyze combined review findings and build an issue registry with deduplication."
-    ),
-    "run_review_fix_loop": (
-        "Iterate review-fix cycles until all actionable "
-        "findings are resolved or max attempts reached."
-    ),
-    "generate_review_fix_report": (
-        "Generate a summary report of the review-fix process with outcomes and metrics."
-    ),
     # Validation
     "run_fix_retry_loop": (
         "Run validation with fix retry loop until all checks pass or max attempts reached."

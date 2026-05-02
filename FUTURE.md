@@ -55,6 +55,7 @@ It reconciles those documents against the current codebase as of 2026-04-19 and 
 | Fly checkpoint resume ignores `--max-beads` | Implemented | Reporting fix: `beads_completed` now counts new-this-run, not cumulative. The cap was always enforced; the inflated count made it look ignored. |
 | Review prompts don't emit `prompt_usage` | Implemented | `prompt_session` now logs `prompt_usage` from a `finally` block with an `exit_path` field. The log fires unconditionally across success, timeout, AcpRequestError, and circuit-breaker paths — no prompt return path can bypass it. |
 | Commit provenance for evals | Partial | Layer 1 shipped: curator now appends a `Refs:` trailer naming source bead IDs, with a deterministic safety-net post-processor. Layer 2 (per-attempt runway capture of provider/model/prompt) still active. |
+| Per-project OpenCode agent/skill overrides | Active | Bundled defaults ship with the package via `OPENCODE_CONFIG_DIR`; per-project override layer at `.maverick/opencode/` deferred. See §4.7. |
 
 ## 1. Orchestration And Human Review
 
@@ -1409,6 +1410,58 @@ prevents misconfiguration). 4.6.2 is the biggest piece and should wait
 until we have evidence that the first two aren't enough — likely we'll
 find that 4.6.1 + 4.6.3 + the existing escalation already cover ~95%
 of the pain.
+
+### 4.7 Per-Project OpenCode Agent/Skill Overrides
+
+**Status:** Active (deferred — defaults-only path ships first)
+
+The OpenCode-native simplification effort moves persona prompts out of
+`src/maverick/agents/*.py` and into markdown agent/skill files loaded
+by OpenCode via `OPENCODE_CONFIG_DIR`. The first cut ships these as
+**bundled defaults inside the maverick package** at
+`src/maverick/runtime/opencode/profile/{agents,skills,AGENTS.md}`. They
+version with the package, never touch the user's repo, and `maverick
+init` does not copy them anywhere.
+
+This item is the follow-on: let users override or extend the bundled
+agents/skills on a per-project basis, with overrides committed in
+their repo so the team shares them.
+
+What this would add:
+
+- Recognized override location at `.maverick/opencode/{agents,skills,
+  AGENTS.md}` in the user's repo.
+- At workflow start, maverick assembles an overlay directory (bundled
+  defaults + per-project overrides, with overrides winning by file
+  name) and points `OPENCODE_CONFIG_DIR` at the overlay rather than
+  directly at the package profile.
+- Optional `maverick agents eject <name>` (or similar) to copy a
+  bundled agent into `.maverick/opencode/agents/<name>.md` for
+  editing — opt-in, named, intentional. Avoids the "two copies that
+  drift" failure mode of seeding the directory at `init` time.
+- Naming convention: bundled agents use a `maverick.` prefix
+  (`maverick.navigator`, `maverick.reviewer`, …) so user-defined agents
+  in their own `.opencode/` can never collide with the bundled set.
+
+What is intentionally not part of this item:
+
+- Auto-seeding `.maverick/opencode/` at `init` time. Defaults belong in
+  the package; per-project content should appear only when the user
+  asks for it.
+- Cross-machine override discovery. `~/.config/opencode/` already
+  exists for personal customization; we're not layering on top of that.
+
+Sequencing: ship the bundled-defaults path first
+(`OPENCODE_CONFIG_DIR=<package>/runtime/opencode/profile`, no overlay).
+Add the override layer once we have at least one real ask for project-
+specific persona tweaks. Until then, users who really need a tweak can
+fork their maverick install or use a global `~/.config/opencode/agents/`
+override.
+
+Relevant code (forthcoming):
+
+- `src/maverick/runtime/opencode/profile/` (bundled defaults)
+- `src/maverick/runtime/opencode/server.py` (env-injection point)
 
 ## 5. Reusable Workflow Building Blocks
 

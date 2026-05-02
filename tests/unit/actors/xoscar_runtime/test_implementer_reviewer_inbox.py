@@ -79,6 +79,14 @@ class _SupervisorRecorder(xo.Actor):
         self._calls.append(("review_ready", payload.model_dump()))
 
     @xo.no_lock
+    async def correctness_review_ready(self, payload: SubmitReviewPayload) -> None:
+        self._calls.append(("correctness_review_ready", payload.model_dump()))
+
+    @xo.no_lock
+    async def completeness_review_ready(self, payload: SubmitReviewPayload) -> None:
+        self._calls.append(("completeness_review_ready", payload.model_dump()))
+
+    @xo.no_lock
     async def aggregate_review_ready(self, payload: SubmitReviewPayload) -> None:
         self._calls.append(("aggregate_review_ready", payload.model_dump()))
 

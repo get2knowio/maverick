@@ -47,11 +47,10 @@ class _QuickstartWorkflow(PythonWorkflow):
 
 
 @pytest.fixture
-def workflow(mock_config: MagicMock, mock_registry: MagicMock) -> _QuickstartWorkflow:
+def workflow(mock_config: MagicMock) -> _QuickstartWorkflow:
     """Create a quickstart workflow with mock dependencies."""
     return _QuickstartWorkflow(
         config=mock_config,
-        registry=mock_registry,
         workflow_name="test-workflow",
     )
 
@@ -95,7 +94,7 @@ class TestQuickstartHappyPath:
         assert events[0].workflow_name == "test-workflow"
 
     async def test_step_failure_emits_failed_event(
-        self, mock_config: MagicMock, mock_registry: MagicMock
+        self, mock_config: MagicMock
     ) -> None:
         """Step failure pattern from quickstart: emit_step_failed then raise."""
 
@@ -110,7 +109,6 @@ class TestQuickstartHappyPath:
 
         wf = _FailingWorkflow(
             config=mock_config,
-            registry=mock_registry,
             workflow_name="test-workflow",
         )
         events = []
@@ -143,7 +141,7 @@ class TestQuickstartConfigResolution:
         assert config.mode is not None
 
     def test_resolve_step_config_uses_project_overrides(
-        self, mock_config: MagicMock, mock_registry: MagicMock
+        self, mock_config: MagicMock
     ) -> None:
         """Config from maverick.yaml steps dict overrides defaults."""
         from maverick.executor.config import StepConfig
@@ -153,7 +151,6 @@ class TestQuickstartConfigResolution:
 
         wf = _QuickstartWorkflow(
             config=mock_config,
-            registry=mock_registry,
             workflow_name="test-workflow",
         )
         config = wf.resolve_step_config("implement")
@@ -164,7 +161,7 @@ class TestQuickstartProgressEvents:
     """Verify emit_output() for informational messages."""
 
     async def test_emit_output_info(
-        self, mock_config: MagicMock, mock_registry: MagicMock
+        self, mock_config: MagicMock
     ) -> None:
         """emit_output() emits StepOutput at correct level."""
 
@@ -179,7 +176,6 @@ class TestQuickstartProgressEvents:
 
         wf = _OutputWorkflow(
             config=mock_config,
-            registry=mock_registry,
             workflow_name="test-workflow",
         )
         events = []
@@ -198,7 +194,7 @@ class TestQuickstartRollback:
     """Verify register_rollback() pattern from quickstart.md."""
 
     async def test_rollback_runs_on_failure(
-        self, mock_config: MagicMock, mock_registry: MagicMock
+        self, mock_config: MagicMock
     ) -> None:
         """Registered rollback executes when workflow fails."""
         rollback_called = False
@@ -218,7 +214,6 @@ class TestQuickstartRollback:
 
         wf = _RollbackWorkflow(
             config=mock_config,
-            registry=mock_registry,
             workflow_name="test-workflow",
         )
         events = []

@@ -34,6 +34,25 @@ logger = get_logger(__name__)
 
 BRIEFING_TIMEOUT_SECONDS = 1200
 
+# Map the in-process agent label to the bundled OpenCode persona file.
+# Both refuel briefings (navigator/structuralist/recon/contrarian) and
+# pre-flight briefings (scopist/codebase_analyst/criteria_writer/
+# preflight_contrarian) flow through this actor; the .md files live at
+# ``runtime/opencode/profile/agents/maverick.<persona>.md``. The
+# refuel/contrarian and preflight/contrarian roles share an
+# ``agent_name`` of "contrarian" / "preflight_contrarian" already, so
+# the map is a straight identity with one alias.
+_OPENCODE_AGENT_MAP: dict[str, str] = {
+    "navigator": "maverick.navigator",
+    "structuralist": "maverick.structuralist",
+    "recon": "maverick.recon",
+    "contrarian": "maverick.contrarian",
+    "scopist": "maverick.scopist",
+    "codebase_analyst": "maverick.codebase-analyst",
+    "criteria_writer": "maverick.criteria-writer",
+    "preflight_contrarian": "maverick.preflight-contrarian",
+}
+
 
 class BriefingActor(OpenCodeAgentMixin, xo.Actor):
     """One briefing agent backed by OpenCode HTTP + structured output.
@@ -95,6 +114,15 @@ class BriefingActor(OpenCodeAgentMixin, xo.Actor):
         self._actor_tag = f"briefing[{self._agent_name}:{self.uid.decode()}]"
         await self._opencode_post_create()
 
+    def _opencode_agent_name(self) -> str | None:
+        """Map ``self._agent_name`` to the bundled persona label.
+
+        Returns ``None`` (server default) for any unmapped name so an
+        unknown role surfaces as a missing-persona warning in OpenCode
+        logs rather than silently routing to the wrong system prompt.
+        """
+        return _OPENCODE_AGENT_MAP.get(self._agent_name)
+
     async def __pre_destroy__(self) -> None:
         await self._opencode_pre_destroy()
 
@@ -109,9 +137,14 @@ class BriefingActor(OpenCodeAgentMixin, xo.Actor):
             "briefing.prompt_starting",
             actor=self._actor_tag,
             tool=self._mcp_tool,
+            agent=self._opencode_agent_name(),
         )
+        # The persona's system prompt now lives in the bundled
+        # ``maverick.<agent_name>`` markdown file, loaded by OpenCode
+        # via ``OPENCODE_CONFIG_DIR``. Send only the per-bead user
+        # prompt here; the role/voice text used to be in Python is now
+        # in the .md frontmatter.
         prompt = (
-            f"You are the {self._agent_name} briefing agent.\n\n"
             "If your analysis surfaces no findings (e.g. greenfield project "
             "with no existing code), set empty arrays / minimal required "
             "fields rather than refusing.\n\n"
@@ -123,6 +156,7 @@ class BriefingActor(OpenCodeAgentMixin, xo.Actor):
                 prompt,
                 schema=self._schema,
                 timeout=BRIEFING_TIMEOUT_SECONDS,
+                agent=self._opencode_agent_name(),
             )
         except OpenCodeError as exc:
             await self._report_briefing_failure(str(exc))

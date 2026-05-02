@@ -8,6 +8,7 @@ Best-effort — consolidation failure never raises to the caller.
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -23,6 +24,80 @@ logger = get_logger(__name__)
 
 # Semantic file name for the consolidated summary
 _INSIGHTS_FILE = "consolidated-insights.md"
+
+# Maximum total prompt size (~50KB) to stay within context limits.
+_MAX_PROMPT_SIZE: int = 51200
+
+
+def _truncate_input(content: str, max_size: int, field_name: str) -> str:
+    """Truncate *content* if it exceeds *max_size* (with a marker)."""
+    if len(content) <= max_size:
+        return content
+    logger.warning(
+        "Truncating %s from %d to %d bytes",
+        field_name,
+        len(content),
+        max_size,
+    )
+    return content[:max_size] + "\n... [truncated]"
+
+
+def _build_consolidator_prompt(
+    *,
+    existing_summary: str | None,
+    bead_outcomes: list[dict[str, Any]],
+    review_findings: list[dict[str, Any]],
+    fix_attempts: list[dict[str, Any]],
+) -> str:
+    """Construct the user prompt for the ``maverick.consolidator`` persona."""
+    parts: list[str] = []
+
+    if existing_summary:
+        parts.append("## Existing Summary\n")
+        parts.append(_truncate_input(existing_summary, _MAX_PROMPT_SIZE // 4, "existing_summary"))
+        parts.append("")
+
+    if bead_outcomes:
+        outcomes_json = json.dumps(bead_outcomes, ensure_ascii=False, indent=2)
+        parts.append(
+            f"## Bead Outcomes ({len(bead_outcomes)} records)\n```json\n"
+            + _truncate_input(outcomes_json, _MAX_PROMPT_SIZE // 3, "bead_outcomes")
+            + "\n```\n"
+        )
+
+    if review_findings:
+        findings_json = json.dumps(review_findings, ensure_ascii=False, indent=2)
+        parts.append(
+            f"## Review Findings ({len(review_findings)} records)\n```json\n"
+            + _truncate_input(findings_json, _MAX_PROMPT_SIZE // 3, "review_findings")
+            + "\n```\n"
+        )
+
+    if fix_attempts:
+        attempts_json = json.dumps(fix_attempts, ensure_ascii=False, indent=2)
+        parts.append(
+            f"## Fix Attempts ({len(fix_attempts)} records)\n```json\n"
+            + _truncate_input(attempts_json, _MAX_PROMPT_SIZE // 3, "fix_attempts")
+            + "\n```\n"
+        )
+
+    if not parts:
+        parts.append("No episodic data to consolidate.")
+
+    return "\n".join(parts)
+
+
+def _parse_consolidated_summary(raw_output: str) -> str:
+    """Strip wrapper code fences from the consolidator response, if any."""
+    text = raw_output.strip()
+    if text.startswith("```"):
+        lines = text.splitlines()
+        if lines:
+            lines = lines[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        text = "\n".join(lines).strip()
+    return text
 
 
 def _get_store(cwd: str | Path | None) -> RunwayStore | None:
@@ -157,7 +232,7 @@ async def _synthesize_summary(
     to_consolidate_findings: list[dict[str, Any]],
     to_consolidate_attempts: list[dict[str, Any]],
 ) -> bool:
-    """Run the ConsolidatorAgent to produce an updated summary.
+    """Run the ``maverick.consolidator`` persona to produce an updated summary.
 
     Args:
         store: RunwayStore for reading/writing semantic files.
@@ -168,23 +243,23 @@ async def _synthesize_summary(
     Returns:
         True if summary was updated, False on failure.
     """
-    from maverick.agents.consolidator import ConsolidatorAgent
     from maverick.executor import create_default_executor
 
     existing_summary = await store.read_semantic_file(_INSIGHTS_FILE)
 
-    agent = ConsolidatorAgent()
+    user_prompt = _build_consolidator_prompt(
+        existing_summary=existing_summary,
+        bead_outcomes=to_consolidate_outcomes,
+        review_findings=to_consolidate_findings,
+        fix_attempts=to_consolidate_attempts,
+    )
+
     executor = create_default_executor()
     try:
-        result = await executor.execute(
+        result = await executor.execute_named(
+            agent="maverick.consolidator",
+            user_prompt=user_prompt,
             step_name="consolidate",
-            agent_name=agent.name,
-            prompt={
-                "existing_summary": existing_summary,
-                "bead_outcomes": to_consolidate_outcomes,
-                "review_findings": to_consolidate_findings,
-                "fix_attempts": to_consolidate_attempts,
-            },
         )
         raw_output = str(result.output) if result.output else ""
     finally:
@@ -194,7 +269,7 @@ async def _synthesize_summary(
         logger.warning("consolidator_empty_output")
         return False
 
-    summary = agent.parse_summary(raw_output)
+    summary = _parse_consolidated_summary(raw_output)
     await store.write_semantic_file(_INSIGHTS_FILE, summary)
     return True
 

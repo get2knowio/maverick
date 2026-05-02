@@ -7,7 +7,6 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from maverick.config import AgentConfig, AgentProviderConfig, MaverickConfig, ModelConfig
-from maverick.registry import ComponentRegistry
 from maverick.workflows.fly_beads.constants import WORKFLOW_NAME
 from maverick.workflows.fly_beads.workflow import FlyBeadsWorkflow
 
@@ -41,10 +40,8 @@ def _make_workflow() -> FlyBeadsWorkflow:
     config.validation = MagicMock(timeout_seconds=300)
     config.parallel = MagicMock(max_agents=3)
     config.project_type = "python"
-    registry = MagicMock(spec=ComponentRegistry)
     return FlyBeadsWorkflow(
         config=config,
-        registry=registry,
         workflow_name=WORKFLOW_NAME,
     )
 
@@ -147,10 +144,8 @@ class TestFlyBeadsWorkflowXoscarConfig:
         config.parallel = MagicMock(max_agents=3)
         config.project_type = "python"
 
-        registry = MagicMock(spec=ComponentRegistry)
         workflow = FlyBeadsWorkflow(
             config=config,
-            registry=registry,
             workflow_name=WORKFLOW_NAME,
         )
 

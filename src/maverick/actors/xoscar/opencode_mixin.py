@@ -106,6 +106,16 @@ class OpenCodeAgentMixin:
     # later without a code change.
     provider_tier: ClassVar[str | None] = None
 
+    # Optional: bundled OpenCode persona to load on every send. The
+    # runtime ships markdown agent files at
+    # ``runtime/opencode/profile/agents/<name>.md`` and points OpenCode
+    # at that directory via ``OPENCODE_CONFIG_DIR``. When set, every
+    # ``_send_*`` call adds ``"agent": <name>`` to the message body so
+    # OpenCode loads the matching frontmatter + body as the session's
+    # system prompt. Subclasses that pre-date the migration leave this
+    # ``None`` and pass the system prompt explicitly.
+    opencode_agent: ClassVar[str | None] = None
+
     # Per-instance lazy state (set in __post_create__ or first send).
     _client: OpenCodeClient | None = None
     _session_id: str | None = None
@@ -221,9 +231,26 @@ class OpenCodeAgentMixin:
         schema: type[BaseModel] | None = None,
         timeout: float = DEFAULT_STRUCTURED_TIMEOUT_SECONDS,
         system: str | None = None,
+        agent: str | None = None,
     ) -> BaseModel:
         """Send a prompt and return a typed payload validated against
         ``schema`` (defaults to ``self.result_model``).
+
+        Args:
+            prompt: User-message body to send.
+            schema: Pydantic model the structured payload must match;
+                defaults to :attr:`result_model`.
+            timeout: Per-send wallclock budget (seconds).
+            system: Optional per-call system override. Most actors leave
+                this ``None`` and rely on ``agent=`` instead — the
+                bundled markdown agent file already declares the
+                persona's system prompt.
+            agent: Bundled persona name (e.g.
+                ``"maverick.navigator"``). When set, OpenCode loads the
+                matching ``<name>.md`` from ``OPENCODE_CONFIG_DIR/agents``
+                and uses its frontmatter + body as the session's system
+                prompt + permissions. Subclasses pass this via
+                :attr:`opencode_agent` or per-call.
 
         Raises:
             OpenCodeAuthError, OpenCodeModelNotFoundError,
@@ -247,6 +274,7 @@ class OpenCodeAgentMixin:
             format=format_block,
             timeout=timeout,
             system=system,
+            agent=self._resolve_opencode_agent(agent),
         )
         return self._coerce_payload(result, target_schema)
 
@@ -256,6 +284,7 @@ class OpenCodeAgentMixin:
         *,
         timeout: float = DEFAULT_TEXT_TIMEOUT_SECONDS,
         system: str | None = None,
+        agent: str | None = None,
     ) -> str:
         """Send a prompt and return the assistant's plain-text response."""
         client, session_id = await self._ensure_session()
@@ -266,8 +295,22 @@ class OpenCodeAgentMixin:
             format=None,
             timeout=timeout,
             system=system,
+            agent=self._resolve_opencode_agent(agent),
         )
         return result.text
+
+    def _resolve_opencode_agent(self, override: str | None) -> str | None:
+        """Pick the OpenCode agent label to forward in the message body.
+
+        Per-call ``agent=`` argument wins. Otherwise falls back to
+        :attr:`opencode_agent` declared on the actor class. Returns
+        ``None`` to leave OpenCode using its server default agent (the
+        legacy behaviour for actors that haven't been migrated to
+        bundled markdown personas yet).
+        """
+        if override is not None:
+            return override
+        return getattr(self, "opencode_agent", None)
 
     # ------------------------------------------------------------------
     # Session / client lifecycle (lazy)
@@ -317,6 +360,7 @@ class OpenCodeAgentMixin:
         format: dict[str, Any] | None,
         timeout: float,
         system: str | None,
+        agent: str | None = None,
     ) -> SendResult:
         """Send the prompt, falling over to lower-tier bindings on failure.
 
@@ -341,6 +385,7 @@ class OpenCodeAgentMixin:
                 session_id,
                 prompt,
                 model=None,
+                agent=agent,
                 format=format,
                 system=system,
                 timeout=timeout,
@@ -357,6 +402,7 @@ class OpenCodeAgentMixin:
                 session_id,
                 prompt,
                 model=binding.to_dict(),
+                agent=agent,
                 format=format,
                 system=system,
                 timeout=timeout,

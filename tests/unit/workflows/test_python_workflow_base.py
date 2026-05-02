@@ -46,7 +46,6 @@ def _make_workflow(
     to avoid duplicating the ``ConcreteTestWorkflow`` class definition.
     """
     from maverick.config import MaverickConfig, ModelConfig
-    from maverick.registry import ComponentRegistry
     from tests.unit.workflows.conftest import _make_concrete_workflow_class
 
     ConcreteTestWorkflow = _make_concrete_workflow_class()
@@ -57,12 +56,9 @@ def _make_workflow(
     mock_config.agents = agents_override or {}
     mock_config.actors = actors_override or {}
 
-    mock_registry = MagicMock(spec=ComponentRegistry)
-
     return ConcreteTestWorkflow(
         run_fn=run_fn,
         config=mock_config,
-        registry=mock_registry,
         workflow_name=workflow_name,
     )
 
@@ -108,23 +104,6 @@ class TestConstructor:
         with pytest.raises(TypeError):
             _Impl(
                 config=None,  # type: ignore[arg-type]
-                registry=MagicMock(),
-                workflow_name="wf",
-            )
-
-    def test_constructor_requires_registry(self) -> None:
-        """TypeError raised when registry=None."""
-        from maverick.config import MaverickConfig
-        from maverick.workflows.base import PythonWorkflow
-
-        class _Impl(PythonWorkflow):
-            async def _run(self, inputs: dict[str, Any]) -> Any:
-                return None
-
-        with pytest.raises(TypeError):
-            _Impl(
-                config=MagicMock(spec=MaverickConfig),
-                registry=None,  # type: ignore[arg-type]
                 workflow_name="wf",
             )
 

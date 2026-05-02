@@ -7,7 +7,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from maverick.executor.config import StepExecutorConfig
+from maverick.executor.config import StepConfig
 from maverick.executor.protocol import StepExecutor
 from maverick.executor.result import ExecutorResult, UsageMetadata
 
@@ -15,18 +15,16 @@ from maverick.executor.result import ExecutorResult, UsageMetadata
 class _ConformingExecutor:
     """A minimal StepExecutor implementation for testing."""
 
-    async def execute(
+    async def execute_named(
         self,
         *,
-        step_name: str,
-        agent_name: str,
-        prompt: Any,
-        instructions: str | None = None,
-        allowed_tools: list[str] | None = None,
+        agent: str,
+        user_prompt: str,
+        step_name: str = "execute_named",
+        result_model: type[BaseModel] | None = None,
         cwd: Path | None = None,
-        output_schema: type[BaseModel] | None = None,
-        config: StepExecutorConfig | None = None,
-        event_callback: Any | None = None,
+        config: StepConfig | None = None,
+        timeout: float | None = None,
     ) -> ExecutorResult:
         return ExecutorResult(
             output="done",
@@ -37,17 +35,18 @@ class _ConformingExecutor:
 
 
 class _NonConformingNoExecute:
-    """Object with no execute method — should not satisfy StepExecutor."""
+    """Object with no execute_named method — should not satisfy StepExecutor."""
 
     def run(self) -> None:
         pass
 
 
 class _NonConformingSyncExecute:
-    """Object with a sync execute method — satisfies Protocol at isinstance level
-    because Python's @runtime_checkable only checks method existence, not signature."""
+    """Object with a sync execute_named method — satisfies Protocol at
+    isinstance level because Python's @runtime_checkable only checks
+    method existence, not signature."""
 
-    def execute(self, **kwargs: Any) -> str:
+    def execute_named(self, **kwargs: Any) -> str:
         return "done"
 
 
@@ -55,12 +54,12 @@ class TestStepExecutorProtocol:
     """Tests for StepExecutor @runtime_checkable Protocol."""
 
     def test_conforming_object_satisfies_isinstance(self) -> None:
-        """Object with async execute() satisfies isinstance(obj, StepExecutor)."""
+        """Object with async execute_named() satisfies isinstance(obj, StepExecutor)."""
         executor = _ConformingExecutor()
         assert isinstance(executor, StepExecutor)
 
     def test_non_conforming_no_execute_fails_isinstance(self) -> None:
-        """Object with no execute() fails isinstance(obj, StepExecutor)."""
+        """Object with no execute_named() fails isinstance(obj, StepExecutor)."""
         obj = _NonConformingNoExecute()
         assert not isinstance(obj, StepExecutor)
 
@@ -71,12 +70,11 @@ class TestStepExecutorProtocol:
 
     def test_opencode_executor_satisfies_protocol(self) -> None:
         """OpenCodeStepExecutor satisfies isinstance(executor, StepExecutor)."""
-        from maverick.registry import ComponentRegistry
         from maverick.runtime.opencode import OpenCodeStepExecutor
 
-        executor = OpenCodeStepExecutor(agent_registry=ComponentRegistry())
+        executor = OpenCodeStepExecutor()
         assert isinstance(executor, StepExecutor)
 
-    def test_protocol_has_execute_method(self) -> None:
-        """StepExecutor protocol has an execute method."""
-        assert hasattr(StepExecutor, "execute")
+    def test_protocol_has_execute_named_method(self) -> None:
+        """StepExecutor protocol has an execute_named method."""
+        assert hasattr(StepExecutor, "execute_named")

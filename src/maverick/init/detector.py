@@ -1,48 +1,27 @@
 """Project type detection module for maverick init.
 
-This module provides functions to detect project type using marker files
-and optionally Claude AI for enhanced detection. It supports Python, Node.js,
-Go, Rust, and Ansible projects.
+This module detects project type from marker files (pyproject.toml,
+package.json, go.mod, Cargo.toml, galaxy.yml, ansible.cfg, etc.).
+
+The earlier Claude-assisted detection path was removed when Maverick
+switched to a single OpenCode HTTP runtime substrate: detection runs
+during ``maverick init`` before any actor pool exists, and the marker-
+only path is reliable for every project type Maverick supports — adding
+a server-spawn-shutdown to init for parity with markers added complexity
+without improving outcomes.
 
 Usage:
     from maverick.init.detector import detect_project_type, find_marker_files
 
-    # Detect with Claude AI
     result = await detect_project_type(Path.cwd())
     print(f"Detected: {result.primary_type.value}")
-
-    # Marker-only detection (no API call)
-    result = await detect_project_type(Path.cwd(), use_claude=False)
 """
 
 from __future__ import annotations
 
-import asyncio
-import json
 from collections import Counter
 from pathlib import Path
-from typing import Any
 
-try:
-    from claude_agent_sdk import ClaudeAgentOptions
-    from claude_agent_sdk import query as _sdk_query
-
-    def query(prompt: str, options: Any) -> Any:
-        return _sdk_query(prompt=prompt, options=options)
-
-except ImportError:  # pragma: no cover — SDK removed in T051
-    from maverick.tools._sdk_stubs import ClaudeAgentOptions
-
-    async def query(prompt: str, options: Any) -> Any:  # type: ignore[misc]
-        raise NotImplementedError(
-            "claude_agent_sdk is not installed. "
-            "Claude-based project detection requires the SDK (T052)."
-        )
-        yield  # make this an async generator to match SDK's query() signature
-
-
-from maverick.constants import CLAUDE_HAIKU_LATEST
-from maverick.exceptions.init import DetectionError
 from maverick.init.models import (
     MARKER_FILE_MAP,
     DetectionConfidence,
@@ -72,9 +51,6 @@ logger = get_logger(__name__)
 # Constants
 # =============================================================================
 
-#: Default model for project detection (use Haiku for speed/cost)
-DEFAULT_DETECTION_MODEL = CLAUDE_HAIKU_LATEST
-
 #: Maximum content length to read from marker files
 MAX_CONTENT_LENGTH = 2000
 
@@ -83,36 +59,6 @@ MAX_TREE_DEPTH = 3
 
 #: Maximum marker file search depth
 MAX_MARKER_DEPTH = 2
-
-#: Detection prompt template
-DETECTION_PROMPT = """\
-Analyze this project and identify the project type.
-
-{context}
-
-Return a JSON object with:
-- "primary_type": one of python, nodejs, go, rust, ansible_collection, \
-ansible_playbook, unknown
-- "detected_types": list of all detected types
-- "confidence": "high", "medium", or "low"
-- "findings": list of evidence strings (e.g., "pyproject.toml found at root")
-
-Return ONLY the JSON object, no additional text."""
-
-#: System prompt for detection
-DETECTION_SYSTEM_PROMPT = """\
-You are a project type analyzer. Given information about a project's \
-structure and configuration files, identify the primary project type.
-
-Analyze marker files carefully:
-- pyproject.toml, setup.py, requirements.txt -> Python
-- package.json -> Node.js
-- go.mod -> Go
-- Cargo.toml -> Rust
-- galaxy.yml -> Ansible Collection
-- ansible.cfg, requirements.yml (without galaxy.yml) -> Ansible Playbook
-
-Return your analysis as a single JSON object. Be concise and accurate."""
 
 
 # =============================================================================
@@ -191,10 +137,12 @@ def build_detection_context(
     max_tree_depth: int = MAX_TREE_DEPTH,
     max_content_length: int = MAX_CONTENT_LENGTH,
 ) -> str:
-    """Build context string for Claude detection prompt.
+    """Build a human-readable context string describing a project.
 
-    Constructs a formatted context string containing directory tree
-    and marker file contents for Claude to analyze.
+    Constructs a formatted string containing the directory tree and marker
+    file contents. Originally consumed by the (now removed) Claude-assisted
+    detection path; retained because it's still useful for verbose ``init``
+    output, debugging, and diagnostics.
 
     Args:
         project_path: Path to project root.
@@ -203,12 +151,7 @@ def build_detection_context(
         max_content_length: Max chars per marker file.
 
     Returns:
-        Formatted context string for Claude.
-
-    Example:
-        markers = find_marker_files(Path.cwd())
-        context = build_detection_context(Path.cwd(), markers)
-        # Context includes directory tree and marker file contents
+        Formatted context string.
     """
     sections: list[str] = []
 
@@ -255,29 +198,23 @@ def build_detection_context(
 async def detect_project_type(
     project_path: Path,
     *,
-    use_claude: bool = True,
     override_type: ProjectType | None = None,
-    model: str = DEFAULT_DETECTION_MODEL,
-    timeout: float = 30.0,
 ) -> ProjectDetectionResult:
-    """Detect project type using Claude or marker-based heuristics.
+    """Detect project type from marker files.
 
-    Uses a combination of marker file detection and optionally Claude AI
-    to determine the project type. When Claude is used, it provides more
-    nuanced analysis and higher confidence scores.
+    Walks the project tree, finds known marker files, and applies a
+    priority-weighted scoring heuristic to choose a primary project type.
+
+    Note: this function is ``async`` for historical reasons — earlier
+    versions called the Claude SDK. It performs no I/O concurrency today
+    and is safe to call from any async context.
 
     Args:
         project_path: Path to project root.
-        use_claude: Use Claude for detection (False = marker-only).
-        override_type: Force specific project type.
-        model: Claude model for detection.
-        timeout: Detection timeout in seconds.
+        override_type: Force specific project type (skip detection).
 
     Returns:
         ProjectDetectionResult with detected type and findings.
-
-    Raises:
-        DetectionError: If detection fails completely.
 
     Example:
         result = await detect_project_type(Path.cwd())
@@ -298,20 +235,9 @@ async def detect_project_type(
             detection_method="override",
         )
 
-    # Find marker files
+    # Find marker files and apply heuristics
     markers = find_marker_files(project_path)
-
-    if use_claude:
-        # Use Claude for detection
-        return await _detect_with_claude(
-            project_path=project_path,
-            markers=markers,
-            model=model,
-            timeout=timeout,
-        )
-    else:
-        # Marker-only detection
-        return _detect_from_markers(markers)
+    return _detect_from_markers(markers)
 
 
 def get_validation_commands(project_type: ProjectType) -> ValidationCommands:
@@ -504,183 +430,4 @@ def _detect_from_markers(markers: list[ProjectMarker]) -> ProjectDetectionResult
         markers=tuple(markers),
         validation_commands=ValidationCommands.for_project_type(primary_type),
         detection_method="markers",
-    )
-
-
-async def _detect_with_claude(
-    project_path: Path,
-    markers: list[ProjectMarker],
-    model: str,
-    timeout: float,
-) -> ProjectDetectionResult:
-    """Perform Claude-assisted detection.
-
-    Uses Claude AI to analyze project structure and marker files
-    for more accurate detection.
-
-    Args:
-        project_path: Path to project root.
-        markers: Detected marker files.
-        model: Claude model to use.
-        timeout: Request timeout in seconds.
-
-    Returns:
-        ProjectDetectionResult with Claude-assisted detection.
-
-    Raises:
-        DetectionError: If Claude API call fails.
-    """
-    context = build_detection_context(project_path, markers)
-    prompt = DETECTION_PROMPT.format(context=context)
-
-    options = ClaudeAgentOptions(
-        system_prompt=DETECTION_SYSTEM_PROMPT,
-        model=model,
-        max_turns=1,
-        allowed_tools=[],
-    )
-
-    logger.info("Detecting project type with Claude model: %s", model)
-
-    try:
-        # Query Claude with timeout
-        response_text = await asyncio.wait_for(
-            _query_claude(prompt, options),
-            timeout=timeout,
-        )
-
-        # Parse response
-        result = _parse_detection_response(response_text, markers)
-        return result
-
-    except TimeoutError:
-        logger.warning(
-            "Claude detection timed out after %.1fs, falling back to markers",
-            timeout,
-        )
-        return _detect_from_markers(markers)
-
-    except json.JSONDecodeError as e:
-        logger.warning("Failed to parse Claude response as JSON: %s", e)
-        # Fall back to marker detection
-        return _detect_from_markers(markers)
-
-    except NotImplementedError:
-        logger.warning(
-            "claude_agent_sdk not available, falling back to marker-based detection",
-        )
-        return _detect_from_markers(markers)
-
-    except Exception as e:
-        logger.error("Claude detection failed: %s", e)
-        raise DetectionError(
-            f"Project type detection failed: {e}",
-            claude_error=e,
-        ) from e
-
-
-async def _query_claude(prompt: str, options: ClaudeAgentOptions) -> str:
-    """Query Claude and return text response.
-
-    Args:
-        prompt: User prompt.
-        options: Claude agent options.
-
-    Returns:
-        Text response from Claude.
-    """
-    text_parts: list[str] = []
-
-    async for message in query(prompt=prompt, options=options):
-        # Extract text from AssistantMessage
-        if type(message).__name__ == "AssistantMessage":
-            text = _extract_text_from_message(message)
-            if text:
-                text_parts.append(text)
-
-    return "\n".join(text_parts)
-
-
-def _extract_text_from_message(message: Any) -> str:
-    """Extract text content from a message.
-
-    Args:
-        message: Message object from Claude SDK.
-
-    Returns:
-        Extracted text content.
-    """
-    if hasattr(message, "content"):
-        content = message.content
-        if isinstance(content, str):
-            return content
-        if isinstance(content, list):
-            parts = []
-            for block in content:
-                if hasattr(block, "text"):
-                    parts.append(block.text)
-                elif isinstance(block, str):
-                    parts.append(block)
-            return "".join(parts)
-    return ""
-
-
-def _parse_detection_response(
-    response_text: str,
-    markers: list[ProjectMarker],
-) -> ProjectDetectionResult:
-    """Parse Claude's detection response.
-
-    Args:
-        response_text: Raw response from Claude.
-        markers: Original marker files.
-
-    Returns:
-        ProjectDetectionResult parsed from response.
-
-    Raises:
-        json.JSONDecodeError: If response is not valid JSON.
-    """
-    # Extract JSON from response (handle markdown code blocks)
-    json_text = response_text.strip()
-
-    # Remove markdown code block if present
-    if json_text.startswith("```"):
-        # Find the end of the code block
-        lines = json_text.split("\n")
-        start = 1  # Skip first line (```json or ```)
-        end = len(lines) - 1 if lines[-1].strip() == "```" else len(lines)
-        json_text = "\n".join(lines[start:end])
-
-    # Parse JSON
-    data = json.loads(json_text)
-
-    # Extract primary type
-    primary_type_str = data.get("primary_type", "unknown")
-    primary_type = ProjectType.from_string(primary_type_str)
-
-    # Extract detected types
-    detected_type_strs = data.get("detected_types", [primary_type_str])
-    detected_types = tuple(ProjectType.from_string(t) for t in detected_type_strs)
-
-    # Extract confidence
-    confidence_str = data.get("confidence", "low")
-    confidence_map = {
-        "high": DetectionConfidence.HIGH,
-        "medium": DetectionConfidence.MEDIUM,
-        "low": DetectionConfidence.LOW,
-    }
-    confidence = confidence_map.get(confidence_str.lower(), DetectionConfidence.LOW)
-
-    # Extract findings
-    findings = tuple(data.get("findings", []))
-
-    return ProjectDetectionResult(
-        primary_type=primary_type,
-        detected_types=detected_types,
-        confidence=confidence,
-        findings=findings,
-        markers=tuple(markers),
-        validation_commands=ValidationCommands.for_project_type(primary_type),
-        detection_method="claude",
     )

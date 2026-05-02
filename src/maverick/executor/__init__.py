@@ -25,7 +25,6 @@ from typing import Any
 
 from maverick.executor.config import (
     DEFAULT_EXECUTOR_CONFIG,
-    IMPLEMENTER_AGENT_NAME,
     RetryPolicy,
     StepConfig,
     StepExecutorConfig,
@@ -44,7 +43,6 @@ __all__ = [
     "UsageMetadata",
     "AgentProviderRegistry",
     "DEFAULT_EXECUTOR_CONFIG",
-    "IMPLEMENTER_AGENT_NAME",
     "ExecutorError",
     "OutputSchemaValidationError",
     "EventCallback",
@@ -59,20 +57,16 @@ def create_default_executor(
 ) -> Any:
     """Return the default :class:`StepExecutor` (OpenCode-backed).
 
-    Was historically an :class:`AcpStepExecutor`; the OpenCode migration
-    flipped the default. Callers that need a custom server handle (e.g.
-    when invoked inside an :func:`actor_pool` context) pass it via
-    ``server_handle``; otherwise the executor lazily spawns its own
-    OpenCode subprocess and tears it down on :meth:`cleanup`.
+    Callers that need a custom server handle (e.g. when invoked inside
+    an :func:`actor_pool` context) pass it via ``server_handle``;
+    otherwise the executor lazily spawns its own OpenCode subprocess
+    and tears it down on :meth:`cleanup`.
     """
-    from maverick.cli.common import create_registered_registry
     from maverick.config import load_config
     from maverick.runtime.opencode import OpenCodeStepExecutor
 
     config = load_config()
-    registry = create_registered_registry()
     return OpenCodeStepExecutor(
-        agent_registry=registry,
         global_max_tokens=config.model.max_tokens,
         server_handle=server_handle,
     )

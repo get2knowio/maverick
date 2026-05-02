@@ -1,22 +1,14 @@
-"""Pre-Flight Briefing Room agents — 4 specialists for PRD analysis.
+"""Pre-Flight Briefing prompt builders.
 
-Public API:
-    ScopistAgent: Scope analysis for PRD requirements.
-    CodebaseAnalystAgent: Codebase mapping to PRD requirements.
-    CriteriaWriterAgent: Success criteria and objective drafting.
-    PreFlightContrarianAgent: Challenges to the other 3 agents' briefs.
+The four pre-flight personas (Scopist / CodebaseAnalyst / CriteriaWriter /
+PreFlightContrarian) are markdown agent files under
+``runtime/opencode/profile/agents/maverick.<name>.md``, invoked by the
+xoscar :class:`maverick.actors.xoscar.briefing.BriefingActor` via
+OpenCode's per-message ``agent=`` selector. Only the prompt builders
+shared between the plan supervisor and the actor remain in
+:mod:`maverick.agents.preflight_briefing.prompts`.
 """
 
 from __future__ import annotations
 
-from maverick.agents.preflight_briefing.codebase_analyst import CodebaseAnalystAgent
-from maverick.agents.preflight_briefing.contrarian import PreFlightContrarianAgent
-from maverick.agents.preflight_briefing.criteria_writer import CriteriaWriterAgent
-from maverick.agents.preflight_briefing.scopist import ScopistAgent
-
-__all__ = [
-    "CodebaseAnalystAgent",
-    "CriteriaWriterAgent",
-    "PreFlightContrarianAgent",
-    "ScopistAgent",
-]
+__all__: list[str] = []

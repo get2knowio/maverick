@@ -41,7 +41,6 @@ from maverick.types import StepType
 if TYPE_CHECKING:
     from maverick.checkpoint.store import CheckpointStore
     from maverick.config import MaverickConfig
-    from maverick.registry import ComponentRegistry
 
 logger = get_logger(__name__)
 
@@ -64,29 +63,24 @@ class PythonWorkflow(ABC):
 
     Args:
         config: Project configuration (MaverickConfig).
-        registry: Component registry for action/agent dispatch.
         checkpoint_store: Optional checkpoint persistence backend.
         workflow_name: Identifier for this workflow instance.
 
     Raises:
-        TypeError: If config or registry is None.
+        TypeError: If config is None.
     """
 
     def __init__(
         self,
         *,
         config: MaverickConfig,
-        registry: ComponentRegistry,
         checkpoint_store: CheckpointStore | None = None,
         workflow_name: str,
     ) -> None:
         if config is None:
             raise TypeError("config must not be None")
-        if registry is None:
-            raise TypeError("registry must not be None")
 
         self._config = config
-        self._registry = registry
         self._workflow_name = workflow_name
 
         # Public result attribute — populated after execute() completes.
@@ -107,11 +101,6 @@ class PythonWorkflow(ABC):
     def config(self) -> MaverickConfig:
         """Read-only access to the project configuration."""
         return self._config
-
-    @property
-    def registry(self) -> ComponentRegistry:
-        """Read-only access to the component registry."""
-        return self._registry
 
     def _resolve_display_provider(self) -> str | None:
         """Return the default provider name for display purposes."""

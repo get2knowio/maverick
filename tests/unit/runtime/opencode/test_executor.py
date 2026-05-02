@@ -1,19 +1,8 @@
 """Unit tests for :class:`OpenCodeStepExecutor`.
 
-Covers:
-
-* ``execute()`` with plain text response.
-* ``execute()`` with ``output_schema`` triggers ``format=json_schema``
-  and validates the structured payload.
-* ``execute()`` falls back to JSON-in-text extraction when the model
-  produced text instead of a StructuredOutput tool call.
-* ``execute()`` returns ``ExecutorResult.usage`` populated from
-  ``info.tokens`` / ``info.cost``.
-* Multi-turn ``create_session`` / ``prompt_session`` reuses the session.
-* ``cleanup()`` deletes sessions and closes the client.
-* Provider-resolution + model-validation runs before send.
-* Errors classify (auth, model not found) propagate as
-  :class:`OpenCodeError`.
+Covers the OpenCode-native named-agent path
+(:meth:`execute_named`) plus the multi-turn session API used by
+fly_beads' :class:`BeadSessionRegistry`.
 """
 
 from __future__ import annotations
@@ -129,6 +118,7 @@ class _FakeClient:
                 "content": content,
                 "model": model,
                 "format": format,
+                "agent": agent,
                 "timeout": timeout,
             }
         )
@@ -146,51 +136,11 @@ class _FakeClient:
         self.closed = True
 
 
-class _FakeAgent:
-    """Minimal agent stub matching the executor's contract."""
-
-    def __init__(self, *, instructions: str | None = None) -> None:
-        self.instructions = instructions
-        self.allowed_tools = ["Read"]
-
-    def build_prompt(self, context: Any) -> str:
-        if isinstance(context, dict):
-            return context.get("prompt", "")
-        return str(context)
-
-
-class _FakeRegistrySection:
-    def __init__(self, agents: dict[str, type]) -> None:
-        self._agents = agents
-
-    def has(self, name: str) -> bool:
-        return name in self._agents
-
-    def get(self, name: str) -> type:
-        return self._agents[name]
-
-    def list_names(self) -> list[str]:
-        return list(self._agents)
-
-
-class _FakeRegistry:
-    def __init__(self, agents: dict[str, type]) -> None:
-        self.agents = _FakeRegistrySection(agents)
-
-
 class _PatchableExecutor(OpenCodeStepExecutor):
     """Executor with the client construction monkey-patched."""
 
-    def __init__(
-        self,
-        client: _FakeClient,
-        *,
-        agents: dict[str, type] | None = None,
-    ) -> None:
-        super().__init__(
-            agent_registry=_FakeRegistry(agents or {"agent": _FakeAgent}),
-            server_handle=_fake_handle(),
-        )
+    def __init__(self, client: _FakeClient) -> None:
+        super().__init__(server_handle=_fake_handle())
         self._fake_client = client
 
     async def _ensure_client(self) -> Any:  # type: ignore[override]
@@ -235,29 +185,30 @@ def _structured_send_result(structured: dict[str, Any]) -> SendResult:
 
 
 # ---------------------------------------------------------------------------
-# execute() — the StepExecutor Protocol method
+# execute_named() — the OpenCode-native named-agent path
 # ---------------------------------------------------------------------------
 
 
-async def test_execute_returns_text_for_plain_prompt() -> None:
+async def test_execute_named_returns_text_for_plain_prompt() -> None:
     client = _FakeClient(send_result=_text_send_result("hello world"))
     executor = _PatchableExecutor(client)
     try:
-        result = await executor.execute(
-            step_name="ping",
-            agent_name="agent",
-            prompt={"prompt": "say hi"},
+        result = await executor.execute_named(
+            agent="maverick.curator",
+            user_prompt="say hi",
         )
         assert isinstance(result, ExecutorResult)
         assert result.success is True
         assert result.output == "hello world"
-        # No format block when output_schema isn't set.
+        # No format block when result_model isn't set.
         assert client.send_calls[0]["format"] is None
+        # The named agent label flows through to the send body.
+        assert client.send_calls[0]["agent"] == "maverick.curator"
     finally:
         await executor.cleanup()
 
 
-async def test_execute_with_output_schema_validates_structured_payload() -> None:
+async def test_execute_named_with_result_model_validates_structured_payload() -> None:
     class Result(BaseModel):
         verdict: str
         score: int
@@ -265,11 +216,10 @@ async def test_execute_with_output_schema_validates_structured_payload() -> None
     client = _FakeClient(send_result=_structured_send_result({"verdict": "green", "score": 95}))
     executor = _PatchableExecutor(client)
     try:
-        result = await executor.execute(
-            step_name="judge",
-            agent_name="agent",
-            prompt={"prompt": "evaluate"},
-            output_schema=Result,
+        result = await executor.execute_named(
+            agent="maverick.consolidator",
+            user_prompt="evaluate",
+            result_model=Result,
         )
         assert isinstance(result.output, Result)
         assert result.output.verdict == "green"
@@ -281,10 +231,9 @@ async def test_execute_with_output_schema_validates_structured_payload() -> None
         await executor.cleanup()
 
 
-async def test_execute_with_output_schema_falls_back_to_json_in_text() -> None:
+async def test_execute_named_with_result_model_falls_back_to_json_in_text() -> None:
     """When the model returns text instead of a StructuredOutput call, the
-    executor falls back to JSON extraction — same defence-in-depth as the
-    legacy executor."""
+    executor falls back to JSON extraction."""
 
     class Result(BaseModel):
         ok: bool
@@ -296,11 +245,10 @@ async def test_execute_with_output_schema_falls_back_to_json_in_text() -> None:
     )
     executor = _PatchableExecutor(client)
     try:
-        result = await executor.execute(
-            step_name="probe",
-            agent_name="agent",
-            prompt={"prompt": "json please"},
-            output_schema=Result,
+        result = await executor.execute_named(
+            agent="maverick.curator",
+            user_prompt="json please",
+            result_model=Result,
         )
         assert isinstance(result.output, Result)
         assert result.output.ok is True
@@ -308,7 +256,7 @@ async def test_execute_with_output_schema_falls_back_to_json_in_text() -> None:
         await executor.cleanup()
 
 
-async def test_execute_with_output_schema_raises_validation_error_for_bad_payload() -> None:
+async def test_execute_named_with_result_model_raises_for_bad_payload() -> None:
     class Result(BaseModel):
         verdict: str
         score: int
@@ -319,28 +267,26 @@ async def test_execute_with_output_schema_raises_validation_error_for_bad_payloa
     executor = _PatchableExecutor(client)
     try:
         with pytest.raises(OutputSchemaValidationError):
-            await executor.execute(
-                step_name="judge",
-                agent_name="agent",
-                prompt={"prompt": "x"},
-                output_schema=Result,
+            await executor.execute_named(
+                agent="maverick.consolidator",
+                user_prompt="x",
+                result_model=Result,
             )
     finally:
         await executor.cleanup()
 
 
-async def test_execute_emits_usage_metadata_when_info_has_tokens() -> None:
+async def test_execute_named_emits_usage_metadata_when_info_has_tokens() -> None:
     class Result(BaseModel):
         ok: bool
 
     client = _FakeClient(send_result=_structured_send_result({"ok": True}))
     executor = _PatchableExecutor(client)
     try:
-        result = await executor.execute(
-            step_name="probe",
-            agent_name="agent",
-            prompt={"prompt": "x"},
-            output_schema=Result,
+        result = await executor.execute_named(
+            agent="maverick.consolidator",
+            user_prompt="x",
+            result_model=Result,
         )
         assert result.usage is not None
         assert result.usage.input_tokens == 100
@@ -351,30 +297,14 @@ async def test_execute_emits_usage_metadata_when_info_has_tokens() -> None:
         await executor.cleanup()
 
 
-async def test_execute_resolves_dashed_agent_name_to_underscored_alias() -> None:
-    client = _FakeClient(send_result=_text_send_result("ok"))
-    executor = _PatchableExecutor(client, agents={"my_agent": _FakeAgent})
-    try:
-        # Caller passes hyphenated form; executor finds the underscored one.
-        result = await executor.execute(
-            step_name="x",
-            agent_name="my-agent",
-            prompt={"prompt": "x"},
-        )
-        assert result.success
-    finally:
-        await executor.cleanup()
-
-
-async def test_execute_validates_model_id_before_sending() -> None:
+async def test_execute_named_validates_model_id_before_sending() -> None:
     """When config supplies provider+model_id, validate against /provider first."""
     client = _FakeClient(send_result=_text_send_result("ok"))
     executor = _PatchableExecutor(client)
     try:
-        await executor.execute(
-            step_name="x",
-            agent_name="agent",
-            prompt={"prompt": "x"},
+        await executor.execute_named(
+            agent="maverick.curator",
+            user_prompt="x",
             config=StepConfig(provider="openrouter", model_id="anthropic/claude-haiku-4.5"),
         )
         assert client.list_provider_calls == 1
@@ -387,29 +317,32 @@ async def test_execute_validates_model_id_before_sending() -> None:
         await executor.cleanup()
 
 
-async def test_execute_propagates_classified_runtime_errors() -> None:
+async def test_execute_named_propagates_classified_runtime_errors() -> None:
     client = _FakeClient(send_error=OpenCodeAuthError("bad key"))
     executor = _PatchableExecutor(client)
     try:
         with pytest.raises(OpenCodeAuthError):
-            await executor.execute(
-                step_name="x",
-                agent_name="agent",
-                prompt={"prompt": "x"},
+            await executor.execute_named(
+                agent="maverick.curator",
+                user_prompt="x",
             )
     finally:
         await executor.cleanup()
 
 
-async def test_execute_deletes_per_step_session_after_completion() -> None:
+async def test_execute_named_deletes_per_step_session_after_completion() -> None:
     client = _FakeClient(send_result=_text_send_result("ok"))
     executor = _PatchableExecutor(client)
     try:
-        await executor.execute(step_name="x", agent_name="agent", prompt={"prompt": "x"})
-        # The one-shot session created for this execute() call should be
-        # cleaned up immediately, not left dangling.
-        assert client.created_sessions == ["step:x"]
-        assert client.deleted_sessions == [client.created_sessions and "ses_0"]
+        await executor.execute_named(
+            agent="maverick.curator",
+            user_prompt="x",
+            step_name="probe",
+        )
+        # The one-shot session created for this execute_named() call should
+        # be cleaned up immediately, not left dangling.
+        assert client.created_sessions == ["step:probe"]
+        assert client.deleted_sessions == ["ses_0"]
     finally:
         await executor.cleanup()
 

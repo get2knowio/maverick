@@ -303,14 +303,12 @@ def checkpoint_store() -> MemoryCheckpointStore:
 @pytest.fixture
 def fly_workflow(
     mock_config: MagicMock,
-    mock_registry: MagicMock,
     checkpoint_store: MemoryCheckpointStore,
 ) -> Any:
     from maverick.workflows.fly_beads.workflow import FlyBeadsWorkflow
 
     return FlyBeadsWorkflow(
         config=mock_config,
-        registry=mock_registry,
         checkpoint_store=checkpoint_store,
     )
 

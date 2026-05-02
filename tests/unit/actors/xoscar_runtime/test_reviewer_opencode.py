@@ -70,6 +70,8 @@ def _fake_handle() -> OpenCodeServerHandle:
 class _SupervisorSpy(xo.Actor):
     async def __post_create__(self) -> None:
         self._review_ready_calls: list[SubmitReviewPayload] = []
+        self._correctness_calls: list[SubmitReviewPayload] = []
+        self._completeness_calls: list[SubmitReviewPayload] = []
         self._aggregate_calls: list[SubmitReviewPayload] = []
         self._prompt_errors: list[PromptError] = []
         self._payload_parse_errors: list[tuple[str, str]] = []
@@ -77,6 +79,14 @@ class _SupervisorSpy(xo.Actor):
     @xo.no_lock
     async def review_ready(self, payload: SubmitReviewPayload) -> None:
         self._review_ready_calls.append(payload)
+
+    @xo.no_lock
+    async def correctness_review_ready(self, payload: SubmitReviewPayload) -> None:
+        self._correctness_calls.append(payload)
+
+    @xo.no_lock
+    async def completeness_review_ready(self, payload: SubmitReviewPayload) -> None:
+        self._completeness_calls.append(payload)
 
     @xo.no_lock
     async def aggregate_review_ready(self, payload: SubmitReviewPayload) -> None:
@@ -93,6 +103,8 @@ class _SupervisorSpy(xo.Actor):
     async def get_state(self) -> dict[str, Any]:
         return {
             "review_ready": [p.model_dump() for p in self._review_ready_calls],
+            "correctness_ready": [p.model_dump() for p in self._correctness_calls],
+            "completeness_ready": [p.model_dump() for p in self._completeness_calls],
             "aggregate": [p.model_dump() for p in self._aggregate_calls],
             "prompt_errors": [
                 {
@@ -319,8 +331,11 @@ async def test_followup_review_uses_short_prompt(review_pool: str) -> None:
         assert send_count == 2
         calls = await reviewer.get_send_calls()
         first, second = calls[:2]
-        assert "Review checklist" in first
-        assert "Review checklist" not in second
+        # First review carries the full per-bead context; the
+        # follow-up only references prior findings.
+        assert "Review context" in first
+        assert "Review context" not in second
+        assert "previous review" in second
     finally:
         await xo.destroy_actor(reviewer)
         await xo.destroy_actor(sup)

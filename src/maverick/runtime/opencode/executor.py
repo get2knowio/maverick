@@ -1,35 +1,24 @@
 """OpenCode-backed implementation of :class:`StepExecutor`.
 
-This is the replacement for :class:`maverick.executor.acp.AcpStepExecutor`
-on non-mailbox paths — single-shot ``execute()`` calls and multi-turn
-``create_session`` / ``prompt_session`` calls that aren't routed through
-an MCP gateway.
+The OpenCode-substrate landing point for single-shot agent runs and
+multi-turn sessions outside the xoscar mailbox-actor flow. The
+public surface is now:
 
-Mailbox actors don't go through the executor any more; they use
-:class:`maverick.actors.xoscar.opencode_mixin.OpenCodeAgentMixin` directly,
-which builds its own :class:`OpenCodeClient`. The executor stays in place
-for callers that don't fit the actor pattern (CLI commands, ad-hoc
-workflow steps, model probing, etc.).
+* :meth:`OpenCodeStepExecutor.execute_named` — run a bundled
+  OpenCode markdown persona by name (the canonical path).
+* :meth:`OpenCodeStepExecutor.create_session` /
+  :meth:`prompt_session` / :meth:`cancel_session` /
+  :meth:`close_session` — multi-turn session API for callers that
+  hold a session id across multiple sends.
 
-What this loses vs. the legacy ACP executor:
+Mailbox actors don't go through the executor at all; they use
+:class:`maverick.actors.xoscar.opencode_mixin.OpenCodeAgentMixin`
+directly, which builds its own :class:`OpenCodeClient`.
 
-* Per-provider connection pooling — there's only one HTTP server per
-  executor.
-* Custom retry-with-tenacity wrapping — :class:`OpenCodeClient` already
-  retries transient failures.
-* MCP-server attachment via ``mcp_servers=`` on ``create_session`` —
-  external MCP servers belong in :file:`opencode.jsonc` now (Phase 4
-  will document the placement).
-
-What it gains:
-
-* Errors surface via classified :class:`OpenCodeError` subclasses
-  (Landmines 1-3 mitigations baked in).
-* ``output_schema`` translates to ``format=json_schema`` so the model
-  is forced to call OpenCode's :code:`StructuredOutput` tool — no more
-  JSON-in-text parsing for non-mailbox steps.
-* One HTTP runtime instead of one ACP bridge per provider, so multi-
-  provider routing is mechanical.
+Errors surface via classified :class:`OpenCodeError` subclasses
+(Landmines 1-3 mitigations baked in). ``result_model`` translates
+to ``format=json_schema`` so the model is forced to call OpenCode's
+``StructuredOutput`` tool when typed output is required.
 """
 
 from __future__ import annotations
@@ -41,13 +30,11 @@ from typing import Any
 from pydantic import BaseModel, ValidationError
 
 from maverick.exceptions.agent import AgentError
-from maverick.exceptions.workflow import ReferenceResolutionError
 from maverick.executor.config import DEFAULT_EXECUTOR_CONFIG, StepConfig
 from maverick.executor.errors import OutputSchemaValidationError
 from maverick.executor.protocol import EventCallback
 from maverick.executor.result import ExecutorResult, UsageMetadata
 from maverick.logging import get_logger
-from maverick.registry import ComponentRegistry
 from maverick.runtime.opencode.client import (
     OpenCodeClient,
     SendResult,
@@ -78,8 +65,6 @@ class OpenCodeStepExecutor:
     left alone.
 
     Args:
-        agent_registry: Component registry for agent class lookup +
-            ``build_prompt``. Same shape the legacy executor consumed.
         global_max_tokens: Reserved for parity with the legacy executor;
             currently unused (OpenCode's per-message ``max_tokens`` flag
             isn't wired up yet).
@@ -92,13 +77,11 @@ class OpenCodeStepExecutor:
 
     def __init__(
         self,
-        agent_registry: ComponentRegistry,
         *,
         global_max_tokens: int | None = None,
         server_handle: OpenCodeServerHandle | None = None,
         password: str | None = None,
     ) -> None:
-        self._agent_registry = agent_registry
         self._global_max_tokens = global_max_tokens
         self._handle: OpenCodeServerHandle | None = server_handle
         self._owns_handle = server_handle is None
@@ -177,77 +160,99 @@ class OpenCodeStepExecutor:
         self._session_invalidator = callback
 
     # ------------------------------------------------------------------
-    # StepExecutor Protocol — the canonical entry point
+    # Named-agent entry point — the OpenCode-native path
     # ------------------------------------------------------------------
 
-    async def execute(
+    async def execute_named(
         self,
         *,
-        step_name: str,
-        agent_name: str,
-        prompt: Any,
-        instructions: str | None = None,
-        allowed_tools: list[str] | None = None,
+        agent: str,
+        user_prompt: str,
+        step_name: str = "execute_named",
+        result_model: type[BaseModel] | None = None,
         cwd: Path | None = None,
-        output_schema: type[BaseModel] | None = None,
         config: StepConfig | None = None,
-        event_callback: EventCallback | None = None,
-        agent_kwargs: dict[str, Any] | None = None,
+        timeout: float | None = None,
     ) -> ExecutorResult:
-        """One-shot agent step → :class:`ExecutorResult`.
+        """Run a single prompt against a bundled OpenCode agent persona.
 
-        Same surface as :meth:`AcpStepExecutor.execute`, modulo a few
-        subtleties:
+        The persona's system prompt comes from
+        ``runtime/opencode/profile/agents/<agent>.md`` (loaded by
+        OpenCode via the per-message ``agent=`` selector) — the caller
+        only supplies the per-call user prompt and an optional
+        Pydantic ``result_model`` for structured output.
 
-        * ``allowed_tools`` is currently advisory — OpenCode's tool
-          allowlist runs at the server config level. Pass ``[]`` to opt
-          actors out of any non-StructuredOutput tools.
-        * ``event_callback`` receives raw OpenCode SSE events instead of
-          the legacy ``AgentStreamChunk``. Callers that need the event
-          shape from the legacy world should use the wrapper in Phase 4.
+        Args:
+            agent: Bundled persona name, e.g. ``"maverick.curator"``.
+                Must match a markdown file in the OpenCode profile
+                agents directory.
+            user_prompt: The per-call user message body (already
+                templated by the caller).
+            step_name: Logical step name used for logging and for
+                titling the OpenCode session (default
+                ``"execute_named"``).
+            result_model: Optional Pydantic model to force structured
+                output. When set, the runtime adds
+                ``format=json_schema`` and validates the response.
+                When ``None``, the assistant's plain text is returned.
+            cwd: Optional working directory (currently advisory; the
+                OpenCode profile carries the persona-specific
+                permission set).
+            config: Optional :class:`StepConfig`; ignored model/provider
+                fields fall through to the OpenCode server's defaults
+                or the profile-declared model.
+            timeout: Per-call wallclock budget (seconds). Falls back to
+                ``config.timeout`` and finally to the executor default
+                of 600 s.
+
+        Returns:
+            :class:`ExecutorResult` carrying either the validated
+            payload (when ``result_model`` was set) or the plain-text
+            response.
+
+        Raises:
+            OpenCodeAuthError, OpenCodeModelNotFoundError,
+            OpenCodeContextOverflowError, OpenCodeStructuredOutputError,
+            OpenCodeError: classified failures from the runtime.
+            OutputSchemaValidationError: when ``result_model`` is set
+                and the response payload didn't validate.
         """
+        del cwd  # accepted for caller parity; OpenCode resolves cwd via profile
         effective_config = config if config is not None else DEFAULT_EXECUTOR_CONFIG
+        effective_timeout = timeout if timeout is not None else _resolve_timeout(effective_config)
         start_time = time.monotonic()
 
         self._logger.info(
-            "opencode_executor.step_start",
+            "opencode_executor.named_step_start",
             step_name=step_name,
-            agent_name=agent_name,
-            provider=effective_config.provider,
-            timeout=effective_config.timeout,
+            agent=agent,
+            timeout=effective_timeout,
         )
-
-        agent_instance = self._resolve_agent(agent_name, agent_kwargs or {})
-        prompt_text = self._build_prompt_text(
-            agent_instance,
-            prompt,
-            instructions,
-        )
-        # Resolve allowed_tools / instructions if the caller didn't supply them;
-        # we don't currently forward `tools` to OpenCode but capture them in
-        # logs for parity with the legacy executor.
-        if allowed_tools is None:
-            agent_tools = getattr(agent_instance, "allowed_tools", None)
-            if isinstance(agent_tools, list):
-                allowed_tools = agent_tools
 
         client = await self._ensure_client()
         provider_id, model_id = self._resolve_model_binding(effective_config)
         if provider_id and model_id:
             await validate_model_id(client, provider_id, model_id)
 
+        format_block: dict[str, Any] | None = None
+        if result_model is not None:
+            format_block = {
+                "type": "json_schema",
+                "schema": result_model.model_json_schema(),
+            }
+        model_block: dict[str, str] | None = None
+        if provider_id and model_id:
+            model_block = {"providerID": provider_id, "modelID": model_id}
+
         session_id = await client.create_session(title=f"step:{step_name}")
         try:
-            send_result = await self._send_for_step(
-                client=client,
-                session_id=session_id,
-                prompt_text=prompt_text,
-                output_schema=output_schema,
-                provider_id=provider_id,
-                model_id=model_id,
-                cwd=cwd,
-                timeout=_resolve_timeout(effective_config),
-                event_callback=event_callback,
+            send_result: SendResult = await client.send_with_event_watch(
+                session_id,
+                user_prompt,
+                model=model_block,
+                agent=agent,
+                format=format_block,
+                timeout=effective_timeout,
             )
         finally:
             try:
@@ -259,12 +264,12 @@ class OpenCodeStepExecutor:
                     error=str(exc),
                 )
 
-        output, usage, model_label = self._build_output(send_result, output_schema, step_name)
+        output, usage, model_label = self._build_output(send_result, result_model, step_name)
         duration_ms = int((time.monotonic() - start_time) * 1000)
         self._logger.info(
-            "opencode_executor.step_complete",
+            "opencode_executor.named_step_complete",
             step_name=step_name,
-            agent_name=agent_name,
+            agent=agent,
             duration_ms=duration_ms,
             success=True,
         )
@@ -429,36 +434,6 @@ class OpenCodeStepExecutor:
             password=self._handle.password,
         )
         return self._client
-
-    def _resolve_agent(self, agent_name: str, agent_kwargs: dict[str, Any]) -> Any:
-        resolved = agent_name
-        if not self._agent_registry.agents.has(resolved):
-            alt = agent_name.replace("-", "_")
-            if self._agent_registry.agents.has(alt):
-                resolved = alt
-            else:
-                raise ReferenceResolutionError(
-                    reference_type="agent",
-                    reference_name=agent_name,
-                    available_names=self._agent_registry.agents.list_names(),
-                )
-        agent_class = self._agent_registry.agents.get(resolved)
-        try:
-            return agent_class(**agent_kwargs)
-        except TypeError as exc:
-            raise AgentError(
-                f"Failed to instantiate agent '{resolved}': {exc}",
-                agent_name=resolved,
-            ) from exc
-
-    def _build_prompt_text(
-        self, agent_instance: Any, prompt: Any, instructions: str | None
-    ) -> str:
-        raw_prompt: str = agent_instance.build_prompt(prompt)
-        agent_instructions = instructions or getattr(agent_instance, "instructions", None)
-        if agent_instructions:
-            return f"[SYSTEM INSTRUCTIONS]\n{agent_instructions}\n\n---\n\n{raw_prompt}"
-        return raw_prompt
 
     def _resolve_model_binding(self, config: StepConfig) -> tuple[str | None, str | None]:
         return config.provider, config.model_id

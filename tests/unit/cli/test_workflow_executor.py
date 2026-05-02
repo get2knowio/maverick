@@ -27,14 +27,12 @@ class RecordingWorkflow(PythonWorkflow):
         self,
         *,
         config: Any,
-        registry: Any,
         checkpoint_store: Any = None,
         workflow_name: str,
     ) -> None:
         type(self).last_workflow_name = workflow_name
         super().__init__(
             config=config,
-            registry=registry,
             checkpoint_store=checkpoint_store,
             workflow_name=workflow_name,
         )
@@ -67,10 +65,6 @@ class TestExecutePythonWorkflow:
                 return_value=checkpoint_store,
             ),
             patch("maverick.config.load_config", return_value=MagicMock()),
-            patch(
-                "maverick.cli.workflow_executor.create_registered_registry",
-                return_value=MagicMock(),
-            ),
             patch(
                 "maverick.cli.workflow_executor.render_workflow_events",
                 new_callable=AsyncMock,

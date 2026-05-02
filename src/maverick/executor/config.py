@@ -24,10 +24,6 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
-# Canonical agent name used by the implementer step in DSL workflows.
-IMPLEMENTER_AGENT_NAME = "implementer"
-
-
 @dataclass(frozen=True, slots=True)
 class RetryPolicy:
     """Tenacity retry parameters for executor-level retry (FR-003).

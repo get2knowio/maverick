@@ -317,11 +317,12 @@ async def _invoke_fixer_agent(
     cwd: Path,
     stream_callback: Any | None = None,
 ) -> dict[str, Any]:
-    """Invoke the FixerAgent to apply fixes based on the prompt.
+    """Invoke the ``maverick.validation-fixer`` persona to apply fixes.
 
-    The agent uses tools (Read, Write, Edit) to apply fixes directly.
-    Success here means the agent ran without errors; the caller re-runs
-    validation afterward to determine whether the fix actually worked.
+    The persona uses tools (Read, Write, Edit, Bash) to apply fixes
+    directly to disk. Success here means the agent ran without errors;
+    the caller re-runs validation afterward to determine whether the
+    fix actually worked.
 
     Args:
         fix_prompt: The prompt describing fixes to apply
@@ -331,23 +332,18 @@ async def _invoke_fixer_agent(
     Returns:
         Dict with success status and a description of changes made
     """
+    del stream_callback  # accepted for source compatibility; OpenCode owns streaming
+
     try:
         # Import here to avoid circular imports
         from maverick.executor import create_default_executor
 
-        # Build context for prompt construction
-        agent_context = {"prompt": fix_prompt}
-
-        # Set up ACP executor with default provider
         executor = create_default_executor()
-
         try:
-            # Build prompt via agent, then execute via ACP
-            # Registry name is "validation_fixer" (see library/agents/__init__.py)
-            result = await executor.execute(
+            result = await executor.execute_named(
+                agent="maverick.validation-fixer",
+                user_prompt=fix_prompt,
                 step_name="fixer_agent",
-                agent_name="validation_fixer",
-                prompt=agent_context,
                 cwd=cwd,
             )
             return {

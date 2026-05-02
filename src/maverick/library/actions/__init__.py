@@ -9,8 +9,13 @@ Actions are organized by domain:
 - git: Git operations (commit, push, branch)
 - github: GitHub operations (issues, PRs)
 - validation: Validation and fix operations
-- review: Code review operations
 - dry_run: Dry-run mode support
+
+The legacy ``review`` action surface (text-mode dual-reviewer + fix
+loop) was removed in the OpenCode-substrate cleanup; the live actor
+flow under :mod:`maverick.actors.xoscar.fly_supervisor` runs reviews
+via two parallel ReviewerActor instances and a structured-output
+fixer instead.
 """
 
 from __future__ import annotations
@@ -51,12 +56,6 @@ from maverick.library.actions.jj import (
     jj_squash,
 )
 from maverick.library.actions.preflight import run_preflight_checks
-from maverick.library.actions.review import (
-    analyze_review_findings,
-    gather_local_review_context,
-    generate_review_fix_report,
-    run_review_fix_loop,
-)
 from maverick.library.actions.validation import (
     generate_validation_report,
     log_message,
@@ -100,11 +99,6 @@ __all__ = [
     "create_github_pr",
     "fetch_github_issues",
     "fetch_github_issue",
-    # Review actions
-    "gather_local_review_context",
-    "analyze_review_findings",
-    "run_review_fix_loop",
-    "generate_review_fix_report",
     # Validation actions
     "run_fix_retry_loop",
     "generate_validation_report",

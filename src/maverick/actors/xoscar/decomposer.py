@@ -60,6 +60,11 @@ class DecomposerActor(OpenCodeAgentMixin, xo.Actor):
     # schema explicitly via ``_send_structured(schema=...)``.
     result_model: ClassVar[type[BaseModel]] = SubmitOutlinePayload
     provider_tier: ClassVar[str] = "decompose"
+    # Persona system prompt is loaded from
+    # ``runtime/opencode/profile/agents/maverick.decomposer.md`` via
+    # ``OPENCODE_CONFIG_DIR``. Phase-specific instructions
+    # (outline / detail / fix) live in the per-bead user prompt.
+    opencode_agent: ClassVar[str | None] = "maverick.decomposer"
 
     def __init__(
         self,
@@ -332,11 +337,7 @@ class DecomposerActor(OpenCodeAgentMixin, xo.Actor):
                 f"{request.validation_feedback}\n"
                 "Fix these issues in your new decomposition."
             )
-        return (
-            "You are the decomposer's outline pass.\n\n"
-            "# Decomposition input (flight plan + briefing)\n\n"
-            f"{body}"
-        )
+        return f"# Decomposition input — outline pass (flight plan + briefing)\n\n{body}"
 
     async def _build_detail_prompt(self, request: DetailRequest) -> tuple[str, bool]:
         from maverick.library.actions.decompose import (
@@ -360,9 +361,7 @@ class DecomposerActor(OpenCodeAgentMixin, xo.Actor):
         prompt_parts.append(build_detail_turn_prompt(unit_ids=unit_ids))
         body = "\n\n".join(prompt_parts)
         return (
-            "You are the decomposer's detail pass.\n\n"
-            "# Decomposition input (outline + details turn)\n\n"
-            f"{body}",
+            f"# Decomposition input — detail pass (outline + details turn)\n\n{body}",
             needs_seed,
         )
 
@@ -390,10 +389,8 @@ class DecomposerActor(OpenCodeAgentMixin, xo.Actor):
         )
         body = "\n\n".join(prompt_parts)
         return (
-            "You are the decomposer's fix pass. Submit the COMPLETE updated "
-            "work_units and details, not just the changes.\n\n"
-            "# Decomposition input (fix turn)\n\n"
-            f"{body}",
+            "# Decomposition input — fix pass (submit the COMPLETE updated "
+            f"work_units and details, not just the changes)\n\n{body}",
             needs_seed,
         )
 
