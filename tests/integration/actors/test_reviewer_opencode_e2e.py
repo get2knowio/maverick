@@ -57,11 +57,22 @@ if not _has_provider_auth():
         "no OpenCode provider auth configured (run `opencode auth login`)",
         allow_module_level=True,
     )
-# Gated explicitly because each run bills a real provider and adds 5-30s
-# of wall time. Set MAVERICK_E2E_LLM=1 (or run via pytest -k 'e2e') to
-# opt in; otherwise we rely on the unit tests in
-# ``tests/unit/actors/xoscar_runtime/test_reviewer_opencode.py`` to prove
-# the supervisor contract and skip the live-LLM round-trip.
+# Gated explicitly because each run bills a real provider and adds
+# 5-120s of wall time. Set MAVERICK_E2E_LLM=1 (or run via pytest -k
+# 'e2e') to opt in; otherwise we rely on the unit tests in
+# ``tests/unit/actors/xoscar_runtime/test_reviewer_opencode.py`` to
+# prove the supervisor contract and skip the live-LLM round-trip.
+#
+# Known flake: when the dev container is under contention from a
+# parallel pytest run, the xoscar actor flow can hang past
+# ``xo.wait_for(timeout=...)`` — the documented xoscar pitfall where
+# the timeout doesn't propagate through a remote call when the pool
+# is contended. The direct-runtime probe in
+# ``tests/integration/runtime/test_opencode_runtime.py`` exercises
+# the same OpenCode round-trip without the actor wrapper and is the
+# more reliable smoke. Reserve this test for clean-environment
+# verification; if it hangs in a busy container, it's the contention
+# bug, not a regression.
 if not os.environ.get("MAVERICK_E2E_LLM"):
     pytest.skip(
         "set MAVERICK_E2E_LLM=1 to run live-LLM end-to-end tests",
@@ -101,7 +112,7 @@ class _CapturingSupervisor(xo.Actor):
         }
 
 
-@pytest.mark.timeout(180)
+@pytest.mark.timeout(360)
 async def test_reviewer_against_real_opencode_returns_typed_payload(tmp_path: Path) -> None:
     """The new reviewer produces a :class:`SubmitReviewPayload` end-to-end."""
     cwd = tmp_path
@@ -139,7 +150,12 @@ async def test_reviewer_against_real_opencode_returns_typed_payload(tmp_path: Pa
                         ),
                     )
                 ),
-                timeout=120,
+                # 240s gives plenty of headroom; spike data showed haiku
+                # at ~3s, but OpenCode's project-preamble auto-compaction
+                # path can stretch a single round-trip well past a
+                # minute on slow days. The pytest.mark.timeout above caps
+                # the overall test wall-time.
+                timeout=240,
             )
             summary = await sup.get_summary()
             assert summary["errors"] == [], f"prompt_error fired unexpectedly: {summary['errors']}"
