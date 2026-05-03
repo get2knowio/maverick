@@ -10,7 +10,7 @@ from typing import Any
 from maverick.exceptions import WorkflowError
 from maverick.library.actions.git import git_has_changes
 from maverick.library.actions.git_models import GitStatusResult
-from maverick.library.actions.jj import jj_snapshot_changes
+from maverick.library.actions.jj import snapshot_uncommitted_changes
 from maverick.library.actions.preflight import run_preflight_checks
 from maverick.library.actions.validation import run_independent_gate
 from maverick.logging import get_logger
@@ -235,16 +235,18 @@ class FlyBeadsWorkflow(PythonWorkflow):
         # ----------------------------------------------------------------
         # Step 2: Snapshot uncommitted changes
         # ----------------------------------------------------------------
-        # jj git clone only picks up committed state. If maverick init (or
-        # the user) left uncommitted files, we need to commit them first so
-        # the workspace clone includes everything.
+        # Single-repo model: bead commits land directly on the user's
+        # current branch, so a dirty tree at fly start would interleave
+        # with bead commits. Fail closed unless --auto-commit is set,
+        # then snapshot via the right VCS (jj or plain-git).
         await self.emit_step_started(SNAPSHOT_UNCOMMITTED, display_label="Snapshotting changes")
         try:
             change_status = await git_has_changes()
             if change_status.has_any:
                 if auto_commit:
-                    snap = await jj_snapshot_changes(
+                    snap = await snapshot_uncommitted_changes(
                         message="chore: snapshot uncommitted changes before fly",
+                        cwd=cwd,
                     )
                     if not snap.success:
                         err = snap.error or "commit failed"
@@ -274,7 +276,7 @@ class FlyBeadsWorkflow(PythonWorkflow):
                     )
                     raise WorkflowError(
                         "Uncommitted changes detected in the working directory. "
-                        "The workspace clone will not include these changes. "
+                        "Bead commits will interleave with your in-progress edits. "
                         "Please commit them first or re-run with --auto-commit.\n" + file_list,
                         workflow_name=WORKFLOW_NAME,
                     )

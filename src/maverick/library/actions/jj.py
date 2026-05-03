@@ -380,6 +380,124 @@ async def jj_snapshot_changes(
     )
 
 
+def _is_jj_repo(cwd: Path) -> bool:
+    """Return True when ``cwd`` is a jj repo (or jj-colocated git repo).
+
+    Cheap directory probe — no subprocess. The full ``jj root`` invocation
+    would be more authoritative but is overkill for a cwd-vs-vcs decision.
+    Walks up the tree the way jj does itself, so a subdirectory of a jj
+    repo still resolves correctly.
+    """
+    candidate = cwd
+    for _ in range(64):  # bound to defend against pathological symlink loops
+        if (candidate / ".jj").is_dir():
+            return True
+        parent = candidate.parent
+        if parent == candidate:
+            return False
+        candidate = parent
+    return False
+
+
+async def snapshot_uncommitted_changes(
+    message: str = "chore: snapshot uncommitted changes",
+    cwd: str | Path | None = None,
+) -> SnapshotResult:
+    """Snapshot uncommitted changes using whichever VCS the cwd has.
+
+    Wraps :func:`jj_snapshot_changes` (when ``.jj/`` is found in or
+    above ``cwd``) or a plain-git ``git add -A && git commit`` path
+    (otherwise). Either way, the working copy ends up clean and the
+    returned :class:`SnapshotResult` describes whether anything was
+    committed.
+
+    The detection is intentionally one-place — earlier revisions wired
+    ``jj diff --stat`` directly into the fly workflow, which crashed on
+    plain-git user repos. New maverick-managed repos are typically jj-
+    colocated; the sample-maverick-project fixture and many fresh
+    setups are not.
+
+    Args:
+        message: Commit description for the snapshot.
+        cwd: Working directory. Defaults to ``Path.cwd()``.
+
+    Returns:
+        :class:`SnapshotResult`. ``committed=False`` when the working
+        copy was already clean.
+    """
+    from maverick.library.actions.git_models import SnapshotResult
+    from maverick.runners.command import CommandRunner
+
+    target = Path(cwd) if cwd is not None else Path.cwd()
+    target = target.resolve()
+
+    if _is_jj_repo(target):
+        return await jj_snapshot_changes(message=message, cwd=target)
+
+    # Plain-git path: status check + git add -A && git commit.
+    runner = CommandRunner(cwd=target)
+    try:
+        status = await runner.run(["git", "status", "--porcelain"], cwd=target)
+    except OSError as exc:
+        return SnapshotResult(
+            success=False,
+            committed=False,
+            error=f"git status failed: {exc}",
+        )
+
+    if not status.success:
+        return SnapshotResult(
+            success=False,
+            committed=False,
+            error=f"git status failed: {status.stderr.strip() or 'non-zero exit'}",
+        )
+
+    if not status.stdout.strip():
+        return SnapshotResult(success=True, committed=False)
+
+    try:
+        add = await runner.run(["git", "add", "-A"], cwd=target)
+        if not add.success:
+            return SnapshotResult(
+                success=False,
+                committed=False,
+                error=f"git add failed: {add.stderr.strip() or 'non-zero exit'}",
+            )
+        commit = await runner.run(
+            ["git", "commit", "-m", message],
+            cwd=target,
+        )
+    except OSError as exc:
+        return SnapshotResult(
+            success=False,
+            committed=False,
+            error=f"git commit failed: {exc}",
+        )
+
+    if not commit.success:
+        return SnapshotResult(
+            success=False,
+            committed=False,
+            error=f"git commit failed: {commit.stderr.strip() or 'non-zero exit'}",
+        )
+
+    # Resolve the new HEAD sha for parity with jj_snapshot_changes (which
+    # returns a change-id).
+    sha: str | None = None
+    try:
+        rev = await runner.run(["git", "rev-parse", "HEAD"], cwd=target)
+        if rev.success:
+            sha = rev.stdout.strip() or None
+    except OSError:
+        pass
+
+    return SnapshotResult(
+        success=True,
+        committed=True,
+        commit_sha=sha,
+    )
+
+
 # =============================================================================
 # History curation (post-loop)
 # =============================================================================

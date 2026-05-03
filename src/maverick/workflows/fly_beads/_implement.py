@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 
 from maverick.library.actions.jj import jj_describe, jj_snapshot_operation
 from maverick.logging import get_logger
+from maverick.workflows.fly_beads._commit import build_bead_commit_message
 from maverick.workflows.fly_beads.models import BeadContext
 
 if TYPE_CHECKING:
@@ -33,7 +34,7 @@ async def snapshot_and_describe(wf: FlyBeadsWorkflow, ctx: BeadContext) -> None:
 
     try:
         await jj_describe(
-            message=f"bead({ctx.bead_id}): {ctx.title}",
+            message=build_bead_commit_message(ctx.bead_id, ctx.title),
             cwd=ctx.cwd,
         )
     except Exception as exc:

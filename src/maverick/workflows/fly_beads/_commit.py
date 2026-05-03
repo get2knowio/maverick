@@ -23,11 +23,23 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 
+def build_bead_commit_message(bead_id: str, title: str) -> str:
+    """Render a fly bead commit message with a stable ``Bead:`` trailer.
+
+    The trailer is a standard git trailer (blank line then
+    ``Bead: <id>``) so downstream tooling — curators, the future
+    env-aware ready check, ``git interpret-trailers`` — can recover the
+    bead the commit closes without re-parsing the ``bead(<id>):``
+    subject prefix. The prefix is kept; the trailer is additive.
+    """
+    return f"bead({bead_id}): {title}\n\nBead: {bead_id}"
+
+
 async def commit_bead(wf: FlyBeadsWorkflow, ctx: BeadContext) -> None:
     """Commit the bead and mark it complete."""
     await wf.emit_step_started(COMMIT)
     commit_result = await jj_commit_bead(
-        message=f"bead({ctx.bead_id}): {ctx.title}",
+        message=build_bead_commit_message(ctx.bead_id, ctx.title),
         cwd=ctx.cwd,
     )
     await wf.emit_step_completed(COMMIT, commit_result)
