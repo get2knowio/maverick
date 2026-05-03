@@ -148,6 +148,52 @@ async def test_committer_reports_error(pool_address: str) -> None:
 
 
 @pytest.mark.asyncio
+async def test_committer_does_not_mark_complete_when_commit_fails(
+    pool_address: str,
+) -> None:
+    """Regression: a failed commit must NOT close the bead in bd.
+
+    The 2026-05-03 cross-provider e2e on sample-maverick-project hit
+    this: ``CommitterActor.commit`` called ``mark_bead_complete``
+    unconditionally after the underlying commit, so a plain-git
+    "Commit failed" still silently closed the bead. The next fly
+    couldn't re-process it and the only indication of trouble was a
+    log line. Now: ``mark_bead_complete`` runs only when
+    ``commit_bead_changes`` reports ``success=True``.
+    """
+    ref = await xo.create_actor(
+        CommitterActor, address=pool_address, uid="committer-no-close-on-fail"
+    )
+    mark_complete = AsyncMock(return_value=None)
+    try:
+        with (
+            patch(
+                "maverick.library.actions.jj.commit_bead_changes",
+                new=AsyncMock(
+                    return_value={
+                        "success": False,
+                        "message": "irrelevant",
+                        "change_id": None,
+                        "error": "git commit failed: nothing to commit",
+                    }
+                ),
+            ),
+            patch(
+                "maverick.library.actions.beads.mark_bead_complete",
+                new=mark_complete,
+            ),
+        ):
+            result = await ref.commit(
+                CommitRequest(bead_id="bead-X", title="t", cwd="/tmp", tag=None)
+            )
+        assert result.success is False
+        assert "nothing to commit" in result.error
+        mark_complete.assert_not_awaited()
+    finally:
+        await xo.destroy_actor(ref)
+
+
+@pytest.mark.asyncio
 async def test_committer_includes_bead_trailer(pool_address: str) -> None:
     """Regression: the per-bead commit message must carry the
     ``Bead: <id>`` git trailer (see ``build_bead_commit_message``

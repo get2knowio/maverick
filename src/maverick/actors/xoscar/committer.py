@@ -44,13 +44,39 @@ class CommitterActor(xo.Actor):
 
         try:
             commit = await commit_bead_changes(message=commit_message, cwd=request.cwd)
-            await mark_bead_complete(bead_id=request.bead_id, cwd=request.cwd)
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("committer.commit_call_error", error=str(exc))
+            return CommitResult(success=False, tag=request.tag, error=str(exc))
+
+        commit_ok = bool(commit.get("success", False))
+        if not commit_ok:
+            # Don't close the bead when the commit didn't land. Earlier
+            # revisions called ``mark_bead_complete`` unconditionally,
+            # which silently closed beads whose work never got
+            # persisted — the next fly couldn't re-process them, and
+            # the only signal of trouble was the supervisor's "Commit
+            # failed for X:" log line.
             return CommitResult(
-                success=bool(commit.get("success", False)),
+                success=False,
                 commit_sha=commit.get("change_id"),
                 tag=request.tag,
                 error=str(commit.get("error") or ""),
             )
+
+        try:
+            await mark_bead_complete(bead_id=request.bead_id, cwd=request.cwd)
         except Exception as exc:  # noqa: BLE001
-            logger.debug("committer.error", error=str(exc))
-            return CommitResult(success=False, tag=request.tag, error=str(exc))
+            logger.debug("committer.mark_complete_error", error=str(exc))
+            return CommitResult(
+                success=False,
+                commit_sha=commit.get("change_id"),
+                tag=request.tag,
+                error=f"mark_bead_complete failed: {exc}",
+            )
+
+        return CommitResult(
+            success=True,
+            commit_sha=commit.get("change_id"),
+            tag=request.tag,
+            error="",
+        )
