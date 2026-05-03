@@ -42,7 +42,10 @@ from maverick.actors.xoscar.messages import (
     ReviewRequest,
     SpecRequest,
 )
-from maverick.actors.xoscar.reviewer import ReviewerActor
+from maverick.actors.xoscar.reviewer import (
+    REVIEW_PROMPT_TIMEOUT_SECONDS,
+    ReviewerActor,
+)
 from maverick.actors.xoscar.spec_check import SpecCheckActor
 from maverick.events import ProgressEvent, StepOutput
 from maverick.logging import get_logger
@@ -862,6 +865,51 @@ class FlySupervisor(xo.Actor):
                 return False
         return False
 
+    async def _bounded_send_review(
+        self,
+        rev: xo.ActorRef,
+        request: ReviewRequest,
+        *,
+        label: str,
+    ) -> None:
+        """Dispatch one reviewer with a wallclock backstop.
+
+        The reviewer's own ``_send_structured`` already passes
+        ``REVIEW_PROMPT_TIMEOUT_SECONDS`` (10 min) as the per-call httpx
+        budget. That budget *should* be the only timeout we need —
+        but when opencode's HTTP layer stops streaming mid-loop without
+        actually closing the connection (the 2026-05-03 sample-project
+        symptom: LLM stream events go silent, server keeps accepting
+        POSTs, httpx never times out), the inner budget never fires and
+        the actor RPC hangs. We add 60s of slack so the inner timeout
+        still gets first crack at the call; if we hit this outer one,
+        opencode is genuinely stuck and we treat it as a transient
+        review failure so the surrounding loop can escalate.
+
+        On timeout: record a transient :class:`PromptError` (when the
+        actor hadn't already reported one) so
+        :meth:`_review_with_transient_escalation` walks one tier up
+        instead of giving up.
+        """
+        try:
+            await xo.wait_for(
+                rev.send_review(request),
+                timeout=REVIEW_PROMPT_TIMEOUT_SECONDS + 60,
+            )
+        except TimeoutError:
+            if self._last_review_prompt_error is None:
+                self._last_review_prompt_error = PromptError(
+                    phase="review",
+                    error=(
+                        f"{label} reviewer RPC exceeded "
+                        f"{REVIEW_PROMPT_TIMEOUT_SECONDS + 60}s wallclock "
+                        f"backstop (opencode session likely stuck mid "
+                        f"tool-calling loop)"
+                    ),
+                    transient=True,
+                    unit_id=request.bead_id,
+                )
+
     async def _review_with_transient_escalation(
         self,
         *,
@@ -896,9 +944,21 @@ class FlySupervisor(xo.Actor):
             # Fan out to both reviewer kinds in parallel. xoscar handles
             # the dispatch as two independent actor messages on the same
             # pool; ``asyncio.gather`` waits for both.
+            #
+            # Each ``send_review`` is bounded with ``xo.wait_for`` rather
+            # than relying solely on the inner ``_send_structured``
+            # timeout — the 2026-05-03 e2e on sample-maverick-project hit
+            # a case where opencode's github-copilot session went silent
+            # mid tool-calling loop (LLM stream events stopped at step 18,
+            # POST endpoint kept accepting requests but no further
+            # dispatches happened) and the inner httpx timeout never
+            # fired. Without a backstop, the actor RPC hung forever and
+            # the gather sat with one reviewer returned and one stuck.
+            # The backstop window is the inner LLM budget plus 60s of
+            # slack so the inner timeout still has first crack.
             await asyncio.gather(
-                correctness_rev.send_review(request),
-                completeness_rev.send_review(request),
+                self._bounded_send_review(correctness_rev, request, label="correctness"),
+                self._bounded_send_review(completeness_rev, request, label="completeness"),
             )
 
             # Both kinds delivered a payload? Merge and return.
@@ -1619,6 +1679,23 @@ class FlySupervisor(xo.Actor):
     @xo.no_lock
     async def t_peek_implementers(self) -> dict[str, Any]:
         return dict(self._implementers)
+
+    @xo.no_lock
+    async def t_get_last_review_prompt_error(self) -> PromptError | None:
+        return self._last_review_prompt_error
+
+    @xo.no_lock
+    async def t_bounded_send_review(
+        self,
+        rev: xo.ActorRef,
+        request: ReviewRequest,
+        *,
+        label: str,
+    ) -> None:
+        """Test-only public-facing wrapper around
+        :meth:`_bounded_send_review` (xoscar refs don't expose
+        underscore-prefixed methods)."""
+        await self._bounded_send_review(rev, request, label=label)
 
     @xo.no_lock
     async def t_resolve_tier(self, complexity: str | None, escalation_level: int) -> str:
