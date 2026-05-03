@@ -586,7 +586,14 @@ class InitConfig(BaseModel):
     )
     github: InitGitHubConfig = Field(default_factory=InitGitHubConfig)
     validation: InitValidationConfig = Field(default_factory=InitValidationConfig)
-    model: InitModelConfig = Field(default_factory=InitModelConfig)
+    model: InitModelConfig | None = Field(
+        default=None,
+        description=(
+            "Legacy global default model. Superseded by provider_tiers; "
+            "init no longer writes it. Field retained so older yaml that "
+            "still has the block parses cleanly."
+        ),
+    )
     notifications: dict[str, Any] = Field(default_factory=lambda: {"enabled": False})
     parallel: dict[str, int] = Field(
         default_factory=lambda: {

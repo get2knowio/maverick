@@ -1082,7 +1082,10 @@ class TestInitConfig:
         config = InitConfig()
         assert isinstance(config.github, InitGitHubConfig)
         assert isinstance(config.validation, InitValidationConfig)
-        assert isinstance(config.model, InitModelConfig)
+        # The legacy model.* block defaults to None — provider_tiers
+        # supersedes it. The field still exists so older yaml that
+        # carries it parses without error.
+        assert config.model is None
         assert config.notifications == {"enabled": False}
         assert config.parallel == {
             "max_agents": 3,
@@ -1117,7 +1120,9 @@ class TestInitConfig:
 
         assert "github" in output
         assert "validation" in output
-        assert "model" in output
+        # `model` is present in the dump (with value None); to_yaml's
+        # exclude_none=True is what drops it from the YAML output.
+        assert output["model"] is None
         assert "notifications" in output
         assert "parallel" in output
         assert "verbosity" in output

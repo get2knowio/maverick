@@ -30,7 +30,6 @@ from maverick.init.models import (
     GitRemoteInfo,
     InitConfig,
     InitGitHubConfig,
-    InitModelConfig,
     InitValidationConfig,
     ProjectDetectionResult,
     ProjectType,
@@ -64,7 +63,6 @@ def generate_config(
     git_info: GitRemoteInfo,
     detection: ProjectDetectionResult | None,
     project_type: ProjectType | None = None,
-    model_id: str | None = None,
     provider_discovery: OpenCodeDiscoveryResult | None = None,
 ) -> InitConfig:
     """Generate :class:`InitConfig` from detection + git + provider discovery.
@@ -75,16 +73,16 @@ def generate_config(
             was skipped (e.g. explicit ``project_type`` override).
         project_type: Explicit project type override; takes precedence
             over ``detection.primary_type``.
-        model_id: Optional global default model id to embed at
-            ``model.model_id``. Most projects leave this unset because
-            tier cascades drive routing.
         provider_discovery: Result of querying OpenCode's
             ``/provider`` endpoint. When present, populates the
             ``agent_providers`` block with the connected providers and
             flags the highest-preference one as ``default: true``.
 
     Returns:
-        Complete :class:`InitConfig` ready for serialization.
+        Complete :class:`InitConfig` ready for serialization. The
+        ``model`` block is omitted (``None``) — provider tier cascades
+        drive routing now; the legacy ``model.model_id`` field would
+        break doctor when set to short aliases like ``sonnet``.
     """
     # Determine effective project type
     if project_type is not None:
@@ -114,8 +112,6 @@ def generate_config(
         test_cmd=list(validation_commands.test_cmd) if validation_commands.test_cmd else None,
     )
 
-    model_config = InitModelConfig(model_id=model_id) if model_id else InitModelConfig()
-
     # agent_providers from /provider connected list. The first entry in
     # preference order (per OpenCodeDiscoveryResult sort) becomes the
     # default. When discovery failed (None) the block stays empty —
@@ -132,7 +128,7 @@ def generate_config(
         project_type=effective_type.value,
         github=github_config,
         validation=validation_config,
-        model=model_config,
+        model=None,
         agent_providers=agent_providers,
         provider_tiers={"tiers": _provider_tiers_block()},
     )

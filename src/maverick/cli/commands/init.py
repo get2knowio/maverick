@@ -29,7 +29,6 @@ from maverick.init import (
     OpenCodeDiscoveryResult,
     PreflightStatus,
     ProjectType,
-    resolve_model_id,
     run_init,
 )
 
@@ -200,13 +199,6 @@ PROJECT_TYPE_CHOICES = [
     help="Override project type detection.",
 )
 @click.option(
-    "--model",
-    "model_name",
-    type=str,
-    default=None,
-    help="Optional global default model id (alias or full ID).",
-)
-@click.option(
     "--force",
     is_flag=True,
     default=False,
@@ -224,7 +216,6 @@ PROJECT_TYPE_CHOICES = [
 async def init(
     ctx: click.Context,
     project_type: str | None,
-    model_name: str | None,
     force: bool,
     verbose: bool,
 ) -> None:
@@ -249,14 +240,6 @@ async def init(
     if project_type:
         type_override = ProjectType.from_string(project_type)
 
-    model_id: str | None = None
-    if model_name:
-        try:
-            model_id = resolve_model_id(model_name)
-        except ValueError as e:
-            err_console.print(f"[red]Error:[/red] {e}")
-            raise SystemExit(ExitCode.FAILURE) from None
-
     with cli_error_handler():
         try:
             result = await run_init(
@@ -264,7 +247,6 @@ async def init(
                 type_override=type_override,
                 force=force,
                 verbose=verbose,
-                model_id=model_id,
             )
 
             lines: list[str] = []
