@@ -13,13 +13,11 @@ from maverick.library.actions.git_models import GitStatusResult
 from maverick.library.actions.jj import jj_snapshot_changes
 from maverick.library.actions.preflight import run_preflight_checks
 from maverick.library.actions.validation import run_independent_gate
-from maverick.library.actions.workspace import create_fly_workspace
 from maverick.logging import get_logger
 from maverick.runners.provider_health import providers_for_fly
 from maverick.workflows.base import PythonWorkflow
 from maverick.workflows.fly_beads.constants import (
     BASELINE_GATE,
-    CREATE_WORKSPACE,
     MAX_BEADS,
     PREFLIGHT,
     SNAPSHOT_UNCOMMITTED,
@@ -154,16 +152,20 @@ class FlyBeadsWorkflow(PythonWorkflow):
         watch_interval: int = int(inputs.get("watch_interval", 30))
         skip_preflight: bool = bool(inputs.get("skip_preflight", False))
 
-        # Load checkpoint to get previously completed beads
+        # Load checkpoint to get previously completed beads.
         checkpoint = await self.load_checkpoint()
         completed_bead_ids: set[str] = set()
-        workspace_path: Path | None = None
 
         if checkpoint:
             completed_bead_ids = set(checkpoint.get("completed_bead_ids", []))
-            ws_path_str = checkpoint.get("workspace_path")
-            if ws_path_str:
-                workspace_path = Path(ws_path_str)
+
+        # Single-repo (CWD) workflow model: fly operates directly in the
+        # user's checkout. Earlier revisions cloned a hidden jj workspace
+        # under ``~/.maverick/workspaces/<project>/`` and threaded a
+        # ``workspace_path`` everywhere. That path is retired (see
+        # plans/cryptic-napping-waffle.md) — the canonical bug surface
+        # was that two on-disk copies of bd state drifted.
+        cwd = Path.cwd().resolve()
 
         # Per-run output directory for snapshots, logs, and context.
         # Try to find an existing run for the epic (created by refuel).
@@ -180,16 +182,16 @@ class FlyBeadsWorkflow(PythonWorkflow):
         run_id = ""
         run_dir: Path | None = None
         if epic_id:
-            run_meta = find_run_for_epic(epic_id)
+            run_meta = find_run_for_epic(epic_id, base=cwd)
             if run_meta:
                 run_id = run_meta.run_id
-                run_dir = Path.cwd() / ".maverick" / "runs" / run_id
+                run_dir = cwd / ".maverick" / "runs" / run_id
                 run_meta.status = "flying"
                 write_metadata(run_dir, run_meta)
 
         if not run_id:
             run_id = uuid.uuid4().hex[:8]
-            run_dir = Path.cwd() / ".maverick" / "runs" / run_id
+            run_dir = cwd / ".maverick" / "runs" / run_id
             run_dir.mkdir(parents=True, exist_ok=True)
             write_metadata(
                 run_dir,
@@ -290,40 +292,7 @@ class FlyBeadsWorkflow(PythonWorkflow):
         await self.emit_step_completed(SNAPSHOT_UNCOMMITTED, change_status)
 
         # ----------------------------------------------------------------
-        # Step 3: Create workspace
-        # ----------------------------------------------------------------
-        await self.emit_step_started(CREATE_WORKSPACE, display_label="Creating workspace")
-        try:
-            ws_result = await create_fly_workspace()
-        except Exception as exc:
-            await self.emit_step_failed(CREATE_WORKSPACE, str(exc))
-            raise
-
-        if not ws_result.get("success"):
-            error_msg = ws_result.get("error") or "workspace creation failed"
-            await self.emit_step_failed(CREATE_WORKSPACE, error_msg)
-            raise WorkflowError(
-                f"create_fly_workspace failed: {error_msg}",
-                workflow_name=WORKFLOW_NAME,
-            )
-
-        workspace_path = Path(ws_result["workspace_path"])
-        await self.emit_step_completed(CREATE_WORKSPACE, ws_result)
-
-        # Initialize runway in workspace so recording works
-        await _init_workspace_runway(workspace_path)
-
-        # NOTE: deliberately *not* registering a workspace-teardown
-        # rollback. Fly is part of the bridged fly→land flow — the
-        # workspace must survive past fly so ``maverick land`` can
-        # curate and push the completed-bead commits. Rolling back on
-        # cancellation (Ctrl-C) or mid-run failure used to ``rmtree``
-        # the workspace, throwing away every bead that had finalized
-        # cleanly. ``land`` is the canonical teardown path; users can
-        # also run ``maverick workspace clean`` for explicit cleanup.
-
-        # ----------------------------------------------------------------
-        # Step 3.5: Baseline validation gate
+        # Step 3: Baseline validation gate
         # ----------------------------------------------------------------
         # Fail fast if the codebase isn't green before any bead work starts.
         # Pre-existing test/lint failures waste agent budget on unrelated fixes.
@@ -336,7 +305,7 @@ class FlyBeadsWorkflow(PythonWorkflow):
             baseline_cmds = _build_validation_commands(self._config.validation)
             baseline_result = await run_independent_gate(
                 stages=["format", "lint", "typecheck", "test"],
-                cwd=str(workspace_path),
+                cwd=str(cwd),
                 validation_commands=baseline_cmds or None,
                 timeout_seconds=float(self._config.validation.timeout_seconds),
             )
@@ -371,7 +340,7 @@ class FlyBeadsWorkflow(PythonWorkflow):
         # ----------------------------------------------------------------
         xoscar_result = await self._run_fly_with_xoscar(
             epic_id=epic_id,
-            workspace_path=workspace_path,
+            cwd=cwd,
             watch=watch,
             watch_interval=watch_interval,
             max_beads=max_beads,
@@ -408,7 +377,7 @@ class FlyBeadsWorkflow(PythonWorkflow):
 
         result = FlyBeadsResult(
             epic_id=epic_id,
-            workspace_path=str(workspace_path) if workspace_path else None,
+            cwd=str(cwd),
             beads_processed=beads_processed,
             beads_succeeded=beads_succeeded,
             beads_failed=beads_failed,
@@ -421,7 +390,7 @@ class FlyBeadsWorkflow(PythonWorkflow):
         self,
         *,
         epic_id: str,
-        workspace_path: Path | None,
+        cwd: Path,
         watch: bool = False,
         watch_interval: int = 30,
         max_beads: int = MAX_BEADS,
@@ -434,7 +403,7 @@ class FlyBeadsWorkflow(PythonWorkflow):
         from maverick.actors.xoscar.pool import actor_pool
         from maverick.types import StepType
 
-        cwd = str(workspace_path) if workspace_path else str(Path.cwd())
+        cwd_str = str(cwd)
 
         impl_config = self.resolve_step_config(
             "implement",
@@ -504,7 +473,7 @@ class FlyBeadsWorkflow(PythonWorkflow):
         # When zero or multiple plans exist, fall back to "" and let the
         # supervisor degrade gracefully (no per-bead enrichment).
         flight_plan_name = ""
-        plans_root = Path(cwd) / ".maverick" / "plans"
+        plans_root = cwd / ".maverick" / "plans"
         if plans_root.is_dir():
             plan_dirs = [
                 p for p in plans_root.iterdir() if p.is_dir() and any(p.glob("[0-9]*.md"))
@@ -523,7 +492,7 @@ class FlyBeadsWorkflow(PythonWorkflow):
                 )
 
         supervisor_inputs = FlyInputs(
-            cwd=cwd,
+            cwd=cwd_str,
             epic_id=epic_id,
             config=impl_config,
             reviewer_config=review_config,
@@ -548,7 +517,7 @@ class FlyBeadsWorkflow(PythonWorkflow):
 
         async with actor_pool(
             provider_tiers=tiers_from_config(self._config),
-            cost_sink=_cost_sink_for_workspace(workspace_path),
+            cost_sink=_cost_sink_for_cwd(cwd),
         ) as (_pool, address):
             supervisor = await xo.create_actor(
                 FlySupervisor,
@@ -632,49 +601,20 @@ class FlyBeadsWorkflow(PythonWorkflow):
         return result
 
 
-def _cost_sink_for_workspace(workspace_path: Path | None) -> Any:
-    """Return a :class:`CostSink` appender for the workspace's runway store.
+def _cost_sink_for_cwd(cwd: Path) -> Any:
+    """Return a :class:`CostSink` appender for the user repo's runway store.
 
-    Returns ``None`` when no workspace is in play (callers fall back to
-    structured-log only). The sink closes over the :class:`RunwayStore`
-    so the actor mixin can fire-and-forget without touching workflow
-    state.
+    Returns ``None`` when the runway store under ``<cwd>/.maverick/runway/``
+    isn't initialized — callers fall back to structured-log-only telemetry.
+    Run ``maverick runway init`` to enable persistent cost recording.
+
+    The sink closes over the :class:`RunwayStore` so the actor mixin can
+    fire-and-forget without touching workflow state.
     """
-    if workspace_path is None:
-        return None
     from maverick.runway.store import RunwayStore, make_cost_sink
 
-    runway_path = workspace_path / ".maverick" / "runway"
+    runway_path = cwd / ".maverick" / "runway"
     store = RunwayStore(runway_path)
     if not store.is_initialized:
         return None
     return make_cost_sink(store)
-
-
-async def _init_workspace_runway(workspace_path: Path) -> None:
-    """Initialize runway store in the workspace (best-effort).
-
-    The workspace is a fresh jj clone without ``.maverick/runway/``.
-    Without initialization, all runway recording during fly silently
-    fails because ``_get_store()`` returns None.
-
-    Args:
-        workspace_path: Path to the hidden workspace directory.
-    """
-    from maverick.runway.store import RunwayStore
-
-    try:
-        runway_path = workspace_path / ".maverick" / "runway"
-        store = RunwayStore(runway_path)
-        if not store.is_initialized:
-            await store.initialize()
-            logger.info(
-                "workspace_runway_initialized",
-                path=str(runway_path),
-            )
-    except Exception as exc:
-        # Best-effort — don't block fly if runway init fails
-        logger.warning(
-            "workspace_runway_init_failed",
-            error=str(exc),
-        )

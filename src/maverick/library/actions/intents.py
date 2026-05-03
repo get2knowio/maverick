@@ -16,9 +16,6 @@ ACTION_INTENTS: dict[str, str] = {
         "Verify all prerequisites (API keys, tools, repository state) "
         "are available before workflow execution."
     ),
-    # Workspace
-    "init_workspace": ("Initialize the development workspace for the current project."),
-    "create_fly_workspace": ("Create an isolated jj workspace clone for fly workflow execution."),
     # Dependencies
     "sync_dependencies": (
         "Synchronize project dependencies by running the configured install command."

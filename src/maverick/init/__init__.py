@@ -583,9 +583,7 @@ async def _untrack_bd_local_state(project_path: Path, verbose: bool) -> bool:
                 cwd=project_path,
             )
         except OSError as exc:
-            logger.debug(
-                "bd_local_state_check_failed", target=target, error=str(exc)
-            )
+            logger.debug("bd_local_state_check_failed", target=target, error=str(exc))
             success = False
             continue
 
@@ -598,9 +596,7 @@ async def _untrack_bd_local_state(project_path: Path, verbose: bool) -> bool:
                 cwd=project_path,
             )
         except OSError as exc:
-            logger.debug(
-                "bd_local_state_untrack_failed", target=target, error=str(exc)
-            )
+            logger.debug("bd_local_state_untrack_failed", target=target, error=str(exc))
             success = False
             continue
 

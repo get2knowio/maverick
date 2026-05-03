@@ -401,12 +401,8 @@ async def test_untrack_bd_local_state_noop_when_nothing_tracked(
     import subprocess
 
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
-    subprocess.run(
-        ["git", "config", "user.email", "t@t"], cwd=tmp_path, check=True
-    )
-    subprocess.run(
-        ["git", "config", "user.name", "t"], cwd=tmp_path, check=True
-    )
+    subprocess.run(["git", "config", "user.email", "t@t"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.name", "t"], cwd=tmp_path, check=True)
     backup = tmp_path / ".beads" / "backup"
     backup.mkdir(parents=True)
     (backup / "issues.jsonl").write_text("{}\n", encoding="utf-8")
@@ -438,22 +434,14 @@ async def test_untrack_bd_local_state_removes_tracked_backup(
     import subprocess
 
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
-    subprocess.run(
-        ["git", "config", "user.email", "t@t"], cwd=tmp_path, check=True
-    )
-    subprocess.run(
-        ["git", "config", "user.name", "t"], cwd=tmp_path, check=True
-    )
+    subprocess.run(["git", "config", "user.email", "t@t"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.name", "t"], cwd=tmp_path, check=True)
     backup = tmp_path / ".beads" / "backup"
     backup.mkdir(parents=True)
     (backup / "issues.jsonl").write_text('{"id":"x"}\n', encoding="utf-8")
     (backup / "config.jsonl").write_text("{}\n", encoding="utf-8")
-    subprocess.run(
-        ["git", "add", "-f", ".beads/backup"], cwd=tmp_path, check=True
-    )
-    subprocess.run(
-        ["git", "commit", "-q", "-m", "init"], cwd=tmp_path, check=True
-    )
+    subprocess.run(["git", "add", "-f", ".beads/backup"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "init"], cwd=tmp_path, check=True)
 
     result = await _untrack_bd_local_state(tmp_path, verbose=False)
 

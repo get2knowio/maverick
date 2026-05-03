@@ -24,7 +24,6 @@ from maverick.cli.workflow_executor import (
 from maverick.workflows.fly_beads import FlyBeadsWorkflow
 from maverick.workflows.fly_beads.constants import (
     COMMIT,
-    CREATE_WORKSPACE,
     GATE_CHECK,
     GATE_REMEDIATION,
     IMPLEMENT_AND_VALIDATE,
@@ -48,10 +47,9 @@ async def _graceful_sigint() -> AsyncIterator[None]:
       exits cleanly after the current bead. Print a hint that a second
       Ctrl-C will bail immediately.
     * **Second Ctrl-C**: cancel the awaiting task so ``CancelledError``
-      propagates and tears the run down. The workspace survives because
-      fly no longer registers a teardown rollback (see
-      ``workflows/fly_beads/workflow.py``), so completed beads remain
-      available for ``maverick land``.
+      propagates and tears the run down. Completed bead commits stay in
+      the user repo's working state — they're real local jj/git commits
+      that ``maverick land`` (or a manual ``git push``) can pick up.
 
     Falls back to a no-op on platforms without
     ``loop.add_signal_handler`` support (Windows).
@@ -95,7 +93,6 @@ async def _graceful_sigint() -> AsyncIterator[None]:
 _FLY_BEADS_STEPS = [
     PREFLIGHT,
     SNAPSHOT_UNCOMMITTED,
-    CREATE_WORKSPACE,
     SELECT_BEAD,
     IMPLEMENT_AND_VALIDATE,
     GATE_CHECK,

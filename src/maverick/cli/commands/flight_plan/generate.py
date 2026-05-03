@@ -75,7 +75,6 @@ async def generate(
         execute_python_workflow,
     )
     from maverick.workflows.generate_flight_plan import GenerateFlightPlanWorkflow
-    from maverick.workspace.manager import WorkspaceManager
 
     # Validate kebab-case name.
     if not KEBAB_CASE_RE.match(name):
@@ -103,40 +102,15 @@ async def generate(
         console.print("[red]Error:[/red] PRD content is empty.")
         raise SystemExit(ExitCode.FAILURE)
 
-    # Architecture A: plan generation operates inside the workspace.
-    # Find or create the workspace before resolving plan paths so
-    # existence checks and writes target the workspace, not the user repo.
-    # Graceful fallback: if the user's directory isn't a real git repo
-    # (e.g. tests, quick prototyping), operate against user cwd instead
-    # of failing — the workspace bridge isn't load-bearing for input
-    # validation.
-    from maverick.workspace.errors import WorkspaceError
+    # Single-repo (CWD) workflow model: plan generation writes directly
+    # into the user's checkout under ``.maverick/plans/<name>/``. The
+    # user commits when they're ready. Earlier revisions ran inside a
+    # hidden jj workspace and finalized via WorkspaceManager — that
+    # path is retired (see plans/cryptic-napping-waffle.md).
+    cwd = Path.cwd().resolve()
 
-    user_repo = Path.cwd().resolve()
-    ws_manager = WorkspaceManager(user_repo_path=user_repo)
-    workspace_path: Path | None = None
-    workflow_cwd: str | None = None
-    try:
-        workspace_ctx = await ws_manager.find_or_create()
-        workspace_path = workspace_ctx.path
-        workflow_cwd = str(workspace_ctx.path)
-    except WorkspaceError as exc:
-        # Workspace creation failed (typically: user dir is not a git
-        # repo). Fall back to user cwd for path resolution; the workflow
-        # will run in user cwd.
-        from maverick.logging import get_logger
-
-        get_logger(__name__).debug(
-            "plan_generate_workspace_unavailable",
-            error=str(exc),
-            user_repo=str(user_repo),
-        )
-        workspace_path = user_repo
-
-    # Resolve output_dir relative to the workspace (or user repo if
-    # fallback). Absolute paths are honored as-is.
     plans_input = Path(output_dir)
-    plans_path = plans_input if plans_input.is_absolute() else workspace_path / plans_input
+    plans_path = plans_input if plans_input.is_absolute() else cwd / plans_input
 
     # Guard: --plans-dir must not point to an existing regular file.
     if plans_path.exists() and not plans_path.is_dir():
@@ -157,15 +131,13 @@ async def generate(
         )
         raise SystemExit(ExitCode.FAILURE)
 
-    # Execute the workflow with absolute paths inside the workspace.
     workflow_inputs: dict[str, object] = {
         "prd_content": prd_content,
         "name": name,
         "output_dir": str(plans_path),
         "skip_briefing": skip_briefing,
+        "cwd": str(cwd),
     }
-    if workflow_cwd is not None:
-        workflow_inputs["cwd"] = workflow_cwd
 
     await execute_python_workflow(
         ctx,
@@ -175,14 +147,3 @@ async def generate(
             session_log_path=session_log,
         ),
     )
-
-    # Hermetic command exit ramp: commit the plan in the workspace,
-    # push it to the user repo, merge into the current branch, and tear
-    # the workspace down. Skipped when we fell back to operating in the
-    # user cwd (no workspace was created).
-    if workflow_cwd is not None:
-        await ws_manager.finalize(message=f"chore: add flight plan for {name}")
-        from maverick.cli.common import resolve_publish_branch_label
-
-        branch_label = await resolve_publish_branch_label(user_repo)
-        console.print(f"[green]✓[/] Plan published to user repo (branch: {branch_label})")

@@ -84,7 +84,7 @@ class TestFlyBeadsWorkflowXoscarConfig:
         ):
             await workflow._run_fly_with_xoscar(
                 epic_id="",
-                workspace_path=tmp_path,
+                cwd=tmp_path,
             )
 
         inputs = captured_inputs.get("value")
@@ -178,7 +178,7 @@ class TestFlyBeadsWorkflowXoscarConfig:
         ):
             await workflow._run_fly_with_xoscar(
                 epic_id="",
-                workspace_path=tmp_path,
+                cwd=tmp_path,
             )
 
         inputs = captured_inputs["value"]

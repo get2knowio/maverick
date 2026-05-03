@@ -1,11 +1,26 @@
 """``maverick land`` command.
 
-Curate commit history and apply to local repo after ``maverick fly`` finishes.
+Curate the commit history written by ``maverick fly``.
 
-Three modes:
-  - **Approve** (default):  curate → merge into local repo → teardown workspace.
-  - **Eject** (``--eject``):  curate → create local preview branch → keep workspace.
-  - **Finalize** (``--finalize``):  merge preview branch → teardown.
+Single-repo (CWD) workflow model: fly commits land directly on the user's
+current branch, so land just curates that history in place. Earlier
+revisions bridged a hidden jj workspace into the user repo via
+``WorkspaceManager`` — that path is retired (see
+plans/cryptic-napping-waffle.md).
+
+Three modes (kept for compatibility, all curate the same way; differ
+only in the post-curation hint):
+
+* ``--approve`` (default): curate, leave the user to push/PR manually.
+* ``--eject``: curate, then print push/PR instructions for an
+  ``maverick/preview/<project>`` branch.
+* ``--finalize``: curate, then print push/PR instructions for an
+  ``maverick/<project>`` branch.
+
+PR opening + remote pushing is intentionally not automated in this
+slice. The full architecture (see
+``.claude/scratchpads/architecture-pull-work-push.md``) re-introduces
+those automations once the underlying state machine lands.
 """
 
 from __future__ import annotations
@@ -30,7 +45,7 @@ logger = get_logger(__name__)
     "--no-curate",
     is_flag=True,
     default=False,
-    help="Skip curation, just merge.",
+    help="Skip curation, just emit the next-step hint.",
 )
 @click.option(
     "--dry-run",
@@ -61,13 +76,13 @@ logger = get_logger(__name__)
     "--eject",
     is_flag=True,
     default=False,
-    help="Skip approval; create a local preview branch and keep workspace.",
+    help="Curate and emit push/PR instructions for an eject preview branch.",
 )
 @click.option(
     "--finalize",
     is_flag=True,
     default=False,
-    help="Finalize after eject: merge preview branch, cleanup workspace.",
+    help="Curate and emit push/PR instructions for the maverick branch.",
 )
 @click.option(
     "--no-consolidate",
@@ -78,7 +93,7 @@ logger = get_logger(__name__)
 @click.option(
     "--branch",
     default=None,
-    help="Branch name for the local bookmark (default: maverick/<project>).",
+    help="Branch label suggested in the next-step hint.",
 )
 @click.pass_context
 @async_command
@@ -94,17 +109,7 @@ async def land(
     no_consolidate: bool,
     branch: str | None,
 ) -> None:
-    """Curate commit history and apply to local repo.
-
-    Finalizes work from 'maverick fly' by reorganizing commits into
-    clean history and merging them into your local repo.
-
-    Three modes of operation:
-
-    \b
-      maverick land             # curate → merge into local repo → cleanup
-      maverick land --eject     # curate → create local preview branch
-      maverick land --finalize  # merge preview branch → cleanup
+    """Curate commit history written by ``maverick fly``.
 
     Examples:
 
@@ -117,24 +122,13 @@ async def land(
         maverick land --finalize
         maverick land --yes
     """
-    if finalize:
-        await _finalize(base=base, branch=branch, no_consolidate=no_consolidate)
-        return
-
     from maverick.library.actions.jj import (
         curate_history,
         gather_curation_context,
     )
-    from maverick.workspace.manager import WorkspaceManager
 
-    user_repo = Path.cwd().resolve()
-    project_name = user_repo.name
-    manager = WorkspaceManager(user_repo_path=user_repo)
-    ws_path = manager.workspace_path
-    cwd: Path | None = ws_path if manager.exists else None
-
-    if not manager.exists:
-        console.print(format_warning("No workspace found. Operating in current directory."))
+    cwd = Path.cwd().resolve()
+    project_name = cwd.name
 
     # ── 1. Check there are commits to land ──────────────────────────
     curation_ctx = await gather_curation_context(base, cwd=cwd)
@@ -154,7 +148,7 @@ async def land(
     console.print(f"Found {len(commits)} commit(s) above [bold]{base}[/bold].")
 
     # ── 1b. Display human review manifest if present ─────────────
-    _display_human_review_manifest(cwd or user_repo)
+    _display_human_review_manifest(cwd)
 
     # ── 2. Curation ────────────────────────────────────────────────
     if no_curate:
@@ -174,7 +168,6 @@ async def land(
             )
             raise SystemExit(ExitCode.FAILURE)
     else:
-        # Agent-driven curation
         await _agent_curate(
             curation_ctx=curation_ctx,
             base=base,
@@ -184,210 +177,31 @@ async def land(
         )
 
     if dry_run:
-        console.print("Dry run — skipping merge.")
+        console.print("Dry run — skipping next-step hint.")
         return
 
-    # ── 3. Push via jj or git ──────────────────────────────────────
+    # ── 3. Runway consolidation (best-effort) ─────────────────────
+    await _maybe_consolidate(cwd, no_consolidate)
+
+    # ── 4. Mode-specific next-step hint ───────────────────────────
+    console.print(format_success(f"Curated {len(commits)} commit(s) on the current branch."))
     if eject:
-        await _eject(
-            manager=manager,
-            project_name=project_name,
-            base=base,
-            commits=commits,
-            branch=branch,
-            cwd=cwd,
-            user_repo=user_repo,
+        preview = branch or f"maverick/preview/{project_name}"
+        console.print()
+        console.print(
+            f"Eject hint: push to a preview branch with "
+            f"[bold]git push origin HEAD:{preview}[/bold]."
+        )
+    elif finalize:
+        target = branch or f"maverick/{project_name}"
+        console.print()
+        console.print(
+            f"Finalize hint: push to [bold]{target}[/bold] and "
+            f"open a PR with [bold]gh pr create[/bold]."
         )
     else:
-        await _approve(
-            manager=manager,
-            project_name=project_name,
-            base=base,
-            commits=commits,
-            branch=branch,
-            yes=yes,
-            cwd=cwd,
-            user_repo=user_repo,
-            no_consolidate=no_consolidate,
-        )
-
-
-# =====================================================================
-# Approve path
-# =====================================================================
-
-
-async def _approve(
-    manager: Any,
-    project_name: str,
-    base: str,
-    commits: list[Any],
-    branch: str | None,
-    yes: bool,
-    cwd: Path | None,
-    user_repo: Path | None = None,
-    no_consolidate: bool = False,
-) -> None:
-    """Approve: push workspace commits to user repo and merge locally."""
-    from maverick.jj.client import JjClient
-    from maverick.jj.errors import JjError
-
-    branch_name = branch or f"maverick/{project_name}"
-
-    if not yes:
-        console.print(f"\n  Proposed: {len(commits)} curated commit(s) to merge into local repo\n")
-        answer = console.input("  [A]pprove and merge  [E]ject to git branch  [C]ancel? ")
-        choice = answer.strip().lower()[:1]
-        if choice == "e":
-            await _eject(
-                manager=manager,
-                project_name=project_name,
-                base=base,
-                commits=commits,
-                branch=branch,
-                cwd=cwd,
-            )
-            return
-        if choice != "a":
-            console.print("Cancelled.")
-            raise SystemExit(ExitCode.SUCCESS)
-
-    if cwd is not None:
-        # Phase 1: jj push from workspace → user repo (creates local branch)
-        client = JjClient(cwd=cwd)
-        try:
-            await client.bookmark_set(branch_name, revision="@-")
-            await client.git_push(bookmark=branch_name)
-        except JjError as e:
-            err_console.print(format_error(f"Push to local repo failed: {e}"))
-            raise SystemExit(ExitCode.FAILURE) from e
-
-        # Phase 2: merge the branch into the user's current branch
-        ok, error = await manager.apply_to_user_repo(branch_name)
-        if not ok:
-            err_console.print(
-                format_error(
-                    f"Merge failed: {error}",
-                    suggestion=(
-                        f"The branch '{branch_name}' exists in your local repo. "
-                        "You can merge it manually with: "
-                        f"git merge {branch_name}"
-                    ),
-                )
-            )
-            raise SystemExit(ExitCode.FAILURE)
-
-        # Phase 3: clean up the temporary branch
-        await manager.cleanup_user_repo_branch(branch_name)
-    else:
-        # No workspace — nothing to merge
-        console.print("No workspace found — nothing to merge.")
-        return
-
-    console.print(format_success(f"Landed {len(commits)} commit(s) into local repo."))
-
-    # Consolidate runway (best-effort, after merge, before teardown).
-    # Runway data lives in the workspace (fly writes there), so pass
-    # workspace cwd.  Fall back to user_repo when there's no workspace.
-    repo_path_resolved = user_repo or Path.cwd().resolve()
-    consolidation_cwd = cwd or repo_path_resolved
-    await _maybe_consolidate(consolidation_cwd, no_consolidate, user_repo=repo_path_resolved)
-
-    # Teardown workspace
-    if manager.exists:
-        await manager.teardown()
-        console.print("Workspace cleaned up.")
-
-
-# =====================================================================
-# Eject path
-# =====================================================================
-
-
-async def _eject(
-    manager: Any,
-    project_name: str,
-    base: str,
-    commits: list[Any],
-    branch: str | None,
-    cwd: Path | None,
-    user_repo: Path | None = None,
-) -> None:
-    """Eject: push to a local preview branch and keep workspace."""
-    from maverick.workspace.models import WorkspaceState
-
-    preview_branch = branch or f"maverick/preview/{project_name}"
-
-    if cwd is not None:
-        from maverick.jj.client import JjClient
-        from maverick.jj.errors import JjError
-
-        client = JjClient(cwd=cwd)
-        try:
-            await client.bookmark_set(preview_branch, revision="@-")
-            # Push from workspace → user repo (creates local branch only)
-            await client.git_push(bookmark=preview_branch)
-        except JjError as e:
-            err_console.print(format_error(f"Eject push failed: {e}"))
-            raise SystemExit(ExitCode.FAILURE) from e
-
-        # Mark workspace as ejected (not deleted)
-        manager.set_state(WorkspaceState.EJECTED)
-    else:
-        console.print(format_warning("No workspace found — nothing to eject."))
-        return
-
-    console.print(format_success(f"Ejected to local branch: {preview_branch}"))
-    console.print(
-        f"Run [bold]maverick land --finalize --branch {preview_branch}[/bold] "
-        "when ready, or merge manually with [bold]git merge {preview_branch}[/bold]."
-    )
-
-
-# =====================================================================
-# Finalize path
-# =====================================================================
-
-
-async def _finalize(
-    base: str,
-    branch: str | None,
-    no_consolidate: bool = False,
-) -> None:
-    """Finalize after eject: merge preview branch into current branch, cleanup."""
-    from maverick.workspace.manager import WorkspaceManager
-
-    user_repo = Path.cwd().resolve()
-    project_name = user_repo.name
-    preview_branch = branch or f"maverick/preview/{project_name}"
-
-    manager = WorkspaceManager(user_repo_path=user_repo)
-
-    console.print(f"Finalizing from branch [bold]{preview_branch}[/bold]...")
-
-    # Merge preview branch into current branch
-    ok, error = await manager.apply_to_user_repo(preview_branch)
-    if ok:
-        console.print(format_success(f"Merged {preview_branch} into local repo."))
-        await manager.cleanup_user_repo_branch(preview_branch)
-
-        # Consolidate runway (best-effort, after merge, before teardown).
-        # Runway data lives in the workspace (fly writes there).
-        consolidation_cwd = manager.workspace_path if manager.exists else user_repo
-        await _maybe_consolidate(consolidation_cwd, no_consolidate, user_repo=user_repo)
-    else:
-        err_console.print(
-            format_error(
-                f"Merge failed: {error}",
-                suggestion=(f"You can merge manually with: git merge {preview_branch}"),
-            )
-        )
-        raise SystemExit(ExitCode.FAILURE)
-    if manager.exists:
-        await manager.teardown()
-        console.print("Workspace cleaned up.")
-    else:
-        console.print("No workspace to clean up.")
+        console.print()
+        console.print("Next: push the curated branch to your remote and open a PR.")
 
 
 # =====================================================================
@@ -396,27 +210,15 @@ async def _finalize(
 
 
 async def _maybe_consolidate(
-    runway_cwd: Path,
+    cwd: Path,
     no_consolidate: bool,
-    *,
-    user_repo: Path | None = None,
 ) -> None:
-    """Best-effort runway consolidation after merge.
+    """Best-effort runway consolidation.
 
-    Runs consolidation against ``runway_cwd`` (typically the workspace where
-    fly wrote runway data).  When ``user_repo`` is provided and has an
-    initialized runway, the consolidated semantic files are copied there so
-    they survive workspace teardown.
-
-    When the workspace is about to be torn down, consolidation is forced
-    (threshold checks skipped) because the data will be lost otherwise.
-
-    Args:
-        runway_cwd: Directory containing ``.maverick/runway/`` with data.
-        no_consolidate: If True, skip consolidation entirely.
-        user_repo: User's repository path.  If set and its runway is
-            initialized, semantic output is synced from workspace to
-            user repo after consolidation.
+    Single-repo model: runway data lives in ``<cwd>/.maverick/runway/``
+    and survives across runs without any sync step. Consolidation is the
+    only operation worth running here — it prunes stale episodic records
+    and updates the semantic summary.
     """
     if no_consolidate:
         return
@@ -430,15 +232,12 @@ async def _maybe_consolidate(
 
         from maverick.library.actions.consolidation import consolidate_runway
 
-        # Force consolidation when workspace data would be lost on teardown.
-        force = user_repo is not None and runway_cwd != user_repo
-
         console.print("Consolidating runway knowledge store...")
         result = await consolidate_runway(
-            cwd=runway_cwd,
+            cwd=cwd,
             max_age_days=config.runway.consolidation.max_episodic_age_days,
             max_records=config.runway.consolidation.max_episodic_records,
-            force=force,
+            force=False,
         )
         if result.skipped:
             logger.debug("runway_consolidation_skipped", reason=result.skip_reason)
@@ -447,66 +246,12 @@ async def _maybe_consolidate(
             if result.summary_updated:
                 msg += " Updated consolidated-insights.md."
             console.print(msg)
-
-            # Sync consolidated semantic files to user repo so they
-            # survive workspace teardown.
-            if user_repo is not None and runway_cwd != user_repo:
-                _sync_runway_semantics(runway_cwd, user_repo)
         else:
             console.print(format_warning(f"Runway consolidation failed: {result.error}"))
     except Exception as exc:
         # Best-effort — never block landing
         console.print(format_warning(f"Runway consolidation failed: {exc}"))
         logger.debug("runway_consolidation_error", error=str(exc))
-
-
-def _sync_runway_semantics(src_cwd: Path, dst_cwd: Path) -> None:
-    """Copy runway data from workspace to user repo.
-
-    Syncs semantic files (consolidated summaries), episodic files
-    (pruned JSONL), and the index so data survives workspace teardown.
-    Only copies if both runway directories exist.  Best-effort — errors
-    are logged and swallowed.
-
-    Args:
-        src_cwd: Workspace directory with ``.maverick/runway/``.
-        dst_cwd: User repo directory with ``.maverick/runway/``.
-    """
-    import shutil
-
-    src_runway = src_cwd / ".maverick" / "runway"
-    dst_runway = dst_cwd / ".maverick" / "runway"
-
-    if not src_runway.is_dir():
-        return
-    if not dst_runway.is_dir():
-        # User repo has no runway — nothing to sync into
-        return
-
-    try:
-        # Sync each subdirectory (semantic/, episodic/) and index.json
-        for subdir in ("semantic", "episodic"):
-            src_dir = src_runway / subdir
-            dst_dir = dst_runway / subdir
-            if not src_dir.is_dir():
-                continue
-            dst_dir.mkdir(parents=True, exist_ok=True)
-            for src_file in src_dir.iterdir():
-                if src_file.is_file():
-                    shutil.copy2(src_file, dst_dir / src_file.name)
-
-        # Sync index.json
-        src_index = src_runway / "index.json"
-        if src_index.is_file():
-            shutil.copy2(src_index, dst_runway / "index.json")
-
-        logger.debug(
-            "runway_data_synced",
-            src=str(src_runway),
-            dst=str(dst_runway),
-        )
-    except Exception as exc:
-        logger.debug("runway_sync_failed", error=str(exc))
 
 
 # =====================================================================
@@ -519,20 +264,9 @@ async def _agent_curate(
     base: str,
     dry_run: bool,
     auto_approve: bool,
-    cwd: Path | None = None,
+    cwd: Path,
 ) -> None:
-    """Run agent-driven curation with interactive approval.
-
-    Args:
-        curation_ctx: Output of gather_curation_context().
-        base: Base revision.
-        dry_run: If True, show plan and exit.
-        auto_approve: If True, skip the approval prompt.
-        cwd: Workspace directory for executing curation commands.
-
-    Raises:
-        SystemExit: On failure or user rejection.
-    """
+    """Run agent-driven curation with interactive approval."""
     from maverick.library.actions.jj import execute_curation_plan
 
     console.print("Analyzing commits with curator agent...")
@@ -620,11 +354,7 @@ async def _agent_curate(
 
 
 def _display_plan(plan: list[dict[str, Any]]) -> None:
-    """Render the curation plan as a Rich table inside a panel.
-
-    Args:
-        plan: List of plan step dicts.
-    """
+    """Render the curation plan as a Rich table inside a panel."""
     table = Table(
         show_header=True,
         header_style="bold",
@@ -650,7 +380,6 @@ def _display_human_review_manifest(cwd: Path) -> None:
     """Display human review manifest if one exists from the fly phase."""
     import json as _json
 
-    # Search for manifest in .maverick/plans/
     plans_dir = cwd / ".maverick" / "plans"
     if not plans_dir.is_dir():
         return

@@ -5,7 +5,6 @@ steps. Each action is a function that can be referenced by name in YAML
 workflow definitions.
 
 Actions are organized by domain:
-- workspace: Workspace initialization and management
 - git: Git operations (commit, push, branch)
 - github: GitHub operations (issues, PRs)
 - validation: Validation and fix operations
@@ -58,7 +57,6 @@ from maverick.library.actions.validation import (
     log_message,
     run_fix_retry_loop,
 )
-from maverick.library.actions.workspace import create_fly_workspace, init_workspace
 
 __all__ = [
     # Bead actions
@@ -69,9 +67,6 @@ __all__ = [
     "mark_bead_complete",
     # Preflight actions
     "run_preflight_checks",
-    # Workspace actions
-    "init_workspace",
-    "create_fly_workspace",
     # Dependency actions
     "sync_dependencies",
     # Git actions (read-only and merge fallback only — writes go through jj)

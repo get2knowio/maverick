@@ -99,33 +99,3 @@ def verify_bd_ready(cwd: Path | None = None) -> None:
             f"the workflow after init is a fast cache-hit pass.[/]"
         )
         raise SystemExit(ExitCode.FAILURE)
-
-
-async def resolve_publish_branch_label(repo_path: Path) -> str:
-    """Return a human-readable label for the user repo's current branch.
-
-    Used by post-finalize CLI messages (``plan generate``, ``refuel``)
-    so the "published to user repo" line names the **destination
-    branch** the work landed on (typically ``main`` or a feature
-    branch) instead of the temporary ``maverick/<project>`` transport
-    bookmark, which has already been deleted by ``finalize`` by the
-    time the CLI prints.
-
-    Auto-detects jj vs git via :func:`create_vcs_repository`; falls back
-    to a generic ``"current branch"`` label if branch resolution raises
-    (detached HEAD, missing repo, etc.) so the success path never breaks
-    on a display concern.
-    """
-    from maverick.vcs.factory import create_vcs_repository
-
-    try:
-        repo = create_vcs_repository(repo_path)
-        branch = await repo.current_branch()
-    except Exception as exc:  # noqa: BLE001 — display concern, never break
-        get_logger(__name__).debug(
-            "publish_branch_resolve_failed",
-            repo_path=str(repo_path),
-            error=str(exc),
-        )
-        return "current branch"
-    return str(branch).strip() or "current branch"
