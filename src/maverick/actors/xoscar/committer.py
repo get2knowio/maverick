@@ -1,4 +1,4 @@
-"""xoscar CommitterActor — vcs-neutral commit + bead completion."""
+"""xoscar CommitterActor — jj commit + bead completion."""
 
 from __future__ import annotations
 
@@ -29,21 +29,20 @@ def _build_commit_message(bead_id: str, title: str, tag: str | None) -> str:
 class CommitterActor(xo.Actor):
     """Deterministic per-bead commit + bead-state update.
 
-    Dispatches via :func:`commit_bead_changes` so the actor works in
-    both jj-colocated and plain-git checkouts. The 2026-05-03 e2e on
-    sample-maverick-project (plain git) hit "Commit failed for ...:"
-    with an empty error here when this still called ``jj_commit_bead``
-    directly — `jj` had no repo to talk to.
+    Calls :func:`jj_commit_bead` against the workspace cwd. The
+    workspace is always a jj repo (created via
+    ``WorkspaceManager.find_or_create()`` which colocates the user
+    repo first), so we don't need vcs detection here.
     """
 
     async def commit(self, request: CommitRequest) -> CommitResult:
         from maverick.library.actions.beads import mark_bead_complete
-        from maverick.library.actions.jj import commit_bead_changes
+        from maverick.library.actions.jj import jj_commit_bead
 
         commit_message = _build_commit_message(request.bead_id, request.title, request.tag)
 
         try:
-            commit = await commit_bead_changes(message=commit_message, cwd=request.cwd)
+            commit = await jj_commit_bead(message=commit_message, cwd=request.cwd)
         except Exception as exc:  # noqa: BLE001
             logger.debug("committer.commit_call_error", error=str(exc))
             return CommitResult(success=False, tag=request.tag, error=str(exc))

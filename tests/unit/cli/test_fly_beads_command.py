@@ -84,14 +84,22 @@ class TestFlyCommandDelegation:
     """Tests that fly CLI delegates to the correct Python workflow."""
 
     @pytest.fixture(autouse=True)
-    def _mock_bd_ready(self):
+    def _mock_bd_ready(self, tmp_path: Path):
         """Skip the bd-on-PATH + .beads-initialized preflight — these
-        tests verify the CLI's delegation surface, not its preflight."""
+        tests verify the CLI's delegation surface, not its preflight.
+
+        Also mocks ``WorkspaceManager.find_or_create`` so the CLI
+        doesn't hit a real ``jj workspace add`` against the
+        non-jj-repo test cwd."""
         with (
             patch("shutil.which", return_value="/usr/bin/bd"),
             patch(
                 "maverick.beads.client.BeadClient.is_initialized",
                 return_value=True,
+            ),
+            patch(
+                "maverick.workspace.manager.WorkspaceManager.find_or_create",
+                new=AsyncMock(return_value=tmp_path),
             ),
         ):
             yield

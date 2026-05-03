@@ -10,7 +10,7 @@ from typing import Any
 from maverick.exceptions import WorkflowError
 from maverick.library.actions.git import git_has_changes
 from maverick.library.actions.git_models import GitStatusResult
-from maverick.library.actions.jj import snapshot_uncommitted_changes
+from maverick.library.actions.jj import jj_snapshot_changes
 from maverick.library.actions.preflight import run_preflight_checks
 from maverick.library.actions.validation import run_independent_gate
 from maverick.logging import get_logger
@@ -159,13 +159,13 @@ class FlyBeadsWorkflow(PythonWorkflow):
         if checkpoint:
             completed_bead_ids = set(checkpoint.get("completed_bead_ids", []))
 
-        # Single-repo (CWD) workflow model: fly operates directly in the
-        # user's checkout. Earlier revisions cloned a hidden jj workspace
-        # under ``~/.maverick/workspaces/<project>/`` and threaded a
-        # ``workspace_path`` everywhere. That path is retired (see
-        # plans/cryptic-napping-waffle.md) — the canonical bug surface
-        # was that two on-disk copies of bd state drifted.
-        cwd = Path.cwd().resolve()
+        # The workflow's ``cwd`` is set by the CLI command — typically a
+        # hidden jj workspace under ``~/.maverick/workspaces/<project>/``
+        # that shares the user repo's backing store
+        # (``WorkspaceManager.find_or_create()``). Falls back to
+        # ``Path.cwd()`` when callers (e.g. tests) don't pass it.
+        cwd_input = inputs.get("cwd")
+        cwd = Path(str(cwd_input)).resolve() if cwd_input else Path.cwd().resolve()
 
         # Per-run output directory for snapshots, logs, and context.
         # Try to find an existing run for the epic (created by refuel).
@@ -244,7 +244,7 @@ class FlyBeadsWorkflow(PythonWorkflow):
             change_status = await git_has_changes()
             if change_status.has_any:
                 if auto_commit:
-                    snap = await snapshot_uncommitted_changes(
+                    snap = await jj_snapshot_changes(
                         message="chore: snapshot uncommitted changes before fly",
                         cwd=cwd,
                     )

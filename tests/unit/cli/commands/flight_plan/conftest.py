@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -65,6 +66,19 @@ def flight_plan_env(
     os.chdir(temp_dir)
     monkeypatch.setattr(Path, "home", lambda: temp_dir)
     return temp_dir
+
+
+@pytest.fixture(autouse=True)
+def _mock_workspace(temp_dir: Path):
+    """Mock ``WorkspaceManager.find_or_create`` so flight-plan tests
+    don't hit the real ``jj workspace add`` (their tmp cwd isn't a git
+    repo). The mock returns ``temp_dir`` so plans land where the test
+    fixture already expects them."""
+    with patch(
+        "maverick.workspace.manager.WorkspaceManager.find_or_create",
+        new=AsyncMock(return_value=temp_dir),
+    ):
+        yield
 
 
 @pytest.fixture

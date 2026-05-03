@@ -148,7 +148,7 @@ _PATCH_SPECS: list[tuple[str, str, str | None, str]] = [
     ),
     (
         "snapshot_uncommitted",
-        f"{_WF_MOD}.snapshot_uncommitted_changes",
+        f"{_WF_MOD}.jj_snapshot_changes",
         "snapshot_uncommitted_return",
         _RV,
     ),

@@ -106,7 +106,7 @@ async def test_committer_happy_path(pool_address: str) -> None:
     try:
         with (
             patch(
-                "maverick.library.actions.jj.commit_bead_changes",
+                "maverick.library.actions.jj.jj_commit_bead",
                 new=AsyncMock(
                     return_value={
                         "success": True,
@@ -137,7 +137,7 @@ async def test_committer_reports_error(pool_address: str) -> None:
     ref = await xo.create_actor(CommitterActor, address=pool_address, uid="committer-err")
     try:
         with patch(
-            "maverick.library.actions.jj.commit_bead_changes",
+            "maverick.library.actions.jj.jj_commit_bead",
             new=AsyncMock(side_effect=RuntimeError("jj missing")),
         ):
             result = await ref.commit(CommitRequest(bead_id="bead-1", title="nope", cwd="/tmp"))
@@ -153,13 +153,12 @@ async def test_committer_does_not_mark_complete_when_commit_fails(
 ) -> None:
     """Regression: a failed commit must NOT close the bead in bd.
 
-    The 2026-05-03 cross-provider e2e on sample-maverick-project hit
-    this: ``CommitterActor.commit`` called ``mark_bead_complete``
-    unconditionally after the underlying commit, so a plain-git
-    "Commit failed" still silently closed the bead. The next fly
-    couldn't re-process it and the only indication of trouble was a
-    log line. Now: ``mark_bead_complete`` runs only when
-    ``commit_bead_changes`` reports ``success=True``.
+    Before the fix, ``CommitterActor.commit`` called
+    ``mark_bead_complete`` unconditionally — so any commit failure
+    silently closed the bead. The next fly couldn't re-process it and
+    the only indication of trouble was a log line.
+    ``mark_bead_complete`` now runs only when ``jj_commit_bead``
+    reports ``success=True``.
     """
     ref = await xo.create_actor(
         CommitterActor, address=pool_address, uid="committer-no-close-on-fail"
@@ -168,7 +167,7 @@ async def test_committer_does_not_mark_complete_when_commit_fails(
     try:
         with (
             patch(
-                "maverick.library.actions.jj.commit_bead_changes",
+                "maverick.library.actions.jj.jj_commit_bead",
                 new=AsyncMock(
                     return_value={
                         "success": False,
@@ -209,7 +208,7 @@ async def test_committer_includes_bead_trailer(pool_address: str) -> None:
     try:
         with (
             patch(
-                "maverick.library.actions.jj.commit_bead_changes",
+                "maverick.library.actions.jj.jj_commit_bead",
                 new=AsyncMock(side_effect=_capture),
             ),
             patch(

@@ -242,6 +242,63 @@ def _sanitize_bd_prefix(name: str) -> str:
     return cleaned
 
 
+async def _ensure_jj_colocated(project_path: Path, verbose: bool) -> bool:
+    """Run ``jj git init --colocate`` in the user's checkout if ``.jj/``
+    is missing.
+
+    Default-on, no opt-out: every maverick-managed git repo becomes
+    jj-colocated at init time. The interim short-term workflow model
+    relies on ``jj workspace add`` for per-invocation isolation, which
+    requires the user repo to be a jj repo. Colocation is additive —
+    ``.jj/`` lives alongside ``.git/`` and the user's existing git
+    workflow keeps working unchanged.
+
+    Idempotent. No-op when:
+    - ``.jj/`` already exists
+    - ``.git/`` doesn't exist (the user's directory isn't a git repo,
+      so there's nothing to bind to — leave it alone)
+
+    Returns True when the repo ended up colocated, False on a
+    best-effort failure (logged, not raised). Init treats colocate
+    failures as soft — the rest of init still runs, but downstream
+    workflows will fail when they try ``jj workspace add``.
+    """
+    if not (project_path / ".git").exists():
+        if verbose:
+            logger.info(
+                "jj_colocate_skipped",
+                reason="no_git_dir",
+                project_path=str(project_path),
+            )
+        return False
+
+    if (project_path / ".jj").exists():
+        if verbose:
+            logger.info(
+                "jj_colocate_already_present",
+                project_path=str(project_path),
+            )
+        return True
+
+    from maverick.jj.client import JjClient
+    from maverick.jj.errors import JjError
+
+    client = JjClient(cwd=project_path)
+    try:
+        await client.git_init(colocate=True)
+    except JjError as exc:
+        logger.warning(
+            "jj_colocate_failed",
+            project_path=str(project_path),
+            error=str(exc),
+        )
+        return False
+
+    if verbose:
+        logger.info("jj_colocated", project_path=str(project_path))
+    return True
+
+
 async def _init_beads(project_path: Path, verbose: bool) -> bool:
     """Initialize beads via :meth:`BeadClient.init_or_bootstrap`.
 
@@ -756,6 +813,7 @@ async def run_init(
                 reason="config_exists_and_force_false",
                 config_path=str(config_path),
             )
+        await _ensure_jj_colocated(effective_path, verbose)
         beads_initialized = await _init_beads(effective_path, verbose)
         runway_initialized = await _maybe_init_runway(effective_path, verbose)
         await _ensure_gitignore_entries(effective_path, verbose)
@@ -822,6 +880,9 @@ async def run_init(
 
     if verbose:
         logger.info("config_written", config_path=str(config_path))
+
+    # Step 5b: Colocate jj+git (default-on, no opt-out). Idempotent.
+    await _ensure_jj_colocated(effective_path, verbose)
 
     # Step 6: Initialize beads (required — refuel and fly depend on bd)
     beads_initialized = await _init_beads(effective_path, verbose)

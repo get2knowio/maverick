@@ -41,15 +41,24 @@ class TestRefuelFromPlan:
     """Tests for 'maverick refuel <name>' (default --from plan)."""
 
     @pytest.fixture(autouse=True)
-    def _mock_bd_available(self):
+    def _mock_bd_available(self, tmp_path: Path):
         """Mock bd availability + initialised state — CI doesn't have
         bd installed AND test cwd has no ``.beads/`` directory, so the
-        ``verify_bd_ready`` preflight would otherwise reject every test."""
+        ``verify_bd_ready`` preflight would otherwise reject every test.
+
+        Also mocks ``WorkspaceManager.find_or_create`` to return
+        ``tmp_path`` instead of attempting a real ``jj workspace add``
+        — the test cwd isn't a git repo so the real call would raise.
+        """
         with (
             patch("shutil.which", return_value="/usr/bin/bd"),
             patch(
                 "maverick.beads.client.BeadClient.is_initialized",
                 return_value=True,
+            ),
+            patch(
+                "maverick.workspace.manager.WorkspaceManager.find_or_create",
+                new=AsyncMock(return_value=tmp_path),
             ),
         ):
             yield

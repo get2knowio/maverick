@@ -102,15 +102,19 @@ async def generate(
         console.print("[red]Error:[/red] PRD content is empty.")
         raise SystemExit(ExitCode.FAILURE)
 
-    # Single-repo (CWD) workflow model: plan generation writes directly
-    # into the user's checkout under ``.maverick/plans/<name>/``. The
-    # user commits when they're ready. Earlier revisions ran inside a
-    # hidden jj workspace and finalized via WorkspaceManager — that
-    # path is retired (see plans/cryptic-napping-waffle.md).
-    cwd = Path.cwd().resolve()
+    # Interim short-term model: plan generation writes into the
+    # workspace's ``.maverick/plans/<name>/``. The workspace shares the
+    # user repo's backing store via ``jj workspace add`` — the plan
+    # files land in the shared op log so the user's checkout sees them
+    # via ``jj log`` immediately.
+    from maverick.workspace import WorkspaceManager
+
+    user_repo = Path.cwd().resolve()
+    manager = WorkspaceManager(user_repo_path=user_repo)
+    workspace_path = await manager.find_or_create()
 
     plans_input = Path(output_dir)
-    plans_path = plans_input if plans_input.is_absolute() else cwd / plans_input
+    plans_path = plans_input if plans_input.is_absolute() else workspace_path / plans_input
 
     # Guard: --plans-dir must not point to an existing regular file.
     if plans_path.exists() and not plans_path.is_dir():
@@ -136,7 +140,7 @@ async def generate(
         "name": name,
         "output_dir": str(plans_path),
         "skip_briefing": skip_briefing,
-        "cwd": str(cwd),
+        "cwd": str(workspace_path),
     }
 
     await execute_python_workflow(

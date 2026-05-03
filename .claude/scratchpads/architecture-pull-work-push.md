@@ -591,26 +591,42 @@ If a coordination need arises across envs, the answer is bd metadata or it doesn
 
 ## 12. Migration from current state
 
-> **Note (2026-05-03)**: `WorkspaceManager` and the hidden
-> `~/.maverick/workspaces/<project>/` clone pattern were retired
-> *before* this architecture lands, on the 044-opencode-substrate
-> branch (`refactor: collapse to single-repo (CWD) workflow model`).
-> All long-running ops now operate directly in the user's checkout —
-> a strict subset of the future state. The leftover concern for early
-> adopters is on-disk: `~/.maverick/workspaces/<project>/` directories
-> from the legacy code path are now orphaned. The future
-> `maverick migrate` command should detect and clean them up (or
-> reuse the directory shape if it ends up converging with the new
-> per-environment layout). Until migrate exists, users can `rm -rf
-> ~/.maverick/workspaces/` safely — the contained jj clones held only
-> derived state.
+> **Note (2026-05-03, revised)**: `WorkspaceManager` was retired in
+> commit `cf11db4` and then **brought back** in a leaner form on the
+> same branch. The interim short-term model is now:
+>
+> 1. `maverick init` colocates the user repo (`jj git init --colocate`,
+>    default-on, no opt-out) so the user's checkout has both `.git/`
+>    and `.jj/`.
+> 2. `WorkspaceManager.find_or_create()` runs `jj workspace add
+>    ~/.maverick/workspaces/<project>/` — a separate working tree
+>    backed by the **same** repo, no clone.
+> 3. Workflows operate in the workspace; bead commits land in the
+>    shared op log; user's checkout sees them via `jj log`.
+>
+> This sidesteps every 2026-05-02 bug because there is only one
+> backing repo, one bd federation, one set of bookmarks. The old
+> `jj git clone` pattern (deleted in `cf11db4`) was the root cause —
+> two on-disk copies of state drifting. The leaner shape uses the
+> jj-native `workspace add` primitive that was the right answer all
+> along.
+>
+> The full pull-work-push architecture below replaces this interim
+> when ready (maverick owns the working directory entirely, no
+> separate user checkout). Until then, `WorkspaceManager` lives at
+> `src/maverick/workspace/manager.py`. Early adopters with orphaned
+> `~/.maverick/workspaces/<project>/` directories from before the
+> rebuild can `rm -rf` them safely — the directory format changed
+> (now jj-workspace, was jj-clone) and old contents are not
+> compatible.
 
 Existing maverick projects have:
 - A user checkout with `.beads/`, `maverick.yaml`, `.maverick/`, all locally
 - Possibly bd state pushed to GitHub via `refs/dolt/data`
 - Local state diverged from any other environment
 - *Possibly* an orphaned `~/.maverick/workspaces/<project>/` from the
-  pre-collapse era.
+  pre-rebuild era (jj-clone format, no longer compatible with the
+  workspace-add primitive).
 
 ### Migration command
 

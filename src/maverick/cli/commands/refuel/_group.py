@@ -120,22 +120,29 @@ async def refuel(
         console.print()
         raise SystemExit(ExitCode.SUCCESS)
 
-    # Single-repo (CWD) workflow model: refuel operates directly in the
-    # user's checkout. Plans and beads land in ``<cwd>/.maverick/`` and
-    # the user commits when they're ready. Earlier revisions ran inside
-    # a hidden jj workspace and finalized via ``WorkspaceManager`` — that
-    # path is retired (see plans/cryptic-napping-waffle.md).
-    cwd = Path.cwd().resolve()
+    # Interim short-term model: maverick.yaml lives in the user's
+    # checkout, but actual workflow execution happens in a hidden jj
+    # workspace under ``~/.maverick/workspaces/<project>/`` that shares
+    # the user repo's backing store via ``jj workspace add``. Bead
+    # commits land in the shared op log and are visible from the user
+    # checkout's ``jj log`` immediately. Plans and runs are written to
+    # the workspace's ``.maverick/`` and survive teardown via the
+    # shared repo. See ``src/maverick/workspace/manager.py``.
+    from maverick.workspace import WorkspaceManager
+
+    user_repo = Path.cwd().resolve()
+    manager = WorkspaceManager(user_repo_path=user_repo)
+    workspace_path = await manager.find_or_create()
 
     plans_input = Path(plans_dir)
-    plans_base = plans_input if plans_input.is_absolute() else cwd / plans_input
+    plans_base = plans_input if plans_input.is_absolute() else workspace_path / plans_input
     flight_plan_path = plans_base / name / "flight-plan.md"
 
     workflow_inputs: dict[str, object] = {
         "flight_plan_path": str(flight_plan_path),
         "skip_briefing": skip_briefing,
         "auto_commit": auto_commit,
-        "cwd": str(cwd),
+        "cwd": str(workspace_path),
     }
 
     await execute_python_workflow(
@@ -149,10 +156,11 @@ async def refuel(
 
     # Surface the "what next" command. The workflow writes the bd epic id
     # into ``.maverick/runs/<run_id>/metadata.json`` — read it back so the
-    # user doesn't have to dig for it (it's not the same as the plan name).
+    # user doesn't have to dig for it. The runs directory lives in the
+    # workspace (workflow cwd) for now.
     from maverick.runway.run_metadata import find_latest_run
 
-    meta = find_latest_run(name, base=cwd)
+    meta = find_latest_run(name, base=workspace_path)
     if meta and meta.epic_id:
         console.print()
         console.print(f"[dim]Next:[/] [bold]maverick fly --epic {meta.epic_id}[/]")
