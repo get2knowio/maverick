@@ -14,6 +14,14 @@ This specification addresses three problems with the current architecture:
 
 3. **Misalignment with the multi-agent future.** The long-term goal is multiple maverick environments collaborating on the same project — different agents, different machines, sharing bd federation state. The current architecture has no clean path there.
 
+### Status (2026-05-03)
+
+The 044-opencode-substrate branch landed a deliberately minimum slice — collapse Maverick to single-repo (CWD-based) operation so the OpenCode substrate is e2e-testable today — that incidentally chips against the goals above:
+
+- **Goal 1 (state divergence)** — structurally moot for now. There is only one copy: the user's CWD. The hidden `~/.maverick/workspaces/<project>/` clone pattern is gone (`cf11db4`). When the architecture's per-environment `~/.maverick/<project>/` materializes, Goal 1 returns as a property to preserve, not a bug to fix.
+- **Goal 2 (init brittleness)** — the three specific bugs named here are all fixed on this branch (`0ae955d`): the legacy `model.model_id: sonnet` write is removed; `_strip_bd_sync_remote()` neutralizes bd's auto-set `sync.remote`; `_untrack_bd_local_state()` removes `.beads/backup/` from tracking. The fourth named bug — missing `.maverick/workspace.json` gitignore entry — is moot because the marker file no longer exists. Init's broader pull-work-push restructuring (item 8 in §13) is untouched.
+- **Goal 3 (multi-agent future)** — untouched. Single-CWD operation is, if anything, a step away from the per-env target. The architecture work still needs to happen.
+
 ---
 
 ## 2. Mental model
@@ -29,6 +37,8 @@ This specification addresses three problems with the current architecture:
 3. **Push** the resulting state back to GitHub — heterogeneous by plane (see below).
 
 The local working directory is **maverick's, not the user's**. There is no separate "user checkout" — the user does not `cd` into a project directory to use maverick. They invoke maverick commands from anywhere, and maverick maintains its own local materialization of the project.
+
+> **2026-05-03 status:** This still describes the eventual state. On `044-opencode-substrate` the user *does* `cd` into a maverick-managed git repo and that CWD *is* the working directory — every workflow runs in `Path.cwd()` (`cf11db4`). The CWD-based interim is **not** the goal; it is the operating reality until the per-environment `~/.maverick/<project>/` materialization in §4–5 is built. Treat any CLAUDE.md text about "user invokes from anywhere" as aspirational on this branch.
 
 ### Two sync planes
 
@@ -68,6 +78,13 @@ Every meaningful operation maverick performs fits this pattern:
 | `land`          | clone + federation                | curator rewrites local implementation slab; open PR              | curated code push to `maverick/<project>` + open or update PR |
 
 The differences are confined to step 2. Step 3's shape varies by plane and artifact type: bead-producing workflows push bd federation inline; structural code artifacts (flight plans, configs) reach GitHub via `maverick commit`; fly's implementation slab waits in local jj for `maverick land` to curate and PR.
+
+> **2026-05-03 status — interim deltas vs. the table above:**
+>
+> - **Pull column** is uniformly "operate on `Path.cwd()` (the user's checkout)" today. There is no clone step; bd federation pull happens inside individual workflows where it always did, not as a harness step. (`cf11db4`)
+> - **Push column for code is "user pushes manually"** for everything except `fly --auto-commit`, which now snapshots local changes via the vcs-neutral `snapshot_uncommitted_changes()` helper — jj-snapshot on jj checkouts, plain `git add -A && git commit` on git-only checkouts (`82fcedd`). `maverick commit` does not exist; `maverick land` exists but does not push or open PRs (it curates locally and prints next-step hints — see §6). Structural workflows (plan generate, init) do not auto-publish.
+> - **Push column for beads** matches the table — bd federation pushes happen inline in refuel/fly today and have for some time.
+> - **Bead trailer** in fly's commit message is now wired (`82fcedd`): subject `bead(<id>): <title>` plus a blank line plus `Bead: <id>` git trailer. This is forward-compat groundwork for the env-aware ready check; nothing reads the trailer yet.
 
 ---
 
@@ -117,6 +134,8 @@ The `.maverick/.cache/` line is the only gitignore addition this architecture re
 
 ## 5. The pull-work-push cycle
 
+> **2026-05-03 status:** No harness exists today. Each workflow opens a fresh xoscar pool inside `Path.cwd()` (`cf11db4`), runs its actors, and exits. There is no shared lazy-create / fetch / cache-resumption wrapper. Cache-style scratch in `.maverick/.cache/` exists per-workflow but is not orchestrated by a harness. The text below describes target behavior; treat the wrapper-pseudocode as a build target, not a description of running code.
+
 ### Universal harness
 
 Every workflow command runs through this wrapper:
@@ -159,6 +178,20 @@ Each command operates on a single per-project directory. There is no cross-run s
 ---
 
 ## 6. Command surface
+
+> **2026-05-03 status (per-verb):**
+>
+> | Verb | Exists? | Behaves as described? | Interim delta |
+> |---|---|---|---|
+> | `init` | yes | partial | Runs in user CWD. Writes `maverick.yaml`, initializes bd, runs init helpers — but does **not** push, does **not** open an "Adopt maverick" PR, does **not** materialize a per-env directory. (`0ae955d`, `cf11db4`) |
+> | `plan generate` | yes | partial | Runs in `Path.cwd()`. Writes flight plan locally. Does **not** auto-invoke `maverick commit` at completion (no such verb). User pushes manually. (`cf11db4`) |
+> | `refuel` | yes | partial | Runs in `Path.cwd()`. Bd federation push happens inline as before. (`cf11db4`) |
+> | `fly` | yes | mostly | Runs in `Path.cwd()`. `--auto-commit` now works on plain-git checkouts via `snapshot_uncommitted_changes()` (`82fcedd`). Commits carry the `Bead: <id>` trailer (`82fcedd`). Three-state bd machine still in use; the four-state `implemented` split is unbuilt. |
+> | `land` | yes | minimal | Curates locally, then prints mode-specific next-step hints. `--approve`/`--eject`/`--finalize` flags exist but collapse to "curate, then advise" — no automated push, no PR creation. (`cf11db4`) |
+> | `commit` | **no** | n/a | Verb does not exist. Pushing is manual. |
+> | `migrate` | **no** | n/a | Verb does not exist. Early adopters with orphaned `~/.maverick/workspaces/<project>/` directories must `rm -rf` manually (see §12). |
+> | `workspace status\|clean` | **removed** | n/a | Command group de-registered in `main.py` and the package deleted (`cf11db4`). |
+> | `brief`, `doctor`, `runway`, `use`, `reclaim` | brief/doctor/runway exist; `use` and `reclaim` do not | partial | brief/doctor/runway operate on CWD. |
 
 ### Workflow commands
 
@@ -218,6 +251,8 @@ Nine user-facing verbs (init, plan, refuel, fly, commit, land, brief, doctor, ru
 ---
 
 ## 7. The `init` contract
+
+> **2026-05-03 status:** Init does most of what's described — writes `maverick.yaml`, initializes bd, scaffolds `.maverick/` — but operates **in the user's CWD**, not in `~/.maverick/<project>/`. Init does not push, does not open an "Adopt maverick" PR, and does not take a `<github-url>` argument; it adopts whatever git repo the user is `cd`'d into. The three brittleness bugs called out in §1 are fixed (`0ae955d`): no `model.model_id` write, `sync.remote` neutralized, `.beads/backup/` untracked. The broader pull-work-push restructuring (item 8 in §13) is unbuilt.
 
 After `maverick init <github-url>` completes successfully:
 
@@ -605,24 +640,34 @@ After the transition window, only the new form is supported.
 
 ### What needs to be built
 
-1. **Universal harness** — wraps every command with the pull-work-push cycle. Probably a decorator or context manager around workflow handlers.
+> **2026-05-03 status legend:** **[done]** = landed on `044-opencode-substrate`. **[partial]** = some scaffolding/groundwork landed; substantive work remains. **[unbuilt]** = no work yet. Items not annotated are unbuilt.
+
+1. **Universal harness** — wraps every command with the pull-work-push cycle. Probably a decorator or context manager around workflow handlers. *[unbuilt]*
 2. **Workflow handler refactor** — each existing workflow (plan generate, refuel, fly, land) is restructured to:
    - Take a project directory + args
    - Use cache for resumption
    - Return an exit status
    - Produce local jj commits for code (with `Bead: <id>` commit-message trailers); push bd federation inline for bead state; never push code
-3. **Four-state bead machine** — `open / in-progress / implemented / closed`. fly's `claim_and_implement` flow drives `open → in-progress → implemented`. PR-merge handler drives `implemented → closed`. `maverick reclaim` reverts `in-progress`/`implemented` → `open`.
-4. **Epic-as-seam wiring** — epics auto-close via federation when all their work beads reach `closed`. `fly --watch` exits when its ready queue is empty (no special boundary handling). Land's `--epic <id>` cuts at the commit where the epic's last bead reached `implemented`.
-5. **`maverick commit`** — raw publishing verb. Pushes local jj commits on `maverick/<project>` to remote, no curator, no PR. Auto-invoked by structural workflows (plan generate, init) at completion; user-invoked otherwise. See §10.
-6. **`maverick land`** — curated publishing verb for implementation slabs. Reads local jj slab, runs curator (shape-only), pushes, opens or updates PR. See §10.
-7. **Subscription-shaped coordinator API** — `coordinator.ready_beads(env=this, ...)` async iterator implementing the env-aware ready check (§11). Maps beads ↔ commits via the `Bead:` commit trailer; consults bd federation for state and local jj for code presence. Today: federation poll + filter. Tomorrow: real subscription.
-8. **`maverick init`** rewrite — restructured to fit the pull-work-push pattern. Init produces structural artifacts and pushes them via `maverick commit` semantics; init's PR-opening is the carveout pending H5.
+
+   *[partial]* The CWD-threading half is in place: every workflow now operates on `Path.cwd()` and the WorkspaceManager dance is gone (`cf11db4`). Fly's commits carry `Bead: <id>` trailers (`82fcedd`). The cache/resumption restructuring and exit-status discipline are unbuilt.
+3. **Four-state bead machine** — `open / in-progress / implemented / closed`. fly's `claim_and_implement` flow drives `open → in-progress → implemented`. PR-merge handler drives `implemented → closed`. `maverick reclaim` reverts `in-progress`/`implemented` → `open`. *[unbuilt]*
+4. **Epic-as-seam wiring** — epics auto-close via federation when all their work beads reach `closed`. `fly --watch` exits when its ready queue is empty (no special boundary handling). Land's `--epic <id>` cuts at the commit where the epic's last bead reached `implemented`. *[unbuilt]*
+5. **`maverick commit`** — raw publishing verb. Pushes local jj commits on `maverick/<project>` to remote, no curator, no PR. Auto-invoked by structural workflows (plan generate, init) at completion; user-invoked otherwise. See §10. *[unbuilt]*
+6. **`maverick land`** — curated publishing verb for implementation slabs. Reads local jj slab, runs curator (shape-only), pushes, opens or updates PR. See §10. *[partial]* `land` exists but currently curates locally and prints next-step hints — no automated push, no PR creation (`cf11db4`).
+7. **Subscription-shaped coordinator API** — `coordinator.ready_beads(env=this, ...)` async iterator implementing the env-aware ready check (§11). Maps beads ↔ commits via the `Bead:` commit trailer; consults bd federation for state and local jj for code presence. Today: federation poll + filter. Tomorrow: real subscription. *[partial]* Bead trailers are now produced by fly (`82fcedd`); nothing reads them yet.
+8. **`maverick init`** rewrite — restructured to fit the pull-work-push pattern. Init produces structural artifacts and pushes them via `maverick commit` semantics; init's PR-opening is the carveout pending H5. *[partial]* Init no longer writes the legacy `model.model_id` field, strips bd's auto-set `sync.remote`, and untracks `.beads/backup/` (`0ae955d`) — the three brittleness bugs from §1. The broader pull-work-push restructuring is unbuilt.
 9. **Cache structure** — establish `.maverick/.cache/<command>/<primary-input-key>/` convention; ensure `.maverick/.cache/` is in projects' `.gitignore`.
 10. **Local directory naming** — decide convention for `~/.maverick/<project>/`. Slug from URL, sanitized.
 11. **`maverick use`** — optional convenience for context-set. Stores last-used project; subsequent commands default to it.
 12. **`maverick reclaim`** — manual bead-claim recovery (covers stale `in-progress` and `implemented` claims). Heartbeat-based automatic reclaim is deferred until multi-agent traffic justifies it.
 13. **`maverick doctor` multi-env-per-epic check** — warn when an epic has multi-env contributions in flight (different envs own different work beads in the same epic). In the interim that means N PRs at land time; user should expect this or consolidate manually.
-14. **`maverick migrate`** — one-shot migration command for existing maverick projects.
+14. **`maverick migrate`** — one-shot migration command for existing maverick projects. *[unbuilt — but more pressing now that legacy `~/.maverick/workspaces/<project>/` directories from the pre-collapse era are orphaned on early-adopter machines; see §12.]*
+
+### Already done ahead of the architecture (on `044-opencode-substrate`)
+
+- **WorkspaceManager retirement.** The doc's Phase 2 (§13 Sequencing) implied this as part of per-workflow migration; we did it ahead of schedule as a lump-sum collapse to single-repo (CWD) operation (`cf11db4`). Net −3064 LOC. The per-environment `~/.maverick/<project>/` materialization that should replace it remains unbuilt.
+- **Cross-VCS uncommitted-changes snapshot.** `snapshot_uncommitted_changes()` in `library/actions/jj.py` detects `.jj/` and dispatches to either `jj_snapshot_changes` or plain `git add -A && git commit` (`82fcedd`). This was on the punch list as a fly-`--auto-commit` bug fix; under the architecture it becomes the obvious primitive for "snapshot whatever the local VCS is."
+- **`Bead: <id>` commit trailer.** Fly's bead commits now carry the trailer alongside the existing `bead(<id>): <title>` subject (`82fcedd`). Forward-compat with the env-aware ready check (§11), curator scope tracing (§10), and slab attribution at land time. Trailer key is exactly `Bead:`; format details in U7 still need pinning down.
 
 ### Future build items (deferred until pressing)
 
