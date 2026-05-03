@@ -356,47 +356,48 @@ Never `click.echo()` or `print()`.
 
 If a change would violate any item, stop and refactor the design first.
 
-### 0. Workspace-as-remote architecture
+### 0. Single-repo (CWD) workflow model
 
-Long-running ops (`plan generate`, `refuel`, `fly`) run inside a hidden jj
-workspace under `~/.maverick/workspaces/<project>/`. The user's repo is the
-remote — cloned-from at start, pushed-to at command completion.
+All long-running ops (`plan generate`, `refuel`, `fly`, `land`) operate
+directly in the user's checkout under `Path.cwd()`. There is no
+hidden workspace, no clone bridge, and no `WorkspaceManager`. Plans,
+beads, runway, and per-run metadata land in `<cwd>/.maverick/{plans,
+runs, runway}/` and survive across runs without any sync step.
 
-**Hermetic shape** (`plan generate`, `refuel`):
-1. `WorkspaceManager.find_or_create()` — create or attach.
-2. Sync from origin (handled inside `find_or_create`).
-3. Do the work in the workspace.
-4. `WorkspaceManager.finalize(message=…)` — snapshot, push to user repo on
-   `maverick/<project>` bookmark, merge into the user's branch (jj rebase
-   in colocated mode, `git merge` fallback), tear down.
-
-Failure during finalize **preserves the workspace** so the user can
-recover (`cd ~/.maverick/workspaces/<project> && jj git push`).
-
-**Bridged shape** (`fly` + `land`): fly doesn't finalize — its commits
-need curation, which is `land`'s job. Fly leaves the workspace alive; land
-curates, pushes, tears down. Cancellation (Ctrl-C) and failures during fly
-also preserve the workspace so completed beads remain available to land.
-Do **not** register a workspace-teardown rollback on fly.
+**Shape** (every long-running op):
+1. CLI resolves `cwd = Path.cwd().resolve()`.
+2. The workflow executes inside `cwd`.
+3. Bead commits go straight onto the user's current branch.
+4. The user pushes / opens a PR when they're ready (or runs
+   `maverick land --eject` / `--finalize` for a hint).
 
 **Implications**:
-- Every workflow/CLI command takes a `WorkspaceContext` (or `cwd: Path`)
-  and threads it through every state-touching action (bd, runway, plans,
-  jj). `Path.cwd()` defaults inside `src/maverick/workflows/` or
-  `src/maverick/actors/` are a layering smell.
+- Every workflow/CLI command takes `cwd: Path` (or `WorkspaceContext`,
+  whichever the older code paths still use) and threads it through every
+  state-touching action (bd, runway, plans, jj). `Path.cwd()` defaults
+  inside `src/maverick/workflows/` or `src/maverick/actors/` are a
+  layering smell — set them at the CLI boundary and pass them down.
 - All commit-graph mutations go through `JjClient` or actions in
-  `library/actions/jj.py`. Do NOT add new subprocess wrappers around
-  `git commit/push/merge/branch`. The dead helpers (`git_commit`,
-  `git_push`, etc.) were deleted because every layer-violation bug traced
-  back to them.
-- `actions/git.py` is read-only and merge-fallback only (`git_has_changes`,
-  `git_merge`); reads otherwise go through GitPython.
-- Workspace bridging helpers (`apply_to_user_repo`,
-  `cleanup_user_repo_branch`, `finalize`) live on `WorkspaceManager`.
-  Don't reimplement them in commands.
+  `library/actions/jj.py`. The vcs-neutral
+  `snapshot_uncommitted_changes` helper detects `.jj/` and dispatches
+  to either jj or plain-git so a non-colocated user repo doesn't
+  crash on `jj diff --stat`.
+- `actions/git.py` is read-only and merge-fallback only
+  (`git_has_changes`, `git_merge`); reads otherwise go through GitPython.
+- Bead commits carry both the `bead(<id>): <title>` subject prefix
+  (curator-greppable) and a `Bead: <id>` git trailer (forward-compatible
+  with the env-aware ready check).
 
-Per-invocation hermetic workspaces are tracked in `FUTURE.md` — don't add
-that ad-hoc.
+**Background**: an earlier revision ran every long-running op inside a
+hidden jj workspace under `~/.maverick/workspaces/<project>/` with a
+`WorkspaceManager` bridging clone-from → finalize → push. That dual-repo
+pattern was the root of a cluster of 2026-05-02 bugs (workspace
+identity mismatch, stale dolt routing, gitignore confusion). The full
+pull-work-push architecture envisioned in
+`.claude/scratchpads/architecture-pull-work-push.md` re-introduces a
+hermetic per-invocation workspace eventually; until then, single-repo
+is the contract. Don't reach for the legacy concepts (`WorkspaceManager`,
+`apply_to_user_repo`, `finalize`) — they no longer exist.
 
 ### 1. Async-first means no blocking on the event loop
 
@@ -434,18 +435,21 @@ No `asyncio.run()` inside factory functions. Prefer lazy prerequisite
 verification on first use, or an explicit async `verify_prerequisites()`.
 Return concrete types (avoid `Any` on public APIs).
 
-### 7. Workspace isolation requires explicit cwd threading
+### 7. Explicit cwd threading
 
-Operational form of Guardrail 0. Every step inside the workspace receives
-a `cwd` (or `WorkspaceContext`) pointing at the workspace path:
+Operational form of Guardrail 0. Every step receives a `cwd` (or
+`WorkspaceContext`) the CLI resolved at the boundary:
 
 - Agent steps: `cwd` in the step's `context` dict.
 - jj actions: `cwd` (accepts `str | Path | None`).
-- bd / runway / plan parsing: `cwd=ws_cwd` — never default to `Path.cwd()`.
+- bd / runway / plan parsing: `cwd=cwd` — never default to `Path.cwd()`.
 
 A grep for `Path.cwd()` inside `src/maverick/workflows/` or
 `src/maverick/actors/` should return ~zero hits in a clean tree; new
-occurrences are bugs in waiting.
+occurrences are bugs in waiting. The motivation survives the
+single-repo collapse: even when `cwd == Path.cwd()` today,
+threading the path explicitly keeps test isolation, future per-
+invocation workspaces, and concurrent runs all unblocked.
 
 See `.specify/memory/constitution.md` Appendix E for the full architecture.
 
