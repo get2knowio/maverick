@@ -18,6 +18,7 @@ import pytest
 
 from maverick.library.actions.jj import (
     _is_jj_repo,
+    commit_bead_changes,
     snapshot_uncommitted_changes,
 )
 
@@ -117,6 +118,85 @@ async def test_jj_repo_dispatches_to_jj_snapshot(tmp_path: Path) -> None:
 
         mock_jj.return_value = SnapshotResult(success=True, committed=False)
         await snapshot_uncommitted_changes(cwd=tmp_path)
+
+    mock_jj.assert_awaited_once()
+    kwargs = mock_jj.await_args.kwargs
+    assert kwargs["cwd"] == tmp_path.resolve()
+
+
+# ── commit_bead_changes — vcs-neutral per-bead commit ───────────────
+
+
+@pytest.mark.asyncio
+async def test_commit_bead_changes_plain_git(tmp_path: Path) -> None:
+    """Plain-git checkout — bead's changes get ``git add -A && git
+    commit``-ed and the new HEAD sha comes back as ``change_id``."""
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.email", "t@t"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.name", "t"], cwd=tmp_path, check=True)
+    (tmp_path / "README.md").write_text("hello\n")
+    subprocess.run(["git", "add", "-A"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "init"], cwd=tmp_path, check=True)
+
+    # Bead made an edit.
+    (tmp_path / "feature.py").write_text("def f(): return 1\n")
+
+    result = await commit_bead_changes(
+        message="bead(B-1): add feature\n\nBead: B-1",
+        cwd=tmp_path,
+    )
+
+    assert result["success"] is True
+    assert result["change_id"]
+    assert result["error"] is None
+    log = subprocess.run(
+        ["git", "log", "-1", "--pretty=format:%s%n%b"],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert "bead(B-1): add feature" in log.stdout
+    assert "Bead: B-1" in log.stdout
+
+
+@pytest.mark.asyncio
+async def test_commit_bead_changes_clean_tree_returns_error(tmp_path: Path) -> None:
+    """Plain-git tree with nothing to commit — returns success=False
+    with a non-empty error string. Fly's supervisor surfaces that as
+    "Commit failed for ...: <reason>"."""
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.email", "t@t"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.name", "t"], cwd=tmp_path, check=True)
+    (tmp_path / "README.md").write_text("hello\n")
+    subprocess.run(["git", "add", "-A"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "init"], cwd=tmp_path, check=True)
+
+    result = await commit_bead_changes(message="bead(X): nothing", cwd=tmp_path)
+
+    assert result["success"] is False
+    assert result["error"]
+
+
+@pytest.mark.asyncio
+async def test_commit_bead_changes_jj_dispatches_to_jj_commit_bead(
+    tmp_path: Path,
+) -> None:
+    """When ``.jj/`` is present, commit_bead_changes routes through
+    jj_commit_bead — not the plain-git path."""
+    (tmp_path / ".jj").mkdir()
+
+    with patch(
+        "maverick.library.actions.jj.jj_commit_bead",
+        new=AsyncMock(),
+    ) as mock_jj:
+        mock_jj.return_value = {
+            "success": True,
+            "message": "bead(X): m",
+            "change_id": "abc",
+            "error": None,
+        }
+        await commit_bead_changes(message="bead(X): m", cwd=tmp_path)
 
     mock_jj.assert_awaited_once()
     kwargs = mock_jj.await_args.kwargs

@@ -288,6 +288,89 @@ async def jj_commit_bead(
         }
 
 
+async def commit_bead_changes(
+    message: str,
+    cwd: str | Path | None = None,
+) -> dict[str, Any]:
+    """Finalise the bead's changes using whichever VCS the cwd has.
+
+    Dispatches to :func:`jj_commit_bead` when ``.jj/`` is found in or
+    above ``cwd``; otherwise runs ``git add -A && git commit -m <msg>``
+    against the user's plain-git checkout. Either way, the bead's edits
+    end up as a commit on the current branch.
+
+    Earlier revisions called :func:`jj_commit_bead` straight through. On
+    a plain-git user repo (the sample-maverick-project case, and any
+    non-colocated maverick project) the underlying ``jj commit`` fails
+    because there is no jj repo to talk to — the e2e on
+    ``005-e2e-cross-provider`` saw "Commit failed for ...:" with an
+    empty error message at the end of an otherwise green bead. This
+    helper is the same shape as :func:`snapshot_uncommitted_changes`:
+    one place that detects the VCS, two well-tested paths.
+
+    Returns the same dict shape as :func:`jj_commit_bead` so callers
+    can stay vcs-agnostic. ``change_id`` carries the jj change-id on
+    the jj path and the git HEAD sha on the plain-git path — both are
+    stable commit identifiers.
+    """
+    target = Path(cwd) if cwd is not None else Path.cwd()
+    target = target.resolve()
+
+    if _is_jj_repo(target):
+        return await jj_commit_bead(message, cwd=target)
+
+    # Plain-git path.
+    from maverick.runners.command import CommandRunner
+
+    runner = CommandRunner(cwd=target)
+    try:
+        add = await runner.run(["git", "add", "-A"], cwd=target)
+        if not add.success:
+            return {
+                "success": False,
+                "message": message,
+                "change_id": None,
+                "error": (f"git add failed: {add.stderr.strip() or 'non-zero exit'}"),
+            }
+        commit = await runner.run(
+            ["git", "commit", "-m", message],
+            cwd=target,
+        )
+    except OSError as exc:
+        return {
+            "success": False,
+            "message": message,
+            "change_id": None,
+            "error": f"git commit failed: {exc}",
+        }
+
+    if not commit.success:
+        # ``git commit`` on a clean tree exits non-zero with "nothing to
+        # commit" — surface that as a soft failure (not a crash).
+        stderr = commit.stderr.strip() or commit.stdout.strip() or "non-zero exit"
+        return {
+            "success": False,
+            "message": message,
+            "change_id": None,
+            "error": f"git commit failed: {stderr}",
+        }
+
+    sha: str | None = None
+    try:
+        rev = await runner.run(["git", "rev-parse", "HEAD"], cwd=target)
+        if rev.success:
+            sha = rev.stdout.strip() or None
+    except OSError:
+        pass
+
+    return {
+        "success": True,
+        "message": message,
+        "change_id": sha,
+        "error": None,
+    }
+
+
 # =============================================================================
 # Snapshot uncommitted changes (jj-native replacement for git_commit path)
 # =============================================================================

@@ -106,8 +106,15 @@ async def test_committer_happy_path(pool_address: str) -> None:
     try:
         with (
             patch(
-                "maverick.library.actions.jj.jj_commit_bead",
-                new=AsyncMock(return_value={"success": True, "change_id": "abc123"}),
+                "maverick.library.actions.jj.commit_bead_changes",
+                new=AsyncMock(
+                    return_value={
+                        "success": True,
+                        "message": "bead(bead-1) [round-1]: do stuff\n\nBead: bead-1",
+                        "change_id": "abc123",
+                        "error": None,
+                    }
+                ),
             ),
             patch(
                 "maverick.library.actions.beads.mark_bead_complete",
@@ -130,11 +137,41 @@ async def test_committer_reports_error(pool_address: str) -> None:
     ref = await xo.create_actor(CommitterActor, address=pool_address, uid="committer-err")
     try:
         with patch(
-            "maverick.library.actions.jj.jj_commit_bead",
+            "maverick.library.actions.jj.commit_bead_changes",
             new=AsyncMock(side_effect=RuntimeError("jj missing")),
         ):
             result = await ref.commit(CommitRequest(bead_id="bead-1", title="nope", cwd="/tmp"))
         assert result.success is False
         assert "jj missing" in result.error
+    finally:
+        await xo.destroy_actor(ref)
+
+
+@pytest.mark.asyncio
+async def test_committer_includes_bead_trailer(pool_address: str) -> None:
+    """Regression: the per-bead commit message must carry the
+    ``Bead: <id>`` git trailer (see ``build_bead_commit_message``
+    in ``workflows.fly_beads._commit``). Mirrors the same trailer the
+    legacy in-process commit path emits."""
+    ref = await xo.create_actor(CommitterActor, address=pool_address, uid="committer-trailer")
+    captured: dict[str, str] = {}
+
+    async def _capture(message: str = "", cwd: object = None) -> dict[str, object]:
+        captured["message"] = message
+        return {"success": True, "message": message, "change_id": "x", "error": None}
+
+    try:
+        with (
+            patch(
+                "maverick.library.actions.jj.commit_bead_changes",
+                new=AsyncMock(side_effect=_capture),
+            ),
+            patch(
+                "maverick.library.actions.beads.mark_bead_complete",
+                new=AsyncMock(return_value=None),
+            ),
+        ):
+            await ref.commit(CommitRequest(bead_id="B-7", title="do thing", cwd="/tmp", tag=None))
+        assert captured["message"] == "bead(B-7): do thing\n\nBead: B-7"
     finally:
         await xo.destroy_actor(ref)

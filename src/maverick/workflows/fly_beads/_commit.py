@@ -7,7 +7,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from maverick.library.actions.beads import defer_bead, mark_bead_complete
-from maverick.library.actions.jj import jj_commit_bead, jj_restore_operation
+from maverick.library.actions.jj import (
+    commit_bead_changes,
+    jj_restore_operation,
+)
 from maverick.logging import get_logger
 from maverick.workflows.fly_beads._runway import record_runway_outcome
 from maverick.workflows.fly_beads._vcs_queries import (
@@ -38,7 +41,7 @@ def build_bead_commit_message(bead_id: str, title: str) -> str:
 async def commit_bead(wf: FlyBeadsWorkflow, ctx: BeadContext) -> None:
     """Commit the bead and mark it complete."""
     await wf.emit_step_started(COMMIT)
-    commit_result = await jj_commit_bead(
+    commit_result = await commit_bead_changes(
         message=build_bead_commit_message(ctx.bead_id, ctx.title),
         cwd=ctx.cwd,
     )
