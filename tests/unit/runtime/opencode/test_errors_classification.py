@@ -64,6 +64,63 @@ def test_classify_unknown_falls_back_to_base() -> None:
     assert not isinstance(err, OpenCodeModelNotFoundError)
 
 
+def test_classify_ai_apicall_error_is_transient() -> None:
+    """Vercel-AI-SDK's ``AI_APICallError`` (the wrapper opencode-go's
+    Zen Go gateway uses for upstream provider failures) must classify
+    as transient so the cascade falls over to the next binding instead
+    of killing the whole call."""
+    err = classify_session_error(
+        {
+            "name": "AI_APICallError",
+            "data": {
+                "type": "error",
+                "error": {"type": "error", "message": "Internal server error"},
+            },
+        }
+    )
+    assert isinstance(err, OpenCodeTransientError)
+
+
+def test_classify_internal_server_error_message_is_transient() -> None:
+    """An unrecognized error name with an explicit ``Internal server error``
+    message body still classifies as transient — same reasoning, cascade
+    should fall over."""
+    err = classify_session_error(
+        {
+            "name": "SomeUpstreamWrappingError",
+            "data": {"message": "Internal server error"},
+        }
+    )
+    assert isinstance(err, OpenCodeTransientError)
+
+
+def test_classify_rate_limit_message_is_transient() -> None:
+    err = classify_session_error(
+        {
+            "name": "WhateverError",
+            "data": {"message": "Rate limit exceeded"},
+        }
+    )
+    assert isinstance(err, OpenCodeTransientError)
+
+
+def test_classify_unwraps_nested_error_message() -> None:
+    """Some upstream errors bury the real message at
+    ``data.error.message`` instead of ``data.message``. The classifier
+    must look there too — without that, ``AI_APICallError`` events
+    (whose message lives one level deeper) would skip the
+    "internal server error" / "rate limit" matchers entirely."""
+    err = classify_session_error(
+        {
+            "name": "GenericUpstream",
+            "data": {
+                "error": {"message": "Service unavailable"},
+            },
+        }
+    )
+    assert isinstance(err, OpenCodeTransientError)
+
+
 def test_classify_unwraps_full_event_envelope() -> None:
     full_event = {
         "type": "session.error",

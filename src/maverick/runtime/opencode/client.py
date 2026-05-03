@@ -182,9 +182,19 @@ def classify_session_error(error_obj: Any) -> OpenCodeError:
     name = error_obj.get("name") or ""
     data = error_obj.get("data") or {}
     msg = data.get("message") if isinstance(data, dict) else None
+    # Some upstream errors (notably opencode-go's Zen Go gateway) bury
+    # the real message one level deeper as ``data.error.message``. Pull
+    # that out so the substring matches below have something to bite on
+    # — without it, ``msg`` is ``None`` and we miss "Internal server
+    # error" / rate-limit signals entirely.
+    if msg is None and isinstance(data, dict):
+        nested = data.get("error")
+        if isinstance(nested, dict):
+            msg = nested.get("message")
     body = error_obj
     text = msg or name or "session.error"
     lname = name.lower()
+    lmsg = (msg or "").lower()
     if "providermodelnotfound" in lname or "modelnotfound" in lname:
         return OpenCodeModelNotFoundError(text, body=body)
     if "providerauth" in lname or "authentication" in lname or "unauthor" in lname:
@@ -196,6 +206,27 @@ def classify_session_error(error_obj: Any) -> OpenCodeError:
         if isinstance(data, dict):
             retries = int(data.get("retries", 0) or 0)
         return OpenCodeStructuredOutputError(text, body=body, retries=retries)
+    # Upstream provider failure surfaced through opencode-go (Zen Go),
+    # OpenAI's Vercel-AI-SDK wrapper, etc. arrives as ``AI_APICallError``
+    # with a generic message like "Internal server error" / "Service
+    # unavailable" / a 5xx — no HTTP status, no clean classification.
+    # These are exactly the cases the cascade is supposed to fall over
+    # for: the binding is misbehaving but the next tier may be fine.
+    # Without classifying them as transient they fall through to plain
+    # ``OpenCodeError``, which is NOT in ``CASCADE_ERRORS`` — so a Zen-
+    # Go outage would kill the entire workflow even with a healthy
+    # github-copilot binding next in line. (2026-05-03 e2e — refuel
+    # briefings hung up against opencode-go/qwen3.6-plus returning
+    # AI_APICallError with no fallover.)
+    if "apicall" in lname or "aiapierror" in lname:
+        return OpenCodeTransientError(text, body=body)
+    if (
+        "internal server error" in lmsg
+        or "service unavailable" in lmsg
+        or "rate limit" in lmsg
+        or "rate-limit" in lmsg
+    ):
+        return OpenCodeTransientError(text, body=body)
     return OpenCodeError(text, body=body)
 
 
