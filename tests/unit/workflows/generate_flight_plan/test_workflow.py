@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -26,6 +27,11 @@ from maverick.workflows.generate_flight_plan.workflow import (
 )
 
 _MODULE = "maverick.workflows.generate_flight_plan.workflow"
+
+_REQUIRES_OPENCODE = pytest.mark.skipif(
+    shutil.which("opencode") is None,
+    reason="opencode binary not on PATH (CI environment)",
+)
 
 
 def _make_flight_plan_output(name: str = "test-plan") -> FlightPlanOutput:
@@ -383,6 +389,7 @@ class TestGenerateFlightPlanWorkflowErrors:
                 )
 
 
+@_REQUIRES_OPENCODE
 class TestGenerateFlightPlanWorkflowXoscarConfig:
     """Tests for config propagation into the xoscar PlanSupervisor."""
 

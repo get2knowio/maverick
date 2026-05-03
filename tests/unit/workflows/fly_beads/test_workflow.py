@@ -2,13 +2,21 @@
 
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+
 from maverick.config import AgentProviderConfig, MaverickConfig, ModelConfig
 from maverick.workflows.fly_beads.constants import WORKFLOW_NAME
 from maverick.workflows.fly_beads.workflow import FlyBeadsWorkflow
+
+_REQUIRES_OPENCODE = pytest.mark.skipif(
+    shutil.which("opencode") is None,
+    reason="opencode binary not on PATH (CI environment)",
+)
 
 
 def _make_workflow() -> FlyBeadsWorkflow:
@@ -46,6 +54,7 @@ def _make_workflow() -> FlyBeadsWorkflow:
     )
 
 
+@_REQUIRES_OPENCODE
 class TestFlyBeadsWorkflowXoscarConfig:
     async def test_xoscar_supervisor_receives_typed_inputs(self, tmp_path: Path) -> None:
         """The xoscar FlySupervisor gets ``FlyInputs`` carrying the resolved

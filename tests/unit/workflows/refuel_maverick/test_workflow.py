@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 from maverick.events import (
     StepCompleted,
@@ -31,6 +34,11 @@ from tests.unit.workflows.refuel_maverick.conftest import (
     make_workflow,
     patch_cwd,
     patch_decompose_supervisor,
+)
+
+_REQUIRES_OPENCODE = pytest.mark.skipif(
+    shutil.which("opencode") is None,
+    reason="opencode binary not on PATH (CI environment)",
 )
 
 _MODULE = "maverick.workflows.refuel_maverick.workflow"
@@ -169,6 +177,7 @@ class TestRefuelMaverickWorkflowHappyPath:
 
         assert call_record["calls"] == 1
 
+    @_REQUIRES_OPENCODE
     async def test_xoscar_supervisor_receives_typed_inputs(
         self,
         mock_config: MagicMock,
@@ -252,6 +261,7 @@ class TestRefuelMaverickWorkflowHappyPath:
         assert inputs.config.provider == "claude"
         assert inputs.config.model_id == "opus"
 
+    @_REQUIRES_OPENCODE
     async def test_refuel_briefing_configs_resolve_per_agent_from_actors_block(
         self,
         mock_config: MagicMock,
