@@ -4,9 +4,10 @@ Provides serialization for pre-flight briefing documents produced by
 4 specialist agents (Scopist, CodebaseAnalyst, CriteriaWriter,
 PreFlightContrarian).
 
-Agent briefs are raw dicts from MCP tool calls — the MCP tool schemas
-in ``maverick.tools.agent_inbox.schemas`` are the single source
-of truth for field names.
+Agent briefs originate as typed payloads (see :mod:`maverick.payloads`)
+from the OpenCode-backed ``BriefingActor``s. The serializer below
+accepts the dumped dict form so existing callers don't have to thread
+the typed objects through.
 
 Public API:
     serialize_briefs_to_markdown: Render raw brief dicts to Markdown.

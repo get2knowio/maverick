@@ -14,7 +14,7 @@ from enum import Enum
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from maverick.init.provider_discovery import ProviderDiscoveryResult
+    from maverick.init.opencode_discovery import OpenCodeDiscoveryResult
 
 import yaml
 from pydantic import BaseModel, Field
@@ -586,7 +586,14 @@ class InitConfig(BaseModel):
     )
     github: InitGitHubConfig = Field(default_factory=InitGitHubConfig)
     validation: InitValidationConfig = Field(default_factory=InitValidationConfig)
-    model: InitModelConfig = Field(default_factory=InitModelConfig)
+    model: InitModelConfig | None = Field(
+        default=None,
+        description=(
+            "Legacy global default model. Superseded by provider_tiers; "
+            "init no longer writes it. Field retained so older yaml that "
+            "still has the block parses cleanly."
+        ),
+    )
     notifications: dict[str, Any] = Field(default_factory=lambda: {"enabled": False})
     parallel: dict[str, int] = Field(
         default_factory=lambda: {
@@ -602,13 +609,23 @@ class InitConfig(BaseModel):
         default_factory=dict,
         description="Actor configurations grouped by workflow (plan/refuel/fly/land).",
     )
+    provider_tiers: dict[str, Any] = Field(
+        default_factory=lambda: {
+            "tiers": _starter_provider_tiers(),
+        },
+        description="OpenCode-runtime tier cascades. Edit to override defaults.",
+    )
     verbosity: str = "warning"
 
     def to_yaml(self) -> str:
         """Serialize configuration to YAML string.
 
-        Empty ``agent_providers`` is omitted from the output so that
-        zero-config behaviour is preserved when no providers are discovered.
+        Empty ``agent_providers`` and ``actors`` are dropped so the
+        zero-config experience stays clean. ``provider_tiers`` is
+        always emitted so users discover the cascade configuration
+        surface — its default value mirrors a curated subset of the
+        runtime's :data:`DEFAULT_TIERS`. A short comment explaining the
+        block is injected above it.
 
         Returns:
             YAML-formatted configuration string.
@@ -618,11 +635,60 @@ class InitConfig(BaseModel):
             data.pop("agent_providers", None)
         if not data.get("actors"):
             data.pop("actors", None)
-        return yaml.dump(
+        body = yaml.dump(
             data,
             default_flow_style=False,
             sort_keys=False,
         )
+        return _annotate_provider_tiers(body)
+
+
+def _starter_provider_tiers() -> dict[str, list[dict[str, str]]]:
+    """Return the canonical starter ``provider_tiers.tiers`` map.
+
+    Mirrors :data:`maverick.runtime.opencode.tiers.DEFAULT_TIERS` so a
+    freshly-init'd repo carries the same routing the runtime uses
+    when no per-project override is set. Edit
+    ``maverick.yaml::provider_tiers.tiers.<role>`` to override per
+    project; edit ``DEFAULT_TIERS`` to override globally.
+    """
+    # Local import: importing the runtime at module load time would
+    # pull the OpenCode HTTP client + xoscar onto the init code path,
+    # which is otherwise pure stdlib + Pydantic.
+    from maverick.runtime.opencode import DEFAULT_TIERS
+
+    return {
+        name: [{"provider": b.provider_id, "model_id": b.model_id} for b in tier.bindings]
+        for name, tier in DEFAULT_TIERS.items()
+    }
+
+
+_PROVIDER_TIERS_COMMENT = """
+# OpenCode-runtime tier cascades. Each role lists ``(provider, model_id)``
+# bindings tried in order; the runtime falls over on auth /
+# model-not-found / sustained transient failures. Roles omitted here
+# fall through to the curated DEFAULT_TIERS baked into the runtime
+# (see ``maverick.runtime.opencode.tiers.DEFAULT_TIERS``).
+"""
+
+
+def _annotate_provider_tiers(yaml_body: str) -> str:
+    """Inject a docstring comment block above ``provider_tiers:``.
+
+    PyYAML doesn't preserve comments through ``yaml.dump``, so we patch
+    them in via string substitution. Idempotent: skips when the comment
+    is already present.
+    """
+    if "# OpenCode-runtime tier cascades." in yaml_body:
+        return yaml_body
+    needle = "\nprovider_tiers:"
+    if needle not in yaml_body:
+        return yaml_body
+    return yaml_body.replace(
+        needle,
+        _PROVIDER_TIERS_COMMENT.rstrip() + needle,
+        1,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -635,8 +701,8 @@ class InitResult:
         success: True if init completed successfully.
         config_path: Path to maverick.yaml (generated this run, or pre-existing).
         preflight: Prerequisite check results.
-        detection: Detection result. ``None`` when ``--no-detect`` was passed
-            or when re-init skipped detection because config already existed.
+        detection: Detection result. ``None`` when re-init skipped detection
+            because config already existed.
         git_info: Git remote information.
         config: Generated configuration. ``None`` when re-init skipped
             generation because config already existed (see ``config_existed``).
@@ -656,7 +722,7 @@ class InitResult:
     findings_printed: bool = False
     beads_initialized: bool = False
     runway_initialized: bool = False
-    provider_discovery: ProviderDiscoveryResult | None = None
+    provider_discovery: OpenCodeDiscoveryResult | None = None
     config_existed: bool = False
 
     def to_dict(self) -> dict[str, Any]:

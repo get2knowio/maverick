@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import contextlib
-from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -16,10 +15,8 @@ from maverick.events import (
 )
 from maverick.library.actions.git_models import GitStatusResult, SnapshotResult
 from maverick.library.actions.types import (
-    CheckEpicDoneResult,
     MarkBeadCompleteResult,
     SelectNextBeadResult,
-    VerifyBeadCompletionResult,
 )
 
 # ---------------------------------------------------------------------------
@@ -55,11 +52,6 @@ def _make_select_result(
     )
 
 
-def _make_verify_result(*, passed: bool = True) -> VerifyBeadCompletionResult:
-    reasons = () if passed else ("Validation failed: lint",)
-    return VerifyBeadCompletionResult(passed=passed, reasons=reasons)
-
-
 def _done_select_result() -> SelectNextBeadResult:
     return SelectNextBeadResult(
         found=False,
@@ -75,8 +67,6 @@ def _done_select_result() -> SelectNextBeadResult:
 def _make_mock_actions(
     *,
     select_side_effect: list[Any] | None = None,
-    verify_result: VerifyBeadCompletionResult | None = None,
-    check_done_result: CheckEpicDoneResult | None = None,
 ) -> dict[str, Any]:
     """Build a dict of mock return values/side_effects for all actions."""
     from maverick.library.actions.preflight import PreflightCheckResult
@@ -89,18 +79,6 @@ def _make_mock_actions(
             _make_select_result(),
             _done_select_result(),
         ]
-
-    if verify_result is None:
-        verify_result = _make_verify_result(passed=True)
-
-    if check_done_result is None:
-        check_done_result = CheckEpicDoneResult(
-            done=True,
-            remaining_count=0,
-            all_children_closed=True,
-            total_children=1,
-            closed_children=1,
-        )
 
     mark_complete = MarkBeadCompleteResult(success=True, bead_id="b1", error=None)
 
@@ -116,13 +94,6 @@ def _make_mock_actions(
             success=True,
             committed=False,
         ),
-        "workspace_return": {
-            "success": True,
-            "workspace_path": "/tmp/test_ws",
-            "user_repo_path": "/tmp/user",
-            "created": True,
-            "error": None,
-        },
         "select_side_effect": select_side_effect,
         "snapshot_return": {"operation_id": "op123", "success": True, "error": None},
         "describe_return": {"success": True, "error": None},
@@ -140,14 +111,12 @@ def _make_mock_actions(
             }
         ),
         "create_findings_return": MagicMock(created_count=0),
-        "verify_return": verify_result,
         "commit_return": {
             "success": True,
             "message": "bead(b1): Test bead",
             "error": None,
         },
         "mark_complete_return": mark_complete,
-        "check_done_return": check_done_result,
         "xoscar_return": {
             "beads_completed": 1,
             "completed_bead_ids": ["b1"],
@@ -165,7 +134,7 @@ def _make_mock_actions(
 _RV = "return_value"
 _SE = "side_effect"
 
-# Actions imported by workflow.py (preflight, workspace, select, check_done,
+# Actions imported by workflow.py (preflight, select, check_done,
 # mark_complete) are patched in the workflow module. Actions imported by
 # steps.py are patched in the steps module.
 _PATCH_SPECS: list[tuple[str, str, str | None, str]] = [
@@ -179,11 +148,10 @@ _PATCH_SPECS: list[tuple[str, str, str | None, str]] = [
     ),
     (
         "snapshot_uncommitted",
-        f"{_WF_MOD}.snapshot_uncommitted_changes",
+        f"{_WF_MOD}.jj_snapshot_changes",
         "snapshot_uncommitted_return",
         _RV,
     ),
-    ("workspace", f"{_WF_MOD}.create_fly_workspace", "workspace_return", _RV),
     ("select", f"{_WF_MOD}.select_next_bead", "select_side_effect", _SE),
     ("snapshot", f"{_IMPL_MOD}.jj_snapshot_operation", "snapshot_return", _RV),
     ("describe", f"{_IMPL_MOD}.jj_describe", "describe_return", _RV),
@@ -195,9 +163,7 @@ _PATCH_SPECS: list[tuple[str, str, str | None, str]] = [
         _RV,
     ),
     ("mark_complete", f"{_WF_MOD}.mark_bead_complete", "mark_complete_return", _RV),
-    ("check_done", f"{_WF_MOD}.check_epic_done", "check_done_return", _RV),
     ("restore", f"{_COMMIT_MOD}.jj_restore_operation", None, _RV),
-    ("ws_manager", "maverick.workspace.manager.WorkspaceManager", None, _RV),
     (
         "record_bead_outcome",
         f"{_RUNWAY_MOD}.record_bead_outcome",
@@ -303,14 +269,12 @@ def checkpoint_store() -> MemoryCheckpointStore:
 @pytest.fixture
 def fly_workflow(
     mock_config: MagicMock,
-    mock_registry: MagicMock,
     checkpoint_store: MemoryCheckpointStore,
 ) -> Any:
     from maverick.workflows.fly_beads.workflow import FlyBeadsWorkflow
 
     return FlyBeadsWorkflow(
         config=mock_config,
-        registry=mock_registry,
         checkpoint_store=checkpoint_store,
     )
 
@@ -383,7 +347,7 @@ class TestFlyBeadsWorkflow:
         assert completed.success is True
         assert fly_workflow.result.final_output["beads_failed"] == 1
 
-    async def test_workspace_rollback_on_exception(self, fly_workflow: Any) -> None:
+    async def test_preflight_exception_emits_completed_failure(self, fly_workflow: Any) -> None:
         """If preflight raises, WorkflowCompleted(success=False) is emitted and
         the exception is re-raised after (R-012)."""
         events: list[Any] = []
@@ -399,54 +363,6 @@ class TestFlyBeadsWorkflow:
 
         completed = next(e for e in events if isinstance(e, WorkflowCompleted))
         assert completed.success is False
-
-    async def test_workspace_rollback_on_workspace_creation_exception(
-        self, fly_workflow: Any
-    ) -> None:
-        """If create_fly_workspace raises, WorkflowCompleted(success=False) is emitted
-        and the exception is re-raised after (R-012)."""
-        events: list[Any] = []
-
-        with (
-            _patch_all_actions(
-                workspace={"side_effect": RuntimeError("clone failed")},
-            ),
-            pytest.raises(RuntimeError, match="clone failed"),
-        ):
-            async for event in fly_workflow.execute({"epic_id": "", "max_beads": 5}):
-                events.append(event)
-
-        completed = next(e for e in events if isinstance(e, WorkflowCompleted))
-        assert completed.success is False
-
-    async def test_no_workspace_teardown_rollback_registered(self, fly_workflow: Any) -> None:
-        """fly must NEVER register a workspace_teardown rollback.
-
-        Regression test. ``PythonWorkflow._run_with_cleanup`` runs every
-        registered rollback on ``CancelledError`` and other exceptions.
-        A workspace_teardown rollback used to ``shutil.rmtree`` the
-        hidden workspace on Ctrl-C, throwing away every bead that had
-        already finalized cleanly inside it. ``maverick land`` is the
-        canonical teardown path for the bridged fly→land flow; the
-        workspace must survive cancellation so land can curate and
-        push the completed-bead commits.
-
-        The test inspects ``_rollback_stack`` rather than simulating
-        cancellation because ``_PATCH_SPECS`` already replaces
-        ``WorkspaceManager`` itself across every fly-workflow test —
-        a behaviour assertion against the real class would fight that
-        infrastructure. If the rollback isn't registered, no
-        cancellation path can fire teardown via that mechanism.
-        """
-        with _patch_all_actions():
-            await _collect_events(fly_workflow, {"epic_id": "", "max_beads": 5})
-
-        rollback_names = [name for name, _ in fly_workflow._rollback_stack]
-        assert "workspace_teardown" not in rollback_names, (
-            "fly registered a workspace_teardown rollback again — this nukes "
-            "completed-bead commits on Ctrl-C. land is the canonical teardown "
-            "path; do not reintroduce this rollback."
-        )
 
     async def test_xoscar_path_invoked(self, fly_workflow: Any) -> None:
         """Thespian path is invoked for execution."""
@@ -495,13 +411,6 @@ class TestFlyBeadsWorkflow:
         ]
         mv = _make_mock_actions(
             select_side_effect=select_side_effect,
-            check_done_result=CheckEpicDoneResult(
-                done=False,
-                remaining_count=5,
-                all_children_closed=False,
-                total_children=10,
-                closed_children=5,
-            ),
         )
 
         mv["xoscar_return"] = {
@@ -544,15 +453,7 @@ class TestFlyBeadsWorkflow:
 
     async def test_epic_not_closed_when_children_still_open(self, fly_workflow: Any) -> None:
         """Epic bead stays open when some children are blocked."""
-        mv = _make_mock_actions(
-            check_done_result=CheckEpicDoneResult(
-                done=True,
-                remaining_count=0,
-                all_children_closed=False,
-                total_children=2,
-                closed_children=1,
-            ),
-        )
+        mv = _make_mock_actions()
 
         with _patch_all_actions(mv) as mocks:
             async for _ in fly_workflow.execute({"epic_id": "epic-99", "max_beads": 5}):
@@ -565,15 +466,7 @@ class TestFlyBeadsWorkflow:
 
     async def test_epic_not_closed_without_epic_id(self, fly_workflow: Any) -> None:
         """Epic is not closed when no epic_id was provided."""
-        mv = _make_mock_actions(
-            check_done_result=CheckEpicDoneResult(
-                done=True,
-                remaining_count=0,
-                all_children_closed=True,
-                total_children=1,
-                closed_children=1,
-            ),
-        )
+        mv = _make_mock_actions()
 
         with _patch_all_actions(mv) as mocks:
             async for _ in fly_workflow.execute({"epic_id": "", "max_beads": 5}):
@@ -588,44 +481,27 @@ class TestFlyBeadsWorkflow:
 
 
 # =====================================================================
-# _init_workspace_runway
+# _cost_sink_for_cwd
 # =====================================================================
 
 
-class TestInitWorkspaceRunway:
-    """Tests for _init_workspace_runway helper."""
+class TestCostSinkForCwd:
+    """Tests for the cost-sink helper that resolves the runway store
+    under ``<cwd>/.maverick/runway/`` and returns either an appender
+    closure or ``None`` (when runway isn't initialized in the user repo)."""
 
-    async def test_initializes_runway_in_workspace(self, tmp_path: Any) -> None:
-        """Should create runway directory structure in workspace."""
-        from maverick.workflows.fly_beads.workflow import _init_workspace_runway
+    async def test_returns_none_when_runway_not_initialized(self, tmp_path: Any) -> None:
+        from maverick.workflows.fly_beads.workflow import _cost_sink_for_cwd
 
-        ws = tmp_path / "workspace"
-        ws.mkdir()
+        # tmp_path has no .maverick/runway/ — sink falls back to None
+        # so callers degrade to structured-log-only telemetry.
+        assert _cost_sink_for_cwd(tmp_path) is None
 
-        await _init_workspace_runway(ws)
+    async def test_returns_callable_when_runway_initialized(self, tmp_path: Any) -> None:
+        from maverick.runway.store import RunwayStore
+        from maverick.workflows.fly_beads.workflow import _cost_sink_for_cwd
 
-        runway = ws / ".maverick" / "runway"
-        assert runway.is_dir()
-        assert (runway / "episodic").is_dir()
-        assert (runway / "semantic").is_dir()
-        assert (runway / "index.json").is_file()
-
-    async def test_idempotent(self, tmp_path: Any) -> None:
-        """Should be safe to call multiple times."""
-        from maverick.workflows.fly_beads.workflow import _init_workspace_runway
-
-        ws = tmp_path / "workspace"
-        ws.mkdir()
-
-        await _init_workspace_runway(ws)
-        await _init_workspace_runway(ws)  # Should not raise
-
-        runway = ws / ".maverick" / "runway"
-        assert runway.is_dir()
-
-    async def test_best_effort_on_failure(self) -> None:
-        """Should not raise even if initialization fails."""
-        from maverick.workflows.fly_beads.workflow import _init_workspace_runway
-
-        # Pass a path that can't be written to
-        await _init_workspace_runway(Path("/proc/nonexistent"))  # noqa: S108
+        await RunwayStore(tmp_path / ".maverick" / "runway").initialize()
+        sink = _cost_sink_for_cwd(tmp_path)
+        assert sink is not None
+        assert callable(sink)

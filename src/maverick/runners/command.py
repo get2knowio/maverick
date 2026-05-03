@@ -333,7 +333,7 @@ class CommandRunner:
                     process.kill()
                     await process.wait()
                 # Reap any grandchildren reparented to init.
-                from maverick.executor._subprocess import kill_process_group
+                from maverick.runners.process_group import kill_process_group
 
                 kill_process_group(process.pid)
 
@@ -472,7 +472,7 @@ class CommandRunner:
                 except TimeoutError:
                     self._process.kill()
                 # Reap any grandchildren reparented to init.
-                from maverick.executor._subprocess import kill_process_group
+                from maverick.runners.process_group import kill_process_group
 
                 kill_process_group(self._process.pid)
             except asyncio.CancelledError:

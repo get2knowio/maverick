@@ -226,6 +226,82 @@ class JjClient:
         logger.info("jj_git_clone_completed", source=str(source), target=str(target))
         return JjCloneResult(success=True, workspace_path=str(target))
 
+    async def git_init(self, *, colocate: bool = False) -> None:
+        """Initialize jj on top of the cwd via ``jj git init``.
+
+        Used by ``maverick init`` to convert a plain-git checkout into a
+        colocated jj+git repo (``.jj/`` next to ``.git/``). Idempotent at
+        the maverick layer — callers should check for an existing
+        ``.jj/`` first; calling ``jj git init`` against an already-jj
+        repo errors out.
+
+        Args:
+            colocate: When True, pass ``--colocate`` so jj reuses the
+                existing ``.git`` rather than embedding its own.
+
+        Raises:
+            JjError: When ``jj git init`` fails.
+        """
+        cmd: list[str] = ["jj", "git", "init"]
+        if colocate:
+            cmd.append("--colocate")
+        await self._run_jj(
+            cmd,
+            error_msg=f"jj git init failed in {self._cwd}",
+        )
+        logger.info("jj_git_init_completed", cwd=str(self._cwd), colocate=colocate)
+
+    async def workspace_add(self, target: Path) -> Path:
+        """Create a new working copy backed by the same repo via
+        ``jj workspace add``.
+
+        The target directory shares the underlying repo state with the
+        cwd (one ``.git``, one bd federation, one set of bookmarks).
+        That avoids the drift bugs the legacy clone-based isolation
+        suffered (workspace identity mismatch, sync.remote routing,
+        commit-hook clobbering JSONL) while still giving each
+        invocation an isolated working copy.
+
+        The workspace is named by the target's basename (jj's default).
+
+        Args:
+            target: Filesystem path for the new working copy. Parent
+                must exist; target itself must not.
+
+        Returns:
+            The resolved target path.
+
+        Raises:
+            JjError: When the underlying ``jj workspace add`` fails
+                (typically: target exists, or cwd is not a jj repo).
+        """
+        target.parent.mkdir(parents=True, exist_ok=True)
+        await self._run_jj(
+            ["jj", "workspace", "add", str(target)],
+            error_msg=f"jj workspace add failed for {target}",
+        )
+        logger.info(
+            "jj_workspace_add_completed",
+            cwd=str(self._cwd),
+            target=str(target),
+        )
+        return target.resolve()
+
+    async def workspace_forget(self, name: str) -> None:
+        """Drop a workspace from the repo's tracking via
+        ``jj workspace forget``.
+
+        The on-disk directory is **not** removed — callers should
+        ``rm -rf`` it themselves if they want filesystem cleanup. Only
+        the jj-side workspace metadata is purged; commits made in the
+        workspace remain in the shared op log.
+        """
+        await self._run_jj(
+            ["jj", "workspace", "forget", name],
+            error_msg=f"jj workspace forget failed for {name}",
+        )
+        logger.info("jj_workspace_forget_completed", name=name)
+
     async def git_fetch(self, remote: str = "origin") -> JjFetchResult:
         """Fetch from a git remote via ``jj git fetch``.
 

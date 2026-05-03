@@ -47,11 +47,10 @@ class _QuickstartWorkflow(PythonWorkflow):
 
 
 @pytest.fixture
-def workflow(mock_config: MagicMock, mock_registry: MagicMock) -> _QuickstartWorkflow:
+def workflow(mock_config: MagicMock) -> _QuickstartWorkflow:
     """Create a quickstart workflow with mock dependencies."""
     return _QuickstartWorkflow(
         config=mock_config,
-        registry=mock_registry,
         workflow_name="test-workflow",
     )
 
@@ -94,9 +93,7 @@ class TestQuickstartHappyPath:
         assert isinstance(events[0], WorkflowStarted)
         assert events[0].workflow_name == "test-workflow"
 
-    async def test_step_failure_emits_failed_event(
-        self, mock_config: MagicMock, mock_registry: MagicMock
-    ) -> None:
+    async def test_step_failure_emits_failed_event(self, mock_config: MagicMock) -> None:
         """Step failure pattern from quickstart: emit_step_failed then raise."""
 
         class _FailingWorkflow(PythonWorkflow):
@@ -110,7 +107,6 @@ class TestQuickstartHappyPath:
 
         wf = _FailingWorkflow(
             config=mock_config,
-            registry=mock_registry,
             workflow_name="test-workflow",
         )
         events = []
@@ -142,30 +138,26 @@ class TestQuickstartConfigResolution:
         assert isinstance(config, StepConfig)
         assert config.mode is not None
 
-    def test_resolve_step_config_uses_project_overrides(
-        self, mock_config: MagicMock, mock_registry: MagicMock
-    ) -> None:
-        """Config from maverick.yaml steps dict overrides defaults."""
-        from maverick.executor.config import StepConfig
-
-        override = StepConfig(timeout=999)
-        mock_config.steps = {"implement": override}
+    def test_resolve_step_config_uses_project_overrides(self, mock_config: MagicMock) -> None:
+        """Config from maverick.yaml actors block overrides defaults."""
+        mock_config.actors = {
+            "test-workflow": {
+                "implementer": {"timeout": 999},
+            },
+        }
 
         wf = _QuickstartWorkflow(
             config=mock_config,
-            registry=mock_registry,
             workflow_name="test-workflow",
         )
-        config = wf.resolve_step_config("implement")
+        config = wf.resolve_step_config("implement", agent_name="implementer")
         assert config.timeout == 999
 
 
 class TestQuickstartProgressEvents:
     """Verify emit_output() for informational messages."""
 
-    async def test_emit_output_info(
-        self, mock_config: MagicMock, mock_registry: MagicMock
-    ) -> None:
+    async def test_emit_output_info(self, mock_config: MagicMock) -> None:
         """emit_output() emits StepOutput at correct level."""
 
         class _OutputWorkflow(PythonWorkflow):
@@ -179,7 +171,6 @@ class TestQuickstartProgressEvents:
 
         wf = _OutputWorkflow(
             config=mock_config,
-            registry=mock_registry,
             workflow_name="test-workflow",
         )
         events = []
@@ -197,9 +188,7 @@ class TestQuickstartProgressEvents:
 class TestQuickstartRollback:
     """Verify register_rollback() pattern from quickstart.md."""
 
-    async def test_rollback_runs_on_failure(
-        self, mock_config: MagicMock, mock_registry: MagicMock
-    ) -> None:
+    async def test_rollback_runs_on_failure(self, mock_config: MagicMock) -> None:
         """Registered rollback executes when workflow fails."""
         rollback_called = False
 
@@ -218,7 +207,6 @@ class TestQuickstartRollback:
 
         wf = _RollbackWorkflow(
             config=mock_config,
-            registry=mock_registry,
             workflow_name="test-workflow",
         )
         events = []

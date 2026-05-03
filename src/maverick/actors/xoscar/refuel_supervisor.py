@@ -59,7 +59,7 @@ from maverick.events import (
     StepStarted,
 )
 from maverick.logging import get_logger
-from maverick.tools.agent_inbox.models import (
+from maverick.payloads import (
     SubmitContrarianBriefPayload,
     SubmitDetailsPayload,
     SubmitFixPayload,
@@ -393,7 +393,7 @@ class RefuelSupervisor(xo.Actor):
         # Seed outline from cache if pre-populated by workflow.
         cached_outline = self._inputs.initial_payload.get("outline")
         if isinstance(cached_outline, dict):
-            from maverick.tools.agent_inbox.models import (
+            from maverick.payloads import (
                 SupervisorToolPayloadError,
                 parse_supervisor_tool_payload,
             )
@@ -508,6 +508,7 @@ class RefuelSupervisor(xo.Actor):
             BeadCreatorActor,
             plan_name=plan_name,
             plan_objective=plan_objective,
+            cwd=self._inputs.cwd,
             address=self.address,
             uid=f"{self.uid.decode()}:bead-creator",
         )
@@ -886,6 +887,11 @@ class RefuelSupervisor(xo.Actor):
                 "success": beads_result.success,
                 "epic_id": beads_result.epic_id,
                 "bead_count": beads_result.bead_count,
+                "deps_wired": beads_result.deps_wired,
+                "epic": beads_result.epic,
+                "work_beads": list(beads_result.work_beads),
+                "created_map": dict(beads_result.created_map),
+                "dependencies": list(beads_result.dependencies),
                 "specs": self._specs,
                 "fix_rounds": self._fix_rounds,
                 "error": beads_result.error or None,

@@ -34,6 +34,7 @@ dependencies = [
     "click>=8.1.0,<9",
     "detect-secrets>=1.4,<2",
     "gitpython>=3.1,<4",
+    "httpx>=0.27,<1",
     "jinja2>=3.1.0,<4",
     "pydantic>=2.0,<3",
     "pydantic-settings>=2.0,<3",
@@ -46,8 +47,6 @@ dependencies = [
     "rich>=13.0,<14",
     "tiktoken>=0.8,<1",
     "unidiff>=0.7,<1",
-    "agent-client-protocol>=0.8.1,<1",
-    "mcp>=1.27.0",
     "xoscar==0.9.5",
 ]
 
@@ -82,6 +81,17 @@ dev = [
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/maverick"]
+# Bundle OpenCode persona profile (markdown agent definitions under
+# runtime/opencode/profile/) into the wheel. Hatchling auto-includes
+# files under the configured package, but only by default file
+# patterns; explicitly listing the markdown profile keeps it covered
+# even if the auto-discovery rules tighten in future hatchling
+# releases.
+include = [
+    "src/maverick/**/*.py",
+    "src/maverick/runtime/opencode/profile/**/*.md",
+    "src/maverick/runtime/opencode/profile/AGENTS.md",
+]
 
 [tool.ruff]
 line-length = 99
@@ -133,36 +143,6 @@ strict_equality = true
 [[tool.mypy.overrides]]
 module = "unidiff.*"
 ignore_missing_imports = true
-
-[[tool.mypy.overrides]]
-module = "claude_agent_sdk.*"
-ignore_missing_imports = true
-
-[[tool.mypy.overrides]]
-# Legacy tool modules using @tool decorator from claude_agent_sdk (removed in T051).
-# The decorator is typed via _sdk_stubs but Any-typed SDK import causes
-# untyped-decorator warnings on the decorated functions. Disable for these modules.
-module = [
-    "maverick.tools.notification",
-    "maverick.tools.validation",
-    "maverick.tools.git.tools.branch",
-    "maverick.tools.git.tools.commit",
-    "maverick.tools.git.tools.diff",
-    "maverick.tools.git.tools.push",
-    "maverick.tools.github.tools.diffs",
-    "maverick.tools.github.tools.issues",
-    "maverick.tools.github.tools.prs",
-]
-disallow_untyped_decorators = false
-
-[[tool.mypy.overrides]]
-# maverick.init.detector uses a top-level try/except ImportError to fall back
-# to _sdk_stubs when claude_agent_sdk is absent. While the SDK remains installed
-# in the dev environment, mypy analyses both branches and raises [assignment] /
-# [misc] on the stub fallbacks. These are harmless because the fallback branch
-# only executes when the SDK is uninstalled (ACP migration T051).
-module = "maverick.init.detector"
-ignore_errors = true
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

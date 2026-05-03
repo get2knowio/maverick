@@ -120,46 +120,23 @@ async def refuel(
         console.print()
         raise SystemExit(ExitCode.SUCCESS)
 
-    # Architecture A: refuel attaches to (or creates) the workspace and
-    # operates entirely inside it. Plans and beads live in the workspace
-    # until ``maverick land`` pushes them to the user repo.
-    from maverick.workspace.errors import WorkspaceError
-    from maverick.workspace.manager import WorkspaceManager
+    # Refuel runs in the user's checkout. ``maverick init`` runs
+    # ``jj git init --colocate`` so the cwd is always a jj+git repo,
+    # which means every jj-only action (jj_commit_bead, jj log, etc.)
+    # works without vcs detection. Bead commits and plan files land
+    # directly on the user's current branch.
+    cwd = Path.cwd().resolve()
 
-    user_repo = Path.cwd().resolve()
-    ws_manager = WorkspaceManager(user_repo_path=user_repo)
-    workspace_path: Path | None = None
-    workflow_cwd: str | None = None
-    try:
-        workspace_ctx = await ws_manager.find_or_create()
-        workspace_path = workspace_ctx.path
-        workflow_cwd = str(workspace_ctx.path)
-    except WorkspaceError as exc:
-        # Fall back to user cwd if workspace creation fails (e.g. not a
-        # real git repo, jj unavailable). Refuel still works against
-        # whatever directory the user is in.
-        from maverick.logging import get_logger
-
-        get_logger(__name__).debug(
-            "refuel_workspace_unavailable",
-            error=str(exc),
-            user_repo=str(user_repo),
-        )
-        workspace_path = user_repo
-
-    # Resolve flight_plan_path inside the workspace (or user repo if
-    # fallback). Absolute plans_dir overrides workspace resolution.
     plans_input = Path(plans_dir)
-    plans_base = plans_input if plans_input.is_absolute() else workspace_path / plans_input
+    plans_base = plans_input if plans_input.is_absolute() else cwd / plans_input
     flight_plan_path = plans_base / name / "flight-plan.md"
 
     workflow_inputs: dict[str, object] = {
         "flight_plan_path": str(flight_plan_path),
         "skip_briefing": skip_briefing,
         "auto_commit": auto_commit,
+        "cwd": str(cwd),
     }
-    if workflow_cwd is not None:
-        workflow_inputs["cwd"] = workflow_cwd
 
     await execute_python_workflow(
         ctx,
@@ -170,23 +147,12 @@ async def refuel(
         ),
     )
 
-    # Hermetic command exit ramp: commit the beads + work units in the
-    # workspace, push to the user repo, merge into the current branch,
-    # and tear the workspace down. Skipped when we fell back to
-    # operating in the user cwd (no workspace was created).
-    if workflow_cwd is not None:
-        await ws_manager.finalize(message=f"chore: refuel {name}")
-        from maverick.cli.common import resolve_publish_branch_label
-
-        branch_label = await resolve_publish_branch_label(user_repo)
-        console.print(f"[green]✓[/] Beads published to user repo (branch: {branch_label})")
-
     # Surface the "what next" command. The workflow writes the bd epic id
     # into ``.maverick/runs/<run_id>/metadata.json`` — read it back so the
-    # user doesn't have to dig for it (it's not the same as the plan name).
+    # user doesn't have to dig for it.
     from maverick.runway.run_metadata import find_latest_run
 
-    meta = find_latest_run(name)
+    meta = find_latest_run(name, base=cwd)
     if meta and meta.epic_id:
         console.print()
         console.print(f"[dim]Next:[/] [bold]maverick fly --epic {meta.epic_id}[/]")

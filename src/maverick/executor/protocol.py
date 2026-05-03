@@ -26,63 +26,60 @@ EventCallback = Callable[[Any], Coroutine[Any, Any, None]]
 
 @runtime_checkable
 class StepExecutor(Protocol):
-    """Provider-agnostic protocol for executing agent steps (FR-001).
+    """Provider-agnostic protocol for executing agent steps.
 
     A StepExecutor decouples workflow step execution from any specific AI
     provider. Implementations receive a prompt plus execution configuration
     and return a typed ExecutorResult.
 
     This protocol is async-only (Maverick async-first principle) and has no
-    dependencies on provider-specific packages. Alternative provider adapters
-    (OpenAI, local models, etc.) can implement this protocol without importing
-    maverick.agents or claude-agent-sdk.
+    dependencies on provider-specific packages. Alternative provider
+    adapters (OpenAI, local models, etc.) can implement this protocol
+    without importing :mod:`maverick.agents` or anything provider-specific.
+
+    The canonical entry point is :meth:`execute_named` — callers pass
+    the bundled persona name (e.g. ``"maverick.curator"``) plus the
+    per-call user prompt, and the implementation routes through the
+    OpenCode HTTP runtime.
 
     Lifecycle:
         Created once per workflow run, reused across all agent steps.
     """
 
-    async def execute(
+    async def execute_named(
         self,
         *,
-        step_name: str,
-        agent_name: str,
-        prompt: Any,
-        instructions: str | None = None,
-        allowed_tools: list[str] | None = None,
+        agent: str,
+        user_prompt: str,
+        step_name: str = "execute_named",
+        result_model: type[BaseModel] | None = None,
         cwd: Path | None = None,
-        output_schema: type[BaseModel] | None = None,
         config: StepConfig | None = None,
-        event_callback: EventCallback | None = None,
-        agent_kwargs: dict[str, Any] | None = None,
+        timeout: float | None = None,
     ) -> ExecutorResult:
-        """Execute an agent step and return a typed result.
+        """Execute a bundled OpenCode markdown persona and return a typed result.
 
         Args:
-            step_name: DSL step name for observability logging.
-            agent_name: Registered agent name (registry key or persona ID).
-            prompt: Provider-specific context/prompt. For Claude: rich Python
-                object (e.g. ImplementerContext). For generic providers: str.
-            instructions: Optional system instructions override. None = use
-                agent defaults.
-            allowed_tools: Optional tool list override. None = use agent defaults.
-            cwd: Working directory for file-system operations. None = cwd of
-                caller (not recommended; always pass explicit cwd in workspaces).
-            output_schema: Optional Pydantic BaseModel subclass for plain
-                text-response steps. When provided, agent output is validated
-                and ExecutorResult.output contains a validated instance on
-                success. Do not use this for MCP tool/mailbox responses.
-            config: Execution configuration (timeout, retry, model overrides).
-                None = use DEFAULT_EXECUTOR_CONFIG.
-            event_callback: Async callback for streaming events. When provided,
-                AgentStreamChunk events are forwarded in real-time as they arrive.
+            agent: Bundled persona name, e.g. ``"maverick.curator"``.
+            user_prompt: The per-call user message body (already templated
+                by the caller).
+            step_name: Logical step name used for logging and for titling
+                the OpenCode session.
+            result_model: Optional Pydantic model to force structured
+                output (``format=json_schema``). When ``None``, the
+                assistant's plain text is returned.
+            cwd: Optional working directory hint.
+            config: Execution configuration (timeout, retry, provider /
+                model overrides).
+            timeout: Per-call wallclock budget (seconds).
 
         Returns:
-            ExecutorResult with output, success status, usage, and events.
+            :class:`ExecutorResult` carrying either the validated payload
+            (when ``result_model`` was set) or the plain-text response.
 
         Raises:
-            OutputSchemaValidationError: Plain text agent output failed
-                output_schema validation.
-            ReferenceResolutionError: Agent not found in provider registry.
-            AgentError: Agent execution failed (wraps provider-specific errors).
+            OutputSchemaValidationError: ``result_model`` was set and the
+                response payload didn't validate.
+            AgentError: Agent execution failed.
         """
         ...

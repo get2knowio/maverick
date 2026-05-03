@@ -37,7 +37,6 @@ def test_help_lists_options() -> None:
     runner = CliRunner()
     result = runner.invoke(doctor, ["--help"])
     assert result.exit_code == 0
-    assert "providers-only" in result.output
     assert "Validate the local environment" in result.output
 
 
@@ -106,33 +105,6 @@ def test_runs_every_provider_even_when_one_fails() -> None:
     assert "returned no content" in result.output
     # Exit code reflects the failure.
     assert result.exit_code != 0
-
-
-def test_providers_only_skips_other_checks() -> None:
-    """``--providers-only`` should skip the run_preflight_checks call entirely."""
-    runner = CliRunner()
-    fake_config = MagicMock()
-    health_checks = [_make_health_check("claude", success=True)]
-
-    run_preflight_mock = AsyncMock()
-    with (
-        patch.dict("os.environ", {"NO_COLOR": "1"}),
-        patch(
-            "maverick.cli.commands.doctor.build_provider_health_checks",
-            return_value=health_checks,
-        ),
-        patch(
-            "maverick.cli.commands.doctor.run_preflight_checks",
-            new=run_preflight_mock,
-        ),
-    ):
-        result = runner.invoke(doctor, ["--providers-only"], obj={"config": fake_config})
-
-    assert result.exit_code == 0
-    run_preflight_mock.assert_not_awaited()
-    # No git/gh/jj rows in the output.
-    assert "GitHub CLI" not in result.output
-    assert "jj (Jujutsu)" not in result.output
 
 
 def test_no_config_skips_provider_checks_gracefully() -> None:

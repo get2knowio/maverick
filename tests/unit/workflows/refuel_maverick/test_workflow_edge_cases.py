@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -182,14 +183,13 @@ class TestErrorHandling:
     async def test_malformed_flight_plan_raises_clear_error(
         self,
         mock_config: MagicMock,
-        mock_registry: MagicMock,
         tmp_path: Path,
     ) -> None:
         """Flight plan parse error surfaces as workflow failure."""
         fp = tmp_path / "bad-plan.md"
         fp.write_text("This is not a valid flight plan YAML frontmatter.", encoding="utf-8")
 
-        workflow = make_workflow(mock_config, mock_registry)
+        workflow = make_workflow(mock_config)
 
         events, result = await collect_events(
             workflow,
@@ -205,10 +205,9 @@ class TestErrorHandling:
     async def test_missing_flight_plan_path_raises_workflow_error(
         self,
         mock_config: MagicMock,
-        mock_registry: MagicMock,
     ) -> None:
         """Missing flight_plan_path input raises WorkflowError."""
-        workflow = make_workflow(mock_config, mock_registry)
+        workflow = make_workflow(mock_config)
 
         with pytest.raises(WorkflowError, match="flight_plan_path"):
             async for _ in workflow.execute({}):
@@ -217,11 +216,10 @@ class TestErrorHandling:
     async def test_nonexistent_flight_plan_file_raises(
         self,
         mock_config: MagicMock,
-        mock_registry: MagicMock,
         tmp_path: Path,
     ) -> None:
         """Non-existent flight plan file path results in a failed workflow."""
-        workflow = make_workflow(mock_config, mock_registry)
+        workflow = make_workflow(mock_config)
 
         events, result = await collect_events(
             workflow,
@@ -237,13 +235,12 @@ class TestErrorHandling:
     async def test_circular_dependency_detected_before_bead_creation(
         self,
         mock_config: MagicMock,
-        mock_registry: MagicMock,
         tmp_path: Path,
     ) -> None:
         """Circular dependency detected and reported before bead creation."""
         fp = _make_flight_plan_file(tmp_path)
 
-        workflow = make_workflow(mock_config, mock_registry)
+        workflow = make_workflow(mock_config)
 
         with (
             patch_cwd(tmp_path),
@@ -260,19 +257,20 @@ class TestErrorHandling:
                     side_effect=WorkflowError("Circular dependency detected in decomposition")
                 ),
             ),
-            patch(f"{_MODULE}.create_beads") as mock_create,
         ):
+            # The supervisor raises before producing specs; we don't need
+            # to assert on a downstream bead-creation call site because
+            # the workflow no longer has one — the supervisor's
+            # ``BeadCreatorActor`` owns persistence, and that path never
+            # runs when the supervisor itself fails.
             with pytest.raises(WorkflowError, match="[Cc]ircular|[Dd]ependency|cycle"):
                 inputs = {"flight_plan_path": str(fp), "skip_briefing": True}
                 async for _ in workflow.execute(inputs):
                     pass
 
-            mock_create.assert_not_called()
-
     async def test_output_directory_cleared_before_writing(
         self,
         mock_config: MagicMock,
-        mock_registry: MagicMock,
         tmp_path: Path,
     ) -> None:
         """Pre-existing work unit files in output dir are cleared before new write."""
@@ -284,7 +282,7 @@ class TestErrorHandling:
         (work_units_dir / "001-old-unit.md").write_text("old content", encoding="utf-8")
         (work_units_dir / "002-another-old.md").write_text("another old", encoding="utf-8")
 
-        workflow = make_workflow(mock_config, mock_registry)
+        workflow = make_workflow(mock_config)
 
         with (
             patch_cwd(tmp_path),
@@ -294,15 +292,11 @@ class TestErrorHandling:
                     return_value=CodebaseContext(files=(), missing_files=(), total_size=0)
                 ),
             ),
-            patch(
-                f"{_MODULE}.create_beads",
-                new=AsyncMock(return_value=_make_bead_result(2)),
+            patch_decompose_supervisor(
+                _make_simple_decomp(2),
+                bead_result=_make_bead_result(2),
+                dep_result=_make_wire_result(),
             ),
-            patch(
-                f"{_MODULE}.wire_dependencies",
-                new=AsyncMock(return_value=_make_wire_result()),
-            ),
-            patch_decompose_supervisor(_make_simple_decomp(2)),
         ):
             await collect_events(
                 workflow,
@@ -317,7 +311,6 @@ class TestErrorHandling:
     async def test_empty_in_scope_produces_empty_codebase_context(
         self,
         mock_config: MagicMock,
-        mock_registry: MagicMock,
         tmp_path: Path,
     ) -> None:
         """Empty in_scope list produces empty CodebaseContext (no crash)."""
@@ -364,19 +357,15 @@ Test objective.
             ],
             rationale="Single unit",
         )
-        workflow = make_workflow(mock_config, mock_registry)
+        workflow = make_workflow(mock_config)
 
         with (
             patch_cwd(tmp_path),
-            patch(
-                f"{_MODULE}.create_beads",
-                new=AsyncMock(return_value=_make_bead_result(1)),
+            patch_decompose_supervisor(
+                decomp,
+                bead_result=_make_bead_result(1),
+                dep_result=_make_wire_result(),
             ),
-            patch(
-                f"{_MODULE}.wire_dependencies",
-                new=AsyncMock(return_value=_make_wire_result()),
-            ),
-            patch_decompose_supervisor(decomp),
         ):
             events, result = await collect_events(
                 workflow,
@@ -391,13 +380,12 @@ Test objective.
     async def test_agent_failure_after_retry_exhaustion(
         self,
         mock_config: MagicMock,
-        mock_registry: MagicMock,
         tmp_path: Path,
     ) -> None:
         """Agent failure after all retries are exhausted fails the workflow."""
         fp = _make_flight_plan_file(tmp_path)
 
-        workflow = make_workflow(mock_config, mock_registry)
+        workflow = make_workflow(mock_config)
 
         with (
             patch_cwd(tmp_path),
@@ -429,12 +417,36 @@ Test objective.
     async def test_bd_unavailability_fails_create_beads_step(
         self,
         mock_config: MagicMock,
-        mock_registry: MagicMock,
         tmp_path: Path,
     ) -> None:
-        """bd system unavailability fails the create_beads step."""
+        """bd system unavailability fails the supervisor's bead creation."""
         fp = _make_flight_plan_file(tmp_path)
-        workflow = make_workflow(mock_config, mock_registry)
+        workflow = make_workflow(mock_config)
+
+        # Simulate bd being unavailable by having the supervisor return a
+        # decomposition but no epic_id (mirrors the real failure path:
+        # ``BeadCreatorActor`` catches the bd error and returns
+        # ``BeadsCreatedResult(success=False, error=...)``, which the
+        # supervisor surfaces as ``epic_id=""`` in ctx).
+        async def _fake_supervisor(
+            self_: Any,
+            *args: Any,
+            ctx: dict[str, Any] | None = None,
+            **kwargs: Any,
+        ) -> Any:
+            from tests.unit.workflows.refuel_maverick.conftest import (
+                make_simple_decomposition_output,
+            )
+
+            if ctx is not None:
+                ctx["fix_rounds"] = 0
+                ctx["supervisor_epic"] = None
+                ctx["supervisor_epic_id"] = ""
+                ctx["supervisor_work_beads"] = []
+                ctx["supervisor_created_map"] = {}
+                ctx["supervisor_dependencies"] = []
+                ctx["supervisor_deps_wired"] = 0
+            return make_simple_decomposition_output()
 
         with (
             patch_cwd(tmp_path),
@@ -444,11 +456,9 @@ Test objective.
                     return_value=CodebaseContext(files=(), missing_files=(), total_size=0)
                 ),
             ),
-            # Skip the real xoscar decompose so we reach create_beads deterministically.
-            patch_decompose_supervisor(),
             patch(
-                f"{_MODULE}.create_beads",
-                new=AsyncMock(side_effect=RuntimeError("bd: command not found")),
+                f"{_MODULE}.RefuelMaverickWorkflow._run_with_xoscar",
+                new=_fake_supervisor,
             ),
         ):
             events, result = await collect_events(
@@ -472,14 +482,13 @@ class TestParallelGroups:
     async def test_parallel_groups_in_decomposition_output(
         self,
         mock_config: MagicMock,
-        mock_registry: MagicMock,
         tmp_path: Path,
     ) -> None:
         """Work units with parallel_group produce valid work unit files."""
         fp = _make_flight_plan_file(tmp_path)
 
         parallel_decomp = _make_parallel_decomp()
-        workflow = make_workflow(mock_config, mock_registry)
+        workflow = make_workflow(mock_config)
 
         with (
             patch_cwd(tmp_path),
@@ -489,15 +498,11 @@ class TestParallelGroups:
                     return_value=CodebaseContext(files=(), missing_files=(), total_size=0)
                 ),
             ),
-            patch(
-                f"{_MODULE}.create_beads",
-                new=AsyncMock(return_value=_make_bead_result(4)),
+            patch_decompose_supervisor(
+                parallel_decomp,
+                bead_result=_make_bead_result(4),
+                dep_result=_make_wire_result(),
             ),
-            patch(
-                f"{_MODULE}.wire_dependencies",
-                new=AsyncMock(return_value=_make_wire_result()),
-            ),
-            patch_decompose_supervisor(parallel_decomp),
         ):
             events, result = await collect_events(
                 workflow,
@@ -541,7 +546,6 @@ class TestParallelGroups:
     async def test_validate_step_result_contains_parallel_group_count(
         self,
         mock_config: MagicMock,
-        mock_registry: MagicMock,
         tmp_path: Path,
     ) -> None:
         """Parallel decomposition has named parallel groups in work units."""
@@ -557,14 +561,13 @@ class TestParallelGroups:
     async def test_parallel_groups_file_naming_uses_sequence(
         self,
         mock_config: MagicMock,
-        mock_registry: MagicMock,
         tmp_path: Path,
     ) -> None:
         """Work unit files in parallel groups use their sequence numbers for naming."""
         fp = _make_flight_plan_file(tmp_path)
 
         parallel_decomp = _make_parallel_decomp()
-        workflow = make_workflow(mock_config, mock_registry)
+        workflow = make_workflow(mock_config)
 
         with (
             patch_cwd(tmp_path),
@@ -574,15 +577,11 @@ class TestParallelGroups:
                     return_value=CodebaseContext(files=(), missing_files=(), total_size=0)
                 ),
             ),
-            patch(
-                f"{_MODULE}.create_beads",
-                new=AsyncMock(return_value=_make_bead_result(4)),
+            patch_decompose_supervisor(
+                parallel_decomp,
+                bead_result=_make_bead_result(4),
+                dep_result=_make_wire_result(),
             ),
-            patch(
-                f"{_MODULE}.wire_dependencies",
-                new=AsyncMock(return_value=_make_wire_result()),
-            ),
-            patch_decompose_supervisor(parallel_decomp),
         ):
             await collect_events(
                 workflow,

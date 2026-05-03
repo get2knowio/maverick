@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -27,6 +28,11 @@ from maverick.workflows.generate_flight_plan.workflow import (
 
 _MODULE = "maverick.workflows.generate_flight_plan.workflow"
 
+_REQUIRES_OPENCODE = pytest.mark.skipif(
+    shutil.which("opencode") is None,
+    reason="opencode binary not on PATH (CI environment)",
+)
+
 
 def _make_flight_plan_output(name: str = "test-plan") -> FlightPlanOutput:
     """Create a valid FlightPlanOutput for testing."""
@@ -46,12 +52,10 @@ def _make_flight_plan_output(name: str = "test-plan") -> FlightPlanOutput:
 
 def _make_workflow(
     mock_config: MagicMock,
-    mock_registry: MagicMock,
 ) -> GenerateFlightPlanWorkflow:
     """Create a GenerateFlightPlanWorkflow with mocked dependencies."""
     return GenerateFlightPlanWorkflow(
         config=mock_config,
-        registry=mock_registry,
         workflow_name=WORKFLOW_NAME,
     )
 
@@ -194,14 +198,13 @@ class TestGenerateFlightPlanWorkflowHappyPath:
     async def test_all_4_steps_execute(
         self,
         mock_config: MagicMock,
-        mock_registry: MagicMock,
         tmp_path: Path,
     ) -> None:
         """read_prd step produces a StepCompleted event (other steps run inside Thespian)."""
         plan_dir = tmp_path / "test-plan"
         supervisor_result = _make_supervisor_result(plan_dir)
 
-        workflow = _make_workflow(mock_config, mock_registry)
+        workflow = _make_workflow(mock_config)
         with patch.object(
             workflow,
             "_generate_with_xoscar",
@@ -224,14 +227,13 @@ class TestGenerateFlightPlanWorkflowHappyPath:
     async def test_workflow_started_event(
         self,
         mock_config: MagicMock,
-        mock_registry: MagicMock,
         tmp_path: Path,
     ) -> None:
         """Workflow emits WorkflowStarted at the beginning."""
         plan_dir = tmp_path / "test-plan"
         supervisor_result = _make_supervisor_result(plan_dir)
 
-        workflow = _make_workflow(mock_config, mock_registry)
+        workflow = _make_workflow(mock_config)
         with patch.object(
             workflow,
             "_generate_with_xoscar",
@@ -253,14 +255,13 @@ class TestGenerateFlightPlanWorkflowHappyPath:
     async def test_workflow_completed_event_success(
         self,
         mock_config: MagicMock,
-        mock_registry: MagicMock,
         tmp_path: Path,
     ) -> None:
         """Workflow emits WorkflowCompleted with success=True."""
         plan_dir = tmp_path / "test-plan"
         supervisor_result = _make_supervisor_result(plan_dir)
 
-        workflow = _make_workflow(mock_config, mock_registry)
+        workflow = _make_workflow(mock_config)
         with patch.object(
             workflow,
             "_generate_with_xoscar",
@@ -283,14 +284,13 @@ class TestGenerateFlightPlanWorkflowHappyPath:
     async def test_writes_flight_plan_file(
         self,
         mock_config: MagicMock,
-        mock_registry: MagicMock,
         tmp_path: Path,
     ) -> None:
         """Thespian actor system writes the flight plan file to disk."""
         plan_dir = tmp_path / "test-plan"
         supervisor_result = _make_supervisor_result(plan_dir)
 
-        workflow = _make_workflow(mock_config, mock_registry)
+        workflow = _make_workflow(mock_config)
         with patch.object(
             workflow,
             "_generate_with_xoscar",
@@ -315,14 +315,13 @@ class TestGenerateFlightPlanWorkflowHappyPath:
     async def test_result_contains_path(
         self,
         mock_config: MagicMock,
-        mock_registry: MagicMock,
         tmp_path: Path,
     ) -> None:
         """Workflow result includes the output path."""
         plan_dir = tmp_path / "test-plan"
         supervisor_result = _make_supervisor_result(plan_dir)
 
-        workflow = _make_workflow(mock_config, mock_registry)
+        workflow = _make_workflow(mock_config)
         with patch.object(
             workflow,
             "_generate_with_xoscar",
@@ -349,31 +348,28 @@ class TestGenerateFlightPlanWorkflowErrors:
     async def test_missing_prd_content_raises(
         self,
         mock_config: MagicMock,
-        mock_registry: MagicMock,
     ) -> None:
         """Missing prd_content input raises WorkflowError."""
-        workflow = _make_workflow(mock_config, mock_registry)
+        workflow = _make_workflow(mock_config)
         with pytest.raises(WorkflowError, match="prd_content"):
             await _collect_events(workflow, {"name": "test"})
 
     async def test_missing_name_raises(
         self,
         mock_config: MagicMock,
-        mock_registry: MagicMock,
     ) -> None:
         """Missing name input raises WorkflowError."""
-        workflow = _make_workflow(mock_config, mock_registry)
+        workflow = _make_workflow(mock_config)
         with pytest.raises(WorkflowError, match="name"):
             await _collect_events(workflow, {"prd_content": "Some PRD"})
 
     async def test_agent_returns_none_raises(
         self,
         mock_config: MagicMock,
-        mock_registry: MagicMock,
         tmp_path: Path,
     ) -> None:
         """Agent returning no output causes Thespian to report failure."""
-        workflow = _make_workflow(mock_config, mock_registry)
+        workflow = _make_workflow(mock_config)
         with patch.object(
             workflow,
             "_generate_with_xoscar",
@@ -393,29 +389,30 @@ class TestGenerateFlightPlanWorkflowErrors:
                 )
 
 
+@_REQUIRES_OPENCODE
 class TestGenerateFlightPlanWorkflowXoscarConfig:
     """Tests for config propagation into the xoscar PlanSupervisor."""
 
     async def test_xoscar_supervisor_receives_typed_inputs(
         self,
         mock_config: MagicMock,
-        mock_registry: MagicMock,
         tmp_path: Path,
     ) -> None:
         """PlanSupervisor gets PlanInputs carrying the generator's StepConfig
         and the resolved provider labels for the briefing Rich Live table."""
-        from maverick.config import AgentConfig, AgentProviderConfig
+        from maverick.config import AgentProviderConfig
 
-        mock_config.steps = {}
-        mock_config.agents = {
-            "scopist": AgentConfig(
-                provider="gemini",
-                model_id="gemini-3.1-pro-preview",
-            ),
-            "flight_plan_generator": AgentConfig(
-                provider="claude",
-                model_id="opus",
-            ),
+        mock_config.actors = {
+            "plan": {
+                "scopist": {
+                    "provider": "gemini",
+                    "model_id": "gemini-3.1-pro-preview",
+                },
+                "flight_plan_generator": {
+                    "provider": "claude",
+                    "model_id": "opus",
+                },
+            }
         }
         mock_config.agent_providers = {
             "claude": AgentProviderConfig(
@@ -429,7 +426,7 @@ class TestGenerateFlightPlanWorkflowXoscarConfig:
             ),
         }
 
-        workflow = _make_workflow(mock_config, mock_registry)
+        workflow = _make_workflow(mock_config)
 
         captured_inputs: dict[str, Any] = {}
 
@@ -483,7 +480,6 @@ class TestGenerateFlightPlanWorkflowXoscarConfig:
     async def test_briefing_configs_resolve_per_agent_from_actors_block(
         self,
         mock_config: MagicMock,
-        mock_registry: MagicMock,
         tmp_path: Path,
     ) -> None:
         """Each briefing agent gets its own StepConfig resolved through the
@@ -491,8 +487,6 @@ class TestGenerateFlightPlanWorkflowXoscarConfig:
         sharing claude/sonnet was caused by a single shared config."""
         from maverick.config import AgentProviderConfig
 
-        mock_config.steps = {}
-        mock_config.agents = {}
         mock_config.actors = {
             "plan": {
                 "scopist": {
@@ -524,7 +518,7 @@ class TestGenerateFlightPlanWorkflowXoscarConfig:
             ),
         }
 
-        workflow = _make_workflow(mock_config, mock_registry)
+        workflow = _make_workflow(mock_config)
         captured_inputs: dict[str, Any] = {}
 
         async def _fake_create_actor(_cls, *args: Any, **kwargs: Any) -> AsyncMock:

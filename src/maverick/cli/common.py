@@ -3,17 +3,12 @@ from __future__ import annotations
 import contextlib
 from collections.abc import Generator
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 from maverick.cli.console import err_console
 from maverick.cli.context import ExitCode
 from maverick.cli.output import format_error
 from maverick.exceptions import AgentError, GitError, MaverickError
-from maverick.library.agents import register_all_agents
 from maverick.logging import get_logger
-
-if TYPE_CHECKING:
-    from maverick.registry import ComponentRegistry
 
 
 @contextlib.contextmanager
@@ -104,58 +99,3 @@ def verify_bd_ready(cwd: Path | None = None) -> None:
             f"the workflow after init is a fast cache-hit pass.[/]"
         )
         raise SystemExit(ExitCode.FAILURE)
-
-
-def create_registered_registry(strict: bool = False) -> ComponentRegistry:
-    """Create a ComponentRegistry with all built-in components registered.
-
-    This function creates a new ComponentRegistry and registers all built-in
-    actions, agents, generators, context builders, and discovered workflows
-    so they can be resolved by workflows.
-
-    Args:
-        strict: If True, create registry in strict mode (reference resolution
-            errors will be raised immediately).
-
-    Returns:
-        ComponentRegistry with all built-in components and discovered
-        workflows registered.
-    """
-    from maverick.registry import ComponentRegistry
-
-    registry = ComponentRegistry(strict=strict)
-
-    # Register all built-in components
-    register_all_agents(registry)
-
-    return registry
-
-
-async def resolve_publish_branch_label(repo_path: Path) -> str:
-    """Return a human-readable label for the user repo's current branch.
-
-    Used by post-finalize CLI messages (``plan generate``, ``refuel``)
-    so the "published to user repo" line names the **destination
-    branch** the work landed on (typically ``main`` or a feature
-    branch) instead of the temporary ``maverick/<project>`` transport
-    bookmark, which has already been deleted by ``finalize`` by the
-    time the CLI prints.
-
-    Auto-detects jj vs git via :func:`create_vcs_repository`; falls back
-    to a generic ``"current branch"`` label if branch resolution raises
-    (detached HEAD, missing repo, etc.) so the success path never breaks
-    on a display concern.
-    """
-    from maverick.vcs.factory import create_vcs_repository
-
-    try:
-        repo = create_vcs_repository(repo_path)
-        branch = await repo.current_branch()
-    except Exception as exc:  # noqa: BLE001 — display concern, never break
-        get_logger(__name__).debug(
-            "publish_branch_resolve_failed",
-            repo_path=str(repo_path),
-            error=str(exc),
-        )
-        return "current branch"
-    return str(branch).strip() or "current branch"

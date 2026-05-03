@@ -13,6 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 __all__ = [
     "BeadOutcome",
+    "CostEntry",
     "FixAttemptRecord",
     "RunwayIndex",
     "RunwayPassage",
@@ -131,6 +132,59 @@ class FixAttemptRecord(BaseModel):
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> FixAttemptRecord:
         """Create FixAttemptRecord from dictionary."""
+        return cls.model_validate(data)
+
+
+class CostEntry(BaseModel):
+    """Episodic record of one OpenCode-routed model invocation.
+
+    Captured per send by ``OpenCodeAgentMixin._record_cost`` so workflow
+    runs can be aggregated for cost / token reporting without re-parsing
+    structlog files.
+
+    Attributes:
+        timestamp: ISO timestamp when the send completed.
+        actor: Logging tag for the originating actor (e.g.
+            ``"reviewer[fly-supervisor:reviewer]"``).
+        tier: Tier name resolved for this send (``"review"`` etc., or
+            ``"inline"`` when an explicit StepConfig override was used).
+        provider_id: OpenCode ``providerID`` from ``info.providerID``.
+        model_id: OpenCode ``modelID`` from ``info.modelID``.
+        cost_usd: Dollar cost from ``info.cost`` (None when the provider
+            doesn't surface cost).
+        input_tokens: ``info.tokens.input``.
+        output_tokens: ``info.tokens.output``.
+        cache_read_tokens: ``info.tokens.cache.read`` (provider cache hit
+            count — only Anthropic populates this today).
+        cache_write_tokens: ``info.tokens.cache.write``.
+        finish: OpenCode's ``info.finish`` (``"tool-calls"``,
+            ``"compaction"``, ``"error"``, ``"stop"``, etc.).
+        bead_id: Optional bead identifier when known from the workflow
+            context. Empty for non-bead-scoped sends.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    timestamp: str = Field(default_factory=lambda: datetime.now().isoformat())
+    actor: str = ""
+    tier: str = ""
+    provider_id: str | None = None
+    model_id: str | None = None
+    cost_usd: float | None = None
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
+    finish: str | None = None
+    bead_id: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        """Alias for ``model_dump()``."""
+        return self.model_dump()
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> CostEntry:
+        """Create CostEntry from dictionary."""
         return cls.model_validate(data)
 
 

@@ -107,7 +107,14 @@ async def test_committer_happy_path(pool_address: str) -> None:
         with (
             patch(
                 "maverick.library.actions.jj.jj_commit_bead",
-                new=AsyncMock(return_value={"success": True, "change_id": "abc123"}),
+                new=AsyncMock(
+                    return_value={
+                        "success": True,
+                        "message": "bead(bead-1) [round-1]: do stuff\n\nBead: bead-1",
+                        "change_id": "abc123",
+                        "error": None,
+                    }
+                ),
             ),
             patch(
                 "maverick.library.actions.beads.mark_bead_complete",
@@ -136,5 +143,80 @@ async def test_committer_reports_error(pool_address: str) -> None:
             result = await ref.commit(CommitRequest(bead_id="bead-1", title="nope", cwd="/tmp"))
         assert result.success is False
         assert "jj missing" in result.error
+    finally:
+        await xo.destroy_actor(ref)
+
+
+@pytest.mark.asyncio
+async def test_committer_does_not_mark_complete_when_commit_fails(
+    pool_address: str,
+) -> None:
+    """Regression: a failed commit must NOT close the bead in bd.
+
+    Before the fix, ``CommitterActor.commit`` called
+    ``mark_bead_complete`` unconditionally — so any commit failure
+    silently closed the bead. The next fly couldn't re-process it and
+    the only indication of trouble was a log line.
+    ``mark_bead_complete`` now runs only when ``jj_commit_bead``
+    reports ``success=True``.
+    """
+    ref = await xo.create_actor(
+        CommitterActor, address=pool_address, uid="committer-no-close-on-fail"
+    )
+    mark_complete = AsyncMock(return_value=None)
+    try:
+        with (
+            patch(
+                "maverick.library.actions.jj.jj_commit_bead",
+                new=AsyncMock(
+                    return_value={
+                        "success": False,
+                        "message": "irrelevant",
+                        "change_id": None,
+                        "error": "git commit failed: nothing to commit",
+                    }
+                ),
+            ),
+            patch(
+                "maverick.library.actions.beads.mark_bead_complete",
+                new=mark_complete,
+            ),
+        ):
+            result = await ref.commit(
+                CommitRequest(bead_id="bead-X", title="t", cwd="/tmp", tag=None)
+            )
+        assert result.success is False
+        assert "nothing to commit" in result.error
+        mark_complete.assert_not_awaited()
+    finally:
+        await xo.destroy_actor(ref)
+
+
+@pytest.mark.asyncio
+async def test_committer_includes_bead_trailer(pool_address: str) -> None:
+    """Regression: the per-bead commit message must carry the
+    ``Bead: <id>`` git trailer (see ``build_bead_commit_message``
+    in ``workflows.fly_beads._commit``). Mirrors the same trailer the
+    legacy in-process commit path emits."""
+    ref = await xo.create_actor(CommitterActor, address=pool_address, uid="committer-trailer")
+    captured: dict[str, str] = {}
+
+    async def _capture(message: str = "", cwd: object = None) -> dict[str, object]:
+        captured["message"] = message
+        return {"success": True, "message": message, "change_id": "x", "error": None}
+
+    try:
+        with (
+            patch(
+                "maverick.library.actions.jj.jj_commit_bead",
+                new=AsyncMock(side_effect=_capture),
+            ),
+            patch(
+                "maverick.library.actions.beads.mark_bead_complete",
+                new=AsyncMock(return_value=None),
+            ),
+        ):
+            await ref.commit(CommitRequest(bead_id="B-7", title="do thing", cwd="/tmp", tag=None))
+        assert captured["message"] == "bead(B-7): do thing\n\nBead: B-7"
     finally:
         await xo.destroy_actor(ref)

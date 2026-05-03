@@ -52,6 +52,7 @@ def mock_config() -> MagicMock:
     cfg.steps = {}
     cfg.agents = {}
     cfg.actors = {}
+    cfg.agent_providers = {}
     cfg.model = ModelConfig()
     # Real ParallelConfig — workflows now read parallel.* knobs at runtime
     # (decomposer_pool_size, max_briefing_agents, max_parallel_reviewers).
@@ -60,22 +61,12 @@ def mock_config() -> MagicMock:
 
 
 @pytest.fixture
-def mock_registry() -> MagicMock:
-    """Return a MagicMock ComponentRegistry."""
-    from maverick.registry import ComponentRegistry
-
-    return MagicMock(spec=ComponentRegistry)
-
-
-@pytest.fixture
 def concrete_workflow(
     mock_config: MagicMock,
-    mock_registry: MagicMock,
 ) -> Any:
     """Return a ConcreteTestWorkflow with default no-op _run behaviour."""
     ConcreteTestWorkflow = _make_concrete_workflow_class()
     return ConcreteTestWorkflow(
         config=mock_config,
-        registry=mock_registry,
         workflow_name="test-workflow",
     )

@@ -1,16 +1,16 @@
 """Typed request/response envelopes for xoscar actors.
 
 These frozen dataclasses are the supervisor-to-agent typed-request and
-deterministic-actor result surfaces. Inbound MCP tool payloads are
-already Pydantic-typed in ``src/maverick/tools/agent_inbox/models.py``
-(``SubmitOutlinePayload`` et al.) — agents pass those objects straight
-through to the supervisor's typed domain methods rather than
-redefining them here.
+deterministic-actor result surfaces. Structured-output payloads
+returned by mailbox actors are already Pydantic-typed in
+:mod:`maverick.payloads` (``SubmitOutlinePayload`` et al.) — agents
+pass those objects straight through to the supervisor's typed domain
+methods rather than redefining them here.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 # ---------------------------------------------------------------------------
@@ -121,6 +121,10 @@ class BeadsCreatedResult:
     bead_count: int = 0
     deps_wired: int = 0
     error: str = ""
+    epic: dict[str, Any] | None = None
+    work_beads: tuple[dict[str, Any], ...] = ()
+    created_map: dict[str, str] = field(default_factory=dict)
+    dependencies: tuple[dict[str, Any], ...] = ()
 
 
 # ---------------------------------------------------------------------------

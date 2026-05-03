@@ -43,12 +43,12 @@ from maverick.init.models import (
     ValidationCommands,
     resolve_model_id,
 )
-from maverick.init.prereqs import verify_prerequisites
-from maverick.init.provider_discovery import (
-    PROVIDER_PREFERENCE_ORDER,
-    ProviderDiscoveryResult,
-    ProviderProbeResult,
+from maverick.init.opencode_discovery import (
+    ConnectedProvider,
+    OpenCodeDiscoveryResult,
+    discover_opencode_providers,
 )
+from maverick.init.prereqs import verify_prerequisites
 from maverick.logging import get_logger
 
 __all__ = [
@@ -56,6 +56,7 @@ __all__ = [
     "run_init",
     "parse_git_remote",
     "resolve_model_id",
+    "discover_opencode_providers",
     # Enums
     "ProjectType",
     "DetectionConfidence",
@@ -64,7 +65,6 @@ __all__ = [
     "MARKER_FILE_MAP",
     "VALIDATION_DEFAULTS",
     "PYTHON_DEFAULTS",
-    "PROVIDER_PREFERENCE_ORDER",
     # Dataclasses
     "ProjectMarker",
     "ValidationCommands",
@@ -73,8 +73,8 @@ __all__ = [
     "ProjectDetectionResult",
     "InitPreflightResult",
     "InitResult",
-    "ProviderProbeResult",
-    "ProviderDiscoveryResult",
+    "ConnectedProvider",
+    "OpenCodeDiscoveryResult",
     # Pydantic models
     "InitGitHubConfig",
     "InitValidationConfig",
@@ -242,6 +242,63 @@ def _sanitize_bd_prefix(name: str) -> str:
     return cleaned
 
 
+async def _ensure_jj_colocated(project_path: Path, verbose: bool) -> bool:
+    """Run ``jj git init --colocate`` in the user's checkout if ``.jj/``
+    is missing.
+
+    Default-on, no opt-out: every maverick-managed git repo becomes
+    jj-colocated at init time. The interim short-term workflow model
+    relies on ``jj workspace add`` for per-invocation isolation, which
+    requires the user repo to be a jj repo. Colocation is additive —
+    ``.jj/`` lives alongside ``.git/`` and the user's existing git
+    workflow keeps working unchanged.
+
+    Idempotent. No-op when:
+    - ``.jj/`` already exists
+    - ``.git/`` doesn't exist (the user's directory isn't a git repo,
+      so there's nothing to bind to — leave it alone)
+
+    Returns True when the repo ended up colocated, False on a
+    best-effort failure (logged, not raised). Init treats colocate
+    failures as soft — the rest of init still runs, but downstream
+    workflows will fail when they try ``jj workspace add``.
+    """
+    if not (project_path / ".git").exists():
+        if verbose:
+            logger.info(
+                "jj_colocate_skipped",
+                reason="no_git_dir",
+                project_path=str(project_path),
+            )
+        return False
+
+    if (project_path / ".jj").exists():
+        if verbose:
+            logger.info(
+                "jj_colocate_already_present",
+                project_path=str(project_path),
+            )
+        return True
+
+    from maverick.jj.client import JjClient
+    from maverick.jj.errors import JjError
+
+    client = JjClient(cwd=project_path)
+    try:
+        await client.git_init(colocate=True)
+    except JjError as exc:
+        logger.warning(
+            "jj_colocate_failed",
+            project_path=str(project_path),
+            error=str(exc),
+        )
+        return False
+
+    if verbose:
+        logger.info("jj_colocated", project_path=str(project_path))
+    return True
+
+
 async def _init_beads(project_path: Path, verbose: bool) -> bool:
     """Initialize beads via :meth:`BeadClient.init_or_bootstrap`.
 
@@ -312,6 +369,19 @@ async def _init_beads(project_path: Path, verbose: bool) -> bool:
     except BeadLifecycleError as exc:
         raise InitError(str(exc)) from exc
 
+    # bd init auto-sets ``sync.remote`` in ``.beads/config.yaml`` to whatever
+    # git remote it detects, intending to enable bd's federated dolt-sync.
+    # Maverick uses bd as a backing store, not a federated tracker — and a
+    # configured ``sync.remote`` is exactly what makes ``bd bootstrap`` (in
+    # the workspace, on every fresh clone) prefer cloning stale Dolt history
+    # from GitHub over importing the canonical local issues.jsonl. That
+    # produces a workspace dolt with a fresh internal ``_project_id`` that
+    # mismatches the cloned ``metadata.json``, and every subsequent bd
+    # call fails the workspace-identity check. Stripping the line at init
+    # time, in the user repo, prevents the whole class of bug at the
+    # source instead of papering over it later.
+    _strip_bd_sync_remote(project_path / ".beads" / "config.yaml", verbose)
+
     if verbose:
         if action is LifecycleAction.BOOTSTRAP:
             logger.info(
@@ -331,6 +401,65 @@ async def _init_beads(project_path: Path, verbose: bool) -> bool:
                 path=str(project_path / ".beads"),
             )
     return True
+
+
+def _strip_bd_sync_remote(config_path: Path, verbose: bool) -> None:
+    """Remove any active ``sync.remote:`` line from ``.beads/config.yaml``.
+
+    Maverick doesn't use bd's federated dolt-sync; we want bd to operate
+    against a single local store and let git carry ``.beads/issues.jsonl``
+    as the cross-clone source of truth. Leaving ``sync.remote`` set
+    causes ``bd bootstrap`` (which Maverick's hidden workspaces run on
+    every fresh clone) to take its highest-priority path: clone Dolt
+    history from the configured remote, rather than import from
+    ``issues.jsonl``. The cloned dolt usually has its own internal
+    ``_project_id``, mismatching the cloned ``metadata.json``, and bd
+    refuses every subsequent command.
+
+    Edits the line *out* (rather than commenting it) — this is bd's own
+    config file in the user repo, not a workspace shim, and we own the
+    decision: federation is off, full stop. Idempotent. No-op when the
+    file is missing or the key is absent.
+
+    Best-effort: failures are logged but never raised. The user repo
+    remains usable; the bug will surface later in workspace bootstrap
+    if this didn't take.
+    """
+    if not config_path.is_file():
+        return
+    try:
+        text = config_path.read_text(encoding="utf-8")
+    except OSError as exc:
+        logger.debug(
+            "bd_sync_remote_strip_read_failed",
+            path=str(config_path),
+            error=str(exc),
+        )
+        return
+
+    new_lines: list[str] = []
+    changed = False
+    for line in text.splitlines(keepends=True):
+        if line.lstrip().startswith("sync.remote:"):
+            changed = True
+            continue
+        new_lines.append(line)
+
+    if not changed:
+        return
+
+    try:
+        config_path.write_text("".join(new_lines), encoding="utf-8")
+    except OSError as exc:
+        logger.debug(
+            "bd_sync_remote_strip_write_failed",
+            path=str(config_path),
+            error=str(exc),
+        )
+        return
+
+    if verbose:
+        logger.info("bd_sync_remote_stripped", path=str(config_path))
 
 
 # =============================================================================
@@ -462,6 +591,92 @@ async def _ensure_gitignore_entries(project_path: Path, verbose: bool) -> bool:
         return False
 
 
+async def _untrack_bd_local_state(project_path: Path, verbose: bool) -> bool:
+    """Untrack bd state files that bd's own ``.beads/.gitignore`` marks as
+    local-only.
+
+    bd's stock template puts ``backup/`` and ``interactions.jsonl`` (among
+    others) in its gitignore — they're per-machine ephemera. But early
+    Maverick runs (or aggressive ``git add -A`` calls) bundled them into
+    user-repo commits before the gitignore took effect. Once tracked,
+    git keeps tracking them, and every workspace clone inherits stale
+    state that derails bd bootstrap — most visibly, ``bd bootstrap``
+    chooses the "restore from backup" code path over the JSONL-import
+    path, hits a half-initialized embedded dolt, and fails with
+    ``database 'beads' already exists``.
+
+    Running ``git rm --cached`` once per file fixes the symptom for
+    all future workspace clones. The files stay on disk; only the
+    git index loses them. The user sees a staged deletion in
+    ``git status`` and commits at their convenience.
+
+    Conservative scope: only files / directories that bd's own
+    template gitignores AND that are observed to break workspace
+    bootstrap. Not a wholesale "clean every gitignored bd file" sweep.
+
+    Idempotent. No-op if a path is already untracked, ``.git`` is
+    missing, or git invocations fail. Best-effort.
+
+    Returns:
+        True when all targeted paths ended up untracked (or already
+        were); False on error.
+    """
+    if not (project_path / ".git").exists():
+        return True
+
+    from maverick.runners.command import CommandRunner
+
+    runner = CommandRunner()
+    targets = (".beads/backup",)
+    success = True
+
+    for target in targets:
+        # Check if anything under target is tracked. ``ls-files`` returns
+        # exit 0 with empty stdout when nothing matches — we want to skip
+        # the rm only when nothing is tracked.
+        try:
+            check = await runner.run(
+                ["git", "ls-files", target],
+                cwd=project_path,
+            )
+        except OSError as exc:
+            logger.debug("bd_local_state_check_failed", target=target, error=str(exc))
+            success = False
+            continue
+
+        if not check.success or not check.stdout.strip():
+            continue
+
+        try:
+            rm = await runner.run(
+                ["git", "rm", "--cached", "-r", target],
+                cwd=project_path,
+            )
+        except OSError as exc:
+            logger.debug("bd_local_state_untrack_failed", target=target, error=str(exc))
+            success = False
+            continue
+
+        if not rm.success:
+            logger.debug(
+                "bd_local_state_untrack_failed",
+                target=target,
+                stderr=rm.stderr.strip(),
+                returncode=rm.returncode,
+            )
+            success = False
+            continue
+
+        if verbose:
+            logger.info(
+                "bd_local_state_untracked",
+                target=target,
+                path=str(project_path / target),
+            )
+
+    return success
+
+
 # =============================================================================
 # Provider Discovery (best-effort)
 # =============================================================================
@@ -469,33 +684,22 @@ async def _ensure_gitignore_entries(project_path: Path, verbose: bool) -> bool:
 
 async def _maybe_discover_providers(
     verbose: bool,
-) -> ProviderDiscoveryResult | None:
-    """Discover ACP providers on PATH.
+) -> OpenCodeDiscoveryResult | None:
+    """Discover providers connected to the OpenCode runtime.
 
-    Best-effort: errors are logged but never raised.
-
-    Args:
-        verbose: Whether to log progress.
-
-    Returns:
-        Discovery result, or None if discovery failed.
+    Spawns ``opencode serve``, hits ``GET /provider``, and returns the
+    ``connected[]`` providers. Best-effort: failures are logged but
+    never raised.
     """
-    try:
-        from maverick.init.provider_discovery import discover_providers
-
-        result = await discover_providers()
-        if verbose:
-            found = [p.name for p in result.found_providers]
-            logger.info(
-                "providers_discovered",
-                found=found,
-                default=result.default_provider,
-                duration_ms=result.duration_ms,
-            )
-        return result
-    except Exception as exc:
-        logger.debug("provider_discovery_error", error=str(exc))
-        return None
+    result = await discover_opencode_providers()
+    if result is not None and verbose:
+        logger.info(
+            "providers_discovered",
+            connected=[p.provider_id for p in result.providers],
+            default=result.default_provider_id,
+            duration_ms=result.duration_ms,
+        )
+    return result
 
 
 # =============================================================================
@@ -507,29 +711,24 @@ async def run_init(
     *,
     project_path: Path | None = None,
     type_override: ProjectType | None = None,
-    use_claude: bool = True,
     force: bool = False,
     verbose: bool = False,
-    model_id: str | None = None,
-    skip_providers: bool = False,
 ) -> InitResult:
     """Execute maverick init workflow.
 
     Orchestrates the complete init workflow:
-    1. Verify prerequisites (git, gh, API key, etc.)
+    1. Verify prerequisites (git, gh, etc.)
     2. Parse git remote information
-    3. Detect project type (with Claude or markers only)
-    4. Generate configuration
-    5. Write maverick.yaml
+    3. Detect project type from marker files
+    4. Discover OpenCode-connected providers via ``GET /provider``
+    5. Generate configuration
+    6. Write maverick.yaml
 
     Args:
         project_path: Path to project root. Defaults to cwd.
         type_override: Force specific project type (skips detection).
-        use_claude: Use Claude for detection (False = marker-only).
         force: Overwrite existing config file.
         verbose: Enable verbose output.
-        model_id: Claude model ID to use in config. Defaults to latest sonnet.
-        skip_providers: Skip ACP provider discovery.
 
     Returns:
         InitResult with complete execution state. When ``maverick.yaml``
@@ -614,9 +813,11 @@ async def run_init(
                 reason="config_exists_and_force_false",
                 config_path=str(config_path),
             )
+        await _ensure_jj_colocated(effective_path, verbose)
         beads_initialized = await _init_beads(effective_path, verbose)
         runway_initialized = await _maybe_init_runway(effective_path, verbose)
         await _ensure_gitignore_entries(effective_path, verbose)
+        await _untrack_bd_local_state(effective_path, verbose)
         return InitResult(
             success=True,
             config_path=str(config_path),
@@ -647,29 +848,11 @@ async def run_init(
             validation_commands=ValidationCommands.for_project_type(type_override),
             detection_method="override",
         )
-    elif use_claude:
-        # Use Claude for detection
-        if verbose:
-            logger.info("detecting_with_claude")
-        detection = await detect_project_type(
-            effective_path,
-            use_claude=True,
-        )
-        if verbose:
-            logger.info(
-                "detection_complete",
-                primary_type=detection.primary_type.value,
-                confidence=detection.confidence.value,
-                method=detection.detection_method,
-            )
     else:
-        # Marker-only detection (no Claude)
+        # Marker-based detection (the only path post-OpenCode-substrate)
         if verbose:
             logger.info("detecting_with_markers")
-        detection = await detect_project_type(
-            effective_path,
-            use_claude=False,
-        )
+        detection = await detect_project_type(effective_path)
         if verbose:
             logger.info(
                 "detection_complete",
@@ -678,17 +861,14 @@ async def run_init(
                 method=detection.detection_method,
             )
 
-    # Step 3.5: Discover ACP providers (best-effort)
-    provider_discovery: ProviderDiscoveryResult | None = None
-    if not skip_providers:
-        provider_discovery = await _maybe_discover_providers(verbose)
+    # Step 3.5: Discover OpenCode-connected providers (best-effort)
+    provider_discovery: OpenCodeDiscoveryResult | None = await _maybe_discover_providers(verbose)
 
     # Step 4: Generate configuration
     config = generate_config(
         git_info=git_info,
         detection=detection,
         project_type=type_override,  # Pass override if specified
-        model_id=model_id,  # Pass model ID if specified
         provider_discovery=provider_discovery,
     )
 
@@ -701,6 +881,9 @@ async def run_init(
     if verbose:
         logger.info("config_written", config_path=str(config_path))
 
+    # Step 5b: Colocate jj+git (default-on, no opt-out). Idempotent.
+    await _ensure_jj_colocated(effective_path, verbose)
+
     # Step 6: Initialize beads (required — refuel and fly depend on bd)
     beads_initialized = await _init_beads(effective_path, verbose)
 
@@ -710,6 +893,7 @@ async def run_init(
     # Step 8: Make sure .gitignore covers maverick's ephemeral output
     # (best-effort — never blocks init).
     await _ensure_gitignore_entries(effective_path, verbose)
+    await _untrack_bd_local_state(effective_path, verbose)
 
     # Build and return result
     return InitResult(

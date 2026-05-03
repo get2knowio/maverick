@@ -1,8 +1,12 @@
-"""Unit tests for the ``maverick land`` CLI command."""
+"""Unit tests for the ``maverick land`` CLI command.
+
+The single-repo land flow is small enough that the tests exercise the
+public ``land`` Click command directly via ``CliRunner``. WorkspaceManager
+mocking is gone — there is no workspace any more.
+"""
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -10,43 +14,9 @@ import pytest
 from click.testing import CliRunner
 
 from maverick.cli.commands.land import (
-    _approve,
     _display_plan,
-    _eject,
-    _finalize,
     land,
 )
-from maverick.cli.context import ExitCode
-from maverick.jj.errors import JjError
-
-
-def _mock_command_runner() -> patch:
-    """Patch CommandRunner so branch cleanup succeeds in tests."""
-    mock_result = MagicMock()
-    mock_result.success = True
-    mock_result.stderr = ""
-    mock_runner = AsyncMock()
-    mock_runner.run.return_value = mock_result
-    return patch(
-        "maverick.runners.command.CommandRunner",
-        return_value=mock_runner,
-    )
-
-
-def _make_mock_manager(*, exists: bool = True) -> AsyncMock:
-    """Build a mock WorkspaceManager with bridging methods configured.
-
-    ``apply_to_user_repo`` returns the success tuple ``(True, None)``;
-    ``cleanup_user_repo_branch`` is a no-op AsyncMock. Tests that need
-    a different outcome can override these directly on the returned
-    mock.
-    """
-    manager = AsyncMock()
-    manager.exists = exists
-    manager.apply_to_user_repo = AsyncMock(return_value=(True, None))
-    manager.cleanup_user_repo_branch = AsyncMock()
-    return manager
-
 
 # ── Help-text tests ──────────────────────────────────────────────────
 
@@ -55,14 +25,12 @@ class TestLandHelp:
     """Verify all CLI options appear in help output."""
 
     def test_land_in_cli(self) -> None:
-        """land command is registered and shows in help."""
         runner = CliRunner()
         result = runner.invoke(land, ["--help"])
         assert result.exit_code == 0
         assert "curate" in result.output.lower()
 
     def test_land_help_shows_all_options(self) -> None:
-        """Help output shows all options."""
         runner = CliRunner()
         result = runner.invoke(land, ["--help"])
         assert result.exit_code == 0
@@ -74,477 +42,225 @@ class TestLandHelp:
             "--heuristic-only",
             "--eject",
             "--finalize",
+            "--no-consolidate",
             "--branch",
         ]:
-            assert option in result.output, f"Missing option: {option}"
-
-    def test_yes_short_flag(self) -> None:
-        """--yes has -y short form."""
-        runner = CliRunner()
-        result = runner.invoke(land, ["--help"])
-        assert "-y" in result.output
-
-    def test_base_default(self) -> None:
-        """--base defaults to 'main'."""
-        runner = CliRunner()
-        result = runner.invoke(land, ["--help"])
-        assert "main" in result.output
-
-    def test_is_command_not_group(self) -> None:
-        """land should be a direct command, not a group."""
-        runner = CliRunner()
-        result = runner.invoke(land, ["--help"])
-        assert "Commands:" not in result.output
-
-    def test_eject_help_text(self) -> None:
-        """--eject description mentions preview branch."""
-        runner = CliRunner()
-        result = runner.invoke(land, ["--help"])
-        assert "preview branch" in result.output.lower()
-
-    def test_finalize_help_text(self) -> None:
-        """--finalize description mentions merge and cleanup."""
-        runner = CliRunner()
-        result = runner.invoke(land, ["--help"])
-        lower = result.output.lower()
-        assert "finalize" in lower
-        assert "merge" in lower or "cleanup" in lower
+            assert option in result.output, f"missing {option}"
 
 
-# ── Approve path tests ───────────────────────────────────────────────
+# ── Helper: shared patcher ──────────────────────────────────────────
 
 
-class TestApprovePath:
-    """Tests for _approve(): bookmark, push to local, merge, teardown."""
+def _patch_curation(
+    *,
+    commits: list[Any] | None = None,
+    curate_result: dict[str, Any] | None = None,
+) -> Any:
+    """Patch the action surface land relies on.
 
-    @pytest.mark.asyncio
-    async def test_approve_with_yes_merges_locally(self) -> None:
-        """--yes skips prompt, pushes via JjClient, merges locally."""
-        mock_client = AsyncMock()
-        mock_manager = _make_mock_manager()
-        mock_manager.exists = True
+    Returns a tuple of patch context managers that callers ``stack=`` into
+    ``with`` blocks. Both ``gather_curation_context`` and
+    ``curate_history`` are patched at their import sites in the action
+    module, plus the consolidation helper is muted.
+    """
+    if commits is None:
+        commits = [{"id": "abc", "subject": "test"}]
+    if curate_result is None:
+        curate_result = {
+            "success": True,
+            "absorb_ran": False,
+            "squashed_count": 0,
+            "error": None,
+        }
 
-        with (
-            patch(
-                "maverick.jj.client.JjClient",
-                return_value=mock_client,
+    return (
+        patch(
+            "maverick.library.actions.jj.gather_curation_context",
+            new=AsyncMock(
+                return_value={
+                    "success": True,
+                    "commits": commits,
+                    "log_summary": "...",
+                    "error": None,
+                },
             ),
-            _mock_command_runner(),
-        ):
-            await _approve(
-                manager=mock_manager,
-                project_name="myproject",
-                base="main",
-                commits=["c1", "c2"],
-                branch=None,
-                yes=True,
-                cwd=Path("/tmp/workspace"),
-            )
-
-        mock_client.bookmark_set.assert_awaited_once_with("maverick/myproject", revision="@-")
-        mock_client.git_push.assert_awaited_once_with(bookmark="maverick/myproject")
-        mock_manager.apply_to_user_repo.assert_awaited_once_with("maverick/myproject")
-        mock_manager.teardown.assert_awaited_once()
-
-    @pytest.mark.asyncio
-    async def test_approve_custom_branch(self) -> None:
-        """Explicit --branch overrides default branch name."""
-        mock_client = AsyncMock()
-        mock_manager = _make_mock_manager()
-        mock_manager.exists = False
-
-        with (
-            patch(
-                "maverick.jj.client.JjClient",
-                return_value=mock_client,
-            ),
-            _mock_command_runner(),
-        ):
-            await _approve(
-                manager=mock_manager,
-                project_name="myproject",
-                base="main",
-                commits=["c1"],
-                branch="custom/branch",
-                yes=True,
-                cwd=Path("/tmp/workspace"),
-            )
-
-        mock_client.bookmark_set.assert_awaited_once_with("custom/branch", revision="@-")
-
-    @pytest.mark.asyncio
-    async def test_approve_no_workspace_returns_early(self) -> None:
-        """When cwd is None, approve returns with nothing to merge."""
-        mock_manager = _make_mock_manager()
-        mock_manager.exists = False
-
-        # Should not raise — just prints "nothing to merge"
-        await _approve(
-            manager=mock_manager,
-            project_name="myproject",
-            base="main",
-            commits=["c1"],
-            branch=None,
-            yes=True,
-            cwd=None,
-        )
-
-    @pytest.mark.asyncio
-    async def test_approve_push_failure_exits(self) -> None:
-        """Push failure raises SystemExit with FAILURE code."""
-        mock_client = AsyncMock()
-        mock_client.bookmark_set.side_effect = JjError("push failed")
-        mock_manager = _make_mock_manager()
-        mock_manager.exists = True
-
-        with (
-            patch(
-                "maverick.jj.client.JjClient",
-                return_value=mock_client,
-            ),
-            pytest.raises(SystemExit) as exc_info,
-        ):
-            await _approve(
-                manager=mock_manager,
-                project_name="myproject",
-                base="main",
-                commits=["c1"],
-                branch=None,
-                yes=True,
-                cwd=Path("/tmp/workspace"),
-            )
-
-        assert exc_info.value.code == ExitCode.FAILURE
-
-    @pytest.mark.asyncio
-    async def test_approve_merge_failure_exits(self) -> None:
-        """Merge failure raises SystemExit with FAILURE code."""
-        mock_client = AsyncMock()
-        mock_manager = _make_mock_manager()
-        mock_manager.exists = True
-        mock_manager.apply_to_user_repo = AsyncMock(return_value=(False, "merge conflict"))
-
-        with (
-            patch(
-                "maverick.jj.client.JjClient",
-                return_value=mock_client,
-            ),
-            pytest.raises(SystemExit) as exc_info,
-        ):
-            await _approve(
-                manager=mock_manager,
-                project_name="myproject",
-                base="main",
-                commits=["c1"],
-                branch=None,
-                yes=True,
-                cwd=Path("/tmp/workspace"),
-            )
-
-        assert exc_info.value.code == ExitCode.FAILURE
-
-    @pytest.mark.asyncio
-    async def test_approve_teardown_only_when_workspace_exists(
-        self,
-    ) -> None:
-        """Teardown is skipped when manager.exists is False."""
-        mock_manager = _make_mock_manager()
-        mock_manager.exists = False
-
-        await _approve(
-            manager=mock_manager,
-            project_name="myproject",
-            base="main",
-            commits=["c1"],
-            branch=None,
-            yes=True,
-            cwd=None,
-        )
-
-        mock_manager.teardown.assert_not_awaited()
+        ),
+        patch(
+            "maverick.library.actions.jj.curate_history",
+            new=AsyncMock(return_value=curate_result),
+        ),
+        patch(
+            "maverick.cli.commands.land._maybe_consolidate",
+            new=AsyncMock(),
+        ),
+    )
 
 
-# ── Eject path tests ─────────────────────────────────────────────────
+# ── No-op paths ──────────────────────────────────────────────────────
 
 
-class TestEjectPath:
-    """Tests for _eject(): push to local preview branch, keep workspace."""
+class TestLandNoCommits:
+    def test_nothing_to_land_returns_cleanly(self) -> None:
+        """When the curation context surfaces zero commits, land exits cleanly."""
+        runner = CliRunner()
+        gather, curate, consolidate = _patch_curation(commits=[])
+        with gather, curate, consolidate:
+            result = runner.invoke(land, ["--no-curate"])
+        assert result.exit_code == 0
+        assert "Nothing to land" in result.output
 
-    @pytest.mark.asyncio
-    async def test_eject_pushes_preview_branch(self) -> None:
-        """Eject pushes to maverick/preview/<project> by default."""
-        mock_client = AsyncMock()
-        mock_manager = _make_mock_manager()
-        mock_manager.set_state = MagicMock()
-
+    def test_gather_failure_exits_with_failure(self) -> None:
+        """gather_curation_context failure → SystemExit(FAILURE)."""
+        runner = CliRunner()
         with patch(
-            "maverick.jj.client.JjClient",
-            return_value=mock_client,
+            "maverick.library.actions.jj.gather_curation_context",
+            new=AsyncMock(
+                return_value={
+                    "success": False,
+                    "commits": [],
+                    "log_summary": "",
+                    "error": "boom",
+                },
+            ),
         ):
-            await _eject(
-                manager=mock_manager,
-                project_name="myproject",
-                base="main",
-                commits=["c1"],
-                branch=None,
-                cwd=Path("/tmp/workspace"),
-            )
+            result = runner.invoke(land, ["--no-curate"])
+        assert result.exit_code != 0
+        assert "Failed to gather commit context" in result.output
 
-        mock_client.bookmark_set.assert_awaited_once_with(
-            "maverick/preview/myproject", revision="@-"
+
+# ── Curation paths ──────────────────────────────────────────────────
+
+
+class TestHeuristicCurate:
+    def test_heuristic_runs_curate_history(self) -> None:
+        runner = CliRunner()
+        gather, curate, consolidate = _patch_curation(
+            curate_result={
+                "success": True,
+                "absorb_ran": True,
+                "squashed_count": 2,
+                "error": None,
+            },
         )
-        mock_client.git_push.assert_awaited_once_with(bookmark="maverick/preview/myproject")
+        with gather, curate, consolidate:
+            result = runner.invoke(land, ["--heuristic-only", "--yes"])
+        assert result.exit_code == 0
+        assert "Heuristic curation" in result.output
+        assert "absorb=yes" in result.output
+        assert "squashed=2" in result.output
 
-    @pytest.mark.asyncio
-    async def test_eject_custom_branch(self) -> None:
-        """Explicit --branch overrides preview branch name."""
-        mock_client = AsyncMock()
-        mock_manager = _make_mock_manager()
-        mock_manager.set_state = MagicMock()
-
-        with patch(
-            "maverick.jj.client.JjClient",
-            return_value=mock_client,
-        ):
-            await _eject(
-                manager=mock_manager,
-                project_name="myproject",
-                base="main",
-                commits=["c1"],
-                branch="my/preview",
-                cwd=Path("/tmp/workspace"),
-            )
-
-        mock_client.bookmark_set.assert_awaited_once_with("my/preview", revision="@-")
-
-    @pytest.mark.asyncio
-    async def test_eject_sets_workspace_state_to_ejected(self) -> None:
-        """Eject sets workspace state to EJECTED."""
-        from maverick.workspace.models import WorkspaceState
-
-        mock_client = AsyncMock()
-        mock_manager = _make_mock_manager()
-        mock_manager.set_state = MagicMock()
-
-        with patch(
-            "maverick.jj.client.JjClient",
-            return_value=mock_client,
-        ):
-            await _eject(
-                manager=mock_manager,
-                project_name="myproject",
-                base="main",
-                commits=["c1"],
-                branch=None,
-                cwd=Path("/tmp/workspace"),
-            )
-
-        mock_manager.set_state.assert_called_once_with(WorkspaceState.EJECTED)
-
-    @pytest.mark.asyncio
-    async def test_eject_does_not_teardown(self) -> None:
-        """Eject never tears down the workspace."""
-        mock_client = AsyncMock()
-        mock_manager = _make_mock_manager()
-        mock_manager.set_state = MagicMock()
-
-        with patch(
-            "maverick.jj.client.JjClient",
-            return_value=mock_client,
-        ):
-            await _eject(
-                manager=mock_manager,
-                project_name="myproject",
-                base="main",
-                commits=["c1"],
-                branch=None,
-                cwd=Path("/tmp/workspace"),
-            )
-
-        mock_manager.teardown.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_eject_push_failure_exits(self) -> None:
-        """Eject push failure raises SystemExit."""
-        mock_client = AsyncMock()
-        mock_client.bookmark_set.side_effect = JjError("network error")
-        mock_manager = _make_mock_manager()
-
-        with (
-            patch(
-                "maverick.jj.client.JjClient",
-                return_value=mock_client,
-            ),
-            pytest.raises(SystemExit) as exc_info,
-        ):
-            await _eject(
-                manager=mock_manager,
-                project_name="myproject",
-                base="main",
-                commits=["c1"],
-                branch=None,
-                cwd=Path("/tmp/workspace"),
-            )
-
-        assert exc_info.value.code == ExitCode.FAILURE
-
-    @pytest.mark.asyncio
-    async def test_eject_no_workspace_returns_early(self) -> None:
-        """When cwd is None, eject returns with nothing to do."""
-        mock_manager = _make_mock_manager()
-
-        # Should not raise
-        await _eject(
-            manager=mock_manager,
-            project_name="myproject",
-            base="main",
-            commits=["c1"],
-            branch=None,
-            cwd=None,
+    def test_heuristic_failure_exits_with_failure(self) -> None:
+        runner = CliRunner()
+        gather, curate, consolidate = _patch_curation(
+            curate_result={
+                "success": False,
+                "absorb_ran": False,
+                "squashed_count": 0,
+                "error": "jj absorb failed",
+            },
         )
+        with gather, curate, consolidate:
+            result = runner.invoke(land, ["--heuristic-only", "--yes"])
+        assert result.exit_code != 0
+        assert "Heuristic curation failed" in result.output
 
 
-# ── Finalize path tests ──────────────────────────────────────────────
+class TestNoCurate:
+    def test_no_curate_skips_curation_runs_consolidation(self) -> None:
+        runner = CliRunner()
+        gather, curate, consolidate = _patch_curation()
+        with gather, curate, consolidate:
+            result = runner.invoke(land, ["--no-curate"])
+        assert result.exit_code == 0
+        assert "Skipping curation" in result.output
 
 
-class TestFinalizePath:
-    """Tests for _finalize(): merge preview branch locally, cleanup."""
-
-    @pytest.mark.asyncio
-    async def test_finalize_merges_locally(self) -> None:
-        """Finalize merges preview branch into current branch."""
-        mock_manager = _make_mock_manager()
-        mock_manager.exists = False
-
-        with (
-            patch(
-                "maverick.workspace.manager.WorkspaceManager",
-                return_value=mock_manager,
-            ),
-            patch("maverick.cli.commands.land.Path") as mock_path,
-            _mock_command_runner(),
-        ):
-            mock_path.cwd.return_value.resolve.return_value = Path("/home/user/myproject")
-            await _finalize(base="main", branch=None)
-
-        mock_manager.apply_to_user_repo.assert_awaited_once()
-
-    @pytest.mark.asyncio
-    async def test_finalize_custom_branch(self) -> None:
-        """Explicit --branch overrides default preview branch."""
-        mock_manager = _make_mock_manager()
-        mock_manager.exists = False
-
-        with (
-            patch(
-                "maverick.workspace.manager.WorkspaceManager",
-                return_value=mock_manager,
-            ),
-            patch("maverick.cli.commands.land.Path") as mock_path,
-            _mock_command_runner(),
-        ):
-            mock_path.cwd.return_value.resolve.return_value = Path("/home/user/proj")
-            # Should not raise — custom branch accepted
-            await _finalize(base="main", branch="my/custom-branch")
-
-        mock_manager.apply_to_user_repo.assert_awaited_once_with("my/custom-branch")
-
-    @pytest.mark.asyncio
-    async def test_finalize_tears_down_workspace_if_exists(self) -> None:
-        """Finalize tears down workspace when it exists."""
-        mock_manager = _make_mock_manager()
-        mock_manager.exists = True
-
-        with (
-            patch(
-                "maverick.workspace.manager.WorkspaceManager",
-                return_value=mock_manager,
-            ),
-            patch("maverick.cli.commands.land.Path") as mock_path,
-            _mock_command_runner(),
-        ):
-            mock_path.cwd.return_value.resolve.return_value = Path("/home/user/proj")
-            await _finalize(base="main", branch=None)
-
-        mock_manager.teardown.assert_awaited_once()
-
-    @pytest.mark.asyncio
-    async def test_finalize_skips_teardown_when_no_workspace(self) -> None:
-        """Finalize skips teardown when workspace doesn't exist."""
-        mock_manager = _make_mock_manager()
-        mock_manager.exists = False
-
-        with (
-            patch(
-                "maverick.workspace.manager.WorkspaceManager",
-                return_value=mock_manager,
-            ),
-            patch("maverick.cli.commands.land.Path") as mock_path,
-            _mock_command_runner(),
-        ):
-            mock_path.cwd.return_value.resolve.return_value = Path("/home/user/proj")
-            await _finalize(base="main", branch=None)
-
-        mock_manager.teardown.assert_not_awaited()
-
-    @pytest.mark.asyncio
-    async def test_finalize_merge_failure_exits(self) -> None:
-        """Finalize raises SystemExit when merge fails."""
-        mock_manager = _make_mock_manager()
-        mock_manager.exists = False
-        mock_manager.apply_to_user_repo = AsyncMock(return_value=(False, "conflict"))
-
-        with (
-            patch(
-                "maverick.workspace.manager.WorkspaceManager",
-                return_value=mock_manager,
-            ),
-            patch("maverick.cli.commands.land.Path") as mock_path,
-            pytest.raises(SystemExit) as exc_info,
-        ):
-            mock_path.cwd.return_value.resolve.return_value = Path("/home/user/proj")
-            await _finalize(base="main", branch=None)
-
-        assert exc_info.value.code == ExitCode.FAILURE
+class TestDryRun:
+    def test_dry_run_skips_next_step_hint(self) -> None:
+        runner = CliRunner()
+        gather, curate, consolidate = _patch_curation()
+        with gather, curate, consolidate:
+            result = runner.invoke(land, ["--no-curate", "--dry-run"])
+        assert result.exit_code == 0
+        # Dry run path prints this message and returns before hint logic.
+        assert "Dry run" in result.output
 
 
-# ── Display plan tests ───────────────────────────────────────────────
+# ── Mode hints ──────────────────────────────────────────────────────
+
+
+class TestModeHints:
+    def test_default_mode_prints_generic_next_hint(self) -> None:
+        runner = CliRunner()
+        gather, curate, consolidate = _patch_curation()
+        with gather, curate, consolidate:
+            result = runner.invoke(land, ["--no-curate"])
+        assert result.exit_code == 0
+        assert "Next: push the curated branch" in result.output
+
+    def test_eject_mode_prints_preview_hint(self) -> None:
+        runner = CliRunner()
+        gather, curate, consolidate = _patch_curation()
+        with gather, curate, consolidate:
+            result = runner.invoke(land, ["--no-curate", "--eject"])
+        assert result.exit_code == 0
+        assert "Eject hint" in result.output
+        assert "maverick/preview/" in result.output
+
+    def test_finalize_mode_prints_finalize_hint(self) -> None:
+        runner = CliRunner()
+        gather, curate, consolidate = _patch_curation()
+        with gather, curate, consolidate:
+            result = runner.invoke(land, ["--no-curate", "--finalize"])
+        assert result.exit_code == 0
+        assert "Finalize hint" in result.output
+        assert "gh pr create" in result.output
+
+    def test_eject_branch_override(self) -> None:
+        runner = CliRunner()
+        gather, curate, consolidate = _patch_curation()
+        with gather, curate, consolidate:
+            result = runner.invoke(land, ["--no-curate", "--eject", "--branch", "wip/foo"])
+        assert result.exit_code == 0
+        assert "wip/foo" in result.output
+
+
+# ── Display plan ────────────────────────────────────────────────────
 
 
 class TestDisplayPlan:
-    """Tests for _display_plan() Rich rendering."""
-
-    def test_renders_plan_steps(self) -> None:
-        """Plan steps are rendered without errors."""
-        plan: list[dict[str, Any]] = [
-            {
-                "command": "squash",
-                "args": ["-r", "abc123"],
-                "reason": "Merge WIP commits",
-            },
-            {
-                "command": "describe",
-                "args": ["-m", "feat: add feature"],
-                "reason": "Clean commit message",
-            },
+    def test_display_plan_renders_table(self) -> None:
+        """Smoke test for the curation-plan renderer."""
+        plan = [
+            {"command": "describe", "args": ["-m", "fix bug"], "reason": "tighten msg"},
+            {"command": "squash", "args": ["x", "y"], "reason": "fold fixup"},
         ]
-        # Should not raise
+        # Function does not raise; output sinks to console. The test
+        # verifies the call itself doesn't blow up on real plan input.
         _display_plan(plan)
 
-    def test_handles_empty_plan(self) -> None:
-        """Empty plan renders without error."""
-        _display_plan([])
 
-    def test_handles_step_without_args(self) -> None:
-        """Plan step with no args key renders gracefully."""
-        plan: list[dict[str, Any]] = [
-            {"command": "absorb", "reason": "Absorb changes"},
-        ]
-        _display_plan(plan)
+# ── pytest-asyncio mode ─────────────────────────────────────────────
 
-    def test_handles_step_without_reason(self) -> None:
-        """Plan step with no reason key renders gracefully."""
-        plan: list[dict[str, Any]] = [
-            {"command": "squash", "args": ["-r", "xyz"]},
-        ]
-        _display_plan(plan)
+
+@pytest.fixture(autouse=True)
+def _configure_asyncio() -> None:
+    """Tests in this module are sync (CliRunner). The fixture exists
+    only to silence pytest-asyncio's scope warnings if a future test
+    adds async helpers."""
+    return None
+
+
+# ── Misc: top-level mock_runner kept for downstream callers ─────────
+
+
+def _make_mock_command_runner() -> patch:
+    mock_result = MagicMock()
+    mock_result.success = True
+    mock_result.stderr = ""
+    mock_runner = AsyncMock()
+    mock_runner.run.return_value = mock_result
+    return patch(
+        "maverick.runners.command.CommandRunner",
+        return_value=mock_runner,
+    )

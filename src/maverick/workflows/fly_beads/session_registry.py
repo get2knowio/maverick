@@ -78,7 +78,7 @@ class BeadSessionRegistry:
     async def get_or_create(
         self,
         actor_name: str,
-        executor: Any,  # AcpStepExecutor (avoid circular import)
+        executor: Any,  # StepExecutor (typed via protocol to avoid circular import)
         *,
         cwd: Path | None = None,
         config: StepConfig | None = None,
@@ -96,7 +96,7 @@ class BeadSessionRegistry:
 
         Args:
             actor_name: Unique actor name (e.g., "implementer", "reviewer").
-            executor: The AcpStepExecutor to use for session creation.
+            executor: The StepExecutor to use for session creation.
             cwd: Working directory for the session.
             config: Step configuration (provider, model, timeout).
             step_name: For logging/observability.

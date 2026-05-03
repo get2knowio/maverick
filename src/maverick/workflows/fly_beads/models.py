@@ -6,8 +6,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from maverick.library.actions.types import VerifyBeadCompletionResult
-
 
 @dataclass
 class BeadContext:
@@ -34,7 +32,6 @@ class BeadContext:
     # Populated by step functions as pipeline progresses
     validation_result: dict[str, Any] | None = None
     review_result: dict[str, Any] | None = None
-    verify_result: VerifyBeadCompletionResult | None = None
     gate_result: dict[str, Any] | None = None
     remediation_attempted: bool = False
 
@@ -49,7 +46,7 @@ class FlyBeadsResult:
 
     Attributes:
         epic_id: Epic filter used for this run (empty string means no filter).
-        workspace_path: Path to the hidden jj workspace, or None if unavailable.
+        cwd: User-repo root that fly operated against.
         beads_processed: Total number of bead attempts in this run (succeeded + failed + skipped).
         beads_succeeded: Number of beads successfully completed and committed in this run.
             Excludes beads loaded from a prior checkpoint and skipped via the
@@ -59,7 +56,7 @@ class FlyBeadsResult:
     """
 
     epic_id: str
-    workspace_path: str | None
+    cwd: str
     beads_processed: int
     beads_succeeded: int
     beads_failed: int
@@ -74,7 +71,7 @@ class FlyBeadsResult:
         """
         return {
             "epic_id": self.epic_id,
-            "workspace_path": self.workspace_path,
+            "cwd": self.cwd,
             "beads_processed": self.beads_processed,
             "beads_succeeded": self.beads_succeeded,
             "beads_failed": self.beads_failed,

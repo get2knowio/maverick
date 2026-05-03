@@ -6,6 +6,8 @@ defined in src/maverick/init/models.py.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 import yaml
 
@@ -1080,7 +1082,10 @@ class TestInitConfig:
         config = InitConfig()
         assert isinstance(config.github, InitGitHubConfig)
         assert isinstance(config.validation, InitValidationConfig)
-        assert isinstance(config.model, InitModelConfig)
+        # The legacy model.* block defaults to None — provider_tiers
+        # supersedes it. The field still exists so older yaml that
+        # carries it parses without error.
+        assert config.model is None
         assert config.notifications == {"enabled": False}
         assert config.parallel == {
             "max_agents": 3,
@@ -1115,7 +1120,9 @@ class TestInitConfig:
 
         assert "github" in output
         assert "validation" in output
-        assert "model" in output
+        # `model` is present in the dump (with value None); to_yaml's
+        # exclude_none=True is what drops it from the YAML output.
+        assert output["model"] is None
         assert "notifications" in output
         assert "parallel" in output
         assert "verbosity" in output
@@ -1178,6 +1185,39 @@ class TestInitConfig:
         github_pos = yaml_output.find("github:")
         verbosity_pos = yaml_output.find("verbosity:")
         assert github_pos < verbosity_pos
+
+    def test_to_yaml_emits_provider_tiers_block(self) -> None:
+        """Fresh init writes a discoverable provider_tiers cascade.
+
+        Users find the tier configuration surface by reading their
+        generated maverick.yaml, not by digging through docs.
+        """
+        config = InitConfig()
+        yaml_output = config.to_yaml()
+        assert "provider_tiers:" in yaml_output
+        assert "review" in yaml_output
+        # The new DEFAULT_TIERS leads with github-copilot rather than openrouter.
+        assert "github-copilot" in yaml_output
+
+    def test_to_yaml_provider_tiers_round_trips(self, tmp_path: Path) -> None:
+        """The emitted YAML parses back into the runtime config shape."""
+        from maverick.config import load_config
+
+        config = InitConfig()
+        cfg_path = tmp_path / "maverick.yaml"
+        cfg_path.write_text(config.to_yaml())
+        loaded = load_config(cfg_path)
+        assert "review" in loaded.provider_tiers.tiers
+        review = loaded.provider_tiers.tiers["review"]
+        # Primary review binding is github-copilot/claude-haiku-4.5.
+        assert review[0].provider == "github-copilot"
+
+    def test_to_yaml_includes_tier_comment_block(self) -> None:
+        """Comment lines explaining the tier surface are injected by hand
+        (PyYAML's dump can't emit comments)."""
+        config = InitConfig()
+        yaml_output = config.to_yaml()
+        assert "# OpenCode-runtime tier cascades." in yaml_output
 
 
 # =============================================================================
@@ -1380,17 +1420,17 @@ class TestInitResult:
 
     def test_provider_discovery_in_to_dict(self) -> None:
         """provider_discovery is serialized in to_dict when present."""
-        from maverick.init.provider_discovery import (
-            ProviderDiscoveryResult,
-            ProviderProbeResult,
+        from maverick.init.opencode_discovery import (
+            ConnectedProvider,
+            OpenCodeDiscoveryResult,
         )
 
         preflight = InitPreflightResult(success=True)
         git_info = GitRemoteInfo()
         config = InitConfig()
-        discovery = ProviderDiscoveryResult(
-            providers=(ProviderProbeResult("claude", "Claude", "claude-agent-acp", True),),
-            default_provider="claude",
+        discovery = OpenCodeDiscoveryResult(
+            providers=(ConnectedProvider("github-copilot", "GitHub Copilot", None, 17),),
+            default_provider_id="github-copilot",
         )
 
         result = InitResult(
@@ -1403,7 +1443,7 @@ class TestInitResult:
         )
         output = result.to_dict()
         assert output["provider_discovery"] is not None
-        assert output["provider_discovery"]["default_provider"] == "claude"
+        assert output["provider_discovery"]["default_provider_id"] == "github-copilot"
 
 
 # =============================================================================

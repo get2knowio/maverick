@@ -43,6 +43,30 @@ class TestSnapshotAndDescribe:
 
         mock_snapshot.assert_awaited_once_with(cwd=tmp_path)
         mock_describe.assert_awaited_once_with(
-            message="bead(B-1): Implement thing",
+            message="bead(B-1): Implement thing\n\nBead: B-1",
             cwd=tmp_path,
         )
+
+
+class TestBuildBeadCommitMessage:
+    def test_subject_prefix_preserved_for_curator_extraction(self) -> None:
+        """``bead(<id>): <title>`` subject is preserved so
+        ``library.actions.curation.extract_bead_ids`` keeps working."""
+        from maverick.workflows.fly_beads._commit import build_bead_commit_message
+
+        msg = build_bead_commit_message("X-1", "Add login")
+        assert msg.startswith("bead(X-1): Add login")
+
+    def test_trailer_appended_with_blank_line(self) -> None:
+        """Standard git-trailer format: blank line then ``Bead: <id>``."""
+        from maverick.workflows.fly_beads._commit import build_bead_commit_message
+
+        msg = build_bead_commit_message("X-1", "Add login")
+        assert msg == "bead(X-1): Add login\n\nBead: X-1"
+
+    def test_trailer_uses_same_id_as_subject(self) -> None:
+        """The trailer mirrors the subject's bead id verbatim."""
+        from maverick.workflows.fly_beads._commit import build_bead_commit_message
+
+        msg = build_bead_commit_message("project-x.42", "Refactor authn")
+        assert "Bead: project-x.42" in msg.split("\n\n", 1)[1]

@@ -1,8 +1,7 @@
-"""Unit tests for init CLI flags (--type, --no-detect, --force, --verbose).
+"""Unit tests for init CLI flags (--type, --force, --verbose).
 
-Tests for T041-T042:
+Tests for T041:
 - T041: Test --type flag behavior
-- T042: Test --no-detect flag behavior
 
 These tests focus on flag parsing and option validation at the CLI level.
 """
@@ -210,81 +209,6 @@ class TestTypeFlag:
 
 
 # =============================================================================
-# T042: Test --no-detect flag behavior
-# =============================================================================
-
-
-class TestNoDetectFlag:
-    """Tests for --no-detect CLI flag."""
-
-    def test_no_detect_flag_uses_markers_only(
-        self,
-        cli_runner: CliRunner,
-        git_repo: Path,
-        mock_preflight_success: InitPreflightResult,
-        mock_detection_python: ProjectDetectionResult,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        """Test --no-detect uses marker-based detection."""
-        os.chdir(git_repo)
-        monkeypatch.setattr(Path, "home", lambda: git_repo)
-
-        with (
-            patch(
-                "maverick.init.verify_prerequisites",
-                new_callable=AsyncMock,
-                return_value=mock_preflight_success,
-            ),
-            patch(
-                "maverick.init.detect_project_type",
-                new_callable=AsyncMock,
-                return_value=mock_detection_python,
-            ) as mock_detect,
-        ):
-            result = cli_runner.invoke(cli, ["init", "--no-detect"])
-
-        assert result.exit_code == 0, f"Failed: {result.output}"
-
-        # Verify detection was called with use_claude=False
-        mock_detect.assert_called_once()
-        _, kwargs = mock_detect.call_args
-        assert kwargs.get("use_claude") is False
-
-    def test_no_detect_with_type_uses_type(
-        self,
-        cli_runner: CliRunner,
-        git_repo: Path,
-        mock_preflight_success: InitPreflightResult,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        """Test --no-detect combined with --type uses type override."""
-        os.chdir(git_repo)
-        monkeypatch.setattr(Path, "home", lambda: git_repo)
-
-        with (
-            patch(
-                "maverick.init.verify_prerequisites",
-                new_callable=AsyncMock,
-                return_value=mock_preflight_success,
-            ),
-            patch(
-                "maverick.init.detect_project_type",
-                new_callable=AsyncMock,
-            ) as mock_detect,
-        ):
-            result = cli_runner.invoke(cli, ["init", "--no-detect", "--type", "go"])
-
-        assert result.exit_code == 0, f"Failed: {result.output}"
-
-        # With --type, detect_project_type should not be called at all
-        mock_detect.assert_not_called()
-
-        # Verify Go config was generated
-        config = (git_repo / "maverick.yaml").read_text()
-        assert "go" in config.lower()
-
-
-# =============================================================================
 # Combined Flag Tests
 # =============================================================================
 
@@ -359,7 +283,7 @@ class TestCombinedFlags:
         mock_preflight_success: InitPreflightResult,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """Test --type, --no-detect, --force, --verbose all together."""
+        """Test --type, --force, --verbose all together."""
         os.chdir(git_repo)
         monkeypatch.setattr(Path, "home", lambda: git_repo)
 
@@ -371,9 +295,7 @@ class TestCombinedFlags:
             new_callable=AsyncMock,
             return_value=mock_preflight_success,
         ):
-            result = cli_runner.invoke(
-                cli, ["init", "--type", "rust", "--no-detect", "--force", "-v"]
-            )
+            result = cli_runner.invoke(cli, ["init", "--type", "rust", "--force", "-v"])
 
         assert result.exit_code == 0, f"Failed: {result.output}"
 
@@ -383,39 +305,12 @@ class TestCombinedFlags:
 
 
 # =============================================================================
-# --skip-providers flag
+# OpenCode provider discovery (replaces the deleted --skip-providers tests)
 # =============================================================================
 
 
-class TestSkipProvidersFlag:
-    """Tests for --skip-providers CLI flag."""
-
-    def test_skip_providers_flag_omits_discovery(
-        self,
-        cli_runner: CliRunner,
-        git_repo: Path,
-        mock_preflight_success: InitPreflightResult,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        """--skip-providers prevents provider discovery from running."""
-        os.chdir(git_repo)
-        monkeypatch.setattr(Path, "home", lambda: git_repo)
-
-        with (
-            patch(
-                "maverick.init.verify_prerequisites",
-                new_callable=AsyncMock,
-                return_value=mock_preflight_success,
-            ),
-            patch(
-                "maverick.init._maybe_discover_providers",
-                new_callable=AsyncMock,
-            ) as mock_discover,
-        ):
-            result = cli_runner.invoke(cli, ["init", "--type", "python", "--skip-providers"])
-
-        assert result.exit_code == 0, f"Failed: {result.output}"
-        mock_discover.assert_not_called()
+class TestProviderDiscovery:
+    """Tests for OpenCode-backed provider discovery during init."""
 
     def test_provider_output_shown(
         self,
@@ -424,22 +319,21 @@ class TestSkipProvidersFlag:
         mock_preflight_success: InitPreflightResult,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """Provider discovery results are shown in CLI output."""
+        """OpenCode discovery results appear in init output."""
         os.chdir(git_repo)
         monkeypatch.setattr(Path, "home", lambda: git_repo)
 
-        from maverick.init.provider_discovery import (
-            ProviderDiscoveryResult,
-            ProviderProbeResult,
+        from maverick.init.opencode_discovery import (
+            ConnectedProvider,
+            OpenCodeDiscoveryResult,
         )
 
-        discovery = ProviderDiscoveryResult(
+        discovery = OpenCodeDiscoveryResult(
             providers=(
-                ProviderProbeResult("claude", "Claude", "claude-agent-acp", True),
-                ProviderProbeResult("copilot", "GitHub Copilot", "copilot", False),
-                ProviderProbeResult("gemini", "Gemini", "gemini", False),
+                ConnectedProvider("github-copilot", "GitHub Copilot", "claude-sonnet-4.6", 17),
+                ConnectedProvider("openai", "OpenAI", "gpt-5.5", 9),
             ),
-            default_provider="claude",
+            default_provider_id="github-copilot",
         )
 
         with (
@@ -457,8 +351,8 @@ class TestSkipProvidersFlag:
             result = cli_runner.invoke(cli, ["init", "--type", "python"])
 
         assert result.exit_code == 0, f"Failed: {result.output}"
-        assert "ACP Providers" in result.output
-        assert "Claude" in result.output
+        assert "OpenCode Providers" in result.output
+        assert "GitHub Copilot" in result.output
         assert "(default)" in result.output
 
     def test_init_suggests_seed_when_runway_and_providers(
@@ -472,14 +366,14 @@ class TestSkipProvidersFlag:
         os.chdir(git_repo)
         monkeypatch.setattr(Path, "home", lambda: git_repo)
 
-        from maverick.init.provider_discovery import (
-            ProviderDiscoveryResult,
-            ProviderProbeResult,
+        from maverick.init.opencode_discovery import (
+            ConnectedProvider,
+            OpenCodeDiscoveryResult,
         )
 
-        discovery = ProviderDiscoveryResult(
-            providers=(ProviderProbeResult("claude", "Claude", "claude-agent-acp", True),),
-            default_provider="claude",
+        discovery = OpenCodeDiscoveryResult(
+            providers=(ConnectedProvider("github-copilot", "GitHub Copilot", None, 17),),
+            default_provider_id="github-copilot",
         )
 
         with (
@@ -511,7 +405,7 @@ class TestSkipProvidersFlag:
         mock_preflight_success: InitPreflightResult,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """No seed suggestion when no providers found."""
+        """No seed suggestion when no providers connected."""
         os.chdir(git_repo)
         monkeypatch.setattr(Path, "home", lambda: git_repo)
 
@@ -543,14 +437,14 @@ class TestSkipProvidersFlag:
         os.chdir(git_repo)
         monkeypatch.setattr(Path, "home", lambda: git_repo)
 
-        from maverick.init.provider_discovery import (
-            ProviderDiscoveryResult,
-            ProviderProbeResult,
+        from maverick.init.opencode_discovery import (
+            ConnectedProvider,
+            OpenCodeDiscoveryResult,
         )
 
-        discovery = ProviderDiscoveryResult(
-            providers=(ProviderProbeResult("claude", "Claude", "claude-agent-acp", True),),
-            default_provider="claude",
+        discovery = OpenCodeDiscoveryResult(
+            providers=(ConnectedProvider("github-copilot", "GitHub Copilot", None, 17),),
+            default_provider_id="github-copilot",
         )
 
         with (

@@ -16,9 +16,6 @@ ACTION_INTENTS: dict[str, str] = {
         "Verify all prerequisites (API keys, tools, repository state) "
         "are available before workflow execution."
     ),
-    # Workspace
-    "init_workspace": ("Initialize the development workspace for the current project."),
-    "create_fly_workspace": ("Create an isolated jj workspace clone for fly workflow execution."),
     # Dependencies
     "sync_dependencies": (
         "Synchronize project dependencies by running the configured install command."
@@ -50,20 +47,6 @@ ACTION_INTENTS: dict[str, str] = {
     "create_github_pr": ("Create a pull request on the remote GitHub repository."),
     "fetch_github_issues": ("Retrieve a list of GitHub issues matching the specified filters."),
     "fetch_github_issue": ("Retrieve a single GitHub issue by number with full details."),
-    # Review (unprefixed)
-    "gather_local_review_context": (
-        "Collect local review context from working directory diff and changed files."
-    ),
-    "analyze_review_findings": (
-        "Analyze combined review findings and build an issue registry with deduplication."
-    ),
-    "run_review_fix_loop": (
-        "Iterate review-fix cycles until all actionable "
-        "findings are resolved or max attempts reached."
-    ),
-    "generate_review_fix_report": (
-        "Generate a summary report of the review-fix process with outcomes and metrics."
-    ),
     # Validation
     "run_fix_retry_loop": (
         "Run validation with fix retry loop until all checks pass or max attempts reached."
@@ -81,16 +64,7 @@ ACTION_INTENTS: dict[str, str] = {
     "mark_bead_complete": (
         "Mark the specified bead as completed after successful implementation."
     ),
-    "check_epic_done": ("Check whether all beads in the epic have been completed."),
-    "create_beads_from_failures": (
-        "Create new beads from validation or test failures for follow-up fixes."
-    ),
-    "create_beads_from_findings": (
-        "Create new beads from review findings that require separate work items."
-    ),
-    "verify_bead_completion": (
-        "Verify that a bead's implementation satisfies its acceptance criteria."
-    ),
+    "defer_bead": ("Mark a bead as deferred so it stops appearing in `bd ready` output."),
     # Dry-run
     "log_dry_run": (
         "Log a dry-run message indicating what would be executed without performing the action."

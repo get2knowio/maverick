@@ -1,8 +1,17 @@
-"""CLI command for maverick init.
+"""``maverick init`` command — project initialization.
 
-This module provides the `maverick init` command for project initialization,
-including prerequisite validation, project type detection, and configuration
-generation.
+Validates prerequisites, detects project type from marker files, queries
+OpenCode's ``GET /provider`` endpoint to discover authenticated
+providers, and writes a complete ``maverick.yaml`` (project metadata +
+``agent_providers`` + ``provider_tiers`` + ``validation`` defaults).
+
+The legacy ``--providers`` / ``--skip-providers`` / ``--models`` flags
+were deleted in the OpenCode-substrate cleanup. The flags filtered which
+ACP bridges to probe via PATH, which made sense when each "provider"
+was a stdio binary like ``claude-agent-acp``. Under the OpenCode HTTP
+runtime, providers are connected at the OpenCode layer (via
+``opencode auth login <provider>``) and discovered automatically — no
+filter is meaningful.
 """
 
 from __future__ import annotations
@@ -17,12 +26,11 @@ from maverick.cli.context import ExitCode, async_command
 from maverick.exceptions.init import PrerequisiteError
 from maverick.init import (
     InitResult,
+    OpenCodeDiscoveryResult,
     PreflightStatus,
     ProjectType,
-    resolve_model_id,
     run_init,
 )
-from maverick.init.provider_discovery import ProviderDiscoveryResult
 
 
 def _format_preflight_output(
@@ -79,21 +87,38 @@ def _format_detection_output(
 
 
 def _format_provider_output(
-    discovery: ProviderDiscoveryResult | None,
+    discovery: OpenCodeDiscoveryResult | None,
 ) -> list[str]:
-    """Format ACP provider discovery output."""
+    """Format OpenCode-connected provider output."""
     if discovery is None:
-        return []
+        return [
+            "[bold]OpenCode Providers[/]",
+            "  [yellow]Warning:[/yellow] OpenCode discovery failed; "
+            "agent_providers section will be empty.",
+            "",
+        ]
 
-    lines: list[str] = ["[bold]ACP Providers[/]"]
+    lines: list[str] = ["[bold]OpenCode Providers[/]"]
 
-    for probe in discovery.providers:
-        symbol = "[green]✓[/]" if probe.found else "[red]✗[/]"
-        suffix = " [dim](default)[/]" if probe.name == discovery.default_provider else ""
-        lines.append(f"  {symbol} {probe.display_name} ({probe.binary}){suffix}")
+    if not discovery.providers:
+        lines.append("  [yellow]Warning:[/yellow] No providers connected.")
+        lines.append(
+            "  Run [bold]opencode auth login <provider>[/] (e.g. "
+            "github-copilot, openai, openrouter)."
+        )
+        lines.append("")
+        return lines
 
-    if not discovery.found_providers:
-        lines.append("  [yellow]Warning:[/yellow] No ACP providers found on PATH.")
+    for prov in discovery.providers:
+        suffix = ""
+        if prov.provider_id == discovery.default_provider_id:
+            suffix = " [dim](default)[/]"
+        model_blurb = ""
+        if prov.default_model_id:
+            model_blurb = f" — default model: [dim]{prov.default_model_id}[/]"
+        lines.append(
+            f"  [green]✓[/] {prov.display_name} ({prov.provider_id}){suffix}{model_blurb}"
+        )
 
     lines.append("")
     return lines
@@ -174,42 +199,10 @@ PROJECT_TYPE_CHOICES = [
     help="Override project type detection.",
 )
 @click.option(
-    "--model",
-    "model_name",
-    type=str,
-    default=None,
-    help="Claude model to use (opus, sonnet, haiku, or full model ID).",
-)
-@click.option(
-    "--no-detect",
-    is_flag=True,
-    default=False,
-    help="Use marker-based heuristics instead of Claude.",
-)
-@click.option(
-    "--skip-providers",
-    is_flag=True,
-    default=False,
-    help="Skip ACP provider discovery.",
-)
-@click.option(
     "--force",
     is_flag=True,
     default=False,
     help="Overwrite existing maverick.yaml.",
-)
-@click.option(
-    "--providers",
-    type=str,
-    default=None,
-    help="Comma-separated list of ACP providers (e.g., claude,copilot,gemini,opencode).",
-)
-@click.option(
-    "--models",
-    "model_specs",
-    type=str,
-    multiple=True,
-    help="Provider model specs: provider:model1,model2 (e.g., copilot:gpt-5.3-codex,gpt-5.4).",
 )
 @click.option(
     "-v",
@@ -223,18 +216,14 @@ PROJECT_TYPE_CHOICES = [
 async def init(
     ctx: click.Context,
     project_type: str | None,
-    model_name: str | None,
-    no_detect: bool,
-    skip_providers: bool,
     force: bool,
-    providers: str | None,
-    model_specs: tuple[str, ...],
     verbose: bool,
 ) -> None:
     """Initialize maverick configuration for the current project.
 
-    Validates prerequisites, detects project type (using Claude by default),
-    and generates a maverick.yaml configuration file.
+    Detects project type from marker files, probes OpenCode's connected
+    providers, and writes a maverick.yaml with provider_tiers cascade
+    pre-populated.
 
     Examples:
 
@@ -242,46 +231,24 @@ async def init(
 
         maverick init --type python
 
-        maverick init --model opus
-
-        maverick init --model sonnet --no-detect --force
-
-        maverick init -v
+        maverick init --force -v
     """
     console.print("[bold cyan]Maverick Init[/]")
     console.print()
 
-    # Convert project_type string to ProjectType enum if provided
     type_override: ProjectType | None = None
     if project_type:
         type_override = ProjectType.from_string(project_type)
 
-    # Resolve model name to full model ID if provided
-    model_id: str | None = None
-    if model_name:
-        try:
-            model_id = resolve_model_id(model_name)
-        except ValueError as e:
-            err_console.print(f"[red]Error:[/red] {e}")
-            raise SystemExit(ExitCode.FAILURE) from None
-
-    # Determine if we should use Claude
-    use_claude = not no_detect
-
     with cli_error_handler():
         try:
-            # Run init workflow
             result = await run_init(
                 project_path=Path.cwd(),
                 type_override=type_override,
-                use_claude=use_claude,
                 force=force,
                 verbose=verbose,
-                model_id=model_id,
-                skip_providers=skip_providers,
             )
 
-            # Format and display output
             lines: list[str] = []
             lines.extend(_format_preflight_output(result, verbose))
             lines.extend(_format_detection_output(result, verbose))
@@ -292,14 +259,11 @@ async def init(
             for line in lines:
                 console.print(line)
 
-            # Beads init status
             if result.beads_initialized:
                 console.print("[green]✓[/] Beads initialized (.beads/)")
 
             # Idempotent re-init path: maverick.yaml already existed and
-            # ``--force`` was not passed. Skip detection / provider / model
-            # discovery and the actors-section rewrite — those would
-            # overwrite the user's existing configuration. (FUTURE.md §4.3)
+            # ``--force`` was not passed. (FUTURE.md §4.3)
             if result.config_existed:
                 console.print()
                 console.print(
@@ -307,105 +271,16 @@ async def init(
                     "beads + runway re-checked, configuration unchanged."
                 )
                 console.print()
-                console.print(
-                    "[dim]Use [bold]--force[/bold] to regenerate the configuration "
-                    "and re-run model discovery.[/]"
-                )
+                console.print("[dim]Use [bold]--force[/bold] to regenerate the configuration.[/]")
                 raise SystemExit(ExitCode.SUCCESS)
 
-            # Resolve provider list for subsequent model discovery. Static
-            # per-provider MCP config files (Copilot/Gemini) no longer apply:
-            # the xoscar runtime uses an ephemeral pool address per run, and
-            # one shared HTTP MCP gateway (``AgentToolGateway``) serves every
-            # agentic actor via ``/mcp/<actor-uid>``. Providers that don't
-            # support dynamic MCP attachment via ACP (Copilot, Gemini) fall
-            # back to text output.
-            provider_list = (
-                [p.strip() for p in providers.split(",") if p.strip()]
-                if providers
-                else [
-                    p.name
-                    for p in (
-                        result.provider_discovery.found_providers
-                        if result.provider_discovery
-                        else ()
-                    )
-                ]
-            )
-
-            # Model discovery
-            if provider_list:
-                from maverick.init.model_discovery import (
-                    discover_all_models,
-                    parse_model_specs,
-                )
-
-                user_specs = parse_model_specs(model_specs) if model_specs else None
-
-                console.print()
-                console.print("[bold]Model Discovery[/]")
-                discovered = await discover_all_models(provider_list, user_specs)
-                for prov, pm in discovered.items():
-                    source_label = {
-                        "probe": "probed",
-                        "user": "specified",
-                        "default": "defaults",
-                    }.get(pm.source, pm.source)
-                    models_str = ", ".join(pm.models[:5])
-                    if len(pm.models) > 5:
-                        models_str += f" (+{len(pm.models) - 5} more)"
-                    console.print(f"  {prov} [dim]({source_label})[/]: {models_str}")
-
-                # Distribute models across actors
-                from maverick.init.actor_distribution import distribute_models
-
-                default_prov = (
-                    result.provider_discovery.default_provider
-                    if result.provider_discovery
-                    else provider_list[0]
-                    if provider_list
-                    else "claude"
-                )
-                actor_configs = distribute_models(discovered, default_provider=default_prov)
-
-                console.print()
-                console.print("[bold]Actor Assignment[/]")
-                for workflow, actors in actor_configs.items():
-                    for actor_name, ac in actors.items():
-                        console.print(
-                            f"  {workflow}.{actor_name}: [cyan]{ac.provider}/{ac.model_id}[/]"
-                        )
-
-                # Write actors section to the config file
-                from pathlib import Path as _Path
-
-                import yaml as _yaml
-
-                config_path = _Path(result.config_path)
-                if config_path.exists():
-                    config_data = _yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
-                    config_data["actors"] = {
-                        wf: {name: ac.to_dict() for name, ac in actors.items()}
-                        for wf, actors in actor_configs.items()
-                    }
-                    config_path.write_text(
-                        _yaml.dump(
-                            config_data,
-                            default_flow_style=False,
-                            sort_keys=False,
-                        ),
-                        encoding="utf-8",
-                    )
-
-            # Success message
             console.print()
             console.print(f"[green]✓[/] Configuration written to [bold]{result.config_path}[/]")
 
-            # Suggest runway seed if runway initialized and providers available
             if (
                 result.runway_initialized
                 and result.provider_discovery
-                and result.provider_discovery.found_providers
+                and result.provider_discovery.providers
             ):
                 console.print()
                 console.print(

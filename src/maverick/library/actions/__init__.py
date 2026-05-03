@@ -5,25 +5,26 @@ steps. Each action is a function that can be referenced by name in YAML
 workflow definitions.
 
 Actions are organized by domain:
-- workspace: Workspace initialization and management
 - git: Git operations (commit, push, branch)
 - github: GitHub operations (issues, PRs)
 - validation: Validation and fix operations
-- review: Code review operations
 - dry_run: Dry-run mode support
+
+The legacy ``review`` action surface (text-mode dual-reviewer + fix
+loop) was removed in the OpenCode-substrate cleanup; the live actor
+flow under :mod:`maverick.actors.xoscar.fly_supervisor` runs reviews
+via two parallel ReviewerActor instances and a structured-output
+fixer instead.
 """
 
 from __future__ import annotations
 
 # Import action functions
 from maverick.library.actions.beads import (
-    check_epic_done,
     create_beads,
-    create_beads_from_failures,
-    create_beads_from_findings,
+    defer_bead,
     mark_bead_complete,
     select_next_bead,
-    verify_bead_completion,
     wire_dependencies,
 )
 from maverick.library.actions.dependencies import sync_dependencies
@@ -51,34 +52,21 @@ from maverick.library.actions.jj import (
     jj_squash,
 )
 from maverick.library.actions.preflight import run_preflight_checks
-from maverick.library.actions.review import (
-    analyze_review_findings,
-    gather_local_review_context,
-    generate_review_fix_report,
-    run_review_fix_loop,
-)
 from maverick.library.actions.validation import (
     generate_validation_report,
     log_message,
     run_fix_retry_loop,
 )
-from maverick.library.actions.workspace import create_fly_workspace, init_workspace
 
 __all__ = [
     # Bead actions
     "create_beads",
+    "defer_bead",
     "wire_dependencies",
     "select_next_bead",
     "mark_bead_complete",
-    "check_epic_done",
-    "create_beads_from_failures",
-    "create_beads_from_findings",
-    "verify_bead_completion",
     # Preflight actions
     "run_preflight_checks",
-    # Workspace actions
-    "init_workspace",
-    "create_fly_workspace",
     # Dependency actions
     "sync_dependencies",
     # Git actions (read-only and merge fallback only — writes go through jj)
@@ -100,11 +88,6 @@ __all__ = [
     "create_github_pr",
     "fetch_github_issues",
     "fetch_github_issue",
-    # Review actions
-    "gather_local_review_context",
-    "analyze_review_findings",
-    "run_review_fix_loop",
-    "generate_review_fix_report",
     # Validation actions
     "run_fix_retry_loop",
     "generate_validation_report",

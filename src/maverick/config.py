@@ -3,7 +3,7 @@ from __future__ import annotations
 import contextvars
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, Self
+from typing import Any, Literal, Self
 
 import yaml
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
@@ -23,10 +23,6 @@ from maverick.constants import (
 from maverick.exceptions import ConfigError
 from maverick.logging import get_logger
 
-if TYPE_CHECKING:
-    from maverick.executor.config import StepConfig
-    from maverick.prompts.config import PromptOverrideConfig
-
 __all__ = [
     "MaverickConfig",
     "GitHubConfig",
@@ -39,10 +35,11 @@ __all__ = [
     "TuiMetricsConfig",
     "SessionLogConfig",
     "WorkspaceConfig",
-    "AgentConfig",
     "ActorConfig",
     "ACTOR_WORKFLOW_KEY_MAP",
     "lookup_actor_config",
+    "ProviderModelEntry",
+    "ProviderTiersConfig",
     "RunwayConfig",
     "RunwayConsolidationConfig",
     "RunwayRetrievalConfig",
@@ -301,26 +298,17 @@ class ParallelConfig(BaseModel):
     """Settings for concurrency limits.
 
     Attributes:
-        max_agents: Hard cap on simultaneously live ACP agent subprocesses
-            across the workflow run. Enforced by the
-            :class:`SubprocessQuota` on the pool-scoped
-            :class:`AgentToolGateway`: when the cap is reached, fresh
-            spawns wait for a slot. Idle actors (not mid-prompt) get
-            evicted LRU to free a slot, costing them a ~200ms ACP
-            handshake and any conversation context held in their ACP
-            session. Per-phase knobs below remain *soft ideals* — they
-            describe how much fan-out a phase wants; this is the hard
-            ceiling. Tune up on richer hosts (more RAM, more CPU);
-            keep low on dev containers.
+        max_agents: Soft cap on simultaneously running mailbox actors.
+            Currently advisory — actors share one OpenCode HTTP server
+            per workflow run rather than spawning per-actor subprocesses,
+            so subprocess-quota eviction is no longer a thing. Per-phase
+            knobs below describe how much fan-out a phase wants; tune
+            them per host.
         max_tasks: Reserved task fan-out cap. Currently advisory.
         decomposer_pool_size: Number of pool workers for the refuel
-            detail phase. Default ``3`` matches the legacy hardcoded value
-            (``DECOMPOSER_POOL_SIZE = 4`` minus the one primary decomposer).
-            Each pool worker holds its own long-lived ``claude-agent-acp``
-            subprocess. Lower this on resource-constrained hosts (e.g. dev
-            containers): ``decomposer_pool_size: 1`` runs one pool worker
-            plus one primary, capping live ACP subprocesses at 2 during the
-            detail phase.
+            detail phase. Default ``3`` matches the legacy hardcoded
+            value. Lower this on resource-constrained hosts (e.g. dev
+            containers).
         max_briefing_agents: Cap on briefing agents running in parallel
             during refuel and plan generation. Default ``3`` matches the
             current behaviour (navigator/structuralist/recon — or
@@ -460,13 +448,41 @@ class RunwayConfig(BaseModel):
     retrieval: RunwayRetrievalConfig = Field(default_factory=RunwayRetrievalConfig)
 
 
-class AgentConfig(BaseModel):
-    """Flat key-value configuration for agent-specific overrides."""
+class ProviderModelEntry(BaseModel, frozen=True):
+    """One ``(provider_id, model_id)`` binding within a provider tier.
 
-    provider: str | None = None
-    model_id: str | None = None
-    max_tokens: int | None = Field(default=None, gt=0, le=200000)
-    temperature: float | None = Field(default=None, ge=0.0, le=1.0)
+    Mirrors :class:`maverick.runtime.opencode.tiers.ProviderModel` so
+    user config and runtime types stay aligned.
+    """
+
+    provider: str = Field(..., min_length=1)
+    model_id: str = Field(..., min_length=1)
+
+
+class ProviderTiersConfig(BaseModel):
+    """User-configurable per-tier model lists for the OpenCode runtime.
+
+    Keyed by tier name (matches each actor's ``provider_tier`` ClassVar
+    — e.g. ``review``, ``implement``, ``decompose``, ``briefing``,
+    ``generate``). Each entry is an ordered cascade: the runtime tries
+    the first ``(provider, model_id)`` and falls over to subsequent
+    bindings on auth / model-not-found / structured-output / sustained-
+    transient errors.
+
+    When empty (the default), the runtime uses
+    :data:`maverick.runtime.opencode.tiers.DEFAULT_TIERS`.
+
+    Example ``maverick.yaml``::
+
+        provider_tiers:
+          review:
+            - {provider: openrouter, model_id: anthropic/claude-haiku-4.5}
+            - {provider: openrouter, model_id: qwen/qwen3-coder}
+          implement:
+            - {provider: openrouter, model_id: openai/gpt-4o-mini}
+    """
+
+    tiers: dict[str, list[ProviderModelEntry]] = Field(default_factory=dict)
 
 
 class ActorConfig(BaseModel):
@@ -611,110 +627,26 @@ class MaverickConfig(BaseSettings):
     session_log: SessionLogConfig = Field(default_factory=SessionLogConfig)
     workspace: WorkspaceConfig = Field(default_factory=WorkspaceConfig)
     runway: RunwayConfig = Field(default_factory=RunwayConfig)
-    agents: dict[str, AgentConfig] = Field(default_factory=dict)
     agent_providers: dict[str, AgentProviderConfig] = Field(
         default_factory=dict,
-        description="ACP agent provider configurations keyed by provider name.",
+        description="OpenCode-connected provider configurations keyed by provider name.",
     )
     actors: dict[str, dict[str, Any]] = Field(
         default_factory=dict,
         description="Actor configurations grouped by workflow (plan/refuel/fly/land).",
     )
-    steps: dict[str, StepConfig] = Field(
-        default_factory=dict,
+    provider_tiers: ProviderTiersConfig = Field(
+        default_factory=ProviderTiersConfig,
         description=(
-            "Legacy step configuration. Read AFTER actors: by "
-            "resolve_step_config, so a value here only takes effect when "
-            "the corresponding actors.<workflow>.<actor> entry omits the "
-            "field. Prefer actors: for new projects."
+            "Per-tier (provider, model_id) cascades for OpenCode-backed "
+            "actors. Empty (default) means use the curated DEFAULT_TIERS."
         ),
-    )
-    prompts: dict[str, PromptOverrideConfig] = Field(
-        default_factory=dict,
-        description="Prompt overrides keyed by step name.",
     )
     project_type: str = Field(
         default="unknown",
         description="Project type (python, rust, go, nodejs, etc.).",
     )
     project_conventions: str = ""
-
-    def __init__(self, **data: Any) -> None:
-        _ensure_model_rebuilt()
-        super().__init__(**data)
-
-    @field_validator("steps", mode="before")
-    @classmethod
-    def _coerce_step_configs(cls, v: Any) -> Any:
-        """Coerce dict entries to StepConfig via lazy import to avoid circular deps."""
-        if not isinstance(v, dict):
-            return v
-        from maverick.executor.config import StepConfig
-
-        result = {}
-        for key, val in v.items():
-            if isinstance(val, dict):
-                result[key] = StepConfig(**val)
-            elif isinstance(val, StepConfig):
-                result[key] = val
-            else:
-                raise ConfigError(
-                    message=(
-                        f"Invalid step config for '{key}': "
-                        f"expected dict or StepConfig, "
-                        f"got {type(val).__name__}"
-                    ),
-                    field=f"steps.{key}",
-                    value=val,
-                )
-        return result
-
-    @field_validator("prompts", mode="before")
-    @classmethod
-    def _coerce_prompt_overrides(cls, v: Any) -> Any:
-        """Coerce dict entries to PromptOverrideConfig."""
-        if not isinstance(v, dict):
-            return v
-        from maverick.prompts.config import PromptOverrideConfig
-
-        result = {}
-        for key, val in v.items():
-            if isinstance(val, dict):
-                result[key] = PromptOverrideConfig(**val)
-            elif isinstance(val, PromptOverrideConfig):
-                result[key] = val
-            else:
-                raise ConfigError(
-                    message=(
-                        f"Invalid prompt config for '{key}': "
-                        f"expected dict or PromptOverrideConfig, "
-                        f"got {type(val).__name__}"
-                    ),
-                    field=f"prompts.{key}",
-                    value=val,
-                )
-        return result
-
-    @model_validator(mode="after")
-    def _check_prompts_steps_conflict(self) -> Self:
-        """Detect conflicts between prompts: and steps: sections."""
-        if not self.prompts or not self.steps:
-            return self
-        for step_name, _override in self.prompts.items():
-            if step_name in self.steps:
-                step_cfg = self.steps[step_name]
-                has_step_suffix = getattr(step_cfg, "prompt_suffix", None) is not None
-                has_step_file = getattr(step_cfg, "prompt_file", None) is not None
-                if has_step_suffix or has_step_file:
-                    raise ConfigError(
-                        message=(
-                            f"Step '{step_name}' has prompt configuration in both "
-                            f"'prompts:' and 'steps:' sections. Use only one."
-                        ),
-                        field=f"prompts.{step_name}",
-                    )
-        return self
-
     verbosity: Literal["error", "warning", "info", "debug"] = "warning"
 
     @classmethod
@@ -753,32 +685,6 @@ class MaverickConfig(BaseSettings):
         )
 
 
-_model_rebuilt = False
-
-
-def _ensure_model_rebuilt() -> None:
-    """Resolve the StepConfig forward reference on first use.
-
-    Called lazily from ``MaverickConfig.__init__`` (not at module scope)
-    to avoid circular imports.  By the time any caller instantiates the
-    model, all modules have finished loading and the import succeeds.
-    """
-    global _model_rebuilt  # noqa: PLW0603
-    if _model_rebuilt:
-        return
-
-    from maverick.executor.config import StepConfig  # noqa: F811
-    from maverick.prompts.config import PromptOverrideConfig  # noqa: F811
-
-    MaverickConfig.model_rebuild(
-        _types_namespace={
-            "StepConfig": StepConfig,
-            "PromptOverrideConfig": PromptOverrideConfig,
-        },
-    )
-    _model_rebuilt = True
-
-
 def get_user_config_path() -> Path:
     """Get the path to the user configuration file.
 
@@ -806,8 +712,6 @@ def load_config(config_path: Path | None = None) -> MaverickConfig:
     Raises:
         ConfigError: If configuration is invalid
     """
-    _ensure_model_rebuilt()
-
     if config_path is None:
         config_path = Path.cwd() / "maverick.yaml"
 

@@ -42,11 +42,14 @@ from maverick.actors.xoscar.messages import (
     ReviewRequest,
     SpecRequest,
 )
-from maverick.actors.xoscar.reviewer import ReviewerActor
+from maverick.actors.xoscar.reviewer import (
+    REVIEW_PROMPT_TIMEOUT_SECONDS,
+    ReviewerActor,
+)
 from maverick.actors.xoscar.spec_check import SpecCheckActor
 from maverick.events import ProgressEvent, StepOutput
 from maverick.logging import get_logger
-from maverick.tools.agent_inbox.models import (
+from maverick.payloads import (
     ReviewFindingPayload,
     SubmitFixResultPayload,
     SubmitImplementationPayload,
@@ -157,6 +160,13 @@ class FlySupervisor(xo.Actor):
         # returns. Reset at the start of each bead / fix round.
         self._last_implementation: SubmitImplementationPayload | None = None
         self._last_fix_result: SubmitFixResultPayload | None = None
+        # Per-kind reviewer slots — populated by
+        # ``correctness_review_ready`` / ``completeness_review_ready``.
+        # ``_last_review`` is the merged result the rest of the
+        # supervisor reads from after both kinds have delivered (or one
+        # has prompt-errored and the loop decides what to do).
+        self._last_correctness_review: SubmitReviewPayload | None = None
+        self._last_completeness_review: SubmitReviewPayload | None = None
         self._last_review: SubmitReviewPayload | None = None
         self._last_aggregate_review: SubmitReviewPayload | None = None
         self._last_parse_error: tuple[str, str] | None = None
@@ -244,28 +254,51 @@ class FlySupervisor(xo.Actor):
         # Reviewer escalation level for the current bead, bumped by the
         # review loop on transient-review failures. Reset per bead.
         self._bead_reviewer_escalation_level: int = 0
-        # Reviewer wiring — mirrors the implementer tier pattern. When
-        # ``reviewer_tiers`` is None, one ReviewerActor under the
-        # _DEFAULT_TIER sentinel; when set, one per defined tier.
-        # Reviewer base config defaults to its own resolved StepConfig
-        # (``inputs.reviewer_config``) so it doesn't inherit the
-        # implementer's provider/model. Older callers that only populate
-        # ``inputs.config`` keep the legacy shared-config behaviour.
+        # Reviewer wiring — mirrors the implementer tier pattern, except
+        # we spin up TWO actors per tier (correctness + completeness)
+        # that fan out in parallel for every review request. xoscar runs
+        # them as independent actors on the same pool. The merge logic
+        # in :meth:`_review_with_transient_escalation` collapses the two
+        # payloads back into one ``SubmitReviewPayload`` (concatenated
+        # findings, worst approval status). When ``reviewer_tiers`` is
+        # None each kind has one actor under the _DEFAULT_TIER sentinel;
+        # when set, one of each kind per defined tier.
         reviewer_base = (
             self._inputs.reviewer_config
             if self._inputs.reviewer_config is not None
             else self._inputs.config
         )
-        self._reviewers: dict[str, xo.ActorRef] = {}
-        if self._inputs.reviewer_tiers is None:
-            self._reviewers[_DEFAULT_TIER] = await xo.create_actor(
+        # ``_correctness_reviewers`` and ``_completeness_reviewers`` are
+        # tier-name → ActorRef maps. Both share the same tier shape so
+        # routing helpers (``_resolve_reviewer_tier``,
+        # ``_can_escalate_reviewer``) work against either dict.
+        self._correctness_reviewers: dict[str, xo.ActorRef] = {}
+        self._completeness_reviewers: dict[str, xo.ActorRef] = {}
+
+        async def _spawn_reviewer_pair(tier_name: str, tier_config: Any, uid_suffix: str) -> None:
+            self._correctness_reviewers[tier_name] = await xo.create_actor(
                 ReviewerActor,
                 self_ref,
                 cwd=self._inputs.cwd,
-                config=reviewer_base,
+                config=tier_config,
+                opencode_agent="maverick.correctness-reviewer",
+                review_kind="correctness",
                 address=self.address,
-                uid=f"{self.uid.decode()}:reviewer",
+                uid=f"{self.uid.decode()}:reviewer:correctness{uid_suffix}",
             )
+            self._completeness_reviewers[tier_name] = await xo.create_actor(
+                ReviewerActor,
+                self_ref,
+                cwd=self._inputs.cwd,
+                config=tier_config,
+                opencode_agent="maverick.completeness-reviewer",
+                review_kind="completeness",
+                address=self.address,
+                uid=f"{self.uid.decode()}:reviewer:completeness{uid_suffix}",
+            )
+
+        if self._inputs.reviewer_tiers is None:
+            await _spawn_reviewer_pair(_DEFAULT_TIER, reviewer_base, uid_suffix="")
         else:
             r_tiers = self._inputs.reviewer_tiers
             for tier_name in TIER_ORDER:
@@ -276,28 +309,17 @@ class FlySupervisor(xo.Actor):
                     base=reviewer_base,
                     override=tier_override,
                 )
-                self._reviewers[tier_name] = await xo.create_actor(
-                    ReviewerActor,
-                    self_ref,
-                    cwd=self._inputs.cwd,
-                    config=tier_config,
-                    address=self.address,
-                    uid=f"{self.uid.decode()}:reviewer:{tier_name}",
-                )
-            if not self._reviewers:
+                await _spawn_reviewer_pair(tier_name, tier_config, uid_suffix=f":{tier_name}")
+            if not self._correctness_reviewers:
                 # Empty tiers config — same safety net as implementer.
-                self._reviewers[_DEFAULT_TIER] = await xo.create_actor(
-                    ReviewerActor,
-                    self_ref,
-                    cwd=self._inputs.cwd,
-                    config=reviewer_base,
-                    address=self.address,
-                    uid=f"{self.uid.decode()}:reviewer",
-                )
+                await _spawn_reviewer_pair(_DEFAULT_TIER, reviewer_base, uid_suffix="")
 
-        # Backward-compat alias for code paths that don't care about
-        # tier routing (e.g. the aggregate review which uses any reviewer).
-        self._reviewer = next(iter(self._reviewers.values()))
+        # Backward-compat alias used by code that doesn't care about
+        # tier routing (the aggregate review picks one reviewer; we use
+        # the correctness instance because that lens is the closer fit
+        # for cross-bead consistency questions).
+        self._reviewers = self._correctness_reviewers
+        self._reviewer = next(iter(self._correctness_reviewers.values()))
         self._gate = await xo.create_actor(
             GateActor,
             validation_commands=self._inputs.validation_commands,
@@ -324,7 +346,8 @@ class FlySupervisor(xo.Actor):
     async def __pre_destroy__(self) -> None:
         for ref in (
             *self._implementers.values(),
-            *self._reviewers.values(),
+            *self._correctness_reviewers.values(),
+            *self._completeness_reviewers.values(),
             self._gate,
             self._ac,
             self._spec,
@@ -473,10 +496,20 @@ class FlySupervisor(xo.Actor):
         self,
         complexity: str | None,
         escalation_level: int = 0,
-    ) -> tuple[str, xo.ActorRef]:
-        """Return ``(tier_name, actor_ref)`` for routing a bead's review."""
+    ) -> tuple[str, xo.ActorRef, xo.ActorRef]:
+        """Return ``(tier_name, correctness_ref, completeness_ref)``.
+
+        Both reviewer kinds share the same tier scheme, so a single tier
+        resolution picks the correct pair. Callers fan out to both refs
+        in parallel via ``asyncio.gather`` and merge the resulting
+        :class:`SubmitReviewPayload` instances.
+        """
         tier_name = self._resolve_reviewer_tier(complexity, escalation_level)
-        return tier_name, self._reviewers[tier_name]
+        return (
+            tier_name,
+            self._correctness_reviewers[tier_name],
+            self._completeness_reviewers[tier_name],
+        )
 
     def _can_escalate_reviewer(
         self,
@@ -605,7 +638,10 @@ class FlySupervisor(xo.Actor):
         from maverick.library.actions.beads import select_next_bead
 
         try:
-            result = await select_next_bead(epic_id=self._inputs.epic_id)
+            result = await select_next_bead(
+                epic_id=self._inputs.epic_id,
+                cwd=self._inputs.cwd,
+            )
             return result.to_dict()
         except Exception as exc:  # noqa: BLE001
             await self._emit_output(
@@ -622,6 +658,8 @@ class FlySupervisor(xo.Actor):
         self._current_bead = bead
         self._last_implementation = None
         self._last_review = None
+        self._last_correctness_review = None
+        self._last_completeness_review = None
         self._review_findings_for_bead = []
         self._last_review_findings = ()
 
@@ -664,11 +702,15 @@ class FlySupervisor(xo.Actor):
 
         # Rotate sessions for the new bead. Only the *selected* tier
         # actors need a session rotation — the others are idle until a
-        # bead routes to them.
+        # bead routes to them. Both reviewer kinds at the resolved tier
+        # rotate in parallel.
         complexity = bead.get("complexity")
-        _, reviewer = self._reviewer_for(complexity)
+        _, correctness_rev, completeness_rev = self._reviewer_for(complexity)
         await implementer.new_bead(NewBeadRequest(bead_id=bead_id))
-        await reviewer.new_bead(NewBeadRequest(bead_id=bead_id))
+        await asyncio.gather(
+            correctness_rev.new_bead(NewBeadRequest(bead_id=bead_id)),
+            completeness_rev.new_bead(NewBeadRequest(bead_id=bead_id)),
+        )
 
         # ---- Implement ----
         prompt = self._build_implement_prompt(bead)
@@ -823,6 +865,51 @@ class FlySupervisor(xo.Actor):
                 return False
         return False
 
+    async def _bounded_send_review(
+        self,
+        rev: xo.ActorRef,
+        request: ReviewRequest,
+        *,
+        label: str,
+    ) -> None:
+        """Dispatch one reviewer with a wallclock backstop.
+
+        The reviewer's own ``_send_structured`` already passes
+        ``REVIEW_PROMPT_TIMEOUT_SECONDS`` (10 min) as the per-call httpx
+        budget. That budget *should* be the only timeout we need —
+        but when opencode's HTTP layer stops streaming mid-loop without
+        actually closing the connection (the 2026-05-03 sample-project
+        symptom: LLM stream events go silent, server keeps accepting
+        POSTs, httpx never times out), the inner budget never fires and
+        the actor RPC hangs. We add 60s of slack so the inner timeout
+        still gets first crack at the call; if we hit this outer one,
+        opencode is genuinely stuck and we treat it as a transient
+        review failure so the surrounding loop can escalate.
+
+        On timeout: record a transient :class:`PromptError` (when the
+        actor hadn't already reported one) so
+        :meth:`_review_with_transient_escalation` walks one tier up
+        instead of giving up.
+        """
+        try:
+            await xo.wait_for(
+                rev.send_review(request),
+                timeout=REVIEW_PROMPT_TIMEOUT_SECONDS + 60,
+            )
+        except TimeoutError:
+            if self._last_review_prompt_error is None:
+                self._last_review_prompt_error = PromptError(
+                    phase="review",
+                    error=(
+                        f"{label} reviewer RPC exceeded "
+                        f"{REVIEW_PROMPT_TIMEOUT_SECONDS + 60}s wallclock "
+                        f"backstop (opencode session likely stuck mid "
+                        f"tool-calling loop)"
+                    ),
+                    transient=True,
+                    unit_id=request.bead_id,
+                )
+
     async def _review_with_transient_escalation(
         self,
         *,
@@ -847,16 +934,50 @@ class FlySupervisor(xo.Actor):
         """
         while True:
             self._last_review = None
+            self._last_correctness_review = None
+            self._last_completeness_review = None
             self._last_review_prompt_error = None
-            tier_name, reviewer = self._reviewer_for(
+            tier_name, correctness_rev, completeness_rev = self._reviewer_for(
                 complexity,
                 escalation_level=self._bead_reviewer_escalation_level,
             )
-            await reviewer.send_review(request)
+            # Fan out to both reviewer kinds in parallel. xoscar handles
+            # the dispatch as two independent actor messages on the same
+            # pool; ``asyncio.gather`` waits for both.
+            #
+            # Each ``send_review`` is bounded with ``xo.wait_for`` rather
+            # than relying solely on the inner ``_send_structured``
+            # timeout — the 2026-05-03 e2e on sample-maverick-project hit
+            # a case where opencode's github-copilot session went silent
+            # mid tool-calling loop (LLM stream events stopped at step 18,
+            # POST endpoint kept accepting requests but no further
+            # dispatches happened) and the inner httpx timeout never
+            # fired. Without a backstop, the actor RPC hung forever and
+            # the gather sat with one reviewer returned and one stuck.
+            # The backstop window is the inner LLM budget plus 60s of
+            # slack so the inner timeout still has first crack.
+            await asyncio.gather(
+                self._bounded_send_review(correctness_rev, request, label="correctness"),
+                self._bounded_send_review(completeness_rev, request, label="completeness"),
+            )
 
-            if self._last_review is not None:
+            # Both kinds delivered a payload? Merge and return.
+            if (
+                self._last_correctness_review is not None
+                and self._last_completeness_review is not None
+            ):
+                self._last_review = self._merge_review_payloads(
+                    self._last_correctness_review,
+                    self._last_completeness_review,
+                )
                 return True
 
+            # Partial result: one kind delivered, the other prompt-errored.
+            # Treat the same as a full transient failure — the merged
+            # review wouldn't be representative, and the surrounding
+            # round-loop is going to want to escalate anyway. The single
+            # payload that *did* land is preserved on its kind-specific
+            # slot for diagnostic logging.
             transient_err = self._last_review_prompt_error
             if transient_err is None:
                 # Non-transient failure path (or no result) — give up.
@@ -898,7 +1019,7 @@ class FlySupervisor(xo.Actor):
                 return False
 
             self._bead_reviewer_escalation_level += 1
-            new_tier, _ = self._reviewer_for(
+            new_tier, _, _ = self._reviewer_for(
                 complexity,
                 escalation_level=self._bead_reviewer_escalation_level,
             )
@@ -1382,11 +1503,68 @@ class FlySupervisor(xo.Actor):
 
     @xo.no_lock
     async def review_ready(self, payload: SubmitReviewPayload) -> None:
+        """Generic per-bead review inbox.
+
+        Kept on the supervisor surface for backward compatibility with
+        callers (and tests) that don't distinguish reviewer kind. The
+        live actor flow now spawns two reviewer instances per tier
+        (correctness + completeness) which deliver via
+        :meth:`correctness_review_ready` and
+        :meth:`completeness_review_ready` instead.
+        """
         self._last_review = payload
         approved = "approved" if payload.approved else "findings"
         await self._emit_output(
             "fly",
             f"Review submitted ({approved}, {len(payload.findings)} finding(s))",
+        )
+
+    @xo.no_lock
+    async def correctness_review_ready(self, payload: SubmitReviewPayload) -> None:
+        """Per-kind inbox for the correctness reviewer.
+
+        The supervisor's review loop merges this with
+        :attr:`_last_completeness_review` once both have landed. Logging
+        labels the kind so emergency diagnostics can tell the two apart.
+        """
+        self._last_correctness_review = payload
+        approved = "approved" if payload.approved else "findings"
+        await self._emit_output(
+            "fly",
+            (f"Correctness review submitted ({approved}, {len(payload.findings)} finding(s))"),
+        )
+
+    @xo.no_lock
+    async def completeness_review_ready(self, payload: SubmitReviewPayload) -> None:
+        """Per-kind inbox for the completeness reviewer."""
+        self._last_completeness_review = payload
+        approved = "approved" if payload.approved else "findings"
+        await self._emit_output(
+            "fly",
+            (f"Completeness review submitted ({approved}, {len(payload.findings)} finding(s))"),
+        )
+
+    @staticmethod
+    def _merge_review_payloads(
+        correctness: SubmitReviewPayload,
+        completeness: SubmitReviewPayload,
+    ) -> SubmitReviewPayload:
+        """Combine two parallel reviewer payloads into one.
+
+        - ``approved`` is the AND of both — if either reviewer requested
+          changes the bead doesn't pass.
+        - ``findings`` is the concatenation, preserving each finding's
+          ``reviewer`` provenance tag (set by the actor before delivery).
+        - ``findings_count`` becomes the explicit total.
+
+        Uses :class:`SubmitReviewPayload` directly (frozen) — both
+        inputs are constructed values, the output is a fresh model.
+        """
+        merged_findings = (*correctness.findings, *completeness.findings)
+        return SubmitReviewPayload(
+            approved=correctness.approved and completeness.approved,
+            findings=merged_findings,
+            findings_count=len(merged_findings),
         )
 
     @xo.no_lock
@@ -1501,6 +1679,23 @@ class FlySupervisor(xo.Actor):
     @xo.no_lock
     async def t_peek_implementers(self) -> dict[str, Any]:
         return dict(self._implementers)
+
+    @xo.no_lock
+    async def t_get_last_review_prompt_error(self) -> PromptError | None:
+        return self._last_review_prompt_error
+
+    @xo.no_lock
+    async def t_bounded_send_review(
+        self,
+        rev: xo.ActorRef,
+        request: ReviewRequest,
+        *,
+        label: str,
+    ) -> None:
+        """Test-only public-facing wrapper around
+        :meth:`_bounded_send_review` (xoscar refs don't expose
+        underscore-prefixed methods)."""
+        await self._bounded_send_review(rev, request, label=label)
 
     @xo.no_lock
     async def t_resolve_tier(self, complexity: str | None, escalation_level: int) -> str:

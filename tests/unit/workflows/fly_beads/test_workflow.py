@@ -2,30 +2,37 @@
 
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from maverick.config import AgentConfig, AgentProviderConfig, MaverickConfig, ModelConfig
-from maverick.registry import ComponentRegistry
+import pytest
+
+from maverick.config import AgentProviderConfig, MaverickConfig, ModelConfig
 from maverick.workflows.fly_beads.constants import WORKFLOW_NAME
 from maverick.workflows.fly_beads.workflow import FlyBeadsWorkflow
+
+_REQUIRES_OPENCODE = pytest.mark.skipif(
+    shutil.which("opencode") is None,
+    reason="opencode binary not on PATH (CI environment)",
+)
 
 
 def _make_workflow() -> FlyBeadsWorkflow:
     config = MagicMock(spec=MaverickConfig)
     config.model = ModelConfig()
-    config.steps = {}
-    config.actors = {}
-    config.agents = {
-        "implementer": AgentConfig(
-            provider="gemini",
-            model_id="gemini-3.1-pro-preview",
-        ),
-        "reviewer": AgentConfig(
-            provider="claude",
-            model_id="opus",
-        ),
+    config.actors = {
+        "fly": {
+            "implementer": {
+                "provider": "gemini",
+                "model_id": "gemini-3.1-pro-preview",
+            },
+            "reviewer": {
+                "provider": "claude",
+                "model_id": "opus",
+            },
+        },
     }
     config.agent_providers = {
         "claude": AgentProviderConfig(
@@ -41,14 +48,13 @@ def _make_workflow() -> FlyBeadsWorkflow:
     config.validation = MagicMock(timeout_seconds=300)
     config.parallel = MagicMock(max_agents=3)
     config.project_type = "python"
-    registry = MagicMock(spec=ComponentRegistry)
     return FlyBeadsWorkflow(
         config=config,
-        registry=registry,
         workflow_name=WORKFLOW_NAME,
     )
 
 
+@_REQUIRES_OPENCODE
 class TestFlyBeadsWorkflowXoscarConfig:
     async def test_xoscar_supervisor_receives_typed_inputs(self, tmp_path: Path) -> None:
         """The xoscar FlySupervisor gets ``FlyInputs`` carrying the resolved
@@ -87,7 +93,7 @@ class TestFlyBeadsWorkflowXoscarConfig:
         ):
             await workflow._run_fly_with_xoscar(
                 epic_id="",
-                workspace_path=tmp_path,
+                cwd=tmp_path,
             )
 
         inputs = captured_inputs.get("value")
@@ -112,7 +118,6 @@ class TestFlyBeadsWorkflowXoscarConfig:
         config to the supervisor instead of letting reviewer inherit the
         implementer's config."""
         from maverick.config import (
-            AgentConfig,
             AgentProviderConfig,
             MaverickConfig,
             ModelConfig,
@@ -120,14 +125,12 @@ class TestFlyBeadsWorkflowXoscarConfig:
 
         config = MagicMock(spec=MaverickConfig)
         config.model = ModelConfig()
-        config.steps = {}
-        config.agents = {
-            "implementer": AgentConfig(provider="copilot", model_id="gpt-5.3-codex"),
-        }
         config.actors = {
             "fly": {
-                # No reviewer entry under agents:; only under actors: —
-                # so the new precedence layer is what makes this work.
+                "implementer": {
+                    "provider": "copilot",
+                    "model_id": "gpt-5.3-codex",
+                },
                 "reviewer": {
                     "provider": "gemini",
                     "model_id": "gemini-3.1-pro-preview",
@@ -147,10 +150,8 @@ class TestFlyBeadsWorkflowXoscarConfig:
         config.parallel = MagicMock(max_agents=3)
         config.project_type = "python"
 
-        registry = MagicMock(spec=ComponentRegistry)
         workflow = FlyBeadsWorkflow(
             config=config,
-            registry=registry,
             workflow_name=WORKFLOW_NAME,
         )
 
@@ -186,7 +187,7 @@ class TestFlyBeadsWorkflowXoscarConfig:
         ):
             await workflow._run_fly_with_xoscar(
                 epic_id="",
-                workspace_path=tmp_path,
+                cwd=tmp_path,
             )
 
         inputs = captured_inputs["value"]

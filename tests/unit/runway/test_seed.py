@@ -14,6 +14,7 @@ from maverick.runway.seed import (
     SeedFileEntry,
     SeedOutput,
     SeedResult,
+    build_seed_prompt,
     gather_seed_context,
     run_seed,
 )
@@ -181,65 +182,48 @@ class TestGatherSeedContext:
 
 
 # ---------------------------------------------------------------------------
-# RunwaySeedAgent
+# build_seed_prompt
 # ---------------------------------------------------------------------------
 
 
-class TestRunwaySeedAgent:
-    def test_agent_properties(self) -> None:
-        from maverick.agents.seed import RunwaySeedAgent
+class TestBuildSeedPrompt:
+    """Tests for the runway-seed prompt builder.
 
-        agent = RunwaySeedAgent()
+    The persona / system prompt for ``maverick.runway-seed`` lives in
+    ``runtime/opencode/profile/agents/maverick.runway-seed.md``;
+    ``build_seed_prompt`` only assembles the per-call user message from
+    gathered project context.
+    """
 
-        assert agent.name == "runway_seed"
-        assert "Write" in agent.allowed_tools
-        assert "Read" in agent.allowed_tools
-
-    def test_build_prompt_includes_git_log(self) -> None:
-        from maverick.agents.seed import RunwaySeedAgent
-
-        agent = RunwaySeedAgent()
+    def test_includes_git_log(self) -> None:
         commit = FakeCommit(message="feat: add login", author="Dev")
         context = SeedContext(git_log=(commit,))  # type: ignore[arg-type]
-        prompt = agent.build_prompt(context)
+        prompt = build_seed_prompt(context)
 
         assert "abc1234" in prompt
         assert "feat: add login" in prompt
 
-    def test_build_prompt_includes_tree(self) -> None:
-        from maverick.agents.seed import RunwaySeedAgent
-
-        agent = RunwaySeedAgent()
+    def test_includes_tree(self) -> None:
         context = SeedContext(directory_tree="src/\n  main.py\ntests/")
-        prompt = agent.build_prompt(context)
+        prompt = build_seed_prompt(context)
 
         assert "src/" in prompt
         assert "main.py" in prompt
 
-    def test_build_prompt_includes_config_files(self) -> None:
-        from maverick.agents.seed import RunwaySeedAgent
-
-        agent = RunwaySeedAgent()
+    def test_includes_config_files(self) -> None:
         context = SeedContext(config_files={"pyproject.toml": "[project]\nname='test'"})
-        prompt = agent.build_prompt(context)
+        prompt = build_seed_prompt(context)
 
         assert "pyproject.toml" in prompt
         assert "[project]" in prompt
 
-    def test_build_prompt_empty_context(self) -> None:
-        from maverick.agents.seed import RunwaySeedAgent
-
-        agent = RunwaySeedAgent()
-        context = SeedContext()
-        prompt = agent.build_prompt(context)
+    def test_empty_context_reports_no_git_history(self) -> None:
+        prompt = build_seed_prompt(SeedContext())
 
         assert "No git history available" in prompt
 
-    def test_build_prompt_from_dict(self) -> None:
-        from maverick.agents.seed import RunwaySeedAgent
-
-        agent = RunwaySeedAgent()
-        prompt = agent.build_prompt({"directory_tree": "src/\n  app.py"})
+    def test_accepts_dict(self) -> None:
+        prompt = build_seed_prompt({"directory_tree": "src/\n  app.py"})
 
         assert "src/" in prompt
         assert "app.py" in prompt
@@ -261,12 +245,12 @@ def _mock_executor(
     mock = MagicMock()
 
     if raise_error:
-        mock.execute = AsyncMock(side_effect=raise_error)
+        mock.execute_named = AsyncMock(side_effect=raise_error)
     else:
         result = MagicMock()
         result.success = True
         result.output = None
-        mock.execute = AsyncMock(return_value=result)
+        mock.execute_named = AsyncMock(return_value=result)
 
     mock.cleanup = AsyncMock()
     return mock
@@ -295,7 +279,7 @@ class TestRunSeed:
             result.output = None
             return result
 
-        mock_exec.execute = AsyncMock(side_effect=_side_effect)
+        mock_exec.execute_named = AsyncMock(side_effect=_side_effect)
 
         with patch("maverick.executor.create_default_executor", return_value=mock_exec):
             result = await run_seed(tmp_path)
@@ -318,7 +302,7 @@ class TestRunSeed:
             result.output = None
             return result
 
-        mock_exec.execute = AsyncMock(side_effect=_side_effect)
+        mock_exec.execute_named = AsyncMock(side_effect=_side_effect)
 
         assert not (tmp_path / ".maverick" / "runway").exists()
 
@@ -362,7 +346,7 @@ class TestRunSeed:
             result.output = None
             return result
 
-        mock_exec.execute = AsyncMock(side_effect=_side_effect)
+        mock_exec.execute_named = AsyncMock(side_effect=_side_effect)
 
         with patch("maverick.executor.create_default_executor", return_value=mock_exec):
             result = await run_seed(tmp_path, force=True)
@@ -404,7 +388,7 @@ class TestRunSeed:
             result.output = None
             return result
 
-        mock_exec.execute = AsyncMock(side_effect=_side_effect)
+        mock_exec.execute_named = AsyncMock(side_effect=_side_effect)
 
         with patch("maverick.executor.create_default_executor", return_value=mock_exec):
             await run_seed(tmp_path)

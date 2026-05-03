@@ -7,6 +7,7 @@ index management, and BM25-based retrieval across all runway content.
 from __future__ import annotations
 
 import json
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +17,7 @@ from maverick.exceptions.runway import RunwayCorruptedError, RunwayNotInitialize
 from maverick.logging import get_logger
 from maverick.runway.models import (
     BeadOutcome,
+    CostEntry,
     FixAttemptRecord,
     RunwayIndex,
     RunwayPassage,
@@ -25,7 +27,7 @@ from maverick.runway.models import (
 )
 from maverick.utils.atomic import atomic_write_json, atomic_write_text
 
-__all__ = ["RunwayStore"]
+__all__ = ["RunwayStore", "make_cost_sink"]
 
 logger = get_logger(__name__)
 
@@ -38,6 +40,7 @@ _INDEX_FILE = "index.json"
 _BEAD_OUTCOMES_FILE = "bead-outcomes.jsonl"
 _REVIEW_FINDINGS_FILE = "review-findings.jsonl"
 _FIX_ATTEMPTS_FILE = "fix-attempts.jsonl"
+_COST_ENTRIES_FILE = "cost-entries.jsonl"
 
 
 class RunwayStore:
@@ -89,7 +92,12 @@ class RunwayStore:
             atomic_write_json(index_path, RunwayIndex().to_dict())
 
         # Touch episodic files so they exist for appending
-        for fname in (_BEAD_OUTCOMES_FILE, _REVIEW_FINDINGS_FILE, _FIX_ATTEMPTS_FILE):
+        for fname in (
+            _BEAD_OUTCOMES_FILE,
+            _REVIEW_FINDINGS_FILE,
+            _FIX_ATTEMPTS_FILE,
+            _COST_ENTRIES_FILE,
+        ):
             fpath = episodic / fname
             if not fpath.exists():
                 fpath.touch()
@@ -127,6 +135,42 @@ class RunwayStore:
             self._path / _EPISODIC_DIR / _FIX_ATTEMPTS_FILE,
             attempt.to_dict(),
         )
+
+    async def append_cost_entry(self, entry: CostEntry) -> None:
+        """Append a per-send cost record to the JSONL file.
+
+        Captures one OpenCode-routed model invocation. Used by the
+        actor mixin's ``_record_cost`` hook so workflow runs can be
+        aggregated for cost / token reporting.
+        """
+        await self._append_jsonl(
+            self._path / _EPISODIC_DIR / _COST_ENTRIES_FILE,
+            entry.to_dict(),
+        )
+
+    async def get_cost_entries(
+        self,
+        *,
+        bead_id: str | None = None,
+        actor: str | None = None,
+        tier: str | None = None,
+        limit: int | None = None,
+    ) -> list[CostEntry]:
+        """Read cost entries, optionally filtered."""
+        records = await self._read_jsonl(self._path / _EPISODIC_DIR / _COST_ENTRIES_FILE)
+        results: list[CostEntry] = []
+        for raw in records:
+            entry = CostEntry.from_dict(raw)
+            if bead_id is not None and entry.bead_id != bead_id:
+                continue
+            if actor is not None and entry.actor != actor:
+                continue
+            if tier is not None and entry.tier != tier:
+                continue
+            results.append(entry)
+        if limit is not None:
+            results = results[-limit:]
+        return results
 
     # -----------------------------------------------------------------
     # Episodic: Read + filter
@@ -581,3 +625,22 @@ class RunwayStore:
         # Remove JSON structural chars and common punctuation
         cleaned = re.sub(r'[{}\[\]":,]', " ", text.lower())
         return [token for token in cleaned.split() if len(token) > 1]
+
+
+def make_cost_sink(store: RunwayStore) -> Callable[[Any], Awaitable[None]]:
+    """Build a :class:`CostSink` closure that appends to ``store``.
+
+    Workflows call this to wire :func:`actor_pool(cost_sink=...)` into
+    a runway-backed JSONL of cost entries. The closure accepts a
+    :class:`CostEntry` and is async so the actor mixin's
+    fire-and-forget pattern in ``_record_cost`` works directly.
+    """
+
+    async def _sink(entry: Any) -> None:
+        if isinstance(entry, CostEntry):
+            await store.append_cost_entry(entry)
+        else:
+            # Defensive: tolerate dict-shaped records too.
+            await store.append_cost_entry(CostEntry.from_dict(dict(entry)))
+
+    return _sink

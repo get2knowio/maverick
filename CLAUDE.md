@@ -5,9 +5,10 @@ Guidance for Claude Code when working in this repository.
 ## Project Overview
 
 Maverick is a Python CLI that orchestrates AI-powered development workflows
-via the Agent Client Protocol (ACP). It runs PRD → plan → beads → implement →
-review → commit using an actor-mailbox architecture with MCP tool-based
-agent output.
+on top of an OpenCode HTTP runtime. It runs PRD → plan → beads → implement →
+review → commit using an actor-mailbox architecture; mailbox actors return
+typed payloads via OpenCode's structured-output tool rather than per-agent
+MCP gateways.
 
 ## Technology Stack
 
@@ -16,9 +17,10 @@ agent output.
 | Language         | Python 3.11+                          | `from __future__ import annotations`        |
 | Package Manager  | uv                                    | reproducible via `uv.lock`                  |
 | Build            | Make                                  | AI-friendly minimal-noise targets           |
-| AI / Agents      | ACP SDK + `claude-agent-acp`          | bridge subprocess per agent                 |
+| Agent runtime    | OpenCode HTTP (`opencode serve`)      | one server per workflow run                 |
+| HTTP client      | httpx                                 | `maverick.runtime.opencode.OpenCodeClient`  |
 | Actors           | xoscar                                | `n_process=0`, in-pool coroutines           |
-| MCP              | MCP SDK + shared HTTP gateway         | `maverick.tools.agent_inbox`                |
+| Structured output| Pydantic + `format=json_schema`       | `maverick.payloads`                         |
 | CLI              | Click + Rich                          | `maverick.cli.console`                      |
 | Validation       | Pydantic                              | config + data models                        |
 | Testing          | pytest + pytest-asyncio + xdist       | parallel via `-n auto`                      |
@@ -54,17 +56,17 @@ alternatives or hand-rolled equivalents.
 ```
 src/maverick/
 ├── main.py              # Click entrypoint
-├── config.py            # Pydantic config models
+├── config.py            # Pydantic config models (incl. ProviderTiersConfig)
 ├── exceptions/          # MaverickError hierarchy
-├── types.py / events.py / results.py / constants.py
+├── types.py / events.py / results.py / constants.py / payloads.py
+├── runtime/opencode/    # OpenCode HTTP client, server lifecycle, tiers
 ├── actors/xoscar/       # supervisors + agent + deterministic actors
 ├── agents/              # prompt builders (HOW)
-├── executor/            # ACP step executor + provider registry
+├── executor/            # StepExecutor protocol + OpenCode-backed default
 ├── jj/ vcs/             # JjClient + VcsRepository protocol
 ├── workspace/           # WorkspaceManager (hidden jj clones)
 ├── workflows/           # plan_generate / refuel_maverick / fly_beads / ...
-├── tools/agent_inbox/   # shared HTTP MCP gateway
-├── runners/             # CommandRunner, provider_health, validation
+├── runners/             # CommandRunner, process_group, provider_health
 ├── library/actions/     # typed action layer (jj, git, beads, runway, ...)
 ├── runway/              # episodic + semantic knowledge store
 ├── hooks/ utils/        # safety hooks; shared helpers
@@ -73,15 +75,17 @@ src/maverick/
 ### Separation of concerns
 
 - **Actors** — `xo.Actor` subclasses owning state, exposing typed `async def`
-  methods. Agent actors hold persistent ACP sessions; deterministic actors
-  wrap pure async Python.
+  methods. Agent actors hold a persistent OpenCode session; deterministic
+  actors wrap pure async Python.
 - **Supervisors** — `xo.Actor` with `@xo.generator run()` yielding
   `ProgressEvent`s, plus typed domain methods child actors invoke.
-- **Agents** — know HOW (prompts, tool selection). Don't own orchestration.
-- **Workflows** — know WHAT/WHEN. Create the actor pool, send "start", wait
-  for "complete".
-- **MCP tools** — the supervisor's inbox. Agents deliver structured results
-  via tool calls; the gateway validates schemas.
+- **Agents** — know HOW (prompts, role). Don't own orchestration.
+- **Workflows** — know WHAT/WHEN. Create the actor pool (which spawns one
+  OpenCode server), send "start", wait for "complete".
+- **Structured output** — mailbox actors declare a `result_model` Pydantic
+  class; OpenCode's `format=json_schema` synthesizes a `StructuredOutput`
+  tool the model is forced to call. Payloads round-trip via
+  `maverick.payloads.SubmitXxxPayload`.
 - **JjClient** — typed jj wrapper with retries/timeouts/error hierarchy.
 - **WorkspaceManager** — lifecycle for hidden jj workspaces.
 
@@ -147,77 +151,107 @@ acceptable.
 - **Only defer when truly blocked** (missing access, non-reproducible). When
   deferring, document what's blocked and the next concrete step.
 
-## ACP Execution Model
+## OpenCode Runtime
 
-All agent execution goes through `maverick.executor.acp.AcpStepExecutor`.
-Don't bypass with raw `claude -p` calls — ACP provides connection caching,
-retries, circuit breakers, event streaming, and provider abstraction.
+All mailbox actors execute via the OpenCode HTTP runtime
+(`maverick.runtime.opencode`). One `opencode serve` subprocess runs per
+workflow run, spawned by `actor_pool()` on a free port with HTTP Basic
+auth (username `opencode`, per-spawn random `OPENCODE_SERVER_PASSWORD`).
+Mailbox actors share that one server; each actor owns its own
+`OpenCodeClient` and session.
 
-### Multi-turn sessions
+### Mailbox actor contract
 
-`create_session()` + `prompt_session()` keep conversation history across
-prompts. Used by the actor-mailbox architecture so implementer/reviewer
-context survives fix rounds.
+Each agentic actor inherits from `OpenCodeAgentMixin` and declares:
 
-### MCP tool-based agent output (shared HTTP gateway)
+```python
+class CodeReviewerActor(OpenCodeAgentMixin, xo.Actor):
+    result_model: ClassVar[type[BaseModel]] = SubmitReviewPayload
+    provider_tier: ClassVar[str] = "review"  # role tier (see Provider Tiers)
+```
 
-Agents deliver structured results via MCP tool calls, not JSON-in-text. The
-actor pool owns one in-process `AgentToolGateway` bound to `127.0.0.1:0`.
-Each agent actor registers under `/mcp/<actor-uid>` in `__post_create__`
-and unregisters in `__pre_destroy__`. The gateway routes incoming tool
-calls to that actor's `on_tool_call`. The MCP protocol provides schema
-guidance; the gateway validates via `jsonschema.validate()`.
+The mixin provides:
 
-Encapsulation contract — every agentic actor owns:
-1. **Schemas** — `mcp_tools: ClassVar[tuple[str, ...]]` (or `_mcp_tools()`).
-2. **Handler** — `on_tool_call(name, args) -> str`, decorated `@xo.no_lock`.
-3. **Session/turn state** — ACP session id, turn count, mode.
-4. **The ACP executor** — the bridge subprocess hosting the LLM.
+- `_send_structured(prompt, *, schema=None, timeout=...)` — sends the
+  prompt with `format=json_schema` derived from `result_model` (or the
+  per-call `schema=` override), runs the cascade, validates the response,
+  returns the typed payload.
+- `_send_text(prompt, *, timeout=...)` — plain-text response, no schema.
+- `_rotate_session()` — drop the OpenCode session so the next send opens a
+  fresh one (used by `new_bead`).
 
-Only MCP transport (subprocess + routing) lives in the shared gateway;
-subclasses inherit `AgenticActorMixin` for register/unregister.
+What the mixin **doesn't** provide (what the legacy ACP+MCP path had and
+the new path doesn't need): MCP tool registration, `on_tool_call`,
+two-turn self-nudge loop, JSON-in-text fallback. The
+`StructuredOutput` tool forces the model to return a typed payload on
+the first turn — the recovery loops are dead code.
 
-**Do** define agent output as MCP tool schemas in
-`maverick.tools.agent_inbox.schemas`. **Don't** use Pydantic `output_schema`
-for mailbox actors — it appends a JSON schema to the prompt and validates
-against a Pydantic model, but agents return slightly different field shapes
-and there's no recovery loop. The MCP tool schemas are the single source of
-truth. (`output_schema` is fine for non-mailbox plain-text steps.)
+### Three operational landmines (and their mitigations)
 
-Built-in tools (Read/Write/Edit/Bash/Glob/Grep) do work in the workspace.
-MCP tools (`submit_outline`, `submit_review`, …) deliver results to the
-supervisor.
+The OpenCode HTTP API has three sharp edges. Every mitigation is wired
+into `maverick.runtime.opencode` already; if you find yourself writing
+HTTP calls outside that module, you'll re-introduce one of these.
 
-**Adding a new agent**:
-1. Define an MCP tool schema in `agent_inbox.schemas` and register it in
-   `ALL_TOOL_SCHEMAS`.
-2. Subclass `AgenticActorMixin`, declare `mcp_tools`.
-3. Call `await self._register_with_gateway()` from `__post_create__` and
-   `await self._unregister_from_gateway()` from `__pre_destroy__`.
-4. Pass `self.mcp_server_config()` to `executor.create_session(mcp_servers=…)`.
-5. Implement `@xo.no_lock`-decorated `on_tool_call`. (Subclasses overriding
-   it MUST keep the decorator — otherwise the ACP turn deadlocks against
-   the actor's own `send_*` method.)
+1. **Async dispatch + bad `modelID` = persistent server crash loop.**
+   `POST /session/:id/prompt_async` with an invalid model returns
+   HTTP 200 but persists the user message to the on-disk DB and crashes
+   the server in the background. Restart replays it and crashes again.
+   *Mitigation:* always validate the model via `validate_model_id()`
+   before sending, and prefer `send_with_event_watch()` (synchronous)
+   over `send_message_async()` for load-bearing work. Recovery runbook
+   for an existing crash loop: `python /tmp/opencode-spike/purge_queued.py`.
 
-**Provider MCP reliability**: Claude reliably calls MCP tools; Copilot's
-ACP bridge currently doesn't, and Gemini's CLI honours static `mcpServers`
-in its settings.json but not session-level `mcp_servers` from ACP. Don't
-route mailbox actors through providers that drop MCP — use Claude or
-Copilot for reviewer/implementer tiers, with the JSON-in-text fallback as
-defence-in-depth.
+2. **Errors are silent on the synchronous HTTP response.** A bad
+   `modelID`, bad provider auth, or context overflow returns HTTP 200
+   with an empty body. Errors only surface on the `/event` SSE stream as
+   `session.error` events. *Mitigation:*
+   `OpenCodeClient.send_with_event_watch()` joins the send call to a
+   parallel event-drain and raises classified exceptions
+   (`OpenCodeAuthError`, `OpenCodeModelNotFoundError`,
+   `OpenCodeContextOverflowError`, etc.) instead of returning empty
+   bodies. Don't bypass it.
+
+3. **Claude wraps StructuredOutput payloads inconsistently.** Roughly 30%
+   of haiku-4.5 responses come back as `{input: {...}}`,
+   `{parameter: {...}}`, `{content: '<json-string>'}`, etc. *Mitigation:*
+   `_unwrap_envelope()` in `client.py` strips the wrapper before
+   `model_validate`. Treat it as a permanent client-side normalization
+   layer — always go through `structured_of(message)` rather than
+   reading `info["structured"]` directly.
+
+### Provider tiers + cascade
+
+Each actor's `provider_tier` is a role name (`"review"`, `"implement"`,
+`"briefing"`, `"decompose"`, `"generate"`). The runtime resolves the tier
+to an ordered list of `(provider_id, model_id)` bindings via
+`maverick.runtime.opencode.tiers.resolve_tier()`. Defaults live in
+`DEFAULT_TIERS`; users override per-tier in `maverick.yaml` under
+`provider_tiers:`.
+
+When a binding fails for a recoverable reason (auth /
+model-not-found / sustained transient / structured-output failure) the
+mixin's `_send_with_model` falls over to the next binding via
+`cascade_send`. Failed bindings stick — future sends on the same actor
+skip them without retry. Each successful send populates
+`self._last_cost_record` and emits an `opencode_actor.cost` structured
+log row.
+
+Context-overflow is intentionally NOT cascadable; it needs a bigger
+context model, not a different one. Callers handle it explicitly.
 
 ### Actor-mailbox + xoscar runtime
 
-All workflows run on an **xoscar** pool (`maverick.actors.actor_pool()`)
-bound to `127.0.0.1:0` (concurrent workflows coexist). Pool uses
-`n_process=0` — all actors are coroutines on a shared event loop. Per-actor
-process isolation comes from each agent's ACP subprocess.
+All workflows run on an **xoscar** pool
+(`maverick.actors.xoscar.pool.actor_pool()`) bound to `127.0.0.1:0` — so
+concurrent workflows coexist. Pool uses `n_process=0`, all actors run as
+coroutines on a shared event loop. The pool also spawns one OpenCode
+server (`with_opencode=True` is the default) and registers its handle
+plus any user-config tier overrides on the pool address.
 
 - Supervisor created via
   `await xo.create_actor(Supervisor, inputs, address=address, uid=…)` and
   drained via `self._drain_xoscar_supervisor(supervisor)`. Children are
-  created in `__post_create__` and destroyed in `__pre_destroy__` (which
-  reaps the ACP subprocess).
+  created in `__post_create__` and destroyed in `__pre_destroy__`.
 - Wrap long-running child calls in **`xo.wait_for`** (not
   `asyncio.wait_for` — xoscar has a documented pitfall where
   `asyncio.wait_for` around a remote call can lose the timeout if the pool
@@ -228,38 +262,36 @@ process isolation comes from each agent's ACP subprocess.
 - `await xo.destroy_actor(ref)` runs `__pre_destroy__`. `await pool.stop()`
   alone does NOT — supervisors destroy children explicitly on completion.
 - The parent process must keep its asyncio loop running:
-  `subprocess.Popen.communicate()` blocks the loop and starves both the
-  in-process uvicorn gateway and the ACP bridge. Use
-  `asyncio.create_subprocess_exec` instead.
+  `subprocess.Popen.communicate()` blocks the loop and starves the
+  OpenCode subprocess. Use `asyncio.create_subprocess_exec` instead.
 
-Standard agent-actor lifecycle:
+Standard mailbox-actor lifecycle:
 
-| Phase                | What happens                                             |
-| -------------------- | -------------------------------------------------------- |
-| `__post_create__`    | Init `_executor=None`, `_session_id=None`, register MCP. |
-| First prompt         | `_ensure_executor()` lazily spawns ACP subprocess; `_new_session()` creates session with MCP config pointing at this actor's uid. |
-| Subsequent prompts   | Reuse executor + session.                                |
-| New bead             | `new_bead(request)` rotates the session.                 |
-| `__pre_destroy__`    | `executor.cleanup()` kills ACP subprocess.               |
+| Phase                | What happens                                              |
+| -------------------- | --------------------------------------------------------- |
+| `__post_create__`    | `await self._opencode_post_create()` — init lazy state.   |
+| First send           | `_build_client()` looks up `opencode_handle_for(self.address)`, opens a session. |
+| Subsequent sends     | Reuse the same session.                                   |
+| New bead             | `_rotate_session()` deletes the current session; the next send opens a new one. |
+| `__pre_destroy__`    | `await self._opencode_pre_destroy()` — delete session, close client. |
 
-Rules:
-- Do **not** call `executor.cleanup()` after every prompt.
-- Do **not** recreate the executor per prompt — `_ensure_executor()` is lazy.
-- Supervisors send `{"type": "shutdown"}` to all agent actors before
-  `{"type": "complete"}` so ACP subprocesses tear down cleanly.
+### Adding a new mailbox actor
 
-### ACP stream buffer
-
-ACP transport is newline-delimited JSON over stdio. Default `StreamReader`
-limit (64 KB) overflows on large tool calls (e.g. Write with full file
-contents). The executor sets `transport_kwargs={"limit": 1_048_576}` (1 MB).
-
-### Agent tool config
-
-- Specify `allowed_tools` explicitly (least privilege).
-- Read-only agents: `["Read", "Glob", "Grep"]`.
-- File-producing agents: add `"Write"`.
-- Only include `"Bash"` when the agent runs commands.
+1. Define a payload model in `maverick.payloads` and register it in
+   `SUPERVISOR_TOOL_PAYLOAD_MODELS` (the dict keys are kept stable for
+   the briefing actor's per-instance schema lookup).
+2. Subclass `OpenCodeAgentMixin, xo.Actor`. Declare:
+   - `result_model: ClassVar[type[BaseModel]]` — the payload Pydantic class.
+   - `provider_tier: ClassVar[str]` — role name keyed into `DEFAULT_TIERS`
+     (or null out for special cases).
+3. In `__post_create__` call `await self._opencode_post_create()`. In
+   `__pre_destroy__` call `await self._opencode_pre_destroy()`.
+4. Implement your supervisor-facing methods (`send_review`, `send_fix`,
+   etc.) by calling `await self._send_structured(prompt)` and forwarding
+   the typed payload to a supervisor RPC.
+5. Decorate methods that are reverse-called by the supervisor with
+   `@xo.no_lock` (so they don't deadlock against the actor lock held by
+   the in-flight `send_*`).
 
 ## CLI Output
 
@@ -324,47 +356,53 @@ Never `click.echo()` or `print()`.
 
 If a change would violate any item, stop and refactor the design first.
 
-### 0. Workspace-as-remote architecture
+### 0. Single-repo (CWD) workflow model, jj-colocated
 
-Long-running ops (`plan generate`, `refuel`, `fly`) run inside a hidden jj
-workspace under `~/.maverick/workspaces/<project>/`. The user's repo is the
-remote — cloned-from at start, pushed-to at command completion.
+All long-running ops (`plan generate`, `refuel`, `fly`, `land`)
+operate directly in the user's checkout under `Path.cwd()`. There
+is no hidden workspace, no clone bridge, no `WorkspaceManager`.
+Plans, beads, runway, and per-run metadata land in
+`<cwd>/.maverick/{plans, runs, runway}/` and survive across runs
+without any sync step.
 
-**Hermetic shape** (`plan generate`, `refuel`):
-1. `WorkspaceManager.find_or_create()` — create or attach.
-2. Sync from origin (handled inside `find_or_create`).
-3. Do the work in the workspace.
-4. `WorkspaceManager.finalize(message=…)` — snapshot, push to user repo on
-   `maverick/<project>` bookmark, merge into the user's branch (jj rebase
-   in colocated mode, `git merge` fallback), tear down.
-
-Failure during finalize **preserves the workspace** so the user can
-recover (`cd ~/.maverick/workspaces/<project> && jj git push`).
-
-**Bridged shape** (`fly` + `land`): fly doesn't finalize — its commits
-need curation, which is `land`'s job. Fly leaves the workspace alive; land
-curates, pushes, tears down. Cancellation (Ctrl-C) and failures during fly
-also preserve the workspace so completed beads remain available to land.
-Do **not** register a workspace-teardown rollback on fly.
+**Shape** (every long-running op):
+1. `maverick init` runs `jj git init --colocate` if `.jj/` is
+   missing (default-on, no opt-out). After init, the user's
+   checkout has both `.git/` and `.jj/` and behaves identically to
+   before for git users.
+2. CLI resolves `cwd = Path.cwd().resolve()`.
+3. The workflow executes inside `cwd`.
+4. Bead commits go straight onto the user's current branch via
+   `jj_commit_bead`.
+5. The user pushes / opens a PR when they're ready.
 
 **Implications**:
-- Every workflow/CLI command takes a `WorkspaceContext` (or `cwd: Path`)
-  and threads it through every state-touching action (bd, runway, plans,
-  jj). `Path.cwd()` defaults inside `src/maverick/workflows/` or
-  `src/maverick/actors/` are a layering smell.
 - All commit-graph mutations go through `JjClient` or actions in
-  `library/actions/jj.py`. Do NOT add new subprocess wrappers around
-  `git commit/push/merge/branch`. The dead helpers (`git_commit`,
-  `git_push`, etc.) were deleted because every layer-violation bug traced
-  back to them.
-- `actions/git.py` is read-only and merge-fallback only (`git_has_changes`,
-  `git_merge`); reads otherwise go through GitPython.
-- Workspace bridging helpers (`apply_to_user_repo`,
-  `cleanup_user_repo_branch`, `finalize`) live on `WorkspaceManager`.
-  Don't reimplement them in commands.
+  `library/actions/jj.py`. Init's colocate guarantees `.jj/` exists,
+  so jj-only actions work in every command's cwd. No vcs detection
+  needed.
+- `actions/git.py` is read-only and merge-fallback only
+  (`git_has_changes`, `git_merge`); reads otherwise go through GitPython.
+- Bead commits carry both the `bead(<id>): <title>` subject prefix
+  (curator-greppable) and a `Bead: <id>` git trailer (forward-compatible
+  with the env-aware ready check).
+- Every workflow/CLI command receives `cwd: Path` from the CLI
+  boundary. `Path.cwd()` defaults inside `src/maverick/workflows/` or
+  `src/maverick/actors/` are a layering smell — set them at the CLI
+  boundary and pass them down.
 
-Per-invocation hermetic workspaces are tracked in `FUTURE.md` — don't add
-that ad-hoc.
+**Background — what was tried and rejected**: an earlier revision ran
+every long-running op inside a hidden jj workspace under
+`~/.maverick/workspaces/<project>/`. Two implementations were
+attempted: `jj git clone` (clone-based, drifted on bd state — gone in
+`cf11db4`) and `jj workspace add` (workspace-add, shared backing repo
+— gone in this slice because bd's gitignored `embeddeddolt/` doesn't
+travel with `jj workspace add` and bd can't function in the
+workspace). The workspace pattern is theoretically clean but has an
+impedance mismatch with bd that's bigger than this slice can absorb.
+The full pull-work-push architecture in
+`.claude/scratchpads/architecture-pull-work-push.md` solves it via bd
+federation; until that lands, single-repo is the contract.
 
 ### 1. Async-first means no blocking on the event loop
 
@@ -402,18 +440,20 @@ No `asyncio.run()` inside factory functions. Prefer lazy prerequisite
 verification on first use, or an explicit async `verify_prerequisites()`.
 Return concrete types (avoid `Any` on public APIs).
 
-### 7. Workspace isolation requires explicit cwd threading
+### 7. Explicit cwd threading
 
-Operational form of Guardrail 0. Every step inside the workspace receives
-a `cwd` (or `WorkspaceContext`) pointing at the workspace path:
+Operational form of Guardrail 0. Every step receives a `cwd` (the
+workspace path, resolved by the CLI from
+`WorkspaceManager.find_or_create()`):
 
 - Agent steps: `cwd` in the step's `context` dict.
 - jj actions: `cwd` (accepts `str | Path | None`).
-- bd / runway / plan parsing: `cwd=ws_cwd` — never default to `Path.cwd()`.
+- bd / runway / plan parsing: `cwd=cwd` — never default to `Path.cwd()`.
 
 A grep for `Path.cwd()` inside `src/maverick/workflows/` or
 `src/maverick/actors/` should return ~zero hits in a clean tree; new
-occurrences are bugs in waiting.
+occurrences are bugs in waiting. The CLI resolves the workspace path
+once, then every layer beneath it operates against that explicit path.
 
 See `.specify/memory/constitution.md` Appendix E for the full architecture.
 
@@ -436,9 +476,10 @@ Beads-only workflow model. All development is driven by beads (`bd` CLI).
 
 Iterates over ready beads. For each: `Implementer → Gate → Reviewer →
 (fix loop if needed) → Commit`. Implementer + reviewer share persistent
-ACP sessions across fix rounds. Options: `--epic`, `--max-beads` (default
-30), `--auto-commit`. Ctrl-C is a two-stage signal: first sets a graceful
-stop flag (finishes current bead, exits cleanly); second cancels the run.
+OpenCode sessions across fix rounds (rotated per bead via
+`_rotate_session()`). Options: `--epic`, `--max-beads` (default 30),
+`--auto-commit`. Ctrl-C is a two-stage signal: first sets a graceful stop
+flag (finishes current bead, exits cleanly); second cancels the run.
 
 ### land
 
@@ -452,6 +493,10 @@ workspace exists.
 
 - [uv](https://docs.astral.sh/uv/) for dependencies (`uv sync`).
 - [Make](https://www.gnu.org/software/make/) for development commands.
+- [opencode](https://opencode.ai) — agent runtime; pinned to v1.14.x.
+  `opencode auth login <provider>` populates
+  `~/.local/share/opencode/auth.json` so OpenCode can route to live
+  models. The runtime spawns one server per workflow run.
 - [GitHub CLI](https://cli.github.com/) (`gh`) for PRs/issues outside the
   PyGithub-covered surface.
 - Optional: [CodeRabbit CLI](https://coderabbit.ai/), [ntfy](https://ntfy.sh).

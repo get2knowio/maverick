@@ -1,69 +1,70 @@
-"""xoscar ImplementerActor — agent actor with its own MCP inbox.
+"""xoscar ImplementerActor — OpenCode-backed agent actor.
 
-Owns two MCP tools:
+Owns two structured-output payloads:
 
-* ``submit_implementation`` — forwarded to supervisor as
-  ``implementation_ready``.
-* ``submit_fix_result`` — forwarded to supervisor as
+* ``submit_implementation`` (:class:`SubmitImplementationPayload`) —
+  forwarded to the supervisor as ``implementation_ready``.
+* ``submit_fix_result`` (:class:`SubmitFixResultPayload`) — forwarded as
   ``fix_result_ready``.
 
-Supervisor calls ``new_bead`` between beads to rotate the ACP session,
-then ``send_implement`` / ``send_fix`` to drive ACP prompts. Per-phase
-errors surface via ``prompt_error`` on the supervisor.
+The legacy ACP+MCP-gateway pattern is gone:
 
-Tool transport: shared :class:`AgentToolGateway` HTTP server (one per
-workflow run, owned by the actor pool). The actor still owns its schemas,
-handler, session state, and ACP executor — only MCP transport lives in
-shared infrastructure.
+* No per-actor MCP tool registration / unregistration.
+* No two-turn self-nudge loop. OpenCode's ``StructuredOutput`` tool
+  forces the model to return a typed payload on the first turn.
+* No JSON-in-text fallback. The runtime layer surfaces classified
+  errors instead.
+* No per-actor ACP subprocess. The actor pool spawns one OpenCode
+  server per workflow run.
+
+Same supervisor-facing contract as before: supervisors call
+``new_bead`` between beads, then ``send_implement`` / ``send_fix``;
+errors surface via ``prompt_error``.
 """
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar
 
 import xoscar as xo
+from pydantic import BaseModel
 
-from maverick.actors.step_config import (
-    load_step_config,
-    step_allowed_tools,
-    step_config_with_timeout,
-)
-from maverick.actors.xoscar._agentic import (
-    AgenticActorMixin,
-    build_tool_required_nudge_prompt,
-    build_tool_required_prompt,
-)
-from maverick.actors.xoscar._agentic import (
-    extract_text_output as _extract_text_output,
-)
+from maverick.actors.step_config import load_step_config
 from maverick.actors.xoscar.messages import (
     FlyFixRequest,
     ImplementRequest,
     NewBeadRequest,
     PromptError,
 )
+from maverick.actors.xoscar.opencode_mixin import OpenCodeAgentMixin
 from maverick.logging import get_logger
-from maverick.tools.agent_inbox.models import (
+from maverick.payloads import (
     SubmitFixResultPayload,
     SubmitImplementationPayload,
-    SupervisorToolPayloadError,
-    parse_supervisor_tool_payload,
 )
+from maverick.runtime.opencode import OpenCodeError
 
 if TYPE_CHECKING:
     from maverick.executor.config import StepConfig
 
 logger = get_logger(__name__)
 
-IMPLEMENTER_MCP_TOOLS: tuple[str, ...] = ("submit_implementation", "submit_fix_result")
 IMPLEMENTER_PROMPT_TIMEOUT_SECONDS = 1800
 
 
-class ImplementerActor(AgenticActorMixin, xo.Actor):
-    """Implements bead work and addresses fix requests."""
+class ImplementerActor(OpenCodeAgentMixin, xo.Actor):
+    """Implements bead work and addresses fix requests via OpenCode."""
 
-    mcp_tools: ClassVar[tuple[str, ...]] = IMPLEMENTER_MCP_TOOLS
+    # Default schema for implement-phase prompts; the fix phase passes its
+    # own schema explicitly to ``_send_structured``.
+    result_model: ClassVar[type[BaseModel]] = SubmitImplementationPayload
+    provider_tier: ClassVar[str] = "implement"
+    # Persona system prompt is loaded from
+    # ``runtime/opencode/profile/agents/maverick.implementer.md`` via
+    # ``OPENCODE_CONFIG_DIR``. Per-bead context (task description,
+    # validation commands, briefing/runway excerpts) is supplied by the
+    # supervisor in the user prompt.
+    opencode_agent: ClassVar[str | None] = "maverick.implementer"
 
     def __init__(
         self,
@@ -81,120 +82,67 @@ class ImplementerActor(AgenticActorMixin, xo.Actor):
 
     async def __post_create__(self) -> None:
         self._actor_tag = f"implementer[{self.uid.decode()}]"
-        self._executor: Any = None
-        self._session_id: str | None = None
-        await self._register_with_gateway()
+        await self._opencode_post_create()
 
     async def __pre_destroy__(self) -> None:
-        await self._unregister_from_gateway()
-        if self._executor is None:
-            return
-        try:
-            await self._executor.cleanup()
-        except Exception as exc:  # noqa: BLE001
-            logger.debug(
-                "implementer.cleanup_failed",
-                actor=self._actor_tag,
-                error=str(exc),
-            )
+        await self._opencode_pre_destroy()
 
     # ------------------------------------------------------------------
     # Supervisor → agent surface
     # ------------------------------------------------------------------
 
     async def new_bead(self, request: NewBeadRequest) -> None:
-        """Rotate the ACP session so the next prompt starts clean."""
+        """Rotate the OpenCode session so the next prompt starts clean."""
         try:
-            await self._new_session()
-        except Exception as exc:  # noqa: BLE001
-            from maverick.exceptions.quota import is_quota_error, is_transient_error
-
-            err_str = str(exc)
-            await self._supervisor_ref.prompt_error(
-                PromptError(
-                    phase="new_bead",
-                    error=err_str,
-                    quota_exhausted=is_quota_error(err_str),
-                    transient=is_transient_error(err_str),
-                    unit_id=request.bead_id,
-                )
+            await self._rotate_session()
+        except Exception as exc:  # noqa: BLE001 — bubble through supervisor
+            await self._report_prompt_error(
+                phase="new_bead", error=str(exc), bead_id=request.bead_id
             )
 
+    @xo.no_lock
     async def send_implement(self, request: ImplementRequest) -> None:
-        await self._run_prompt(
+        await self._run_phase(
             request.prompt,
             phase="implement",
-            tool_name="submit_implementation",
+            schema=SubmitImplementationPayload,
             bead_id=request.bead_id,
         )
 
+    @xo.no_lock
     async def send_fix(self, request: FlyFixRequest) -> None:
-        await self._run_prompt(
+        await self._run_phase(
             request.prompt,
             phase="fix",
-            tool_name="submit_fix_result",
+            schema=SubmitFixResultPayload,
             bead_id=request.bead_id,
         )
 
-    async def _run_prompt(
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+
+    async def _run_phase(
         self,
         prompt_text: str,
         *,
         phase: str,
-        tool_name: str,
+        schema: type[BaseModel],
         bead_id: str,
     ) -> None:
-        """Self-nudge contract: returns once ``tool_name`` has been
-        delivered to the supervisor, OR routes a ``PromptError`` if
-        both the original prompt and the nudge skip the tool.
-        """
         logger.debug("implementer.phase_starting", phase=phase, bead_id=bead_id)
-
-        async def _failure(error_str: str) -> None:
-            await self._report_implementer_failure(error_str, phase=phase, bead_id=bead_id)
-
-        await self._run_with_self_nudge(
-            expected_tool=tool_name,
-            run_prompt=lambda: self._send_prompt(prompt_text, phase=phase, tool_name=tool_name),
-            run_nudge=lambda: self._send_nudge_prompt(tool_name, phase=phase),
-            on_failure=_failure,
-            log_prefix="implementer",
-        )
-
-    async def _report_implementer_failure(
-        self, error_str: str, *, phase: str, bead_id: str
-    ) -> None:
-        from maverick.exceptions.quota import is_quota_error, is_transient_error
-
-        quota = is_quota_error(error_str)
-        transient = is_transient_error(error_str)
-        logger.debug(
-            "implementer.phase_failed",
-            phase=phase,
-            bead_id=bead_id,
-            error=error_str,
-        )
-        await self._supervisor_ref.prompt_error(
-            PromptError(
-                phase=phase,
-                error=error_str,
-                quota_exhausted=quota,
-                transient=transient,
-                unit_id=bead_id,
-            )
-        )
-
-    # ------------------------------------------------------------------
-    # MCP gateway → agent inbox
-    # ------------------------------------------------------------------
-
-    @xo.no_lock
-    async def on_tool_call(self, tool: str, args: dict[str, Any]) -> str:
         try:
-            payload = parse_supervisor_tool_payload(tool, args)
-        except (SupervisorToolPayloadError, ValueError) as exc:
-            await self._supervisor_ref.payload_parse_error(tool, str(exc))
-            return "error"
+            payload = await self._send_structured(
+                prompt_text,
+                schema=schema,
+                timeout=IMPLEMENTER_PROMPT_TIMEOUT_SECONDS,
+            )
+        except OpenCodeError as exc:
+            await self._report_prompt_error(phase=phase, error=str(exc), bead_id=bead_id)
+            return
+        except Exception as exc:  # noqa: BLE001 — supervisor decides retry policy
+            await self._report_prompt_error(phase=phase, error=str(exc), bead_id=bead_id)
+            return
 
         if isinstance(payload, SubmitImplementationPayload):
             await self._supervisor_ref.implementation_ready(payload)
@@ -202,92 +150,20 @@ class ImplementerActor(AgenticActorMixin, xo.Actor):
             await self._supervisor_ref.fix_result_ready(payload)
         else:
             await self._supervisor_ref.payload_parse_error(
-                tool, f"Implementer has no handler for tool {tool!r}"
+                schema.__name__,
+                f"ImplementerActor expected {schema.__name__}, got {type(payload).__name__}",
             )
-            return "error"
-        self._mark_tool_delivered(tool)
-        await self._end_turn()
-        return "ok"
 
-    async def _end_turn(self) -> None:
-        """Cancel the current ACP turn after a successful MCP submission."""
-        if self._session_id and self._executor is not None:
-            try:
-                await self._executor.cancel_session(self._session_id)
-            except Exception as exc:  # noqa: BLE001
-                logger.debug(
-                    "implementer.cancel_after_submit_failed",
-                    actor=self._actor_tag,
-                    error=str(exc),
-                )
+    async def _report_prompt_error(self, *, phase: str, error: str, bead_id: str) -> None:
+        from maverick.exceptions.quota import is_quota_error, is_transient_error
 
-    # ------------------------------------------------------------------
-    # ACP plumbing
-    # ------------------------------------------------------------------
-
-    async def _ensure_executor(self) -> None:
-        if self._executor is None:
-            self._executor = await self._build_quota_aware_executor()
-
-    async def _new_session(self) -> None:
-        await self._ensure_executor()
-
-        cwd = Path(self._cwd)
-        self._session_id = await self._executor.create_session(
-            provider=self._step_config.provider if self._step_config else None,
-            config=self._step_config,
-            step_name="implement",
-            agent_name="implementer",
-            cwd=cwd,
-            allowed_tools=step_allowed_tools(self._step_config),
-            mcp_servers=[self.mcp_server_config()],
+        logger.debug("implementer.phase_failed", phase=phase, bead_id=bead_id, error=error)
+        await self._supervisor_ref.prompt_error(
+            PromptError(
+                phase=phase,
+                error=error,
+                quota_exhausted=is_quota_error(error),
+                transient=is_transient_error(error),
+                unit_id=bead_id,
+            )
         )
-
-    async def _send_prompt(self, prompt_text: str, *, phase: str, tool_name: str) -> None:
-        await self._ensure_executor()
-        if not self._session_id:
-            await self._new_session()
-
-        prompt_text = build_tool_required_prompt(
-            expected_tool=tool_name,
-            user_content=prompt_text,
-            user_content_label="Bead specification",
-            role_intro=(f"You are the implementer for the {phase} phase."),
-        )
-
-        result = await self._executor.prompt_session(
-            session_id=self._session_id,
-            prompt_text=prompt_text,
-            provider=self._step_config.provider if self._step_config else None,
-            config=step_config_with_timeout(self._step_config, IMPLEMENTER_PROMPT_TIMEOUT_SECONDS),
-            step_name=phase,
-            agent_name="implementer",
-        )
-        self._record_last_response(_extract_text_output(result))
-
-    async def _send_nudge_prompt(self, expected_tool: str, *, phase: str) -> None:
-        """Re-prompt the same session asking the agent to call its tool.
-
-        Quotes the agent's previous text response so the LLM is forced
-        to convert that work into a tool call rather than repeating the
-        same refusal.
-        """
-        await self._ensure_executor()
-        if not self._session_id:
-            await self._new_session()
-
-        prompt_text = build_tool_required_nudge_prompt(
-            expected_tool=expected_tool,
-            previous_response=self._get_last_response(),
-            empty_result_guidance=("Submit a partial result rather than refusing."),
-        )
-
-        result = await self._executor.prompt_session(
-            session_id=self._session_id,
-            prompt_text=prompt_text,
-            provider=self._step_config.provider if self._step_config else None,
-            config=step_config_with_timeout(self._step_config, IMPLEMENTER_PROMPT_TIMEOUT_SECONDS),
-            step_name=f"{phase}_nudge",
-            agent_name="implementer",
-        )
-        self._record_last_response(_extract_text_output(result))

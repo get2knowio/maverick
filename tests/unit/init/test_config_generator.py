@@ -15,9 +15,9 @@ from maverick.init.models import (
     ProjectDetectionResult,
     ProjectType,
 )
-from maverick.init.provider_discovery import (
-    ProviderDiscoveryResult,
-    ProviderProbeResult,
+from maverick.init.opencode_discovery import (
+    ConnectedProvider,
+    OpenCodeDiscoveryResult,
 )
 
 
@@ -159,26 +159,33 @@ class TestGenerateConfig:
         assert config.validation.format_cmd == ["ruff", "format", "."]
         assert config.validation.lint_cmd == ["ruff", "check", "--fix", "."]
 
-    def test_generate_config_model_defaults(self) -> None:
-        """Verify model config has expected defaults."""
+    def test_generate_config_omits_legacy_model_block(self) -> None:
+        """Init no longer writes the legacy model.* block.
+
+        provider_tiers fully supersedes the global model.model_id field;
+        leaving it set to a short alias like "sonnet" was breaking
+        doctor under the OpenCode runtime, which expects fully-qualified
+        model IDs.
+        """
         git_info = GitRemoteInfo()
 
         config = generate_config(git_info=git_info, detection=None)
 
-        assert config.model.model_id == "sonnet"
-        assert config.model.max_tokens == 64000
-        assert config.model.temperature == 0.0
+        assert config.model is None
+        # provider_tiers is the routing source of truth now
+        assert "tiers" in config.provider_tiers
+        assert config.provider_tiers["tiers"]
 
     def test_generate_config_with_provider_discovery(self) -> None:
-        """Provider discovery populates agent_providers in config."""
+        """OpenCode provider discovery populates agent_providers in config."""
         git_info = GitRemoteInfo(owner="acme", repo="project")
-        discovery = ProviderDiscoveryResult(
+        discovery = OpenCodeDiscoveryResult(
             providers=(
-                ProviderProbeResult("claude", "Claude", "claude-agent-acp", True),
-                ProviderProbeResult("copilot", "GitHub Copilot", "copilot", True),
-                ProviderProbeResult("gemini", "Gemini", "gemini", False),
+                ConnectedProvider("github-copilot", "GitHub Copilot", "claude-sonnet-4.6", 17),
+                ConnectedProvider("openai", "OpenAI", "gpt-5.5", 9),
+                ConnectedProvider("openrouter", "OpenRouter", "google/gemini-3-pro-preview", 180),
             ),
-            default_provider="claude",
+            default_provider_id="github-copilot",
         )
 
         config = generate_config(
@@ -187,24 +194,25 @@ class TestGenerateConfig:
             provider_discovery=discovery,
         )
 
-        assert "claude" in config.agent_providers
-        assert config.agent_providers["claude"]["default"] is True
-        assert "copilot" in config.agent_providers
-        assert config.agent_providers["copilot"]["default"] is False
-        assert "gemini" not in config.agent_providers
+        assert "github-copilot" in config.agent_providers
+        assert config.agent_providers["github-copilot"]["default"] is True
+        assert "openai" in config.agent_providers
+        assert config.agent_providers["openai"]["default"] is False
+        assert "openrouter" in config.agent_providers
+        assert config.agent_providers["openrouter"]["default"] is False
 
     def test_generate_config_no_discovery(self) -> None:
-        """No discovery result means empty agent_providers (backward compat)."""
+        """No discovery result means empty agent_providers."""
         git_info = GitRemoteInfo()
         config = generate_config(git_info=git_info, detection=None)
         assert config.agent_providers == {}
 
     def test_generate_config_empty_discovery(self) -> None:
-        """Discovery with no found providers yields empty agent_providers."""
+        """Discovery with no connected providers yields empty agent_providers."""
         git_info = GitRemoteInfo()
-        discovery = ProviderDiscoveryResult(
-            providers=(ProviderProbeResult("claude", "Claude", "claude-agent-acp", False),),
-            default_provider=None,
+        discovery = OpenCodeDiscoveryResult(
+            providers=(),
+            default_provider_id=None,
         )
         config = generate_config(
             git_info=git_info,
@@ -229,7 +237,10 @@ class TestGenerateConfig:
         assert "owner: test" in yaml_output
         assert "repo: repo" in yaml_output
         assert "validation:" in yaml_output
-        assert "model:" in yaml_output
+        # The legacy `model:` block is no longer written; provider_tiers
+        # is the routing source of truth now.
+        assert "model:" not in yaml_output
+        assert "provider_tiers:" in yaml_output
 
 
 class TestWriteConfig:
@@ -246,7 +257,10 @@ class TestWriteConfig:
         content = output_path.read_text()
         assert "github:" in content
         assert "validation:" in content
-        assert "model:" in content
+        # Default `model` is None (legacy block), so it's excluded from
+        # the YAML output. provider_tiers is the routing source of truth.
+        assert "model:" not in content
+        assert "provider_tiers:" in content
 
     def test_write_config_raises_if_exists(self, tmp_path: Path) -> None:
         """write_config raises ConfigExistsError if file exists and force=False."""

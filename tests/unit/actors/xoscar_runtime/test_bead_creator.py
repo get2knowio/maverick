@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -28,6 +29,7 @@ async def test_bead_creator_happy_path(pool_address: str) -> None:
         BeadCreatorActor,
         plan_name="do-things",
         plan_objective="Do the things",
+        cwd=Path("/tmp"),
         address=pool_address,
         uid="bead-creator",
     )
@@ -65,6 +67,7 @@ async def test_bead_creator_wires_dependencies(pool_address: str) -> None:
         BeadCreatorActor,
         plan_name="plan",
         plan_objective="Objective",
+        cwd=Path("/tmp"),
         address=pool_address,
         uid="bead-creator",
     )
@@ -99,6 +102,7 @@ async def test_bead_creator_reports_failure(pool_address: str) -> None:
         BeadCreatorActor,
         plan_name="plan",
         plan_objective="Objective",
+        cwd=Path("/tmp"),
         address=pool_address,
         uid="bead-creator",
     )

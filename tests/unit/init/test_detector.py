@@ -2,8 +2,8 @@
 
 Tests cover:
 - find_marker_files(): Marker file discovery and prioritization
-- build_detection_context(): Context string generation for Claude
-- detect_project_type(): Full detection flow with Claude/marker fallback
+- build_detection_context(): Context string generation (informational)
+- detect_project_type(): Marker-based project type detection
 - get_validation_commands(): ValidationCommands lookup by project type
 - _detect_from_markers(): Marker-based heuristic detection (via detect_project_type)
 """
@@ -11,14 +11,11 @@ Tests cover:
 from __future__ import annotations
 
 import asyncio
-import json
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
-from unittest.mock import MagicMock, patch
+from typing import TYPE_CHECKING
 
 import pytest
 
-from maverick.exceptions.init import DetectionError
 from maverick.init.detector import (
     build_detection_context,
     detect_project_type,
@@ -263,7 +260,12 @@ class TestFindMarkerFiles:
 
 
 class TestBuildDetectionContext:
-    """Tests for the build_detection_context function."""
+    """Tests for the build_detection_context function.
+
+    The Claude-assisted detection path was removed when Maverick switched
+    to a single OpenCode HTTP runtime substrate, but the context builder
+    is retained — verbose ``init`` output and diagnostics still consume it.
+    """
 
     def test_context_includes_project_name(self, tmp_path: Path) -> None:
         """Context includes the project directory name."""
@@ -387,7 +389,6 @@ class TestDetectProjectType:
         result = await detect_project_type(
             tmp_path,
             override_type=ProjectType.RUST,
-            use_claude=False,
         )
 
         assert result.primary_type == ProjectType.RUST
@@ -401,7 +402,6 @@ class TestDetectProjectType:
         result = await detect_project_type(
             tmp_path,
             override_type=ProjectType.GO,
-            use_claude=False,
         )
 
         assert result.validation_commands.format_cmd == ("gofmt", "-w", ".")
@@ -409,10 +409,10 @@ class TestDetectProjectType:
 
     @pytest.mark.asyncio
     async def test_marker_only_detection_single_type(self, tmp_path: Path) -> None:
-        """Marker-only detection with single project type."""
+        """Marker detection with single project type."""
         (tmp_path / "pyproject.toml").write_text("[project]")
 
-        result = await detect_project_type(tmp_path, use_claude=False)
+        result = await detect_project_type(tmp_path)
 
         assert result.primary_type == ProjectType.PYTHON
         assert result.confidence == DetectionConfidence.HIGH
@@ -421,8 +421,8 @@ class TestDetectProjectType:
 
     @pytest.mark.asyncio
     async def test_marker_only_detection_no_markers(self, tmp_path: Path) -> None:
-        """Marker-only detection with no markers found."""
-        result = await detect_project_type(tmp_path, use_claude=False)
+        """Marker detection with no markers found."""
+        result = await detect_project_type(tmp_path)
 
         assert result.primary_type == ProjectType.UNKNOWN
         assert result.confidence == DetectionConfidence.LOW
@@ -435,7 +435,7 @@ class TestDetectProjectType:
         (tmp_path / "pyproject.toml").write_text("[project]")
         (tmp_path / "requirements.txt").write_text("pytest")
 
-        result = await detect_project_type(tmp_path, use_claude=False)
+        result = await detect_project_type(tmp_path)
 
         assert result.primary_type == ProjectType.PYTHON
         assert result.confidence == DetectionConfidence.HIGH
@@ -447,162 +447,11 @@ class TestDetectProjectType:
         (tmp_path / "pyproject.toml").write_text("[project]")
         (tmp_path / "package.json").write_text("{}")
 
-        result = await detect_project_type(tmp_path, use_claude=False)
+        result = await detect_project_type(tmp_path)
 
         # Both have priority 1, so primary is determined by score
         assert result.primary_type in [ProjectType.PYTHON, ProjectType.NODEJS]
         # With equal scores, confidence should be LOW
-        assert result.confidence == DetectionConfidence.LOW
-
-    @pytest.mark.asyncio
-    async def test_claude_detection_success(self, tmp_path: Path) -> None:
-        """Claude detection successfully parses response."""
-        (tmp_path / "pyproject.toml").write_text("[project]")
-
-        # Mock Claude response
-        mock_response = json.dumps(
-            {
-                "primary_type": "python",
-                "detected_types": ["python"],
-                "confidence": "high",
-                "findings": ["pyproject.toml found at root"],
-            }
-        )
-
-        async def mock_query_impl(*args: Any, **kwargs: Any) -> Any:
-            mock_msg = MagicMock()
-            mock_msg.__class__.__name__ = "AssistantMessage"
-            mock_msg.content = mock_response
-            yield mock_msg
-
-        with patch(
-            "maverick.init.detector.query",
-            side_effect=lambda *args, **kwargs: mock_query_impl(),
-        ):
-            result = await detect_project_type(tmp_path, use_claude=True)
-
-        assert result.primary_type == ProjectType.PYTHON
-        assert result.confidence == DetectionConfidence.HIGH
-        assert result.detection_method == "claude"
-
-    @pytest.mark.asyncio
-    async def test_claude_detection_with_code_block(self, tmp_path: Path) -> None:
-        """Claude detection parses JSON wrapped in code block."""
-        (tmp_path / "Cargo.toml").write_text("[package]")
-
-        # Mock Claude response with code block
-        mock_response = """```json
-{
-    "primary_type": "rust",
-    "detected_types": ["rust"],
-    "confidence": "high",
-    "findings": ["Cargo.toml found"]
-}
-```"""
-
-        async def mock_query_impl(*args: Any, **kwargs: Any) -> Any:
-            mock_msg = MagicMock()
-            mock_msg.__class__.__name__ = "AssistantMessage"
-            mock_msg.content = mock_response
-            yield mock_msg
-
-        with patch(
-            "maverick.init.detector.query",
-            side_effect=lambda *args, **kwargs: mock_query_impl(),
-        ):
-            result = await detect_project_type(tmp_path, use_claude=True)
-
-        assert result.primary_type == ProjectType.RUST
-        assert result.detection_method == "claude"
-
-    @pytest.mark.asyncio
-    async def test_claude_timeout_falls_back_to_markers(self, tmp_path: Path) -> None:
-        """Claude timeout falls back to marker detection."""
-        (tmp_path / "go.mod").write_text("module test")
-
-        async def slow_query(*args: Any, **kwargs: Any) -> Any:
-            await asyncio.sleep(10)  # Will trigger timeout
-            yield MagicMock()
-
-        with patch(
-            "maverick.init.detector.query",
-            side_effect=lambda *args, **kwargs: slow_query(),
-        ):
-            result = await detect_project_type(
-                tmp_path,
-                use_claude=True,
-                timeout=0.01,  # Very short timeout
-            )
-
-        # Should fall back to marker detection
-        assert result.primary_type == ProjectType.GO
-        assert result.detection_method == "markers"
-
-    @pytest.mark.asyncio
-    async def test_claude_json_error_falls_back_to_markers(self, tmp_path: Path) -> None:
-        """Claude JSON parse error falls back to marker detection."""
-        (tmp_path / "package.json").write_text("{}")
-
-        # Mock invalid JSON response
-        async def mock_query_impl(*args: Any, **kwargs: Any) -> Any:
-            mock_msg = MagicMock()
-            mock_msg.__class__.__name__ = "AssistantMessage"
-            mock_msg.content = "This is not valid JSON"
-            yield mock_msg
-
-        with patch(
-            "maverick.init.detector.query",
-            side_effect=lambda *args, **kwargs: mock_query_impl(),
-        ):
-            result = await detect_project_type(tmp_path, use_claude=True)
-
-        # Should fall back to marker detection
-        assert result.primary_type == ProjectType.NODEJS
-        assert result.detection_method == "markers"
-
-    @pytest.mark.asyncio
-    async def test_claude_api_error_raises_detection_error(self, tmp_path: Path) -> None:
-        """Claude API error raises DetectionError."""
-        (tmp_path / "pyproject.toml").write_text("[project]")
-
-        with patch(
-            "maverick.init.detector.query",
-            side_effect=RuntimeError("API connection failed"),
-        ):
-            with pytest.raises(DetectionError) as exc_info:
-                await detect_project_type(tmp_path, use_claude=True)
-
-        assert "detection failed" in str(exc_info.value)
-        assert exc_info.value.claude_error is not None
-
-    @pytest.mark.asyncio
-    async def test_claude_detection_unknown_type(self, tmp_path: Path) -> None:
-        """Claude detection handles unknown project type."""
-        # Create file but mock Claude returning unknown
-        (tmp_path / "README.md").write_text("# Test")
-
-        mock_response = json.dumps(
-            {
-                "primary_type": "unknown",
-                "detected_types": ["unknown"],
-                "confidence": "low",
-                "findings": ["Could not determine project type"],
-            }
-        )
-
-        async def mock_query_impl(*args: Any, **kwargs: Any) -> Any:
-            mock_msg = MagicMock()
-            mock_msg.__class__.__name__ = "AssistantMessage"
-            mock_msg.content = mock_response
-            yield mock_msg
-
-        with patch(
-            "maverick.init.detector.query",
-            side_effect=lambda *args, **kwargs: mock_query_impl(),
-        ):
-            result = await detect_project_type(tmp_path, use_claude=True)
-
-        assert result.primary_type == ProjectType.UNKNOWN
         assert result.confidence == DetectionConfidence.LOW
 
 
@@ -691,21 +540,21 @@ class TestGetValidationCommands:
 
 
 # =============================================================================
-# Tests for _detect_from_markers() (via detect_project_type with use_claude=False)
+# Tests for _detect_from_markers() (via detect_project_type)
 # =============================================================================
 
 
 class TestDetectFromMarkers:
     """Tests for marker-based detection logic.
 
-    These tests use detect_project_type with use_claude=False to test
-    the _detect_from_markers private function.
+    These tests use detect_project_type to exercise the
+    _detect_from_markers private function.
     """
 
     @pytest.mark.asyncio
     async def test_empty_markers_returns_unknown(self, tmp_path: Path) -> None:
         """Empty markers list returns UNKNOWN with LOW confidence."""
-        result = await detect_project_type(tmp_path, use_claude=False)
+        result = await detect_project_type(tmp_path)
 
         assert result.primary_type == ProjectType.UNKNOWN
         assert result.confidence == DetectionConfidence.LOW
@@ -716,7 +565,7 @@ class TestDetectFromMarkers:
         """Single marker type gives HIGH confidence."""
         (tmp_path / "Cargo.toml").write_text("[package]")
 
-        result = await detect_project_type(tmp_path, use_claude=False)
+        result = await detect_project_type(tmp_path)
 
         assert result.primary_type == ProjectType.RUST
         assert result.confidence == DetectionConfidence.HIGH
@@ -729,7 +578,7 @@ class TestDetectFromMarkers:
         (tmp_path / "setup.py").write_text("# setup")
         (tmp_path / "requirements.txt").write_text("pytest")
 
-        result = await detect_project_type(tmp_path, use_claude=False)
+        result = await detect_project_type(tmp_path)
 
         assert result.primary_type == ProjectType.PYTHON
         assert result.confidence == DetectionConfidence.HIGH
@@ -745,7 +594,7 @@ class TestDetectFromMarkers:
         (tmp_path / "requirements.txt").write_text("pytest")
         (tmp_path / "package.json").write_text("{}")
 
-        result = await detect_project_type(tmp_path, use_claude=False)
+        result = await detect_project_type(tmp_path)
 
         # Python should be primary with higher score
         assert result.primary_type == ProjectType.PYTHON
@@ -758,7 +607,7 @@ class TestDetectFromMarkers:
         (tmp_path / "pyproject.toml").write_text("[project]")
         (tmp_path / "requirements.txt").write_text("pytest")
 
-        result = await detect_project_type(tmp_path, use_claude=False)
+        result = await detect_project_type(tmp_path)
 
         assert len(result.findings) == 2
         assert any("pyproject.toml" in f for f in result.findings)
@@ -771,7 +620,7 @@ class TestDetectFromMarkers:
         # Higher priority (lower number) = higher score
         (tmp_path / "pyproject.toml").write_text("[project]")
 
-        result = await detect_project_type(tmp_path, use_claude=False)
+        result = await detect_project_type(tmp_path)
 
         # pyproject.toml with priority 1 should give score of 9 (10 - 1)
         assert result.primary_type == ProjectType.PYTHON
@@ -795,7 +644,7 @@ class TestDetectFromMarkers:
             project_dir.mkdir()
             (project_dir / file_name).write_text(content)
 
-            result = await detect_project_type(project_dir, use_claude=False)
+            result = await detect_project_type(project_dir)
 
             assert result.primary_type == expected_type, (
                 f"Expected {expected_type} for {file_name}, got {result.primary_type}"
@@ -845,7 +694,7 @@ class TestEdgeCases:
     @pytest.mark.asyncio
     async def test_unicode_content_in_marker(self, tmp_path: Path) -> None:
         """Unicode content in marker files is handled."""
-        content = "[project]\nname = 'test-\u00e9\u00e0\u00fc\u4e2d\u6587'"
+        content = "[project]\nname = 'test-éàü中文'"
         (tmp_path / "pyproject.toml").write_text(content)
 
         markers = find_marker_files(tmp_path)
@@ -900,44 +749,12 @@ class TestEdgeCases:
 
         # Run multiple detections concurrently
         results = await asyncio.gather(
-            detect_project_type(tmp_path, use_claude=False),
-            detect_project_type(tmp_path, use_claude=False),
-            detect_project_type(tmp_path, use_claude=False),
+            detect_project_type(tmp_path),
+            detect_project_type(tmp_path),
+            detect_project_type(tmp_path),
         )
 
         # All should return same result
         for result in results:
             assert result.primary_type == ProjectType.PYTHON
             assert result.detection_method == "markers"
-
-    @pytest.mark.asyncio
-    async def test_detect_with_custom_model(self, tmp_path: Path) -> None:
-        """Detection with custom model parameter."""
-        (tmp_path / "pyproject.toml").write_text("[project]")
-
-        mock_response = json.dumps(
-            {
-                "primary_type": "python",
-                "detected_types": ["python"],
-                "confidence": "high",
-                "findings": ["pyproject.toml found"],
-            }
-        )
-
-        async def mock_query_impl(*args: Any, **kwargs: Any) -> Any:
-            mock_msg = MagicMock()
-            mock_msg.__class__.__name__ = "AssistantMessage"
-            mock_msg.content = mock_response
-            yield mock_msg
-
-        with patch(
-            "maverick.init.detector.query",
-            side_effect=lambda *args, **kwargs: mock_query_impl(),
-        ):
-            result = await detect_project_type(
-                tmp_path,
-                use_claude=True,
-                model="claude-3-opus-20240229",
-            )
-
-        assert result.primary_type == ProjectType.PYTHON

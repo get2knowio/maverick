@@ -5,13 +5,10 @@ and scaffolding templates.
 
 Submodules:
 - templates: Jinja2 scaffolding templates
-- agents: Agent registration functions
-- generators: Generator registration functions
 """
 
 from __future__ import annotations
 
-from maverick.library.agents import register_all_agents
 from maverick.library.scaffold import (
     InvalidNameError,
     OutputExistsError,
@@ -47,6 +44,4 @@ __all__ = [
     "validate_workflow_name",
     "get_default_output_dir",
     "create_scaffold_service",
-    # Registration functions
-    "register_all_agents",
 ]

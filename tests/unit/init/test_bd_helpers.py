@@ -11,6 +11,8 @@ from maverick.init import (
     _clear_invalid_bd_state,
     _is_valid_dolt_db_name,
     _sanitize_bd_prefix,
+    _strip_bd_sync_remote,
+    _untrack_bd_local_state,
 )
 
 
@@ -326,3 +328,134 @@ def test_clear_invalid_bd_state_preserves_hooks_dir(tmp_path: Path) -> None:
 
     assert hooks.is_dir(), "hooks/ must survive cleanup"
     assert (hooks / "pre-commit").is_file()
+
+
+# -----------------------------------------------------------------------------
+# _strip_bd_sync_remote
+# -----------------------------------------------------------------------------
+
+
+def test_strip_bd_sync_remote_removes_active_line(tmp_path: Path) -> None:
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text(
+        'issue-prefix: "myproj"\n'
+        'sync.remote: "git+https://example.invalid/foo.git"\n'
+        "no-db: false\n",
+        encoding="utf-8",
+    )
+
+    _strip_bd_sync_remote(cfg, verbose=False)
+
+    text = cfg.read_text(encoding="utf-8")
+    assert "sync.remote" not in text
+    # Surrounding lines preserved verbatim.
+    assert 'issue-prefix: "myproj"\n' in text
+    assert "no-db: false\n" in text
+
+
+def test_strip_bd_sync_remote_noop_when_file_missing(tmp_path: Path) -> None:
+    # Must not raise.
+    _strip_bd_sync_remote(tmp_path / "missing.yaml", verbose=False)
+
+
+def test_strip_bd_sync_remote_noop_when_key_absent(tmp_path: Path) -> None:
+    cfg = tmp_path / "config.yaml"
+    original = 'issue-prefix: "myproj"\nno-db: false\n'
+    cfg.write_text(original, encoding="utf-8")
+
+    _strip_bd_sync_remote(cfg, verbose=False)
+
+    assert cfg.read_text(encoding="utf-8") == original
+
+
+def test_strip_bd_sync_remote_leaves_commented_lines_alone(tmp_path: Path) -> None:
+    """Commented sync.remote lines are documentation, not active config —
+    leave them alone so users can see what bd's default would have been."""
+    cfg = tmp_path / "config.yaml"
+    original = '# sync.remote: "git+https://example.invalid/foo.git"\nno-db: false\n'
+    cfg.write_text(original, encoding="utf-8")
+
+    _strip_bd_sync_remote(cfg, verbose=False)
+
+    assert cfg.read_text(encoding="utf-8") == original
+
+
+# -----------------------------------------------------------------------------
+# _untrack_bd_local_state
+# -----------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_untrack_bd_local_state_noop_outside_git(tmp_path: Path) -> None:
+    """No ``.git`` dir → not a repo → nothing to untrack."""
+    result = await _untrack_bd_local_state(tmp_path, verbose=False)
+    assert result is True
+
+
+@pytest.mark.asyncio
+async def test_untrack_bd_local_state_noop_when_nothing_tracked(
+    tmp_path: Path,
+) -> None:
+    """Real git repo where ``.beads/backup/`` is fully untracked already.
+    Idempotent — must not stage spurious deletions."""
+    import subprocess
+
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.email", "t@t"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.name", "t"], cwd=tmp_path, check=True)
+    backup = tmp_path / ".beads" / "backup"
+    backup.mkdir(parents=True)
+    (backup / "issues.jsonl").write_text("{}\n", encoding="utf-8")
+    # Never added to git.
+
+    result = await _untrack_bd_local_state(tmp_path, verbose=False)
+
+    assert result is True
+    status = subprocess.run(
+        ["git", "status", "--porcelain"],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    # No staged D entries.
+    for line in status.stdout.splitlines():
+        assert not line.startswith("D"), f"unexpected staged deletion: {line}"
+
+
+@pytest.mark.asyncio
+async def test_untrack_bd_local_state_removes_tracked_backup(
+    tmp_path: Path,
+) -> None:
+    """When ``.beads/backup/*`` was historically committed (e.g., by an
+    early ``git add -A`` before bd's own gitignore took effect), untrack
+    it so future workspace clones don't inherit it. Working-copy files
+    stay; only the index is updated."""
+    import subprocess
+
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.email", "t@t"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.name", "t"], cwd=tmp_path, check=True)
+    backup = tmp_path / ".beads" / "backup"
+    backup.mkdir(parents=True)
+    (backup / "issues.jsonl").write_text('{"id":"x"}\n', encoding="utf-8")
+    (backup / "config.jsonl").write_text("{}\n", encoding="utf-8")
+    subprocess.run(["git", "add", "-f", ".beads/backup"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "init"], cwd=tmp_path, check=True)
+
+    result = await _untrack_bd_local_state(tmp_path, verbose=False)
+
+    assert result is True
+    # Files still on disk.
+    assert (backup / "issues.jsonl").exists()
+    assert (backup / "config.jsonl").exists()
+    # Staged for deletion.
+    status = subprocess.run(
+        ["git", "status", "--porcelain"],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert "D  .beads/backup/issues.jsonl" in status.stdout
+    assert "D  .beads/backup/config.jsonl" in status.stdout
