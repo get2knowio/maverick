@@ -102,19 +102,13 @@ async def generate(
         console.print("[red]Error:[/red] PRD content is empty.")
         raise SystemExit(ExitCode.FAILURE)
 
-    # Interim short-term model: plan generation writes into the
-    # workspace's ``.maverick/plans/<name>/``. The workspace shares the
-    # user repo's backing store via ``jj workspace add`` — the plan
-    # files land in the shared op log so the user's checkout sees them
-    # via ``jj log`` immediately.
-    from maverick.workspace import WorkspaceManager
-
-    user_repo = Path.cwd().resolve()
-    manager = WorkspaceManager(user_repo_path=user_repo)
-    workspace_path = await manager.find_or_create()
+    # Plan generation runs in the user's checkout. ``maverick init``
+    # makes the cwd jj+git colocated so plan output lands as
+    # uncommitted edits the user can ``jj describe`` themselves.
+    cwd = Path.cwd().resolve()
 
     plans_input = Path(output_dir)
-    plans_path = plans_input if plans_input.is_absolute() else workspace_path / plans_input
+    plans_path = plans_input if plans_input.is_absolute() else cwd / plans_input
 
     # Guard: --plans-dir must not point to an existing regular file.
     if plans_path.exists() and not plans_path.is_dir():
@@ -140,7 +134,7 @@ async def generate(
         "name": name,
         "output_dir": str(plans_path),
         "skip_briefing": skip_briefing,
-        "cwd": str(workspace_path),
+        "cwd": str(cwd),
     }
 
     await execute_python_workflow(

@@ -356,32 +356,31 @@ Never `click.echo()` or `print()`.
 
 If a change would violate any item, stop and refactor the design first.
 
-### 0. Workspace-add isolation (interim model)
+### 0. Single-repo (CWD) workflow model, jj-colocated
 
-Every long-running op runs in a hidden jj workspace under
-`~/.maverick/workspaces/<project>/` that **shares the user repo's
-backing store** via `jj workspace add`. Bead commits land in the
-shared op log and are visible from the user's checkout's `jj log`
-immediately — no clone, no bridge, no apply-to-user-repo dance.
+All long-running ops (`plan generate`, `refuel`, `fly`, `land`)
+operate directly in the user's checkout under `Path.cwd()`. There
+is no hidden workspace, no clone bridge, no `WorkspaceManager`.
+Plans, beads, runway, and per-run metadata land in
+`<cwd>/.maverick/{plans, runs, runway}/` and survive across runs
+without any sync step.
 
-**Shape**:
-1. `maverick init` colocates the user repo (`jj git init --colocate`,
-   default-on, no opt-out). After init, the user's checkout has both
-   `.git/` and `.jj/` and behaves identically to before for git users.
-2. `WorkspaceManager.find_or_create()` runs `jj workspace add
-   ~/.maverick/workspaces/<project>/`. Same backing repo, separate
-   working tree.
-3. Workflows execute with `cwd = workspace_path`. Bead commits land
-   in the workspace's `@-`; from the user's checkout's perspective,
-   they're real jj commits in the op log.
-4. `WorkspaceManager.teardown()` (when called) runs `jj workspace
-   forget` and `rm -rf` the working tree. Commits remain in the
-   shared op log.
+**Shape** (every long-running op):
+1. `maverick init` runs `jj git init --colocate` if `.jj/` is
+   missing (default-on, no opt-out). After init, the user's
+   checkout has both `.git/` and `.jj/` and behaves identically to
+   before for git users.
+2. CLI resolves `cwd = Path.cwd().resolve()`.
+3. The workflow executes inside `cwd`.
+4. Bead commits go straight onto the user's current branch via
+   `jj_commit_bead`.
+5. The user pushes / opens a PR when they're ready.
 
 **Implications**:
-- All commit-graph mutations go through `JjClient`. Don't add new
-  subprocess wrappers around `git commit/push/merge/branch`. The
-  workspace is always jj — there's no plain-git path to dispatch to.
+- All commit-graph mutations go through `JjClient` or actions in
+  `library/actions/jj.py`. Init's colocate guarantees `.jj/` exists,
+  so jj-only actions work in every command's cwd. No vcs detection
+  needed.
 - `actions/git.py` is read-only and merge-fallback only
   (`git_has_changes`, `git_merge`); reads otherwise go through GitPython.
 - Bead commits carry both the `bead(<id>): <title>` subject prefix
@@ -389,23 +388,21 @@ immediately — no clone, no bridge, no apply-to-user-repo dance.
   with the env-aware ready check).
 - Every workflow/CLI command receives `cwd: Path` from the CLI
   boundary. `Path.cwd()` defaults inside `src/maverick/workflows/` or
-  `src/maverick/actors/` are a layering smell — the CLI resolves
-  `cwd = workspace_path` and threads it down.
+  `src/maverick/actors/` are a layering smell — set them at the CLI
+  boundary and pass them down.
 
-**Why workspace-add and not jj git clone**: an earlier revision used
-`jj git clone` to create a separate clone of the user repo. That gave
-us two on-disk copies of bd state, two `.git` directories, sync.remote
-drift, and the cluster of 2026-05-02 bugs (workspace identity
-mismatch, stale dolt routing, commit-hook clobbering JSONL). The
-`jj workspace add` primitive shares the backing repo — there is only
-one set of state to track, by construction.
-
-**This is interim** — short-term scaffolding until the full
-pull-work-push architecture in
-`.claude/scratchpads/architecture-pull-work-push.md` lands and
-maverick owns the working directory entirely (no separate user
-checkout). Until then, `WorkspaceManager` is canonical and lives at
-`src/maverick/workspace/manager.py`.
+**Background — what was tried and rejected**: an earlier revision ran
+every long-running op inside a hidden jj workspace under
+`~/.maverick/workspaces/<project>/`. Two implementations were
+attempted: `jj git clone` (clone-based, drifted on bd state — gone in
+`cf11db4`) and `jj workspace add` (workspace-add, shared backing repo
+— gone in this slice because bd's gitignored `embeddeddolt/` doesn't
+travel with `jj workspace add` and bd can't function in the
+workspace). The workspace pattern is theoretically clean but has an
+impedance mismatch with bd that's bigger than this slice can absorb.
+The full pull-work-push architecture in
+`.claude/scratchpads/architecture-pull-work-push.md` solves it via bd
+federation; until that lands, single-repo is the contract.
 
 ### 1. Async-first means no blocking on the event loop
 

@@ -212,15 +212,10 @@ async def fly(
 
         verify_bd_ready()
 
-    # Interim short-term model: fly runs in a hidden jj workspace
-    # under ``~/.maverick/workspaces/<project>/`` that shares the user
-    # repo's backing store. Bead commits land in the shared op log and
-    # are visible via the user repo's ``jj log`` immediately.
-    from maverick.workspace import WorkspaceManager
-
-    user_repo = Path.cwd().resolve()
-    manager = WorkspaceManager(user_repo_path=user_repo)
-    workspace_path = await manager.find_or_create()
+    # Fly runs in the user's checkout. ``maverick init`` makes the
+    # cwd jj+git colocated so per-bead jj commits land directly on
+    # the user's current branch.
+    cwd = Path.cwd().resolve()
 
     async with _graceful_sigint():
         await execute_python_workflow(
@@ -234,7 +229,7 @@ async def fly(
                     "watch": watch,
                     "watch_interval": watch_interval,
                     "skip_preflight": skip_preflight,
-                    "cwd": str(workspace_path),
+                    "cwd": str(cwd),
                 },
                 session_log_path=session_log,
             ),
