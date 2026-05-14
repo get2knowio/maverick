@@ -36,6 +36,12 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, ClassVar, Self
 
 from pydantic import BaseModel, ValidationError
+from tenacity import (
+    AsyncRetrying,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+)
 
 from maverick.logging import get_logger
 from maverick.runtime.opencode import (
@@ -46,6 +52,7 @@ from maverick.runtime.opencode import (
     OpenCodeError,
     OpenCodeServerHandle,
     OpenCodeStructuredOutputError,
+    OpenCodeTransientError,
     ProviderModel,
     SendResult,
     Tier,
@@ -63,6 +70,15 @@ logger = get_logger(__name__)
 
 DEFAULT_STRUCTURED_TIMEOUT_SECONDS = 600.0
 DEFAULT_TEXT_TIMEOUT_SECONDS = 600.0
+
+#: Per-binding transient-retry policy. A 5xx / rate-limit / network blip
+#: gets up to 3 attempts on the same binding (with exponential backoff)
+#: before the cascade falls over to the next provider. Auth, model-not-
+#: found, structured-output, and context-overflow errors are NOT retried
+#: here — they have different semantics (cascade or abort).
+TRANSIENT_RETRY_ATTEMPTS = 3
+TRANSIENT_RETRY_WAIT_MIN_SECONDS = 1.0
+TRANSIENT_RETRY_WAIT_MAX_SECONDS = 10.0
 
 
 class AgentPayloadValidationError(OpenCodeStructuredOutputError):
@@ -411,17 +427,37 @@ class Agent:
             if binding not in self._validated_bindings:
                 await validate_model_id(client, binding.provider_id, binding.model_id)
                 self._validated_bindings.add(binding)
-            result = await client.send_with_event_watch(
-                session_id,
-                prompt,
-                model=binding.to_dict(),
-                agent=agent,
-                format=format,
-                system=system,
-                timeout=timeout,
-            )
-            if validate is not None:
-                validate(result)
+
+            # Retry transient errors on the SAME binding before letting
+            # the cascade fall over. A 503 / rate-limit blip shouldn't
+            # be enough to permanently mark this provider as failed —
+            # one retry round usually rides through a brief outage.
+            result: SendResult | None = None
+            async for attempt in AsyncRetrying(
+                retry=retry_if_exception_type(OpenCodeTransientError),
+                stop=stop_after_attempt(TRANSIENT_RETRY_ATTEMPTS),
+                wait=wait_exponential(
+                    multiplier=1,
+                    min=TRANSIENT_RETRY_WAIT_MIN_SECONDS,
+                    max=TRANSIENT_RETRY_WAIT_MAX_SECONDS,
+                ),
+                reraise=True,
+            ):
+                with attempt:
+                    result = await client.send_with_event_watch(
+                        session_id,
+                        prompt,
+                        model=binding.to_dict(),
+                        agent=agent,
+                        format=format,
+                        system=system,
+                        timeout=timeout,
+                    )
+                    if validate is not None:
+                        validate(result)
+            # reraise=True guarantees an exception propagated if every
+            # attempt failed; if we reach here, the last attempt set ``result``.
+            assert result is not None
             return result
 
         tier = Tier(name=self._tier_name_or_inline(), bindings=tuple(bindings))

@@ -47,10 +47,22 @@ def _structured(payload: dict[str, Any]) -> SendResult:
 
 
 class _CascadeClient:
-    """Fake client that lets the test script per-binding behaviour."""
+    """Fake client that lets the test script per-binding behaviour.
 
-    def __init__(self, *, binding_behavior: dict[str, BaseException | SendResult]) -> None:
-        self._behavior = binding_behavior
+    ``binding_behavior`` is the single-action shape (one result/exception
+    used for every call). ``binding_sequence`` is the FIFO-list shape:
+    each call pops the next action for that binding (useful for testing
+    retry-then-succeed paths).
+    """
+
+    def __init__(
+        self,
+        *,
+        binding_behavior: dict[str, BaseException | SendResult] | None = None,
+        binding_sequence: dict[str, list[BaseException | SendResult]] | None = None,
+    ) -> None:
+        self._behavior = binding_behavior or {}
+        self._sequence = {k: list(v) for k, v in (binding_sequence or {}).items()}
         self.send_calls: list[dict[str, Any]] = []
         self.list_provider_calls = 0
         self.created_sessions: list[str] = []
@@ -103,7 +115,12 @@ class _CascadeClient:
         self.send_calls.append(
             {"binding": binding_label, "session_id": session_id, "format": format}
         )
-        action = self._behavior.get(binding_label)
+        # Sequence-style behavior wins over the single-action map when set.
+        seq = self._sequence.get(binding_label)
+        if seq:
+            action: BaseException | SendResult = seq.pop(0)
+        else:
+            action = self._behavior.get(binding_label)  # type: ignore[assignment]
         if isinstance(action, BaseException):
             raise action
         if isinstance(action, SendResult):
@@ -278,3 +295,85 @@ async def test_cascade_exhausted_propagates_last_error() -> None:
         with pytest.raises(OpenCodeAuthError) as exc:
             await agent.review()
     assert "qwen auth" in str(exc.value)
+
+
+async def test_transient_error_retries_on_same_binding(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A transient blip retries the same binding before falling over.
+
+    Pre-3.6 a single ``OpenCodeTransientError`` made the cascade fall
+    straight over to the next provider. Now tenacity wraps the per-binding
+    send: two transient blips followed by a success stays on the original
+    binding.
+    """
+    from maverick.runtime.opencode import OpenCodeTransientError
+
+    # No actual sleeps in tests.
+    monkeypatch.setattr("maverick.agents.base.TRANSIENT_RETRY_WAIT_MIN_SECONDS", 0)
+    monkeypatch.setattr("maverick.agents.base.TRANSIENT_RETRY_WAIT_MAX_SECONDS", 0)
+
+    haiku = "openrouter/anthropic/claude-haiku-4.5"
+    client = _CascadeClient(
+        binding_sequence={
+            haiku: [
+                OpenCodeTransientError("503-1"),
+                OpenCodeTransientError("503-2"),
+                _structured({"approved": True}),
+            ]
+        }
+    )
+    agent = _make_review_agent(client=client, tier_overrides=_two_binding_review_tier())
+    async with agent:
+        result = await agent.review()
+
+    assert isinstance(result, ReviewPayload)
+    # All three calls hit haiku — no fallover to qwen.
+    bindings = [s["binding"] for s in client.send_calls]
+    assert bindings == [haiku, haiku, haiku]
+    # haiku is NOT in the failed-bindings set (the eventual success cleared
+    # the transient blip).
+    assert all(b.label != haiku for b in agent._failed_bindings)  # noqa: SLF001
+
+
+async def test_transient_retry_exhausts_then_falls_over(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """If every retry on binding A fails transiently, cascade to B."""
+    from maverick.runtime.opencode import OpenCodeTransientError
+
+    monkeypatch.setattr("maverick.agents.base.TRANSIENT_RETRY_WAIT_MIN_SECONDS", 0)
+    monkeypatch.setattr("maverick.agents.base.TRANSIENT_RETRY_WAIT_MAX_SECONDS", 0)
+
+    haiku = "openrouter/anthropic/claude-haiku-4.5"
+    qwen = "openrouter/qwen/qwen3-coder"
+    client = _CascadeClient(
+        binding_behavior={haiku: OpenCodeTransientError("flapping")},
+        binding_sequence={qwen: [_structured({"approved": True})]},
+    )
+    agent = _make_review_agent(client=client, tier_overrides=_two_binding_review_tier())
+    async with agent:
+        result = await agent.review()
+
+    assert isinstance(result, ReviewPayload)
+    # Three retries on haiku, then one success on qwen.
+    bindings = [s["binding"] for s in client.send_calls]
+    assert bindings == [haiku, haiku, haiku, qwen]
+
+
+async def test_auth_error_does_not_retry_same_binding() -> None:
+    """Non-transient cascade errors (auth) fall over immediately, no retry."""
+    haiku = "openrouter/anthropic/claude-haiku-4.5"
+    qwen = "openrouter/qwen/qwen3-coder"
+    client = _CascadeClient(
+        binding_behavior={
+            haiku: OpenCodeAuthError("bad key"),
+            qwen: _structured({"approved": True}),
+        }
+    )
+    agent = _make_review_agent(client=client, tier_overrides=_two_binding_review_tier())
+    async with agent:
+        await agent.review()
+
+    bindings = [s["binding"] for s in client.send_calls]
+    # Exactly one attempt on haiku (the auth error doesn't retry),
+    # then one on qwen.
+    assert bindings == [haiku, qwen]
