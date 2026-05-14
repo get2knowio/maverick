@@ -54,10 +54,13 @@ async def test_open_spawns_and_builds_agents(
 ) -> None:
     config = MaverickConfig()
     async with FlySquadron(cwd=tmp_path, config=config) as squadron:
-        # All three agents are present and opened.
-        assert squadron.coder is not None
-        assert squadron.correctness_reviewer is not None
-        assert squadron.completeness_reviewer is not None
+        # Single-actor fallback (no tier configs) → one coder + one pair
+        # of reviewers under the DEFAULT_TIER key.
+        from maverick.squadron.fly import DEFAULT_TIER
+
+        assert list(squadron.coders) == [DEFAULT_TIER]
+        assert list(squadron.correctness_reviewers) == [DEFAULT_TIER]
+        assert list(squadron.completeness_reviewers) == [DEFAULT_TIER]
         # Tier overrides defaulted to empty (user didn't set any).
         assert squadron.tier_overrides == {}
         # Handle is the fake one we injected.
@@ -96,23 +99,28 @@ async def test_rotate_for_new_bead_rotates_each_agent(
     tmp_path: Path,
 ) -> None:
     """rotate_for_new_bead drops every agent's session pointer."""
+    from maverick.squadron.fly import DEFAULT_TIER
+
     config = MaverickConfig()
     async with FlySquadron(cwd=tmp_path, config=config) as squadron:
+        coder = squadron.coder_for(DEFAULT_TIER)
+        correctness = squadron.correctness_reviewer_for(DEFAULT_TIER)
+        completeness = squadron.completeness_reviewer_for(DEFAULT_TIER)
         # Open a session on each agent without going through a typed
         # send (skip schema validation against fake payloads).
-        await squadron.coder._ensure_session()  # noqa: SLF001
-        await squadron.correctness_reviewer._ensure_session()  # noqa: SLF001
-        await squadron.completeness_reviewer._ensure_session()  # noqa: SLF001
+        await coder._ensure_session()  # noqa: SLF001
+        await correctness._ensure_session()  # noqa: SLF001
+        await completeness._ensure_session()  # noqa: SLF001
 
-        assert squadron.coder._session_id is not None  # noqa: SLF001
-        assert squadron.correctness_reviewer._session_id is not None  # noqa: SLF001
-        assert squadron.completeness_reviewer._session_id is not None  # noqa: SLF001
+        assert coder._session_id is not None  # noqa: SLF001
+        assert correctness._session_id is not None  # noqa: SLF001
+        assert completeness._session_id is not None  # noqa: SLF001
 
         await squadron.rotate_for_new_bead()
 
-        assert squadron.coder._session_id is None  # noqa: SLF001
-        assert squadron.correctness_reviewer._session_id is None  # noqa: SLF001
-        assert squadron.completeness_reviewer._session_id is None  # noqa: SLF001
+        assert coder._session_id is None  # noqa: SLF001
+        assert correctness._session_id is None  # noqa: SLF001
+        assert completeness._session_id is None  # noqa: SLF001
 
 
 async def test_close_tears_down_handle(
@@ -166,3 +174,48 @@ async def test_bead_context_tags_propagate_through_gather(
 
     assert seen["a"] == {"bead_id": "b-7", "complexity": "simple"}
     assert seen["b"] == {"bead_id": "b-7", "complexity": "simple"}
+
+
+async def test_per_tier_coder_built_when_implementer_tiers_configured(
+    fake_squadron_handle: Any,
+    fake_agent_clients: dict[str, FakeClient],
+    tmp_path: Path,
+) -> None:
+    """When ``implementer_tiers`` is set, one coder is built per defined tier.
+
+    Mirrors the supervisor's legacy per-tier actor-spawning shape — but
+    the per-tier StepConfig merge now lives on the squadron, not the
+    supervisor.
+    """
+    from maverick.config import ImplementerTierConfig, ImplementerTiersConfig
+
+    tiers = ImplementerTiersConfig(
+        simple=ImplementerTierConfig(provider="openrouter", model_id="cheap"),
+        complex=ImplementerTierConfig(provider="openrouter", model_id="strong"),
+    )
+    config = MaverickConfig()
+    async with FlySquadron(
+        cwd=tmp_path,
+        config=config,
+        implementer_tiers=tiers,
+    ) as squadron:
+        assert set(squadron.coders) == {"simple", "complex"}
+        assert squadron.coder_for("simple") is not squadron.coder_for("complex")
+        # Lookup for an undefined tier falls back to an arbitrary cached
+        # coder — the supervisor's escalation resolver handles unknown
+        # tiers before reaching us.
+        assert squadron.coder_for("trivial") in squadron.coders.values()
+
+
+async def test_default_tier_fallback_when_no_implementer_tiers(
+    fake_squadron_handle: Any,
+    fake_agent_clients: dict[str, FakeClient],
+    tmp_path: Path,
+) -> None:
+    """No tier configs → one coder under DEFAULT_TIER (legacy single-actor mode)."""
+    from maverick.squadron.fly import DEFAULT_TIER
+
+    config = MaverickConfig()
+    async with FlySquadron(cwd=tmp_path, config=config) as squadron:
+        assert list(squadron.coders) == [DEFAULT_TIER]
+        assert squadron.coder_for("anything") is squadron.coder_for(DEFAULT_TIER)

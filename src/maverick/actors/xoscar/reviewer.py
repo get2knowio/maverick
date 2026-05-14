@@ -56,6 +56,7 @@ class ReviewerActor(xo.Actor):
         config: StepConfig | dict[str, Any] | None = None,
         opencode_agent: str = "maverick.correctness-reviewer",
         review_kind: ReviewKind = "correctness",
+        agent: ReviewerAgent | None = None,
     ) -> None:
         super().__init__()
         if not cwd:
@@ -70,6 +71,11 @@ class ReviewerActor(xo.Actor):
         self._step_config = load_step_config(config)
         self._opencode_agent_name = opencode_agent
         self._review_kind: ReviewKind = review_kind
+        # Pre-built agent provided by the squadron (when wired). When None,
+        # ``_make_agent`` falls back to constructing one from the pool
+        # registries — the path used by tests and any caller that hasn't
+        # adopted the squadron yet.
+        self._injected_agent = agent
         self._agent: ReviewerAgent | None = None
 
     async def __post_create__(self) -> None:
@@ -77,7 +83,9 @@ class ReviewerActor(xo.Actor):
         await self._agent.open()
 
     def _make_agent(self) -> ReviewerAgent:
-        """Factory hook — override in tests to inject a stubbed agent."""
+        """Factory hook — return the squadron-provided agent or build one."""
+        if self._injected_agent is not None:
+            return self._injected_agent
         pool_address: str = self.address
         return ReviewerAgent(
             handle=opencode_handle_for(pool_address),
@@ -91,7 +99,9 @@ class ReviewerActor(xo.Actor):
         )
 
     async def __pre_destroy__(self) -> None:
-        if self._agent is not None:
+        # When the agent was injected, the squadron owns its lifecycle —
+        # the actor borrowed it. Don't close on behalf of the squadron.
+        if self._agent is not None and self._injected_agent is None:
             await self._agent.close()
 
     # ------------------------------------------------------------------

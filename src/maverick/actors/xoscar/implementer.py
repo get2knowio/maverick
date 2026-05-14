@@ -42,6 +42,7 @@ class ImplementerActor(xo.Actor):
         *,
         cwd: str,
         config: StepConfig | dict[str, Any] | None = None,
+        agent: CodingAgent | None = None,
     ) -> None:
         super().__init__()
         if not cwd:
@@ -49,6 +50,11 @@ class ImplementerActor(xo.Actor):
         self._supervisor_ref = supervisor_ref
         self._cwd = cwd
         self._step_config = load_step_config(config)
+        # Pre-built agent provided by the squadron (when wired). When None,
+        # ``_make_agent`` falls back to constructing one from the pool
+        # registries — the path used by tests and any caller that hasn't
+        # adopted the squadron yet.
+        self._injected_agent = agent
         self._agent: CodingAgent | None = None
 
     async def __post_create__(self) -> None:
@@ -56,7 +62,9 @@ class ImplementerActor(xo.Actor):
         await self._agent.open()
 
     def _make_agent(self) -> CodingAgent:
-        """Factory hook — override in tests to inject a stubbed agent."""
+        """Factory hook — return the squadron-provided agent or build one."""
+        if self._injected_agent is not None:
+            return self._injected_agent
         pool_address: str = self.address
         return CodingAgent(
             handle=opencode_handle_for(pool_address),
@@ -68,7 +76,9 @@ class ImplementerActor(xo.Actor):
         )
 
     async def __pre_destroy__(self) -> None:
-        if self._agent is not None:
+        # When the agent was injected, the squadron owns its lifecycle —
+        # the actor borrowed it. Don't close on behalf of the squadron.
+        if self._agent is not None and self._injected_agent is None:
             await self._agent.close()
 
     # ------------------------------------------------------------------

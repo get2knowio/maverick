@@ -134,6 +134,12 @@ class FlyInputs:
     # one ReviewerActor per defined tier; the bead's complexity routes
     # the review prompt. No escalation (review is one-shot per round).
     reviewer_tiers: Any = None  # ReviewerTiersConfig | None
+    # The per-workflow squadron. When set, the supervisor reads pre-built
+    # per-tier coder / reviewer agents off the squadron and injects each
+    # into the matching actor via ``agent=`` instead of having every actor
+    # build its own. Escalation/routing logic stays here either way.
+    # Typed as ``Any`` to avoid an import cycle (squadron → workflow → here).
+    squadron: Any = None  # FlySquadron | None
 
 
 class FlySupervisor(xo.Actor):
@@ -204,13 +210,22 @@ class FlySupervisor(xo.Actor):
         # actors when complexity routing is configured. ``self._implementers``
         # is a tier-name → ActorRef map either way; legacy mode uses the
         # ``_DEFAULT_TIER`` sentinel.
+        #
+        # Per-tier StepConfig merging now lives in ``FlySquadron``; when the
+        # workflow passes a squadron through ``FlyInputs``, the supervisor
+        # injects ``agent=squadron.coder_for(tier_name)`` so every actor
+        # shares the squadron-owned agent. The fallback path (no squadron,
+        # used by some tests) keeps the old self-merge behaviour.
+        squadron = self._inputs.squadron
         self._implementers: dict[str, xo.ActorRef] = {}
         if self._inputs.implementer_tiers is None:
+            agent = squadron.coder_for(_DEFAULT_TIER) if squadron is not None else None
             self._implementers[_DEFAULT_TIER] = await xo.create_actor(
                 ImplementerActor,
                 self_ref,
                 cwd=self._inputs.cwd,
                 config=self._inputs.config,
+                agent=agent,
                 address=self.address,
                 uid=f"{self.uid.decode()}:implementer",
             )
@@ -220,25 +235,33 @@ class FlySupervisor(xo.Actor):
                 tier_override = getattr(tiers, tier_name, None)
                 if tier_override is None:
                     continue
-                tier_config = self._merge_tier_config(
-                    base=self._inputs.config,
-                    override=tier_override,
-                )
+                if squadron is not None:
+                    agent = squadron.coder_for(tier_name)
+                    tier_config = None  # Squadron-owned agent carries its own config.
+                else:
+                    agent = None
+                    tier_config = self._merge_tier_config(
+                        base=self._inputs.config,
+                        override=tier_override,
+                    )
                 self._implementers[tier_name] = await xo.create_actor(
                     ImplementerActor,
                     self_ref,
                     cwd=self._inputs.cwd,
                     config=tier_config,
+                    agent=agent,
                     address=self.address,
                     uid=f"{self.uid.decode()}:implementer:{tier_name}",
                 )
             if not self._implementers:
                 # Safety: empty tiers config is treated as "no tiers".
+                agent = squadron.coder_for(_DEFAULT_TIER) if squadron is not None else None
                 self._implementers[_DEFAULT_TIER] = await xo.create_actor(
                     ImplementerActor,
                     self_ref,
                     cwd=self._inputs.cwd,
                     config=self._inputs.config,
+                    agent=agent,
                     address=self.address,
                     uid=f"{self.uid.decode()}:implementer",
                 )
@@ -276,13 +299,23 @@ class FlySupervisor(xo.Actor):
         self._completeness_reviewers: dict[str, xo.ActorRef] = {}
 
         async def _spawn_reviewer_pair(tier_name: str, tier_config: Any, uid_suffix: str) -> None:
+            correctness_agent = (
+                squadron.correctness_reviewer_for(tier_name) if squadron is not None else None
+            )
+            completeness_agent = (
+                squadron.completeness_reviewer_for(tier_name) if squadron is not None else None
+            )
+            # When a squadron agent is injected, ``config=`` is ignored by
+            # the actor (the agent carries its own merged StepConfig).
+            actor_config = None if squadron is not None else tier_config
             self._correctness_reviewers[tier_name] = await xo.create_actor(
                 ReviewerActor,
                 self_ref,
                 cwd=self._inputs.cwd,
-                config=tier_config,
+                config=actor_config,
                 opencode_agent="maverick.correctness-reviewer",
                 review_kind="correctness",
+                agent=correctness_agent,
                 address=self.address,
                 uid=f"{self.uid.decode()}:reviewer:correctness{uid_suffix}",
             )
@@ -290,9 +323,10 @@ class FlySupervisor(xo.Actor):
                 ReviewerActor,
                 self_ref,
                 cwd=self._inputs.cwd,
-                config=tier_config,
+                config=actor_config,
                 opencode_agent="maverick.completeness-reviewer",
                 review_kind="completeness",
+                agent=completeness_agent,
                 address=self.address,
                 uid=f"{self.uid.decode()}:reviewer:completeness{uid_suffix}",
             )
