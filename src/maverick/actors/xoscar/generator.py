@@ -1,44 +1,34 @@
-"""xoscar GeneratorActor — OpenCode-backed flight-plan generator.
+"""xoscar GeneratorActor — thin shell over :class:`GeneratorAgent`.
 
-Same supervisor-facing contract as the legacy ACP+MCP version:
-``send_generate`` runs the prompt and forwards a typed
-:class:`SubmitFlightPlanPayload` to the supervisor's
-``flight_plan_ready`` method, or routes a :class:`PromptError` on
-failure. The transport is now OpenCode HTTP with
-``format=json_schema``.
+The actor is the xoscar-mailbox boundary; the OpenCode session +
+structured-output cascade live in :class:`maverick.agents.generator.GeneratorAgent`.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, Any
 
 import xoscar as xo
 
 from maverick.actors.step_config import load_step_config
 from maverick.actors.xoscar.messages import GenerateRequest, PromptError
-from maverick.actors.xoscar.opencode_mixin import OpenCodeAgentMixin
+from maverick.agents.generator import GeneratorAgent
 from maverick.logging import get_logger
-from maverick.payloads import SubmitFlightPlanPayload
-from maverick.runtime.opencode import OpenCodeError
+from maverick.runtime.opencode import (
+    OpenCodeError,
+    cost_sink_for,
+    opencode_handle_for,
+    tier_overrides_for,
+)
 
 if TYPE_CHECKING:
     from maverick.executor.config import StepConfig
 
 logger = get_logger(__name__)
 
-GENERATOR_PROMPT_TIMEOUT_SECONDS = 1200
 
-
-class GeneratorActor(OpenCodeAgentMixin, xo.Actor):
+class GeneratorActor(xo.Actor):
     """Generates a flight plan from PRD + briefing context."""
-
-    result_model: ClassVar[type[SubmitFlightPlanPayload]] = SubmitFlightPlanPayload
-    provider_tier: ClassVar[str] = "generate"
-    # Persona system prompt — including the no-tools / structured-output
-    # contract — lives in
-    # ``runtime/opencode/profile/agents/maverick.generator.md`` and is
-    # loaded by OpenCode via ``OPENCODE_CONFIG_DIR``.
-    opencode_agent: ClassVar[str | None] = "maverick.generator"
 
     def __init__(
         self,
@@ -53,13 +43,27 @@ class GeneratorActor(OpenCodeAgentMixin, xo.Actor):
         self._supervisor_ref = supervisor_ref
         self._cwd = cwd
         self._step_config = load_step_config(config)
+        self._agent: GeneratorAgent | None = None
 
     async def __post_create__(self) -> None:
-        self._actor_tag = f"generator[{self.uid.decode()}]"
-        await self._opencode_post_create()
+        self._agent = self._make_agent()
+        await self._agent.open()
+
+    def _make_agent(self) -> GeneratorAgent:
+        """Factory hook — override in tests to inject a stubbed agent."""
+        pool_address: str = self.address
+        return GeneratorAgent(
+            handle=opencode_handle_for(pool_address),
+            cwd=self._cwd,
+            step_config=self._step_config,
+            tier_overrides=tier_overrides_for(pool_address),
+            cost_sink=cost_sink_for(pool_address),
+            tag=f"generator[{self.uid.decode()}]",
+        )
 
     async def __pre_destroy__(self) -> None:
-        await self._opencode_pre_destroy()
+        if self._agent is not None:
+            await self._agent.close()
 
     # ------------------------------------------------------------------
     # Supervisor → agent
@@ -68,28 +72,16 @@ class GeneratorActor(OpenCodeAgentMixin, xo.Actor):
     @xo.no_lock
     async def send_generate(self, request: GenerateRequest) -> None:
         """Run the flight-plan generation prompt and forward the typed payload."""
+        assert self._agent is not None
         logger.debug("generator.prompt_starting")
-        # Persona-level role/voice text now lives in
-        # ``maverick.generator.md`` — only the per-call user content
-        # (PRD + briefing) goes in the prompt body so the system
-        # prompt stays cacheable across runs.
-        prompt = f"# PRD and briefing\n\n{request.prompt}"
         try:
-            payload = await self._send_structured(prompt, timeout=GENERATOR_PROMPT_TIMEOUT_SECONDS)
+            payload = await self._agent.generate(request.prompt)
         except OpenCodeError as exc:
             await self._report_prompt_error(str(exc))
             return
         except Exception as exc:  # noqa: BLE001 — supervisor decides retry policy
             await self._report_prompt_error(str(exc))
             return
-
-        if not isinstance(payload, SubmitFlightPlanPayload):
-            await self._supervisor_ref.payload_parse_error(
-                "submit_flight_plan",
-                f"GeneratorActor expected SubmitFlightPlanPayload, got {type(payload).__name__}",
-            )
-            return
-
         await self._supervisor_ref.flight_plan_ready(payload)
 
     async def _report_prompt_error(self, error: str) -> None:

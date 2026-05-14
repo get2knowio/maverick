@@ -18,12 +18,13 @@ from maverick.actors.xoscar.messages import (
     OutlineRequest,
     PromptError,
 )
+from maverick.agents.decomposer import DecomposerAgent
 from maverick.payloads import (
     SubmitDetailsPayload,
     SubmitFixPayload,
     SubmitOutlinePayload,
 )
-from maverick.runtime.opencode import OpenCodeAuthError, SendResult
+from maverick.runtime.opencode import OpenCodeAuthError, SendResult, opencode_handle_for
 
 
 class _DecomposerRecorder(xo.Actor):
@@ -54,11 +55,52 @@ class _DecomposerRecorder(xo.Actor):
         return list(self._calls)
 
 
+def _make_stub_client(
+    *,
+    scripted_results: list[SendResult],
+    scripted_error: BaseException | None,
+) -> Any:
+    class _Client:
+        base_url = "http://stub"
+
+        async def list_providers(self) -> dict[str, Any]:
+            return {"all": [], "connected": []}
+
+        async def create_session(self, *, title: str | None = None, **_: Any) -> str:
+            return f"ses_{id(self)}"
+
+        async def delete_session(self, session_id: str) -> bool:
+            return True
+
+        async def send_with_event_watch(self, *args: Any, **kwargs: Any) -> SendResult:
+            if scripted_error is not None:
+                raise scripted_error
+            if not scripted_results:
+                return SendResult(message={}, text="", structured=None, valid=False)
+            return scripted_results.pop(0)
+
+        async def aclose(self) -> None:
+            return None
+
+    return _Client()
+
+
+class _StubDecomposerAgent(DecomposerAgent):
+    """DecomposerAgent variant that uses an in-process stub client."""
+
+    provider_tier = None  # type: ignore[assignment]
+
+    def __init__(self, *, _stub_client: Any, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self._stub_client = _stub_client
+
+    def _build_client(self) -> Any:  # type: ignore[override]
+        return self._stub_client
+
+
 class _StubDecomposer(DecomposerActor):
     """Decomposer with a scripted client. ``send_results`` is consumed FIFO;
     ``send_error`` short-circuits with the named exception."""
-
-    provider_tier = None  # type: ignore[assignment]
 
     def __init__(
         self,
@@ -73,33 +115,19 @@ class _StubDecomposer(DecomposerActor):
         self._scripted_results = list(send_results or [])
         self._scripted_error = send_error
 
-    async def _build_client(self) -> Any:  # type: ignore[override]
-        scripted_results = self._scripted_results
-        scripted_error = self._scripted_error
-
-        class _Client:
-            base_url = "http://stub"
-
-            async def list_providers(self) -> dict[str, Any]:
-                return {"all": [], "connected": []}
-
-            async def create_session(self, *, title: str | None = None, **_: Any) -> str:
-                return f"ses_{id(self)}"
-
-            async def delete_session(self, session_id: str) -> bool:
-                return True
-
-            async def send_with_event_watch(self, *args: Any, **kwargs: Any) -> SendResult:
-                if scripted_error is not None:
-                    raise scripted_error
-                if not scripted_results:
-                    return SendResult(message={}, text="", structured=None, valid=False)
-                return scripted_results.pop(0)
-
-            async def aclose(self) -> None:
-                return None
-
-        return _Client()
+    def _make_agent(self) -> DecomposerAgent:  # type: ignore[override]
+        client = _make_stub_client(
+            scripted_results=self._scripted_results,
+            scripted_error=self._scripted_error,
+        )
+        return _StubDecomposerAgent(
+            handle=opencode_handle_for(self.address),
+            cwd=self._cwd,
+            role=self._role,
+            detail_session_max_turns=self._detail_session_max_turns,
+            fix_session_max_turns=self._fix_session_max_turns,
+            _stub_client=client,
+        )
 
 
 def _structured(payload: dict[str, Any]) -> SendResult:

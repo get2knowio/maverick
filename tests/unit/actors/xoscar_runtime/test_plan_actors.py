@@ -22,9 +22,11 @@ from maverick.actors.xoscar.messages import (
 from maverick.actors.xoscar.plan_supervisor import PlanInputs, PlanSupervisor
 from maverick.actors.xoscar.plan_validator import PlanValidatorActor
 from maverick.actors.xoscar.plan_writer import PlanWriterActor
+from maverick.agents.generator import GeneratorAgent
 from maverick.payloads import (
     SubmitFlightPlanPayload,
 )
+from maverick.runtime.opencode import opencode_handle_for
 
 # ---------------------------------------------------------------------------
 # Plan deterministic actors
@@ -131,11 +133,57 @@ class _PlanRecorder(xo.Actor):
         return list(self._calls)
 
 
-class _StubGenerator(GeneratorActor):
-    """GeneratorActor with the OpenCode client replaced by a stub."""
+def _make_generator_stub_client(
+    *, scripted_payload: dict | None, scripted_error: BaseException | None
+) -> Any:
+    from maverick.runtime.opencode import SendResult
+
+    class _Client:
+        base_url = "http://stub"
+
+        async def list_providers(self) -> dict[str, Any]:
+            return {"all": [], "connected": []}
+
+        async def create_session(self, *, title: str | None = None, **_: Any) -> str:
+            return "ses_1"
+
+        async def delete_session(self, session_id: str) -> bool:
+            return True
+
+        async def send_with_event_watch(self, *args: Any, **kwargs: Any) -> SendResult:
+            if scripted_error is not None:
+                raise scripted_error
+            payload = scripted_payload
+            return SendResult(
+                message={"info": {"structured": payload}, "parts": []},
+                text="",
+                structured=payload,
+                valid=True,
+                info={},
+            )
+
+        async def aclose(self) -> None:
+            return None
+
+    return _Client()
+
+
+class _StubGeneratorAgent(GeneratorAgent):
+    """GeneratorAgent variant that uses an in-process stub client."""
 
     # Bypass the tier cascade — stub doesn't surface real /provider data.
     provider_tier = None  # type: ignore[assignment]
+
+    def __init__(self, *, _stub_client: Any, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self._stub_client = _stub_client
+
+    def _build_client(self) -> Any:  # type: ignore[override]
+        return self._stub_client
+
+
+class _StubGenerator(GeneratorActor):
+    """GeneratorActor with the OpenCode client replaced by a stub."""
 
     def __init__(
         self,
@@ -149,40 +197,16 @@ class _StubGenerator(GeneratorActor):
         self._scripted_payload = scripted_payload
         self._scripted_error = scripted_error
 
-    async def _build_client(self) -> Any:  # type: ignore[override]
-        from maverick.runtime.opencode import SendResult
-
-        scripted_payload = self._scripted_payload
-        scripted_error = self._scripted_error
-
-        class _Client:
-            base_url = "http://stub"
-
-            async def list_providers(self) -> dict[str, Any]:
-                return {"all": [], "connected": []}
-
-            async def create_session(self, *, title: str | None = None, **_: Any) -> str:
-                return "ses_1"
-
-            async def delete_session(self, session_id: str) -> bool:
-                return True
-
-            async def send_with_event_watch(self, *args: Any, **kwargs: Any) -> SendResult:
-                if scripted_error is not None:
-                    raise scripted_error
-                payload = scripted_payload
-                return SendResult(
-                    message={"info": {"structured": payload}, "parts": []},
-                    text="",
-                    structured=payload,
-                    valid=True,
-                    info={},
-                )
-
-            async def aclose(self) -> None:
-                return None
-
-        return _Client()
+    def _make_agent(self) -> GeneratorAgent:  # type: ignore[override]
+        client = _make_generator_stub_client(
+            scripted_payload=self._scripted_payload,
+            scripted_error=self._scripted_error,
+        )
+        return _StubGeneratorAgent(
+            handle=opencode_handle_for(self.address),
+            cwd=self._cwd,
+            _stub_client=client,
+        )
 
 
 @pytest.mark.asyncio

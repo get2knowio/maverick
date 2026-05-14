@@ -20,10 +20,12 @@ import xoscar as xo
 
 from maverick.actors.xoscar.briefing import BriefingActor
 from maverick.actors.xoscar.messages import BriefingRequest, PromptError
+from maverick.agents.briefing.agent import BriefingAgent
 from maverick.payloads import SubmitNavigatorBriefPayload
 from maverick.runtime.opencode import (
     OpenCodeAuthError,
     SendResult,
+    opencode_handle_for,
 )
 
 
@@ -52,10 +54,54 @@ class _BriefingRecorder(xo.Actor):
         return list(self._calls)
 
 
-class _StubBriefing(BriefingActor):
-    """BriefingActor with the OpenCode client replaced by a scripted stub."""
+def _make_briefing_stub_client(
+    *, scripted_payload: dict | None, scripted_error: BaseException | None
+) -> Any:
+    class _Client:
+        base_url = "http://stub"
+
+        async def list_providers(self) -> dict[str, Any]:
+            return {"all": [], "connected": []}
+
+        async def create_session(self, *, title: str | None = None, **_: Any) -> str:
+            return "ses_brief"
+
+        async def delete_session(self, session_id: str) -> bool:
+            return True
+
+        async def send_with_event_watch(self, *args: Any, **kwargs: Any) -> SendResult:
+            if scripted_error is not None:
+                raise scripted_error
+            payload = scripted_payload
+            return SendResult(
+                message={"info": {"structured": payload}, "parts": []},
+                text="",
+                structured=payload,
+                valid=True,
+                info={},
+            )
+
+        async def aclose(self) -> None:
+            return None
+
+    return _Client()
+
+
+class _StubBriefingAgent(BriefingAgent):
+    """BriefingAgent variant that uses an in-process stub client."""
 
     provider_tier = None  # type: ignore[assignment]
+
+    def __init__(self, *, _stub_client: Any, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self._stub_client = _stub_client
+
+    def _build_client(self) -> Any:  # type: ignore[override]
+        return self._stub_client
+
+
+class _StubBriefing(BriefingActor):
+    """BriefingActor with the OpenCode client replaced by a scripted stub."""
 
     def __init__(
         self,
@@ -78,38 +124,18 @@ class _StubBriefing(BriefingActor):
         self._scripted_payload = scripted_payload
         self._scripted_error = scripted_error
 
-    async def _build_client(self) -> Any:  # type: ignore[override]
-        scripted_payload = self._scripted_payload
-        scripted_error = self._scripted_error
-
-        class _Client:
-            base_url = "http://stub"
-
-            async def list_providers(self) -> dict[str, Any]:
-                return {"all": [], "connected": []}
-
-            async def create_session(self, *, title: str | None = None, **_: Any) -> str:
-                return "ses_brief"
-
-            async def delete_session(self, session_id: str) -> bool:
-                return True
-
-            async def send_with_event_watch(self, *args: Any, **kwargs: Any) -> SendResult:
-                if scripted_error is not None:
-                    raise scripted_error
-                payload = scripted_payload
-                return SendResult(
-                    message={"info": {"structured": payload}, "parts": []},
-                    text="",
-                    structured=payload,
-                    valid=True,
-                    info={},
-                )
-
-            async def aclose(self) -> None:
-                return None
-
-        return _Client()
+    def _make_agent(self) -> BriefingAgent:  # type: ignore[override]
+        client = _make_briefing_stub_client(
+            scripted_payload=self._scripted_payload,
+            scripted_error=self._scripted_error,
+        )
+        return _StubBriefingAgent(
+            handle=opencode_handle_for(self.address),
+            cwd=self._cwd,
+            agent_name=self._agent_name,
+            result_model=self._schema,
+            _stub_client=client,
+        )
 
 
 @pytest.mark.asyncio

@@ -101,124 +101,78 @@ async def test_sink_tolerates_dict_input(initialized_store: RunwayStore) -> None
 
 
 # ---------------------------------------------------------------------------
-# OpenCodeAgentMixin._record_cost → sink wiring
+# Agent._record_cost → sink wiring
 # ---------------------------------------------------------------------------
 
 
-async def test_mixin_flushes_to_registered_sink(
+async def test_agent_flushes_to_injected_sink(
     initialized_store: RunwayStore, tmp_path: Path
 ) -> None:
-    """_record_cost calls the pool-scoped sink, which appends to runway."""
-    from maverick.actors.xoscar.opencode_mixin import OpenCodeAgentMixin
-    from maverick.actors.xoscar.pool import create_pool
-    from maverick.runtime.opencode import (
-        ProviderModel,
-        SendResult,
-        cost_sink_for,
-        register_cost_sink,
-        unregister_cost_sink,
-    )
-
-    pool, address = await create_pool()
-    sink = make_cost_sink(initialized_store)
-    register_cost_sink(address, sink)
-    try:
-        # cost_sink_for returns the sink we registered.
-        assert cost_sink_for(address) is sink
-
-        # Build a stripped-down mixin that exposes _record_cost without
-        # going through a full actor — we just need the pool address.
-        class _Bare(OpenCodeAgentMixin):
-            def __init__(self) -> None:
-                self.address = address  # type: ignore[assignment]
-                self._actor_tag = "test-actor"
-                self._validated_bindings = set()
-                self._failed_bindings = set()
-                self._last_cost_record = None
-                self._cost_sink = None
-                self._cost_sink_resolved = False
-                self._current_bead_id = "bd-test"
-
-            provider_tier = "review"  # type: ignore[assignment]
-
-        actor = _Bare()
-        # Build a SendResult with cost info, run cost_record_from_send,
-        # then call _record_cost.
-        info = {
-            "providerID": "openrouter",
-            "modelID": "anthropic/claude-haiku-4.5",
-            "cost": 0.0042,
-            "tokens": {"input": 100, "output": 20, "cache": {"read": 0, "write": 0}},
-            "finish": "tool-calls",
-        }
-        from maverick.runtime.opencode import cost_record_from_send
-
-        result = SendResult(
-            message={"info": info},
-            text="",
-            structured=None,
-            valid=False,
-            info=info,
-        )
-        actor._last_cost_record = cost_record_from_send(result)
-        actor._record_cost(
-            result, binding=ProviderModel("openrouter", "anthropic/claude-haiku-4.5")
-        )
-
-        # _record_cost schedules an asyncio.create_task — drain it.
-        import asyncio
-
-        # Give the scheduled coroutine a tick to run.
-        await asyncio.sleep(0)
-        await asyncio.sleep(0.05)
-
-        entries = await initialized_store.get_cost_entries()
-        assert len(entries) == 1
-        e = entries[0]
-        assert e.actor == "test-actor"
-        assert e.tier == "review"
-        assert e.bead_id == "bd-test"
-        assert e.cost_usd == pytest.approx(0.0042)
-        assert e.model_id == "anthropic/claude-haiku-4.5"
-    finally:
-        unregister_cost_sink(address)
-        await pool.stop()
-
-
-async def test_mixin_no_sink_skips_silently(tmp_path: Path) -> None:
-    """When no sink is registered, _record_cost only logs (doesn't crash)."""
-    from maverick.actors.xoscar.opencode_mixin import OpenCodeAgentMixin
-    from maverick.actors.xoscar.pool import create_pool
+    """_record_cost calls the constructor-injected sink, appending to runway."""
+    from maverick.agents.base import Agent
     from maverick.runtime.opencode import (
         ProviderModel,
         SendResult,
         cost_record_from_send,
     )
+    from tests.unit.agents.conftest import fake_handle
 
-    pool, address = await create_pool()
-    try:
+    sink = make_cost_sink(initialized_store)
 
-        class _Bare(OpenCodeAgentMixin):
-            def __init__(self) -> None:
-                self.address = address  # type: ignore[assignment]
-                self._actor_tag = "test"
-                self._validated_bindings = set()
-                self._failed_bindings = set()
-                self._last_cost_record = None
-                self._cost_sink = None
-                self._cost_sink_resolved = False
-                self._current_bead_id = ""
+    class _BareAgent(Agent):
+        provider_tier = "review"  # type: ignore[assignment]
 
-            provider_tier = "review"  # type: ignore[assignment]
+    agent = _BareAgent(handle=fake_handle(), cwd="/tmp", cost_sink=sink)
+    agent.current_bead_id = "bd-test"
 
-        actor = _Bare()
-        info = {"providerID": "x", "modelID": "y", "cost": 0.001, "tokens": {}}
-        result = SendResult(
-            message={"info": info}, text="", structured=None, valid=False, info=info
-        )
-        actor._last_cost_record = cost_record_from_send(result)
-        # Should not raise — sink resolution returns None.
-        actor._record_cost(result, binding=ProviderModel("x", "y"))
-        assert actor._cost_sink is None
-    finally:
-        await pool.stop()
+    info = {
+        "providerID": "openrouter",
+        "modelID": "anthropic/claude-haiku-4.5",
+        "cost": 0.0042,
+        "tokens": {"input": 100, "output": 20, "cache": {"read": 0, "write": 0}},
+        "finish": "tool-calls",
+    }
+    result = SendResult(
+        message={"info": info},
+        text="",
+        structured=None,
+        valid=False,
+        info=info,
+    )
+    agent._last_cost_record = cost_record_from_send(result)
+    agent._record_cost(result, binding=ProviderModel("openrouter", "anthropic/claude-haiku-4.5"))
+
+    import asyncio
+
+    await asyncio.sleep(0)
+    await asyncio.sleep(0.05)
+
+    entries = await initialized_store.get_cost_entries()
+    assert len(entries) == 1
+    e = entries[0]
+    assert e.actor == "_BareAgent"
+    assert e.tier == "review"
+    assert e.bead_id == "bd-test"
+    assert e.cost_usd == pytest.approx(0.0042)
+    assert e.model_id == "anthropic/claude-haiku-4.5"
+
+
+async def test_agent_no_sink_skips_silently(tmp_path: Path) -> None:
+    """When no sink is injected, _record_cost only logs (doesn't crash)."""
+    from maverick.agents.base import Agent
+    from maverick.runtime.opencode import (
+        ProviderModel,
+        SendResult,
+        cost_record_from_send,
+    )
+    from tests.unit.agents.conftest import fake_handle
+
+    class _BareAgent(Agent):
+        provider_tier = "review"  # type: ignore[assignment]
+
+    agent = _BareAgent(handle=fake_handle(), cwd="/tmp")  # no cost_sink
+    info = {"providerID": "x", "modelID": "y", "cost": 0.001, "tokens": {}}
+    result = SendResult(message={"info": info}, text="", structured=None, valid=False, info=info)
+    agent._last_cost_record = cost_record_from_send(result)
+    agent._record_cost(result, binding=ProviderModel("x", "y"))
+    assert agent._cost_sink is None

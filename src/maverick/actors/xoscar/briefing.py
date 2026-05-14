@@ -1,82 +1,38 @@
-"""xoscar BriefingActor — OpenCode-backed generic briefing agent.
+"""xoscar BriefingActor — thin shell over :class:`BriefingAgent`.
 
 Used by both refuel (navigator/structuralist/recon/contrarian) and plan
 (scopist/analyst/criteria/contrarian) workflows. Each instance owns one
 result schema (looked up at construction time from the legacy mcp_tool
 name) and forwards the parsed payload to a single typed method on the
 supervisor (``forward_method`` passed at construction).
-
-The legacy MCP-gateway path is gone — OpenCode's StructuredOutput tool
-forces the model to return the typed payload on the first turn, so the
-self-nudge loop and JSON-in-text fallback are no longer needed.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, Any
 
 import xoscar as xo
-from pydantic import BaseModel
 
 from maverick.actors.step_config import load_step_config
 from maverick.actors.xoscar.messages import BriefingRequest, PromptError
-from maverick.actors.xoscar.opencode_mixin import OpenCodeAgentMixin
+from maverick.agents.briefing.agent import BriefingAgent
 from maverick.logging import get_logger
-from maverick.payloads import (
-    SUPERVISOR_TOOL_PAYLOAD_MODELS,
+from maverick.payloads import SUPERVISOR_TOOL_PAYLOAD_MODELS
+from maverick.runtime.opencode import (
+    OpenCodeError,
+    cost_sink_for,
+    opencode_handle_for,
+    tier_overrides_for,
 )
-from maverick.runtime.opencode import OpenCodeError
 
 if TYPE_CHECKING:
     from maverick.executor.config import StepConfig
 
 logger = get_logger(__name__)
 
-BRIEFING_TIMEOUT_SECONDS = 1200
 
-# Map the in-process agent label to the bundled OpenCode persona file.
-# Both refuel briefings (navigator/structuralist/recon/contrarian) and
-# pre-flight briefings (scopist/codebase_analyst/criteria_writer/
-# preflight_contrarian) flow through this actor; the .md files live at
-# ``runtime/opencode/profile/agents/maverick.<persona>.md``. The
-# refuel/contrarian and preflight/contrarian roles share an
-# ``agent_name`` of "contrarian" / "preflight_contrarian" already, so
-# the map is a straight identity with one alias.
-_OPENCODE_AGENT_MAP: dict[str, str] = {
-    "navigator": "maverick.navigator",
-    "structuralist": "maverick.structuralist",
-    "recon": "maverick.recon",
-    "contrarian": "maverick.contrarian",
-    "scopist": "maverick.scopist",
-    "codebase_analyst": "maverick.codebase-analyst",
-    "criteria_writer": "maverick.criteria-writer",
-    "preflight_contrarian": "maverick.preflight-contrarian",
-}
-
-
-class BriefingActor(OpenCodeAgentMixin, xo.Actor):
-    """One briefing agent backed by OpenCode HTTP + structured output.
-
-    Constructor params:
-
-    * ``supervisor_ref`` — supervisor's ActorRef.
-    * ``agent_name`` — logical name ("navigator", "scopist", etc.); used
-      in logs and as the OpenCode agent label.
-    * ``mcp_tool`` — legacy tool name (e.g., ``"submit_navigator_brief"``);
-      used here only to look up the result schema.
-    * ``forward_method`` — supervisor method to call with the parsed payload.
-    * ``cwd`` — working directory.
-    * ``config`` — optional ``StepConfig`` override.
-
-    The instance overrides :attr:`result_model` from the class default to
-    match the per-instance schema lookup; the mixin still treats it as
-    the per-call default schema.
-    """
-
-    # Will be replaced per-instance in __init__; the class-level default
-    # is BaseModel so type checkers see a valid type.
-    result_model: ClassVar[type[BaseModel]] = BaseModel
-    provider_tier: ClassVar[str] = "briefing"
+class BriefingActor(xo.Actor):
+    """One briefing agent backed by OpenCode HTTP + structured output."""
 
     def __init__(
         self,
@@ -107,24 +63,30 @@ class BriefingActor(OpenCodeAgentMixin, xo.Actor):
         self._forward_method = forward_method
         self._cwd = cwd
         self._step_config = load_step_config(config)
-        # Per-instance schema — used by _send_structured below.
-        self._schema: type[BaseModel] = schema
+        self._schema = schema
+        self._agent: BriefingAgent | None = None
 
     async def __post_create__(self) -> None:
-        self._actor_tag = f"briefing[{self._agent_name}:{self.uid.decode()}]"
-        await self._opencode_post_create()
+        self._agent = self._make_agent()
+        await self._agent.open()
 
-    def _opencode_agent_name(self) -> str | None:
-        """Map ``self._agent_name`` to the bundled persona label.
-
-        Returns ``None`` (server default) for any unmapped name so an
-        unknown role surfaces as a missing-persona warning in OpenCode
-        logs rather than silently routing to the wrong system prompt.
-        """
-        return _OPENCODE_AGENT_MAP.get(self._agent_name)
+    def _make_agent(self) -> BriefingAgent:
+        """Factory hook — override in tests to inject a stubbed agent."""
+        pool_address: str = self.address
+        return BriefingAgent(
+            handle=opencode_handle_for(pool_address),
+            cwd=self._cwd,
+            agent_name=self._agent_name,
+            result_model=self._schema,
+            step_config=self._step_config,
+            tier_overrides=tier_overrides_for(pool_address),
+            cost_sink=cost_sink_for(pool_address),
+            tag=f"briefing[{self._agent_name}:{self.uid.decode()}]",
+        )
 
     async def __pre_destroy__(self) -> None:
-        await self._opencode_pre_destroy()
+        if self._agent is not None:
+            await self._agent.close()
 
     # ------------------------------------------------------------------
     # Supervisor → agent surface
@@ -133,31 +95,14 @@ class BriefingActor(OpenCodeAgentMixin, xo.Actor):
     @xo.no_lock
     async def send_briefing(self, request: BriefingRequest) -> None:
         """Run the briefing prompt and forward the typed payload."""
+        assert self._agent is not None
         logger.debug(
             "briefing.prompt_starting",
-            actor=self._actor_tag,
+            agent=self._agent_name,
             tool=self._mcp_tool,
-            agent=self._opencode_agent_name(),
-        )
-        # The persona's system prompt now lives in the bundled
-        # ``maverick.<agent_name>`` markdown file, loaded by OpenCode
-        # via ``OPENCODE_CONFIG_DIR``. Send only the per-bead user
-        # prompt here; the role/voice text used to be in Python is now
-        # in the .md frontmatter.
-        prompt = (
-            "If your analysis surfaces no findings (e.g. greenfield project "
-            "with no existing code), set empty arrays / minimal required "
-            "fields rather than refusing.\n\n"
-            "# Briefing input\n\n"
-            f"{request.prompt}"
         )
         try:
-            payload = await self._send_structured(
-                prompt,
-                schema=self._schema,
-                timeout=BRIEFING_TIMEOUT_SECONDS,
-                agent=self._opencode_agent_name(),
-            )
+            payload = await self._agent.brief(request.prompt)
         except OpenCodeError as exc:
             await self._report_briefing_failure(str(exc))
             return
@@ -165,11 +110,10 @@ class BriefingActor(OpenCodeAgentMixin, xo.Actor):
             await self._report_briefing_failure(str(exc))
             return
 
-        # xoscar's __getattr__ returns an ActorRefMethod proxy regardless of
-        # whether the method exists; the failure surfaces only on call. We
-        # rely on the supervisor being correctly wired by its constructor —
-        # forward-method mismatches are a programmer error, not a runtime
-        # failure mode worth handling silently.
+        # xoscar's __getattr__ returns an ActorRefMethod proxy regardless
+        # of whether the method exists; failure surfaces only on call. We
+        # rely on the supervisor being correctly wired by its
+        # constructor — forward-method mismatches are a programmer error.
         forward = getattr(self._supervisor_ref, self._forward_method)
         await forward(payload)
 
@@ -180,7 +124,7 @@ class BriefingActor(OpenCodeAgentMixin, xo.Actor):
         transient = is_transient_error(error)
         logger.debug(
             "briefing.prompt_failed",
-            actor=self._actor_tag,
+            agent=self._agent_name,
             tool=self._mcp_tool,
             error=error,
             quota=quota,
