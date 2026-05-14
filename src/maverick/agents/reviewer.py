@@ -83,7 +83,6 @@ class ReviewerAgent(Agent):
     async def review(
         self,
         *,
-        bead_id: str,
         bead_description: str,
         work_unit_md: str | None,
         briefing_context: str | None,
@@ -94,8 +93,11 @@ class ReviewerAgent(Agent):
         subsequent calls (after the implementer has applied fixes)
         send a short "did you address my prior findings?" prompt that
         relies on the persistent OpenCode session for context.
+
+        Bead identity flows in via
+        :func:`~maverick.agents.context.tagged` — the caller wraps the
+        call in ``with tagged(bead_id=...):`` for cost attribution.
         """
-        self.current_bead_id = bead_id
         self._review_count += 1
         prompt = self._build_review_prompt(
             bead_description=bead_description,

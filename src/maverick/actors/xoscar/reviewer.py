@@ -115,6 +115,8 @@ class ReviewerActor(xo.Actor):
     @xo.no_lock
     async def send_review(self, request: ReviewRequest) -> None:
         """Run a per-bead review and forward typed payload."""
+        from maverick.agents.context import tagged
+
         assert self._agent is not None
         logger.debug(
             "reviewer.review_starting",
@@ -122,12 +124,12 @@ class ReviewerActor(xo.Actor):
             review_kind=self._review_kind,
         )
         try:
-            payload = await self._agent.review(
-                bead_id=request.bead_id,
-                bead_description=request.bead_description,
-                work_unit_md=request.work_unit_md,
-                briefing_context=request.briefing_context,
-            )
+            with tagged(bead_id=request.bead_id):
+                payload = await self._agent.review(
+                    bead_description=request.bead_description,
+                    work_unit_md=request.work_unit_md,
+                    briefing_context=request.briefing_context,
+                )
         except OpenCodeError as exc:
             await self._report_prompt_error(
                 phase="review", error=str(exc), bead_id=request.bead_id

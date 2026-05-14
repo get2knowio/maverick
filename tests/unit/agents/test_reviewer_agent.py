@@ -57,7 +57,6 @@ async def test_review_first_round_includes_full_context() -> None:
     client = FakeClient(send_result=payload_send_result(_approved_payload()))
     async with _make_agent(client) as agent:
         await agent.review(
-            bead_id="b-1",
             bead_description="bead text",
             work_unit_md="## work unit",
             briefing_context="briefing notes",
@@ -72,13 +71,11 @@ async def test_review_subsequent_round_sends_short_followup() -> None:
     client = FakeClient(send_result=payload_send_result(_approved_payload()))
     async with _make_agent(client) as agent:
         await agent.review(
-            bead_id="b-1",
             bead_description="bead",
             work_unit_md=None,
             briefing_context=None,
         )
         await agent.review(
-            bead_id="b-1",
             bead_description="bead",
             work_unit_md=None,
             briefing_context=None,
@@ -92,7 +89,6 @@ async def test_review_stamps_provenance_correctness() -> None:
     client = FakeClient(send_result=payload_send_result(_payload_with_finding()))
     async with _make_agent(client) as agent:
         payload = await agent.review(
-            bead_id="b-1",
             bead_description="bead",
             work_unit_md=None,
             briefing_context=None,
@@ -107,7 +103,6 @@ async def test_review_preserves_existing_provenance() -> None:
     )
     async with _make_agent(client) as agent:
         payload = await agent.review(
-            bead_id="b-1",
             bead_description="bead",
             work_unit_md=None,
             briefing_context=None,
@@ -121,14 +116,12 @@ async def test_rotate_session_resets_review_count() -> None:
     client = FakeClient(send_result=payload_send_result(_approved_payload()))
     async with _make_agent(client) as agent:
         await agent.review(
-            bead_id="b-1",
             bead_description="bead",
             work_unit_md="md",
             briefing_context=None,
         )
         await agent.rotate_session()
         await agent.review(
-            bead_id="b-2",
             bead_description="bead",
             work_unit_md="md",
             briefing_context=None,
@@ -145,7 +138,6 @@ async def test_aggregate_rotates_session_first() -> None:
         opencode_agent="maverick.completeness-reviewer",
     ) as agent:
         await agent.review(
-            bead_id="b-1",
             bead_description="bead",
             work_unit_md="md",
             briefing_context=None,
@@ -179,7 +171,6 @@ async def test_persona_forwarded_in_send() -> None:
         opencode_agent="maverick.completeness-reviewer",
     ) as agent:
         await agent.review(
-            bead_id="b-1",
             bead_description="bead",
             work_unit_md=None,
             briefing_context=None,

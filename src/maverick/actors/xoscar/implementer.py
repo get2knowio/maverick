@@ -87,10 +87,13 @@ class ImplementerActor(xo.Actor):
 
     @xo.no_lock
     async def send_implement(self, request: ImplementRequest) -> None:
+        from maverick.agents.context import tagged
+
         assert self._agent is not None
         logger.debug("implementer.phase_starting", phase="implement", bead_id=request.bead_id)
         try:
-            payload = await self._agent.implement(request.prompt, bead_id=request.bead_id)
+            with tagged(bead_id=request.bead_id):
+                payload = await self._agent.implement(request.prompt)
         except OpenCodeError as exc:
             await self._report_prompt_error(
                 phase="implement", error=str(exc), bead_id=request.bead_id
@@ -105,10 +108,13 @@ class ImplementerActor(xo.Actor):
 
     @xo.no_lock
     async def send_fix(self, request: FlyFixRequest) -> None:
+        from maverick.agents.context import tagged
+
         assert self._agent is not None
         logger.debug("implementer.phase_starting", phase="fix", bead_id=request.bead_id)
         try:
-            payload = await self._agent.fix(request.prompt, bead_id=request.bead_id)
+            with tagged(bead_id=request.bead_id):
+                payload = await self._agent.fix(request.prompt)
         except OpenCodeError as exc:
             await self._report_prompt_error(phase="fix", error=str(exc), bead_id=request.bead_id)
             return

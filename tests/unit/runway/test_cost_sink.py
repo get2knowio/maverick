@@ -122,8 +122,9 @@ async def test_agent_flushes_to_injected_sink(
     class _BareAgent(Agent):
         provider_tier = "review"  # type: ignore[assignment]
 
+    from maverick.agents.context import tagged
+
     agent = _BareAgent(handle=fake_handle(), cwd="/tmp", cost_sink=sink)
-    agent.current_bead_id = "bd-test"
 
     info = {
         "providerID": "openrouter",
@@ -140,7 +141,11 @@ async def test_agent_flushes_to_injected_sink(
         info=info,
     )
     agent._last_cost_record = cost_record_from_send(result)
-    agent._record_cost(result, binding=ProviderModel("openrouter", "anthropic/claude-haiku-4.5"))
+    # Bead identity comes from ambient tags, not a mutable agent attr.
+    with tagged(bead_id="bd-test"):
+        agent._record_cost(
+            result, binding=ProviderModel("openrouter", "anthropic/claude-haiku-4.5")
+        )
 
     import asyncio
 
@@ -155,6 +160,46 @@ async def test_agent_flushes_to_injected_sink(
     assert e.bead_id == "bd-test"
     assert e.cost_usd == pytest.approx(0.0042)
     assert e.model_id == "anthropic/claude-haiku-4.5"
+
+
+async def test_cost_entry_without_active_tags_has_empty_bead_id(
+    initialized_store: RunwayStore, tmp_path: Path
+) -> None:
+    """Outside any ``tagged()`` block, bead_id falls back to the empty string."""
+    from maverick.agents.base import Agent
+    from maverick.runtime.opencode import (
+        ProviderModel,
+        SendResult,
+        cost_record_from_send,
+    )
+    from tests.unit.agents.conftest import fake_handle
+
+    sink = make_cost_sink(initialized_store)
+
+    class _BareAgent(Agent):
+        provider_tier = "review"  # type: ignore[assignment]
+
+    agent = _BareAgent(handle=fake_handle(), cwd="/tmp", cost_sink=sink)
+
+    info = {
+        "providerID": "openrouter",
+        "modelID": "anthropic/claude-haiku-4.5",
+        "cost": 0.001,
+        "tokens": {"input": 1, "output": 1, "cache": {"read": 0, "write": 0}},
+        "finish": "stop",
+    }
+    result = SendResult(message={"info": info}, text="", structured=None, valid=False, info=info)
+    agent._last_cost_record = cost_record_from_send(result)
+    agent._record_cost(result, binding=ProviderModel("openrouter", "anthropic/claude-haiku-4.5"))
+
+    import asyncio
+
+    await asyncio.sleep(0)
+    await asyncio.sleep(0.05)
+
+    entries = await initialized_store.get_cost_entries()
+    assert len(entries) == 1
+    assert entries[0].bead_id == ""
 
 
 async def test_agent_no_sink_skips_silently(tmp_path: Path) -> None:

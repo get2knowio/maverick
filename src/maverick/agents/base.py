@@ -136,9 +136,6 @@ class Agent:
         self._validated_bindings: set[ProviderModel] = set()
         self._failed_bindings: set[ProviderModel] = set()
         self._last_cost_record: CostRecord | None = None
-        # Optional bead identifier — set via :attr:`current_bead_id` so
-        # cost records can be attributed to a bead.
-        self._current_bead_id: str = ""
 
     # ------------------------------------------------------------------
     # Public lifecycle
@@ -216,14 +213,6 @@ class Agent:
                     agent=self._tag,
                     error=str(exc),
                 )
-
-    @property
-    def current_bead_id(self) -> str:
-        return self._current_bead_id
-
-    @current_bead_id.setter
-    def current_bead_id(self, bead_id: str) -> None:
-        self._current_bead_id = bead_id or ""
 
     @property
     def last_cost_record(self) -> CostRecord | None:
@@ -489,11 +478,15 @@ class Agent:
         record = self._last_cost_record
         if record is None:
             return
+        from maverick.agents.context import current_tags
+
+        tags = current_tags()
         logger.info(
             "agent.cost",
             agent=self._tag,
             tier=self._tier_name_or_inline(),
             binding=binding.label if binding else None,
+            **tags,
             **record.to_dict(),
         )
         sink = self._cost_sink
@@ -512,7 +505,7 @@ class Agent:
             cache_read_tokens=record.cache_read_tokens,
             cache_write_tokens=record.cache_write_tokens,
             finish=record.finish,
-            bead_id=self._current_bead_id,
+            bead_id=tags.get("bead_id", ""),
         )
         # Schedule the append asynchronously — the send path must not
         # block on JSONL I/O. Failures bubble to the structlog only.

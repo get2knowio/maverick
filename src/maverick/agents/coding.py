@@ -36,14 +36,14 @@ class CodingAgent(Agent):
     # ``OPENCODE_CONFIG_DIR``.
     opencode_agent: ClassVar[str | None] = "maverick.implementer"
 
-    async def implement(
-        self,
-        prompt: str,
-        *,
-        bead_id: str,
-    ) -> SubmitImplementationPayload:
-        """Run the implement-phase prompt and return the typed payload."""
-        self.current_bead_id = bead_id
+    async def implement(self, prompt: str) -> SubmitImplementationPayload:
+        """Run the implement-phase prompt and return the typed payload.
+
+        Bead identity (and any other workflow vocabulary) flows in via
+        :func:`~maverick.agents.context.tagged` — wrap the call in
+        ``with tagged(bead_id=...):`` so cost records and structured logs
+        get attributed correctly.
+        """
         payload = await self._send_structured(
             prompt,
             schema=SubmitImplementationPayload,
@@ -52,18 +52,12 @@ class CodingAgent(Agent):
         assert isinstance(payload, SubmitImplementationPayload)
         return payload
 
-    async def fix(
-        self,
-        prompt: str,
-        *,
-        bead_id: str,
-    ) -> SubmitFixResultPayload:
+    async def fix(self, prompt: str) -> SubmitFixResultPayload:
         """Run the fix-phase prompt and return the typed payload.
 
         Reuses the same OpenCode session as :meth:`implement` (within
         the same bead) so the model retains the implementation context.
         """
-        self.current_bead_id = bead_id
         payload = await self._send_structured(
             prompt,
             schema=SubmitFixResultPayload,

@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import abc
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Self
 
 from maverick.agents.base import Agent
+from maverick.agents.context import tagged
 from maverick.logging import get_logger
 from maverick.runtime.opencode import (
     CostSink,
@@ -144,6 +146,25 @@ class Squadron(abc.ABC):
     # ------------------------------------------------------------------
     # Bead boundary
     # ------------------------------------------------------------------
+
+    @contextmanager
+    def bead_context(self, *, bead_id: str, **extra_tags: str) -> Iterator[None]:
+        """Canonical entry point for tagging a block of bead-scoped work.
+
+        Wraps :func:`maverick.agents.context.tagged`. Every cost record
+        captured by an agent inside the block — including those produced
+        by tasks spawned via :func:`asyncio.gather` — is attributed to
+        the supplied ``bead_id``. Extra tags (``complexity``,
+        ``workflow``, etc.) ride along onto the structured-log row.
+
+        Example:
+
+            with squadron.bead_context(bead_id=bead.id, complexity=bead.complexity):
+                await squadron.rotate_for_new_bead()
+                payload = await squadron.coder.implement(prompt)
+        """
+        with tagged(bead_id=bead_id, **extra_tags):
+            yield
 
     async def rotate_for_new_bead(self) -> None:
         """Rotate every agent's OpenCode session.

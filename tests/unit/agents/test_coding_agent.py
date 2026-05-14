@@ -41,7 +41,7 @@ def _make_agent(client: FakeClient) -> CodingAgent:
 async def test_implement_returns_typed_payload() -> None:
     client = FakeClient(send_result=payload_send_result(_impl_payload()))
     async with _make_agent(client) as agent:
-        payload = await agent.implement("do the thing", bead_id="b-1")
+        payload = await agent.implement("do the thing")
     assert isinstance(payload, SubmitImplementationPayload)
     assert payload.summary == "did the work"
     # Verify the agent sent a json_schema format block.
@@ -52,17 +52,14 @@ async def test_implement_returns_typed_payload() -> None:
     assert "summary" in schema["properties"]
     # Persona is forwarded.
     assert call["agent"] == "maverick.implementer"
-    # Bead id is recorded for cost telemetry.
-    assert agent.current_bead_id == "b-1"
 
 
 async def test_fix_returns_typed_payload() -> None:
     client = FakeClient(send_result=payload_send_result(_fix_payload()))
     async with _make_agent(client) as agent:
-        payload = await agent.fix("fix this", bead_id="b-2")
+        payload = await agent.fix("fix this")
     assert isinstance(payload, SubmitFixResultPayload)
     assert payload.summary == "fixed it"
-    assert agent.current_bead_id == "b-2"
 
 
 async def test_implement_then_fix_share_session() -> None:
@@ -70,11 +67,11 @@ async def test_implement_then_fix_share_session() -> None:
     # Switch the result between calls.
     client = FakeClient(send_result=payload_send_result(_impl_payload()))
     async with _make_agent(client) as agent:
-        await agent.implement("do it", bead_id="b-3")
+        await agent.implement("do it")
         sid_after_impl = agent._session_id  # noqa: SLF001 — test introspection
         # Swap the next response and call fix.
         client.send_result = payload_send_result(_fix_payload())
-        await agent.fix("fix it", bead_id="b-3")
+        await agent.fix("fix it")
         sid_after_fix = agent._session_id  # noqa: SLF001
     assert sid_after_impl is not None
     assert sid_after_fix == sid_after_impl
@@ -86,12 +83,12 @@ async def test_implement_then_fix_share_session() -> None:
 async def test_rotate_session_drops_session() -> None:
     client = FakeClient(send_result=payload_send_result(_impl_payload()))
     async with _make_agent(client) as agent:
-        await agent.implement("first", bead_id="b-4")
+        await agent.implement("first")
         first_sid = agent._session_id  # noqa: SLF001
         await agent.rotate_session()
         assert agent._session_id is None  # noqa: SLF001
         client.send_result = payload_send_result(_impl_payload())
-        await agent.implement("second", bead_id="b-4")
+        await agent.implement("second")
         second_sid = agent._session_id  # noqa: SLF001
     assert second_sid is not None and second_sid != first_sid
     assert first_sid in client.deleted_sessions

@@ -141,3 +141,28 @@ async def test_close_tears_down_handle(
     async with FlySquadron(cwd=tmp_path, config=config):
         pass
     assert stopped["count"] == 1
+
+
+async def test_bead_context_tags_propagate_through_gather(
+    fake_squadron_handle: Any,
+    fake_agent_clients: dict[str, FakeClient],
+    tmp_path: Path,
+) -> None:
+    """``bead_context`` stamps tags visible to concurrent tasks underneath."""
+    import asyncio
+
+    from maverick.agents.context import current_tags
+
+    config = MaverickConfig()
+    async with FlySquadron(cwd=tmp_path, config=config) as squadron:
+        seen: dict[str, dict[str, str]] = {}
+
+        async def capture(name: str) -> None:
+            await asyncio.sleep(0)
+            seen[name] = current_tags()
+
+        with squadron.bead_context(bead_id="b-7", complexity="simple"):
+            await asyncio.gather(capture("a"), capture("b"))
+
+    assert seen["a"] == {"bead_id": "b-7", "complexity": "simple"}
+    assert seen["b"] == {"bead_id": "b-7", "complexity": "simple"}
