@@ -48,6 +48,11 @@ class RefuelSquadron(Squadron):
         self._decomposer_pool_cap = decomposer_pool_cap
         self._detail_session_max_turns = detail_session_max_turns
         self._fix_session_max_turns = fix_session_max_turns
+        # Every briefing built via build_briefing_agent is tracked here so
+        # Squadron.close() can guarantee its HTTP session is shut down.
+        # Refuel runs 4+ briefings per fan-out; one forgotten close =
+        # leaked client.
+        self._briefings: list[BriefingAgent] = []
 
     async def _build_agents(self) -> None:
         handle = self.handle
@@ -86,15 +91,13 @@ class RefuelSquadron(Squadron):
         agent_name: str,
         result_model: type[BaseModel],
     ) -> BriefingAgent:
-        """Build (and open) one briefing agent on demand.
+        """Build one briefing agent on demand and track it for teardown.
 
         Briefings are short-lived — built per supervisor fan-out, not
-        pooled. Caller is responsible for closing the agent (or relying
-        on Squadron.close() to clean it up if it's tracked there). For
-        simplicity this version returns an unmanaged agent the caller
-        owns.
+        pooled. The squadron retains a reference so :meth:`close` shuts
+        down every briefing's HTTP session even if the caller forgets.
         """
-        return BriefingAgent(
+        agent = BriefingAgent(
             handle=self.handle,
             cwd=str(self._cwd),
             tier_overrides=self._tier_overrides,
@@ -102,6 +105,8 @@ class RefuelSquadron(Squadron):
             agent_name=agent_name,
             result_model=result_model,
         )
+        self._briefings.append(agent)
+        return agent
 
     async def close(self) -> None:
         # Tear down the decomposer pool's agents before the base class
@@ -115,6 +120,7 @@ class RefuelSquadron(Squadron):
         gen = getattr(self, "generator", None)
         if gen is not None:
             yield gen
+        yield from self._briefings
 
     def _declared_bindings(self) -> Iterable[ProviderModel]:
         seen: set[ProviderModel] = set()

@@ -170,3 +170,40 @@ async def test_pool_teardown_closes_everything() -> None:
     await pool.teardown()
     assert pool.total_live == 0
     assert all(a.closed for a in spawned)
+
+
+async def test_squadron_closes_tracked_briefings(
+    fake_squadron_handle: Any,
+    fake_agent_clients: dict[str, FakeClient],
+    tmp_path: Path,
+) -> None:
+    """Squadron tracks every briefing built and closes them on exit.
+
+    Pre-3.3 the caller had to remember to call ``await agent.close()``
+    on each briefing. Refuel fans out 4+ briefings per phase; one
+    missed close = leaked HTTP client. Now the squadron owns lifecycle.
+    """
+    from pydantic import BaseModel
+
+    class _Schema(BaseModel):
+        ok: bool = True
+
+    config = MaverickConfig()
+    squadron = RefuelSquadron(cwd=tmp_path, config=config)
+    async with squadron:
+        briefings = [
+            squadron.build_briefing_agent(agent_name="navigator", result_model=_Schema),
+            squadron.build_briefing_agent(agent_name="structuralist", result_model=_Schema),
+            squadron.build_briefing_agent(agent_name="recon", result_model=_Schema),
+        ]
+        # Open them so they have client state worth closing.
+        for b in briefings:
+            await b.open()
+        # Squadron now tracks all 3.
+        assert len(squadron._briefings) == 3  # noqa: SLF001
+
+    # After context exit each agent's client got closed.
+    # (The fake client tags closed via .closed = True in conftest.)
+    for b in briefings:
+        # Even if no send happened (lazy client build), close() is safe.
+        assert b._client is None or b._client.closed  # noqa: SLF001

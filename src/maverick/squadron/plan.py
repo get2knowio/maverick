@@ -8,6 +8,8 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from pathlib import Path
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel
 
@@ -17,11 +19,28 @@ from maverick.agents.generator import GeneratorAgent
 from maverick.runtime.opencode import ProviderModel
 from maverick.squadron.base import Squadron
 
+if TYPE_CHECKING:
+    from maverick.config import MaverickConfig
+    from maverick.runtime.opencode import CostSink
+
 
 class PlanSquadron(Squadron):
     """Squadron for the plan-generation workflow."""
 
     generator: GeneratorAgent
+
+    def __init__(
+        self,
+        *,
+        cwd: Path,
+        config: MaverickConfig,
+        cost_sink: CostSink | None = None,
+    ) -> None:
+        super().__init__(cwd=cwd, config=config, cost_sink=cost_sink)
+        # Every briefing built via build_briefing_agent is tracked here so
+        # Squadron.close() guarantees its HTTP session is shut down.
+        # Pre-flight runs 4 briefings; one forgotten close = leaked client.
+        self._briefings: list[BriefingAgent] = []
 
     async def _build_agents(self) -> None:
         self.generator = GeneratorAgent(
@@ -38,8 +57,8 @@ class PlanSquadron(Squadron):
         agent_name: str,
         result_model: type[BaseModel],
     ) -> BriefingAgent:
-        """Build (and not yet open) one briefing agent on demand."""
-        return BriefingAgent(
+        """Build one briefing agent on demand and track it for teardown."""
+        agent = BriefingAgent(
             handle=self.handle,
             cwd=str(self._cwd),
             tier_overrides=self._tier_overrides,
@@ -47,11 +66,14 @@ class PlanSquadron(Squadron):
             agent_name=agent_name,
             result_model=result_model,
         )
+        self._briefings.append(agent)
+        return agent
 
     def _all_agents(self) -> Iterable[Agent]:
         gen = getattr(self, "generator", None)
         if gen is not None:
             yield gen
+        yield from self._briefings
 
     def _declared_bindings(self) -> Iterable[ProviderModel]:
         seen: set[ProviderModel] = set()
