@@ -33,16 +33,13 @@ class ReviewPayload(BaseModel):
 
 
 class _TestAgent(Agent):
-    """Concrete Agent that injects a programmable :class:`FakeClient`."""
+    """Concrete Agent with two domain methods.
+
+    Tests inject a fake client via ``client_factory=`` at construction
+    — no subclassing required. Use the :func:`_make_agent` helper below.
+    """
 
     result_model: ClassVar[type[BaseModel]] = ReviewPayload
-
-    def __init__(self, *, client: FakeClient, **kwargs: Any) -> None:
-        super().__init__(handle=fake_handle(), cwd="/tmp", **kwargs)
-        self._fake_client = client
-
-    def _build_client(self) -> Any:  # type: ignore[override]
-        return self._fake_client
 
     async def review(self, prompt: str) -> BaseModel:
         return await self._send_structured(prompt)
@@ -51,9 +48,18 @@ class _TestAgent(Agent):
         return await self._send_text(prompt)
 
 
+def _make_agent(client: FakeClient, **kwargs: Any) -> _TestAgent:
+    return _TestAgent(
+        handle=fake_handle(),
+        cwd="/tmp",
+        client_factory=lambda: client,
+        **kwargs,
+    )
+
+
 async def test_send_structured_returns_validated_payload() -> None:
     client = FakeClient(send_result=payload_send_result({"approved": True, "notes": "looks good"}))
-    agent = _TestAgent(client=client)
+    agent = _make_agent(client)
     async with agent:
         payload = await agent.review("review this diff")
     assert isinstance(payload, ReviewPayload)
@@ -70,7 +76,7 @@ async def test_send_structured_unwraps_envelope_via_send_result() -> None:
     """Mirror Landmine 3: the agent still produces a typed payload from the
     already-unwrapped structured field on the SendResult."""
     client = FakeClient(send_result=payload_send_result({"approved": False, "notes": ""}))
-    agent = _TestAgent(client=client)
+    agent = _make_agent(client)
     async with agent:
         payload = await agent.review("review")
     assert isinstance(payload, ReviewPayload)
@@ -87,7 +93,7 @@ async def test_send_structured_raises_payload_validation_error() -> None:
         info={},
     )
     client = FakeClient(send_result=bad_result)
-    agent = _TestAgent(client=client)
+    agent = _make_agent(client)
     async with agent:
         with pytest.raises(AgentPayloadValidationError):
             await agent.review("review")
@@ -95,7 +101,7 @@ async def test_send_structured_raises_payload_validation_error() -> None:
 
 async def test_send_structured_propagates_classified_runtime_error() -> None:
     client = FakeClient(send_error=OpenCodeAuthError("bad key"))
-    agent = _TestAgent(client=client)
+    agent = _make_agent(client)
     async with agent:
         with pytest.raises(OpenCodeAuthError):
             await agent.review("review")
@@ -110,7 +116,7 @@ async def test_send_text_returns_plain_text() -> None:
         info={},
     )
     client = FakeClient(send_result=text_result)
-    agent = _TestAgent(client=client)
+    agent = _make_agent(client)
     async with agent:
         text = await agent.chat("say hello")
     assert text == "hi from model"
@@ -120,7 +126,7 @@ async def test_send_text_returns_plain_text() -> None:
 
 async def test_session_is_lazily_created_on_first_send() -> None:
     client = FakeClient(send_result=payload_send_result({"approved": True}))
-    agent = _TestAgent(client=client)
+    agent = _make_agent(client)
     async with agent:
         # No session yet — lazy.
         assert agent._session_id is None  # noqa: SLF001
@@ -134,7 +140,7 @@ async def test_session_is_lazily_created_on_first_send() -> None:
 
 async def test_rotate_session_deletes_current_and_lazy_recreates() -> None:
     client = FakeClient(send_result=payload_send_result({"approved": True}))
-    agent = _TestAgent(client=client)
+    agent = _make_agent(client)
     async with agent:
         await agent.review("first")
         sid_before = agent._session_id  # noqa: SLF001
@@ -150,7 +156,7 @@ async def test_rotate_session_deletes_current_and_lazy_recreates() -> None:
 
 async def test_close_deletes_session_and_closes_client() -> None:
     client = FakeClient(send_result=payload_send_result({"approved": True}))
-    agent = _TestAgent(client=client)
+    agent = _make_agent(client)
     async with agent:
         await agent.review("once")
         sid = agent._session_id  # noqa: SLF001
@@ -162,24 +168,42 @@ async def test_close_deletes_session_and_closes_client() -> None:
     assert client.closed is True
 
 
-class _ConfiguredAgent(_TestAgent):
-    """Variant with an explicit StepConfig so model validation kicks in."""
+async def test_client_factory_substitutes_default_client() -> None:
+    """Constructor ``client_factory=`` injects a fake without subclassing.
 
-    def __init__(self, *, client: FakeClient) -> None:
-        from maverick.executor.config import StepConfig
+    Demonstrates the test pattern the rest of this module relies on: no
+    ``_build_client`` override, no ``_*ForTest`` subclass — just pass a
+    zero-arg callable that returns the desired client. Called lazily on
+    the first send.
+    """
+    client = FakeClient(send_result=payload_send_result({"approved": True}))
+    factory_calls = {"count": 0}
 
-        super().__init__(
-            client=client,
-            step_config=StepConfig(
-                provider="openrouter",
-                model_id="openai/gpt-oss-120b:free",
-            ),
-        )
+    def factory() -> Any:
+        factory_calls["count"] += 1
+        return client
+
+    agent = _TestAgent(handle=fake_handle(), cwd="/tmp", client_factory=factory)
+    # Factory is not invoked at construction — only at first send.
+    assert factory_calls["count"] == 0
+    async with agent:
+        await agent.review("hello")
+        # Same factory-returned client is held during the session.
+        assert agent._client is client  # noqa: SLF001
+    assert factory_calls["count"] == 1
 
 
 async def test_model_validation_runs_once_then_caches() -> None:
+    from maverick.executor.config import StepConfig
+
     client = FakeClient(send_result=payload_send_result({"approved": True}))
-    agent = _ConfiguredAgent(client=client)
+    agent = _make_agent(
+        client,
+        step_config=StepConfig(
+            provider="openrouter",
+            model_id="openai/gpt-oss-120b:free",
+        ),
+    )
     async with agent:
         await agent.review("first")
         await agent.review("second")

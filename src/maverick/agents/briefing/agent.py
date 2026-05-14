@@ -8,6 +8,7 @@ persona name, both passed at construction time.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from pydantic import BaseModel
@@ -16,7 +17,12 @@ from maverick.agents.base import Agent
 
 if TYPE_CHECKING:
     from maverick.executor.config import StepConfig
-    from maverick.runtime.opencode import CostSink, OpenCodeServerHandle, Tier
+    from maverick.runtime.opencode import (
+        CostSink,
+        OpenCodeClient,
+        OpenCodeServerHandle,
+        Tier,
+    )
 
 BRIEFING_TIMEOUT_SECONDS = 1200
 
@@ -63,6 +69,7 @@ class BriefingAgent(Agent):
         tier_overrides: dict[str, Tier] | None = None,
         cost_sink: CostSink | None = None,
         tag: str | None = None,
+        client_factory: Callable[[], OpenCodeClient] | None = None,
     ) -> None:
         super().__init__(
             handle=handle,
@@ -73,6 +80,7 @@ class BriefingAgent(Agent):
             tag=tag or f"briefing.{agent_name}",
             opencode_agent=opencode_agent_for(agent_name),
             result_model=result_model,
+            client_factory=client_factory,
         )
         self._agent_name = agent_name
 

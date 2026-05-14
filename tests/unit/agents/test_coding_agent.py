@@ -12,17 +12,6 @@ from maverick.payloads import SubmitFixResultPayload, SubmitImplementationPayloa
 from .conftest import FakeClient, fake_handle, payload_send_result
 
 
-class _CodingAgentForTest(CodingAgent):
-    """Subclass that injects a programmable :class:`FakeClient`."""
-
-    def __init__(self, *, client: FakeClient, **kwargs: Any) -> None:
-        super().__init__(handle=fake_handle(), cwd="/tmp", **kwargs)
-        self._fake_client = client
-
-    def _build_client(self) -> Any:  # type: ignore[override]
-        return self._fake_client
-
-
 def _impl_payload() -> dict[str, Any]:
     return {
         "kind": "submit_implementation",
@@ -45,10 +34,13 @@ def _fix_payload() -> dict[str, Any]:
     }
 
 
+def _make_agent(client: FakeClient) -> CodingAgent:
+    return CodingAgent(handle=fake_handle(), cwd="/tmp", client_factory=lambda: client)
+
+
 async def test_implement_returns_typed_payload() -> None:
     client = FakeClient(send_result=payload_send_result(_impl_payload()))
-    agent = _CodingAgentForTest(client=client)
-    async with agent:
+    async with _make_agent(client) as agent:
         payload = await agent.implement("do the thing", bead_id="b-1")
     assert isinstance(payload, SubmitImplementationPayload)
     assert payload.summary == "did the work"
@@ -66,8 +58,7 @@ async def test_implement_returns_typed_payload() -> None:
 
 async def test_fix_returns_typed_payload() -> None:
     client = FakeClient(send_result=payload_send_result(_fix_payload()))
-    agent = _CodingAgentForTest(client=client)
-    async with agent:
+    async with _make_agent(client) as agent:
         payload = await agent.fix("fix this", bead_id="b-2")
     assert isinstance(payload, SubmitFixResultPayload)
     assert payload.summary == "fixed it"
@@ -78,8 +69,7 @@ async def test_implement_then_fix_share_session() -> None:
     """The same agent reuses its session across implement → fix."""
     # Switch the result between calls.
     client = FakeClient(send_result=payload_send_result(_impl_payload()))
-    agent = _CodingAgentForTest(client=client)
-    async with agent:
+    async with _make_agent(client) as agent:
         await agent.implement("do it", bead_id="b-3")
         sid_after_impl = agent._session_id  # noqa: SLF001 — test introspection
         # Swap the next response and call fix.
@@ -95,8 +85,7 @@ async def test_implement_then_fix_share_session() -> None:
 
 async def test_rotate_session_drops_session() -> None:
     client = FakeClient(send_result=payload_send_result(_impl_payload()))
-    agent = _CodingAgentForTest(client=client)
-    async with agent:
+    async with _make_agent(client) as agent:
         await agent.implement("first", bead_id="b-4")
         first_sid = agent._session_id  # noqa: SLF001
         await agent.rotate_session()

@@ -85,22 +85,9 @@ def _make_stub_client(
     return _Client()
 
 
-class _StubDecomposerAgent(DecomposerAgent):
-    """DecomposerAgent variant that uses an in-process stub client."""
-
-    provider_tier = None  # type: ignore[assignment]
-
-    def __init__(self, *, _stub_client: Any, **kwargs: Any) -> None:
-        super().__init__(**kwargs)
-        self._stub_client = _stub_client
-
-    def _build_client(self) -> Any:  # type: ignore[override]
-        return self._stub_client
-
-
 class _StubDecomposer(DecomposerActor):
-    """Decomposer with a scripted client. ``send_results`` is consumed FIFO;
-    ``send_error`` short-circuits with the named exception."""
+    """Decomposer whose agent wires up a scripted stub client. ``send_results``
+    is consumed FIFO; ``send_error`` short-circuits with the named exception."""
 
     def __init__(
         self,
@@ -120,14 +107,17 @@ class _StubDecomposer(DecomposerActor):
             scripted_results=self._scripted_results,
             scripted_error=self._scripted_error,
         )
-        return _StubDecomposerAgent(
+        agent = DecomposerAgent(
             handle=opencode_handle_for(self.address),
             cwd=self._cwd,
             role=self._role,
             detail_session_max_turns=self._detail_session_max_turns,
             fix_session_max_turns=self._fix_session_max_turns,
-            _stub_client=client,
+            client_factory=lambda: client,
         )
+        # Bypass tier cascade — these tests don't ship a /provider response.
+        agent.provider_tier = None  # type: ignore[assignment]
+        return agent
 
 
 def _structured(payload: dict[str, Any]) -> SendResult:

@@ -115,22 +115,22 @@ class _CascadeClient:
 
 
 class _ReviewAgent(Agent):
+    """Concrete Agent with one domain method; client injected via factory."""
+
     result_model: ClassVar[type[BaseModel]] = ReviewPayload
     provider_tier: ClassVar[str] = "review"
 
-    def __init__(self, *, client: _CascadeClient, tier_overrides: dict[str, Tier]) -> None:
-        super().__init__(
-            handle=fake_handle(),
-            cwd="/tmp",
-            tier_overrides=tier_overrides,
-        )
-        self._injected_client = client
-
-    def _build_client(self) -> Any:  # type: ignore[override]
-        return self._injected_client
-
     async def review(self) -> Any:
         return await self._send_structured("review please")
+
+
+def _make_review_agent(*, client: _CascadeClient, tier_overrides: dict[str, Tier]) -> _ReviewAgent:
+    return _ReviewAgent(
+        handle=fake_handle(),
+        cwd="/tmp",
+        tier_overrides=tier_overrides,
+        client_factory=lambda: client,
+    )
 
 
 def _two_binding_review_tier() -> dict[str, Tier]:
@@ -157,7 +157,7 @@ async def test_cascade_falls_over_on_auth_error() -> None:
             "openrouter/qwen/qwen3-coder": _structured({"approved": True}),
         }
     )
-    agent = _ReviewAgent(client=client, tier_overrides=_two_binding_review_tier())
+    agent = _make_review_agent(client=client, tier_overrides=_two_binding_review_tier())
     async with agent:
         result = await agent.review()
     assert isinstance(result, ReviewPayload)
@@ -180,7 +180,7 @@ async def test_cascade_skips_failed_bindings_on_subsequent_sends() -> None:
             "openrouter/qwen/qwen3-coder": _structured({"approved": True}),
         }
     )
-    agent = _ReviewAgent(client=client, tier_overrides=_two_binding_review_tier())
+    agent = _make_review_agent(client=client, tier_overrides=_two_binding_review_tier())
     async with agent:
         await agent.review()
         await agent.review()
@@ -207,7 +207,7 @@ async def test_rotate_session_clears_failed_bindings() -> None:
             "openrouter/qwen/qwen3-coder": _structured({"approved": True}),
         }
     )
-    agent = _ReviewAgent(client=client, tier_overrides=_two_binding_review_tier())
+    agent = _make_review_agent(client=client, tier_overrides=_two_binding_review_tier())
     async with agent:
         await agent.review()  # haiku fails → cascade to qwen succeeds.
 
@@ -237,7 +237,7 @@ async def test_cost_record_captured_after_each_send() -> None:
             "openrouter/anthropic/claude-haiku-4.5": _structured({"approved": True}),
         }
     )
-    agent = _ReviewAgent(client=client, tier_overrides=_two_binding_review_tier())
+    agent = _make_review_agent(client=client, tier_overrides=_two_binding_review_tier())
     async with agent:
         await agent.review()
         cost = agent.last_cost_record
@@ -255,7 +255,7 @@ async def test_validation_runs_once_per_binding() -> None:
             "openrouter/anthropic/claude-haiku-4.5": _structured({"approved": True}),
         }
     )
-    agent = _ReviewAgent(client=client, tier_overrides=_two_binding_review_tier())
+    agent = _make_review_agent(client=client, tier_overrides=_two_binding_review_tier())
     async with agent:
         await agent.review()
         await agent.review()
@@ -273,7 +273,7 @@ async def test_cascade_exhausted_propagates_last_error() -> None:
             "openrouter/qwen/qwen3-coder": OpenCodeAuthError("qwen auth"),
         }
     )
-    agent = _ReviewAgent(client=client, tier_overrides=_two_binding_review_tier())
+    agent = _make_review_agent(client=client, tier_overrides=_two_binding_review_tier())
     async with agent:
         with pytest.raises(OpenCodeAuthError) as exc:
             await agent.review()

@@ -87,21 +87,8 @@ def _make_briefing_stub_client(
     return _Client()
 
 
-class _StubBriefingAgent(BriefingAgent):
-    """BriefingAgent variant that uses an in-process stub client."""
-
-    provider_tier = None  # type: ignore[assignment]
-
-    def __init__(self, *, _stub_client: Any, **kwargs: Any) -> None:
-        super().__init__(**kwargs)
-        self._stub_client = _stub_client
-
-    def _build_client(self) -> Any:  # type: ignore[override]
-        return self._stub_client
-
-
 class _StubBriefing(BriefingActor):
-    """BriefingActor with the OpenCode client replaced by a scripted stub."""
+    """BriefingActor that wires a scripted stub client into its agent."""
 
     def __init__(
         self,
@@ -129,13 +116,16 @@ class _StubBriefing(BriefingActor):
             scripted_payload=self._scripted_payload,
             scripted_error=self._scripted_error,
         )
-        return _StubBriefingAgent(
+        agent = BriefingAgent(
             handle=opencode_handle_for(self.address),
             cwd=self._cwd,
             agent_name=self._agent_name,
             result_model=self._schema,
-            _stub_client=client,
+            client_factory=lambda: client,
         )
+        # Bypass tier cascade — these tests don't ship a real /provider response.
+        agent.provider_tier = None  # type: ignore[assignment]
+        return agent
 
 
 @pytest.mark.asyncio

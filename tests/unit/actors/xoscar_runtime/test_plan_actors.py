@@ -168,22 +168,8 @@ def _make_generator_stub_client(
     return _Client()
 
 
-class _StubGeneratorAgent(GeneratorAgent):
-    """GeneratorAgent variant that uses an in-process stub client."""
-
-    # Bypass the tier cascade — stub doesn't surface real /provider data.
-    provider_tier = None  # type: ignore[assignment]
-
-    def __init__(self, *, _stub_client: Any, **kwargs: Any) -> None:
-        super().__init__(**kwargs)
-        self._stub_client = _stub_client
-
-    def _build_client(self) -> Any:  # type: ignore[override]
-        return self._stub_client
-
-
 class _StubGenerator(GeneratorActor):
-    """GeneratorActor with the OpenCode client replaced by a stub."""
+    """GeneratorActor that wires a scripted stub client into its agent."""
 
     def __init__(
         self,
@@ -202,11 +188,14 @@ class _StubGenerator(GeneratorActor):
             scripted_payload=self._scripted_payload,
             scripted_error=self._scripted_error,
         )
-        return _StubGeneratorAgent(
+        agent = GeneratorAgent(
             handle=opencode_handle_for(self.address),
             cwd=self._cwd,
-            _stub_client=client,
+            client_factory=lambda: client,
         )
+        # Bypass tier cascade — stub doesn't surface real /provider data.
+        agent.provider_tier = None  # type: ignore[assignment]
+        return agent
 
 
 @pytest.mark.asyncio

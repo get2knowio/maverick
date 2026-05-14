@@ -106,6 +106,7 @@ class Agent:
         tag: str | None = None,
         opencode_agent: str | None = None,
         result_model: type[BaseModel] | None = None,
+        client_factory: Callable[[], OpenCodeClient] | None = None,
     ) -> None:
         if not cwd:
             raise ValueError(f"{type(self).__name__} requires 'cwd'")
@@ -117,6 +118,7 @@ class Agent:
         self._tier_overrides = tier_overrides
         self._cost_sink = cost_sink
         self._tag = tag or type(self).__name__
+        self._client_factory = client_factory
 
         # Per-instance overrides for schema / persona.
         if result_model is not None:
@@ -341,7 +343,14 @@ class Agent:
         return client, sid
 
     def _build_client(self) -> OpenCodeClient:
-        """Create the per-agent :class:`OpenCodeClient`."""
+        """Create the per-agent :class:`OpenCodeClient`.
+
+        Tests inject a fake by passing ``client_factory=`` at construction
+        — no subclassing required. The default factory builds a real
+        client against the agent's :class:`OpenCodeServerHandle`.
+        """
+        if self._client_factory is not None:
+            return self._client_factory()
         return OpenCodeClient(
             base_url=self._handle.base_url,
             password=self._handle.password,

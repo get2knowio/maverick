@@ -14,13 +14,13 @@ from maverick.payloads import (
 from .conftest import FakeClient, fake_handle, payload_send_result
 
 
-class _DecomposerAgentForTest(DecomposerAgent):
-    def __init__(self, *, client: FakeClient, **kwargs: Any) -> None:
-        super().__init__(handle=fake_handle(), cwd="/tmp", **kwargs)
-        self._fake_client = client
-
-    def _build_client(self) -> Any:  # type: ignore[override]
-        return self._fake_client
+def _make_agent(client: FakeClient, **kwargs: Any) -> DecomposerAgent:
+    return DecomposerAgent(
+        handle=fake_handle(),
+        cwd="/tmp",
+        client_factory=lambda: client,
+        **kwargs,
+    )
 
 
 def _outline_payload() -> dict[str, Any]:
@@ -63,7 +63,7 @@ async def test_outline_returns_typed_payload(monkeypatch: Any) -> None:
         lambda *args, **kwargs: "STUB OUTLINE PROMPT",
     )
     client = FakeClient(send_result=payload_send_result(_outline_payload()))
-    agent = _DecomposerAgentForTest(client=client)
+    agent = _make_agent(client)
     async with agent:
         payload = await agent.outline(
             flight_plan_content="plan",
@@ -90,7 +90,7 @@ async def test_detail_reuses_session_then_increments_turn_counter(
         lambda **kwargs: "DETAIL TURN",
     )
     client = FakeClient(send_result=payload_send_result(_details_payload()))
-    agent = _DecomposerAgentForTest(client=client)
+    agent = _make_agent(client)
     await agent.set_context(
         outline_json="{}",
         flight_plan_content="plan",
@@ -125,7 +125,7 @@ async def test_rotate_session_resets_mode_bookkeeping(monkeypatch: Any) -> None:
         lambda **kwargs: "TURN",
     )
     client = FakeClient(send_result=payload_send_result(_details_payload()))
-    agent = _DecomposerAgentForTest(client=client)
+    agent = _make_agent(client)
     await agent.set_context(
         outline_json="{}",
         flight_plan_content="plan",
@@ -157,7 +157,7 @@ async def test_mode_switch_rotates_session(monkeypatch: Any) -> None:
         lambda **kwargs: "TURN",
     )
     client = FakeClient(send_result=payload_send_result(_outline_payload()))
-    agent = _DecomposerAgentForTest(client=client)
+    agent = _make_agent(client)
     await agent.set_context(
         outline_json="{}",
         flight_plan_content="plan",
@@ -188,7 +188,7 @@ async def test_fix_mode_reuses_seed(monkeypatch: Any) -> None:
         lambda **kwargs: "FIX TURN",
     )
     client = FakeClient(send_result=payload_send_result(_fix_payload()))
-    agent = _DecomposerAgentForTest(client=client, fix_session_max_turns=3)
+    agent = _make_agent(client, fix_session_max_turns=3)
     async with agent:
         payload = await agent.fix(
             coverage_gaps=["g-1"],
@@ -204,7 +204,7 @@ async def test_fix_mode_reuses_seed(monkeypatch: Any) -> None:
 
 async def test_nudge_picks_schema_for_expected_tool(monkeypatch: Any) -> None:
     client = FakeClient(send_result=payload_send_result(_details_payload()))
-    agent = _DecomposerAgentForTest(client=client)
+    agent = _make_agent(client)
     async with agent:
         payload = await agent.nudge(
             expected_tool="submit_details", unit_id="u-1", reason="missing field"

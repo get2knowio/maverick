@@ -13,7 +13,7 @@ Two roles:
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from pydantic import BaseModel
@@ -27,7 +27,12 @@ from maverick.payloads import (
 
 if TYPE_CHECKING:
     from maverick.executor.config import StepConfig
-    from maverick.runtime.opencode import CostSink, OpenCodeServerHandle, Tier
+    from maverick.runtime.opencode import (
+        CostSink,
+        OpenCodeClient,
+        OpenCodeServerHandle,
+        Tier,
+    )
 
 DETAIL_TIMEOUT_SECONDS = 1200
 DEFAULT_PROMPT_TIMEOUT_SECONDS = 1800
@@ -52,6 +57,7 @@ class DecomposerAgent(Agent):
         tier_overrides: dict[str, Tier] | None = None,
         cost_sink: CostSink | None = None,
         tag: str | None = None,
+        client_factory: Callable[[], OpenCodeClient] | None = None,
     ) -> None:
         super().__init__(
             handle=handle,
@@ -60,6 +66,7 @@ class DecomposerAgent(Agent):
             tier_overrides=tier_overrides,
             cost_sink=cost_sink,
             tag=tag or f"decomposer.{role}",
+            client_factory=client_factory,
         )
         self._role = role
         self._detail_session_max_turns = max(1, int(detail_session_max_turns))

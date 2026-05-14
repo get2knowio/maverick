@@ -12,15 +12,6 @@ from maverick.payloads import SubmitReviewPayload
 from .conftest import FakeClient, fake_handle, payload_send_result
 
 
-class _ReviewerAgentForTest(ReviewerAgent):
-    def __init__(self, *, client: FakeClient, **kwargs: Any) -> None:
-        super().__init__(handle=fake_handle(), cwd="/tmp", **kwargs)
-        self._fake_client = client
-
-    def _build_client(self) -> Any:  # type: ignore[override]
-        return self._fake_client
-
-
 def _approved_payload() -> dict[str, Any]:
     return {
         "kind": "submit_review",
@@ -47,14 +38,24 @@ def _payload_with_finding(reviewer: str | None = None) -> dict[str, Any]:
     }
 
 
+def _make_agent(
+    client: FakeClient,
+    *,
+    review_kind: str = "correctness",
+    opencode_agent: str = "maverick.correctness-reviewer",
+) -> ReviewerAgent:
+    return ReviewerAgent(
+        handle=fake_handle(),
+        cwd="/tmp",
+        review_kind=review_kind,  # type: ignore[arg-type]
+        opencode_agent=opencode_agent,
+        client_factory=lambda: client,
+    )
+
+
 async def test_review_first_round_includes_full_context() -> None:
     client = FakeClient(send_result=payload_send_result(_approved_payload()))
-    agent = _ReviewerAgentForTest(
-        client=client,
-        review_kind="correctness",
-        opencode_agent="maverick.correctness-reviewer",
-    )
-    async with agent:
+    async with _make_agent(client) as agent:
         await agent.review(
             bead_id="b-1",
             bead_description="bead text",
@@ -69,12 +70,7 @@ async def test_review_first_round_includes_full_context() -> None:
 
 async def test_review_subsequent_round_sends_short_followup() -> None:
     client = FakeClient(send_result=payload_send_result(_approved_payload()))
-    agent = _ReviewerAgentForTest(
-        client=client,
-        review_kind="correctness",
-        opencode_agent="maverick.correctness-reviewer",
-    )
-    async with agent:
+    async with _make_agent(client) as agent:
         await agent.review(
             bead_id="b-1",
             bead_description="bead",
@@ -94,12 +90,7 @@ async def test_review_subsequent_round_sends_short_followup() -> None:
 
 async def test_review_stamps_provenance_correctness() -> None:
     client = FakeClient(send_result=payload_send_result(_payload_with_finding()))
-    agent = _ReviewerAgentForTest(
-        client=client,
-        review_kind="correctness",
-        opencode_agent="maverick.correctness-reviewer",
-    )
-    async with agent:
+    async with _make_agent(client) as agent:
         payload = await agent.review(
             bead_id="b-1",
             bead_description="bead",
@@ -114,12 +105,7 @@ async def test_review_preserves_existing_provenance() -> None:
     client = FakeClient(
         send_result=payload_send_result(_payload_with_finding(reviewer="completeness"))
     )
-    agent = _ReviewerAgentForTest(
-        client=client,
-        review_kind="correctness",
-        opencode_agent="maverick.correctness-reviewer",
-    )
-    async with agent:
+    async with _make_agent(client) as agent:
         payload = await agent.review(
             bead_id="b-1",
             bead_description="bead",
@@ -133,12 +119,7 @@ async def test_review_preserves_existing_provenance() -> None:
 async def test_rotate_session_resets_review_count() -> None:
     """After rotate_session, the next review re-uses the first-round prompt."""
     client = FakeClient(send_result=payload_send_result(_approved_payload()))
-    agent = _ReviewerAgentForTest(
-        client=client,
-        review_kind="correctness",
-        opencode_agent="maverick.correctness-reviewer",
-    )
-    async with agent:
+    async with _make_agent(client) as agent:
         await agent.review(
             bead_id="b-1",
             bead_description="bead",
@@ -158,12 +139,11 @@ async def test_rotate_session_resets_review_count() -> None:
 
 async def test_aggregate_rotates_session_first() -> None:
     client = FakeClient(send_result=payload_send_result(_approved_payload()))
-    agent = _ReviewerAgentForTest(
-        client=client,
+    async with _make_agent(
+        client,
         review_kind="completeness",
         opencode_agent="maverick.completeness-reviewer",
-    )
-    async with agent:
+    ) as agent:
         await agent.review(
             bead_id="b-1",
             bead_description="bead",
@@ -193,12 +173,11 @@ async def test_review_kind_validation() -> None:
 
 async def test_persona_forwarded_in_send() -> None:
     client = FakeClient(send_result=payload_send_result(_approved_payload()))
-    agent = _ReviewerAgentForTest(
-        client=client,
+    async with _make_agent(
+        client,
         review_kind="completeness",
         opencode_agent="maverick.completeness-reviewer",
-    )
-    async with agent:
+    ) as agent:
         await agent.review(
             bead_id="b-1",
             bead_description="bead",

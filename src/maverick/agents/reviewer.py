@@ -12,6 +12,7 @@ Findings that already carry a ``reviewer`` value are preserved.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
 from maverick.agents.base import Agent
@@ -19,7 +20,12 @@ from maverick.payloads import SubmitReviewPayload
 
 if TYPE_CHECKING:
     from maverick.executor.config import StepConfig
-    from maverick.runtime.opencode import CostSink, OpenCodeServerHandle, Tier
+    from maverick.runtime.opencode import (
+        CostSink,
+        OpenCodeClient,
+        OpenCodeServerHandle,
+        Tier,
+    )
 
 REVIEW_PROMPT_TIMEOUT_SECONDS = 600
 AGGREGATE_REVIEW_TIMEOUT_SECONDS = 600
@@ -45,6 +51,7 @@ class ReviewerAgent(Agent):
         tier_overrides: dict[str, Tier] | None = None,
         cost_sink: CostSink | None = None,
         tag: str | None = None,
+        client_factory: Callable[[], OpenCodeClient] | None = None,
     ) -> None:
         if review_kind not in ("correctness", "completeness"):
             raise ValueError(
@@ -59,6 +66,7 @@ class ReviewerAgent(Agent):
             cost_sink=cost_sink,
             tag=tag or f"reviewer.{review_kind}",
             opencode_agent=opencode_agent,
+            client_factory=client_factory,
         )
         self._review_kind: ReviewKind = review_kind
         self._review_count = 0
