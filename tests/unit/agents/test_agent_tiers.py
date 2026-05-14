@@ -192,6 +192,45 @@ async def test_cascade_skips_failed_bindings_on_subsequent_sends() -> None:
     assert bindings.count("openrouter/qwen/qwen3-coder") == 3
 
 
+async def test_rotate_session_clears_failed_bindings() -> None:
+    """rotate_session() resets cascade stickiness so transient blips don't persist.
+
+    Without this, a single auth blip mid-run permanently rules out the
+    affected binding, and the cascade slowly collapses to whatever
+    provider hasn't blipped yet. The /provider snapshot
+    (``_validated_bindings``) is intentionally preserved — the live
+    server's catalog doesn't change between beads.
+    """
+    client = _CascadeClient(
+        binding_behavior={
+            "openrouter/anthropic/claude-haiku-4.5": OpenCodeAuthError("transient"),
+            "openrouter/qwen/qwen3-coder": _structured({"approved": True}),
+        }
+    )
+    agent = _ReviewAgent(client=client, tier_overrides=_two_binding_review_tier())
+    async with agent:
+        await agent.review()  # haiku fails → cascade to qwen succeeds.
+
+        failed_before = {b.label for b in agent._failed_bindings}  # noqa: SLF001
+        validated_before = {b.label for b in agent._validated_bindings}  # noqa: SLF001
+        assert "openrouter/anthropic/claude-haiku-4.5" in failed_before
+
+        await agent.rotate_session()
+
+        assert agent._failed_bindings == set()  # noqa: SLF001
+        # /provider snapshot is preserved — re-validating is wasted latency.
+        assert {b.label for b in agent._validated_bindings} == validated_before  # noqa: SLF001
+
+        # Next send retries haiku — and fails over again. Confirms the
+        # binding was actually retried, not skipped from cache.
+        await agent.review()
+
+    haiku_calls = [
+        s for s in client.send_calls if s["binding"] == "openrouter/anthropic/claude-haiku-4.5"
+    ]
+    assert len(haiku_calls) == 2
+
+
 async def test_cost_record_captured_after_each_send() -> None:
     client = _CascadeClient(
         binding_behavior={

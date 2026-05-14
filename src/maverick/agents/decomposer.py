@@ -86,6 +86,18 @@ class DecomposerAgent(Agent):
     def role(self) -> str:
         return self._role
 
+    async def rotate_session(self) -> None:
+        """Reset per-bead session-mode bookkeeping, then drop the session.
+
+        Without this override, ``squadron.rotate_for_new_bead()`` (which
+        iterates :meth:`Agent.rotate_session` on every agent) would
+        leave ``_session_mode`` / ``_session_turns_in_mode`` carrying
+        over from the previous unit's last phase.
+        """
+        self._session_mode = None
+        self._session_turns_in_mode = 0
+        await super().rotate_session()
+
     async def set_context(
         self,
         *,

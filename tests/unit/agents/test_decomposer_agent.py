@@ -108,6 +108,40 @@ async def test_detail_reuses_session_then_increments_turn_counter(
     assert agent._session_turns_in_mode == 2  # noqa: SLF001
 
 
+async def test_rotate_session_resets_mode_bookkeeping(monkeypatch: Any) -> None:
+    """rotate_session() clears _session_mode + _session_turns_in_mode.
+
+    Without this, ``squadron.rotate_for_new_bead()`` (which iterates
+    :meth:`Agent.rotate_session` directly on every agent) would leave
+    the decomposer carrying mode state from the previous unit's last
+    phase — a footgun even if currently benign.
+    """
+    monkeypatch.setattr(
+        "maverick.library.actions.decompose.build_detail_seed_prompt",
+        lambda **kwargs: "SEED",
+    )
+    monkeypatch.setattr(
+        "maverick.library.actions.decompose.build_detail_turn_prompt",
+        lambda **kwargs: "TURN",
+    )
+    client = FakeClient(send_result=payload_send_result(_details_payload()))
+    agent = _DecomposerAgentForTest(client=client)
+    await agent.set_context(
+        outline_json="{}",
+        flight_plan_content="plan",
+        verification_properties="vp",
+    )
+    async with agent:
+        await agent.detail(unit_ids=["u-1"])
+        assert agent._session_mode == "detail"  # noqa: SLF001
+        assert agent._session_turns_in_mode == 1  # noqa: SLF001
+
+        await agent.rotate_session()
+
+        assert agent._session_mode is None  # noqa: SLF001
+        assert agent._session_turns_in_mode == 0  # noqa: SLF001
+
+
 async def test_mode_switch_rotates_session(monkeypatch: Any) -> None:
     """Going outline → detail rotates the session."""
     monkeypatch.setattr(

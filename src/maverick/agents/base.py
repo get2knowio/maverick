@@ -195,11 +195,16 @@ class Agent:
 
         Typically called at bead boundaries — within a single bead the
         session is held to keep context warm across implement/fix or
-        review rounds.
+        review rounds. Also clears failed-binding stickiness so a
+        transient blip earlier in the run doesn't permanently rule out
+        a provider. ``_validated_bindings`` is intentionally preserved:
+        the live ``/provider`` snapshot doesn't change between beads,
+        so re-validating is wasted latency.
         """
         client = self._client
         sid = self._session_id
         self._session_id = None
+        self._failed_bindings.clear()
         if client is not None and sid is not None:
             try:
                 await client.delete_session(sid)
