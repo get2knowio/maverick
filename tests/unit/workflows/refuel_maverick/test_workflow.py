@@ -25,6 +25,7 @@ from maverick.workflows.refuel_maverick.constants import (
     WORKFLOW_NAME,
     WRITE_WORK_UNITS,
 )
+from tests.unit.workflows.conftest import stub_squadron_io
 from tests.unit.workflows.refuel_maverick.conftest import (
     collect_events,
     make_bead_result,
@@ -227,6 +228,7 @@ class TestRefuelMaverickWorkflowHappyPath:
                 return_value="briefing prompt",
             ),
             patch("xoscar.create_actor", new=_fake_create_actor),
+            stub_squadron_io(),
             patch("xoscar.destroy_actor", new=_fake_destroy_actor),
             patch.object(workflow, "emit_output", new=AsyncMock()),
             patch.object(workflow, "emit_step_completed", new=AsyncMock()),
@@ -321,6 +323,7 @@ class TestRefuelMaverickWorkflowHappyPath:
                 return_value="briefing prompt",
             ),
             patch("xoscar.create_actor", new=_fake_create_actor),
+            stub_squadron_io(),
             patch("xoscar.destroy_actor", new=_fake_destroy_actor),
             patch.object(workflow, "emit_output", new=AsyncMock()),
             patch.object(workflow, "emit_step_completed", new=AsyncMock()),

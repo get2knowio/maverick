@@ -155,33 +155,85 @@ acceptable.
 
 All mailbox actors execute via the OpenCode HTTP runtime
 (`maverick.runtime.opencode`). One `opencode serve` subprocess runs per
-workflow run, spawned by `actor_pool()` on a free port with HTTP Basic
-auth (username `opencode`, per-spawn random `OPENCODE_SERVER_PASSWORD`).
+workflow run, spawned by the workflow's `Squadron`
+(`maverick.squadron.Squadron`) on a free port with HTTP Basic auth
+(username `opencode`, per-spawn random `OPENCODE_SERVER_PASSWORD`).
 Mailbox actors share that one server; each actor owns its own
 `OpenCodeClient` and session.
 
-### Mailbox actor contract
+### Three-layer composition: Squadron + Agent + Actor
 
-Each agentic actor inherits from `OpenCodeAgentMixin` and declares:
+LLM-backed work flows through three layers:
+
+1. **`Squadron`** (`src/maverick/squadron/`) — per-workflow lifecycle
+   container. Spawns the OpenCode server, validates every tier
+   binding it will use against `GET /provider` at startup (collapsing
+   the silent bad-modelID landmine to one place), and exposes the
+   typed agents the workflow's actors need. Per-workflow subclasses:
+   `FlySquadron`, `RefuelSquadron`, `PlanSquadron`.
+2. **`Agent`** + 3. **Actor** — see below.
 
 ```python
-class CodeReviewerActor(OpenCodeAgentMixin, xo.Actor):
-    result_model: ClassVar[type[BaseModel]] = SubmitReviewPayload
-    provider_tier: ClassVar[str] = "review"  # role tier (see Provider Tiers)
+async with FlySquadron(cwd=cwd, config=config, cost_sink=sink) as squadron:
+    async with actor_pool(
+        opencode_handle=squadron.handle,
+        provider_tiers=squadron.tier_overrides,
+        cost_sink=squadron.cost_sink,
+    ) as (pool, address):
+        # ...create supervisor, drain events...
 ```
 
-The mixin provides:
+The pool no longer owns the OpenCode lifecycle — it just registers
+the squadron's handle/tier-overrides/cost-sink against its address so
+the existing `opencode_handle_for(self.address)` lookups in agent
+construction keep working unchanged.
 
-- `_send_structured(prompt, *, schema=None, timeout=...)` — sends the
-  prompt with `format=json_schema` derived from `result_model` (or the
-  per-call `schema=` override), runs the cascade, validates the response,
-  returns the typed payload.
-- `_send_text(prompt, *, timeout=...)` — plain-text response, no schema.
-- `_rotate_session()` — drop the OpenCode session so the next send opens a
-  fresh one (used by `new_bead`).
+### Two-layer agent model
 
-What the mixin **doesn't** provide (what the legacy ACP+MCP path had and
-the new path doesn't need): MCP tool registration, `on_tool_call`,
+LLM-backed work flows through two layers:
+
+1. **`Agent`** (`src/maverick/agents/`) — owns the OpenCode session,
+   tier cascade, structured-output validation, cost telemetry. Subclass
+   `Agent`, declare `result_model` / `provider_tier` / `opencode_agent`,
+   add domain methods (`coder.implement(prompt, *, bead_id)`).
+   Independent of xoscar; can be used directly from scripts or tests.
+2. **Actor** (`src/maverick/actors/xoscar/`) — xoscar mailbox shell.
+   Holds an `Agent` instance built by a `_make_agent()` factory hook,
+   forwards supervisor calls to agent methods, classifies errors into
+   `PromptError` / `payload_parse_error` for the supervisor.
+
+```python
+# Layer 1: Agent
+class CodingAgent(Agent):
+    result_model: ClassVar = SubmitImplementationPayload
+    provider_tier: ClassVar[str] = "implement"
+    opencode_agent: ClassVar[str | None] = "maverick.implementer"
+
+    async def implement(self, prompt: str, *, bead_id: str) -> SubmitImplementationPayload:
+        ...
+
+# Layer 2: Actor (thin shell)
+class ImplementerActor(xo.Actor):
+    def _make_agent(self) -> CodingAgent:
+        # Override in tests to inject a stubbed agent.
+        return CodingAgent(handle=opencode_handle_for(self.address), ...)
+
+    async def __post_create__(self) -> None:
+        self._agent = self._make_agent()
+        await self._agent.open()
+```
+
+Agent methods provided by the base class:
+
+- `_send_structured(prompt, *, schema=None, timeout=...)` — `format=json_schema`,
+  cascade, validation, typed payload.
+- `_send_text(prompt, *, timeout=...)` — plain-text response.
+- `rotate_session()` — drop the OpenCode session for a fresh context
+  (called between beads).
+- `open()` / `close()` lifecycle, plus `async with` support.
+
+What the agent layer **doesn't** do (what the legacy ACP+MCP path had
+and the new path doesn't need): MCP tool registration, `on_tool_call`,
 two-turn self-nudge loop, JSON-in-text fallback. The
 `StructuredOutput` tool forces the model to return a typed payload on
 the first turn — the recovery loops are dead code.
@@ -269,29 +321,34 @@ Standard mailbox-actor lifecycle:
 
 | Phase                | What happens                                              |
 | -------------------- | --------------------------------------------------------- |
-| `__post_create__`    | `await self._opencode_post_create()` — init lazy state.   |
-| First send           | `_build_client()` looks up `opencode_handle_for(self.address)`, opens a session. |
+| `__post_create__`    | Build the agent via `_make_agent()` factory, call `agent.open()` (no network yet). |
+| First send           | `agent._build_client()` opens a `OpenCodeClient` against the registered handle and creates a session. |
 | Subsequent sends     | Reuse the same session.                                   |
-| New bead             | `_rotate_session()` deletes the current session; the next send opens a new one. |
-| `__pre_destroy__`    | `await self._opencode_pre_destroy()` — delete session, close client. |
+| New bead             | Actor calls `agent.rotate_session()`; the next send opens a new session. |
+| `__pre_destroy__`    | Actor calls `agent.close()` — delete session, close client. |
 
-### Adding a new mailbox actor
+### Adding a new agent + actor
 
 1. Define a payload model in `maverick.payloads` and register it in
    `SUPERVISOR_TOOL_PAYLOAD_MODELS` (the dict keys are kept stable for
-   the briefing actor's per-instance schema lookup).
-2. Subclass `OpenCodeAgentMixin, xo.Actor`. Declare:
-   - `result_model: ClassVar[type[BaseModel]]` — the payload Pydantic class.
-   - `provider_tier: ClassVar[str]` — role name keyed into `DEFAULT_TIERS`
-     (or null out for special cases).
-3. In `__post_create__` call `await self._opencode_post_create()`. In
-   `__pre_destroy__` call `await self._opencode_pre_destroy()`.
-4. Implement your supervisor-facing methods (`send_review`, `send_fix`,
-   etc.) by calling `await self._send_structured(prompt)` and forwarding
-   the typed payload to a supervisor RPC.
-5. Decorate methods that are reverse-called by the supervisor with
-   `@xo.no_lock` (so they don't deadlock against the actor lock held by
-   the in-flight `send_*`).
+   the briefing agent's per-instance schema lookup).
+2. Add an `Agent` subclass under `src/maverick/agents/<role>.py`:
+   - Declare `result_model`, `provider_tier`, `opencode_agent` class vars.
+   - Implement domain methods that call `_send_structured(prompt, ...)`
+     and return the typed payload.
+3. Add an actor shell under `src/maverick/actors/xoscar/<role>.py`:
+   - Subclass `xo.Actor`.
+   - Implement `_make_agent()` factory returning your agent instance,
+     wired with handle/cwd/step_config/tier_overrides/cost_sink from
+     the pool registries (`opencode_handle_for(self.address)` etc.).
+   - In `__post_create__`: `self._agent = self._make_agent(); await self._agent.open()`.
+   - In `__pre_destroy__`: `await self._agent.close()`.
+   - Implement supervisor-facing methods (`send_review`, `send_fix`,
+     etc.) — forward to agent methods, classify errors into
+     `PromptError`, route typed payloads to supervisor RPCs.
+4. Decorate methods reverse-called by the supervisor with `@xo.no_lock`
+   (so they don't deadlock against the actor lock held by the in-flight
+   `send_*`).
 
 ## CLI Output
 

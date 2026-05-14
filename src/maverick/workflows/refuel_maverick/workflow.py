@@ -1085,13 +1085,22 @@ class RefuelMaverickWorkflow(PythonWorkflow):
             outline_cache_schema_version=OUTLINE_CACHE_SCHEMA_VERSION,
         )
 
-        from maverick.runtime.opencode import tiers_from_config
+        from maverick.squadron.refuel import RefuelSquadron
         from maverick.workflows.fly_beads.workflow import _cost_sink_for_cwd
 
-        async with actor_pool(
-            provider_tiers=tiers_from_config(self._config),
-            cost_sink=_cost_sink_for_cwd(ws_cwd or Path.cwd()),
-        ) as (_pool, address):
+        cost_sink = _cost_sink_for_cwd(ws_cwd or Path.cwd())
+        async with (
+            RefuelSquadron(
+                cwd=ws_cwd or Path.cwd(),
+                config=self._config,
+                cost_sink=cost_sink,
+            ) as squadron,
+            actor_pool(
+                opencode_handle=squadron.handle,
+                provider_tiers=squadron.tier_overrides,
+                cost_sink=squadron.cost_sink,
+            ) as (_pool, address),
+        ):
             supervisor = await xo.create_actor(
                 RefuelSupervisor,
                 supervisor_inputs,

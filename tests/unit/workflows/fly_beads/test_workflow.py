@@ -12,6 +12,7 @@ import pytest
 from maverick.config import AgentProviderConfig, MaverickConfig, ModelConfig
 from maverick.workflows.fly_beads.constants import WORKFLOW_NAME
 from maverick.workflows.fly_beads.workflow import FlyBeadsWorkflow
+from tests.unit.workflows.conftest import stub_squadron_io as _stub_squadron_io
 
 _REQUIRES_OPENCODE = pytest.mark.skipif(
     shutil.which("opencode") is None,
@@ -78,6 +79,7 @@ class TestFlyBeadsWorkflowXoscarConfig:
             ),
             patch("xoscar.create_actor", new=_fake_create_actor),
             patch("xoscar.destroy_actor", new=_fake_destroy_actor),
+            _stub_squadron_io(),
             patch.object(workflow, "emit_output", new=AsyncMock()),
             patch.object(
                 workflow,
@@ -172,6 +174,7 @@ class TestFlyBeadsWorkflowXoscarConfig:
             ),
             patch("xoscar.create_actor", new=_fake_create_actor),
             patch("xoscar.destroy_actor", new=_fake_destroy_actor),
+            _stub_squadron_io(),
             patch.object(workflow, "emit_output", new=AsyncMock()),
             patch.object(
                 workflow,

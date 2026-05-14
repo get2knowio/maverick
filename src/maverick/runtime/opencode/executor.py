@@ -59,7 +59,7 @@ class OpenCodeStepExecutor:
     """OpenCode-backed adapter satisfying the :class:`StepExecutor` Protocol.
 
     Owns either an externally-supplied :class:`OpenCodeServerHandle` (when
-    invoked inside ``actor_pool(with_opencode=True)``) or a server it
+    invoked inside a workflow's ``Squadron`` context) or a server it
     spawned itself (lazy on first use). Either way, :meth:`cleanup`
     terminates the spawned process — externally-supplied handles are
     left alone.

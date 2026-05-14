@@ -25,6 +25,7 @@ from maverick.workflows.generate_flight_plan.workflow import (
     _build_generate_prompt,
     _convert_output_to_flight_plan,
 )
+from tests.unit.workflows.conftest import stub_squadron_io
 
 _MODULE = "maverick.workflows.generate_flight_plan.workflow"
 
@@ -441,6 +442,7 @@ class TestGenerateFlightPlanWorkflowXoscarConfig:
         with (
             patch("xoscar.create_actor", new=_fake_create_actor),
             patch("xoscar.destroy_actor", new=_fake_destroy_actor),
+            stub_squadron_io(),
             patch.object(workflow, "emit_output", new=AsyncMock()),
             patch.object(
                 workflow,
@@ -532,6 +534,7 @@ class TestGenerateFlightPlanWorkflowXoscarConfig:
         with (
             patch("xoscar.create_actor", new=_fake_create_actor),
             patch("xoscar.destroy_actor", new=_fake_destroy_actor),
+            stub_squadron_io(),
             patch.object(workflow, "emit_output", new=AsyncMock()),
             patch.object(
                 workflow,

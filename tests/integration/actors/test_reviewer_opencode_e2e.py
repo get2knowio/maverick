@@ -138,39 +138,40 @@ async def test_reviewer_against_real_opencode_returns_typed_payload(tmp_path: Pa
         model_id="anthropic/claude-haiku-4.5",
     )
 
-    async with actor_pool(with_opencode=True) as (_pool, address):
-        sup = await xo.create_actor(_CapturingSupervisor, address=address, uid="sup-e2e")
-        reviewer = await xo.create_actor(
-            ReviewerActor,
-            sup,
-            cwd=str(cwd),
-            config=config.model_dump(),
-            address=address,
-            uid="reviewer-e2e",
-        )
-        try:
-            await xo.wait_for(
-                reviewer.send_review(
-                    ReviewRequest(
-                        bead_id="e2e-1",
-                        bead_description="Implement safe division",
-                        work_unit_md=(
-                            "Implement a divide(a, b) function that returns a/b but "
-                            "raises a clear error on divide-by-zero."
-                        ),
-                    )
-                ),
-                # 240s gives plenty of headroom; spike data showed haiku
-                # at ~3s, but OpenCode's project-preamble auto-compaction
-                # path can stretch a single round-trip well past a
-                # minute on slow days. The pytest.mark.timeout above caps
-                # the overall test wall-time.
-                timeout=240,
+    from maverick.config import MaverickConfig
+    from maverick.squadron.fly import FlySquadron
+
+    async with FlySquadron(cwd=cwd, config=MaverickConfig()) as squadron:
+        async with actor_pool(opencode_handle=squadron.handle) as (_pool, address):
+            sup = await xo.create_actor(_CapturingSupervisor, address=address, uid="sup-e2e")
+            reviewer = await xo.create_actor(
+                ReviewerActor,
+                sup,
+                cwd=str(cwd),
+                config=config.model_dump(),
+                address=address,
+                uid="reviewer-e2e",
             )
-            summary = await sup.get_summary()
-            assert summary["errors"] == [], f"prompt_error fired unexpectedly: {summary['errors']}"
-            assert summary["parse_errors"] == []
-            assert summary["review_count"] == 1
-        finally:
-            await xo.destroy_actor(reviewer)
-            await xo.destroy_actor(sup)
+            try:
+                await xo.wait_for(
+                    reviewer.send_review(
+                        ReviewRequest(
+                            bead_id="e2e-1",
+                            bead_description="Implement safe division",
+                            work_unit_md=(
+                                "Implement a divide(a, b) function that returns a/b but "
+                                "raises a clear error on divide-by-zero."
+                            ),
+                        )
+                    ),
+                    timeout=240,
+                )
+                summary = await sup.get_summary()
+                assert summary["errors"] == [], (
+                    f"prompt_error fired unexpectedly: {summary['errors']}"
+                )
+                assert summary["parse_errors"] == []
+                assert summary["review_count"] == 1
+            finally:
+                await xo.destroy_actor(reviewer)
+                await xo.destroy_actor(sup)
