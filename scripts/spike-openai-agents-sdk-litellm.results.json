@@ -1,0 +1,310 @@
+{
+  "started_at": "2026-05-15T15:15:02Z",
+  "bootstrap": {
+    "opencode_auth_exists": true,
+    "litellm_token_dir": "/home/vscode/.config/litellm/github_copilot",
+    "litellm_access_token_existed": true,
+    "litellm_api_key_existed": true,
+    "bootstrapped": false
+  },
+  "models_probed": [
+    "github_copilot/gpt-5.3-codex",
+    "github_copilot/claude-sonnet-4.6"
+  ],
+  "v1_oauth": {
+    "passed": true,
+    "elapsed_s": 1.1886629509972408,
+    "model": "github_copilot/gpt-5.3-codex",
+    "final_output": "ready",
+    "usage": [
+      {
+        "requests": 1,
+        "input_tokens": 14,
+        "output_tokens": 5,
+        "total_tokens": 19,
+        "input_tokens_details": {
+          "cached_tokens": 0
+        },
+        "output_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      }
+    ]
+  },
+  "v2_structured_codex": {
+    "model": "github_copilot/gpt-5.3-codex",
+    "elapsed_s": 75.81762913800776,
+    "passed": true,
+    "error": null,
+    "summary": "Implemented a focused reusable rendering path by adding `render_greetings(...)` in `renderer.py` and updating the CLI to use it, so language-banner + styled/plain greeting output is centralized and consistently controlled by `--no-color` and `--no-figlet`. Added a targeted renderer test to verify multi-greeting rendering through the shared renderer path. Confirmed all tests pass (`16 passed`).",
+    "files_changed": [
+      "src/greet_cli/cli.py",
+      "src/greet_cli/renderer.py",
+      "tests/test_renderer.py"
+    ],
+    "files_changed_count": 3,
+    "usage": [
+      {
+        "requests": 1,
+        "input_tokens": 768,
+        "output_tokens": 140,
+        "total_tokens": 908,
+        "input_tokens_details": {
+          "cached_tokens": 0
+        },
+        "output_tokens_details": {
+          "reasoning_tokens": 9
+        }
+      },
+      {
+        "requests": 1,
+        "input_tokens": 2481,
+        "output_tokens": 55,
+        "total_tokens": 2536,
+        "input_tokens_details": {
+          "cached_tokens": 0
+        },
+        "output_tokens_details": {
+          "reasoning_tokens": 19
+        }
+      },
+      {
+        "requests": 1,
+        "input_tokens": 2691,
+        "output_tokens": 32,
+        "total_tokens": 2723,
+        "input_tokens_details": {
+          "cached_tokens": 2304
+        },
+        "output_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      },
+      {
+        "requests": 1,
+        "input_tokens": 3170,
+        "output_tokens": 75,
+        "total_tokens": 3245,
+        "input_tokens_details": {
+          "cached_tokens": 2560
+        },
+        "output_tokens_details": {
+          "reasoning_tokens": 41
+        }
+      },
+      {
+        "requests": 1,
+        "input_tokens": 3286,
+        "output_tokens": 99,
+        "total_tokens": 3385,
+        "input_tokens_details": {
+          "cached_tokens": 3072
+        },
+        "output_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      },
+      {
+        "requests": 1,
+        "input_tokens": 4660,
+        "output_tokens": 90,
+        "total_tokens": 4750,
+        "input_tokens_details": {
+          "cached_tokens": 3200
+        },
+        "output_tokens_details": {
+          "reasoning_tokens": 52
+        }
+      },
+      {
+        "requests": 1,
+        "input_tokens": 4748,
+        "output_tokens": 353,
+        "total_tokens": 5101,
+        "input_tokens_details": {
+          "cached_tokens": 4480
+        },
+        "output_tokens_details": {
+          "reasoning_tokens": 318
+        }
+      },
+      {
+        "requests": 1,
+        "input_tokens": 4813,
+        "output_tokens": 1956,
+        "total_tokens": 6769,
+        "input_tokens_details": {
+          "cached_tokens": 4608
+        },
+        "output_tokens_details": {
+          "reasoning_tokens": 1455
+        }
+      },
+      {
+        "requests": 1,
+        "input_tokens": 5339,
+        "output_tokens": 110,
+        "total_tokens": 5449,
+        "input_tokens_details": {
+          "cached_tokens": 4736
+        },
+        "output_tokens_details": {
+          "reasoning_tokens": 26
+        }
+      },
+      {
+        "requests": 1,
+        "input_tokens": 5448,
+        "output_tokens": 153,
+        "total_tokens": 5601,
+        "input_tokens_details": {
+          "cached_tokens": 5248
+        },
+        "output_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      },
+      {
+        "requests": 1,
+        "input_tokens": 5628,
+        "output_tokens": 137,
+        "total_tokens": 5765,
+        "input_tokens_details": {
+          "cached_tokens": 5504
+        },
+        "output_tokens_details": {
+          "reasoning_tokens": 99
+        }
+      },
+      {
+        "requests": 1,
+        "input_tokens": 5716,
+        "output_tokens": 590,
+        "total_tokens": 6306,
+        "input_tokens_details": {
+          "cached_tokens": 5504
+        },
+        "output_tokens_details": {
+          "reasoning_tokens": 65
+        }
+      },
+      {
+        "requests": 1,
+        "input_tokens": 6263,
+        "output_tokens": 36,
+        "total_tokens": 6299,
+        "input_tokens_details": {
+          "cached_tokens": 5632
+        },
+        "output_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      },
+      {
+        "requests": 1,
+        "input_tokens": 6350,
+        "output_tokens": 117,
+        "total_tokens": 6467,
+        "input_tokens_details": {
+          "cached_tokens": 6144
+        },
+        "output_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      }
+    ],
+    "new_items_count": 37,
+    "raw_responses_count": 14
+  },
+  "v3_structured_claude": {
+    "model": "github_copilot/claude-sonnet-4.6",
+    "elapsed_s": 3.477375959046185,
+    "passed": false,
+    "error": "ModelBehaviorError: Invalid JSON when parsing I'll start by reading all the relevant files in parallel. for TypeAdapter(SubmitImplementationPayload); 1 validation error for SubmitImplementationPayload\n  Invalid JSON: expected ident at line 1 column 2 [type=json_invalid, input_value=\"I'll start by reading al...vant files in parallel.\", input_type=str]\n    For further information visit https://errors.pydantic.dev/2.13/v/json_invalid"
+  },
+  "v4_prompt_cache": {
+    "passed": true,
+    "model": "github_copilot/gpt-5.3-codex",
+    "seeded_char_count": 15306,
+    "run1_input_tokens": 3575,
+    "run2_input_tokens": 3575,
+    "run1_cached_tokens": 0,
+    "run2_cached_tokens": 3456,
+    "run1_usage": [
+      {
+        "requests": 1,
+        "input_tokens": 3575,
+        "output_tokens": 73,
+        "total_tokens": 3648,
+        "input_tokens_details": {
+          "cached_tokens": 0
+        },
+        "output_tokens_details": {
+          "reasoning_tokens": 38
+        }
+      }
+    ],
+    "run2_usage": [
+      {
+        "requests": 1,
+        "input_tokens": 3575,
+        "output_tokens": 65,
+        "total_tokens": 3640,
+        "input_tokens_details": {
+          "cached_tokens": 3456
+        },
+        "output_tokens_details": {
+          "reasoning_tokens": 24
+        }
+      }
+    ]
+  },
+  "v5_cost_telemetry": {
+    "passed": true,
+    "usage_keys": [
+      "input_tokens",
+      "input_tokens_details",
+      "output_tokens",
+      "output_tokens_details",
+      "requests",
+      "total_tokens"
+    ],
+    "usage_rows": [
+      {
+        "requests": 1,
+        "input_tokens": 14,
+        "output_tokens": 8,
+        "total_tokens": 22,
+        "input_tokens_details": {
+          "cached_tokens": 0
+        },
+        "output_tokens_details": {
+          "reasoning_tokens": 0
+        }
+      }
+    ],
+    "cost_paths": [],
+    "cost_values": [],
+    "agent_cost_parity": {
+      "provider_id": null,
+      "model_id": "github_copilot/gpt-5.3-codex",
+      "input_tokens": 14,
+      "output_tokens": 8,
+      "cache_read_tokens": 0,
+      "cache_write_tokens": null,
+      "cost_usd": null
+    },
+    "agent_cost_parity_reachable": [
+      "model_id",
+      "input_tokens",
+      "output_tokens",
+      "cache_read_tokens"
+    ],
+    "agent_cost_parity_missing": [
+      "provider_id",
+      "cache_write_tokens",
+      "cost_usd"
+    ]
+  },
+  "ended_at": "2026-05-15T15:16:30Z"
+}
