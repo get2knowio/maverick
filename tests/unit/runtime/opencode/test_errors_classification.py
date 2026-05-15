@@ -49,7 +49,10 @@ def test_classify_authenticate_token_name() -> None:
     # — neither "authentication" nor "unauthor" is a substring of the
     # name, so the classifier must match the "authent" prefix.
     err = classify_session_error(
-        {"name": "AuthenticateToken", "data": {"message": "AuthenticateToken authentication failed"}}
+        {
+            "name": "AuthenticateToken",
+            "data": {"message": "AuthenticateToken authentication failed"},
+        }
     )
     assert isinstance(err, OpenCodeAuthError)
 
