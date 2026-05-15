@@ -197,7 +197,13 @@ def classify_session_error(error_obj: Any) -> OpenCodeError:
     lmsg = (msg or "").lower()
     if "providermodelnotfound" in lname or "modelnotfound" in lname:
         return OpenCodeModelNotFoundError(text, body=body)
-    if "providerauth" in lname or "authentication" in lname or "unauthor" in lname:
+    if (
+        "providerauth" in lname
+        or "authent" in lname
+        or "unauthor" in lname
+        or "authent" in lmsg
+        or "unauthor" in lmsg
+    ):
         return OpenCodeAuthError(text, body=body)
     if "contextoverflow" in lname:
         return OpenCodeContextOverflowError(text, body=body)

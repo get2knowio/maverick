@@ -3,10 +3,39 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
+from contextlib import ExitStack, contextmanager
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+
+
+@contextmanager
+def stub_squadron_io() -> Any:
+    """Bypass real OpenCode spawn/validate for unit-level workflow tests.
+
+    Workflows now wrap ``actor_pool`` with a ``Squadron`` that spawns
+    one ``opencode serve`` and validates every tier binding against
+    ``GET /provider`` at startup. Pure-unit workflow tests don't want
+    that — they care about supervisor inputs, not substrate. This
+    helper short-circuits both calls.
+    """
+    fake_handle = MagicMock(base_url="http://fake-opencode", password="x")
+    fake_handle.stop = AsyncMock(return_value=None)
+    with ExitStack() as stack:
+        stack.enter_context(
+            patch(
+                "maverick.squadron.base.spawn_opencode_server",
+                new=AsyncMock(return_value=fake_handle),
+            )
+        )
+        stack.enter_context(
+            patch(
+                "maverick.squadron.base.validate_model_id",
+                new=AsyncMock(return_value=None),
+            )
+        )
+        yield
 
 
 def _make_concrete_workflow_class() -> type:

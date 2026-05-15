@@ -24,6 +24,8 @@ from maverick.actors.xoscar.messages import (
 )
 from maverick.actors.xoscar.pool import create_pool
 from maverick.actors.xoscar.reviewer import ReviewerActor
+from maverick.agents.coding import CodingAgent
+from maverick.agents.reviewer import ReviewerAgent
 from maverick.payloads import (
     SubmitFixResultPayload,
     SubmitImplementationPayload,
@@ -34,6 +36,7 @@ from maverick.runtime.opencode import (
     OpenCodeServerHandle,
     SendResult,
     invalidate_cache,
+    opencode_handle_for,
     register_opencode_handle,
     unregister_opencode_handle,
 )
@@ -174,10 +177,7 @@ class _StubClient:
 
 
 class _PatchedImplementer(ImplementerActor):
-    """Implementer that uses an in-process stub client."""
-
-    # Bypass the tier cascade — these tests don't ship a real /provider response.
-    provider_tier = None  # type: ignore[assignment]
+    """Implementer whose agent wires up an in-process stub client."""
 
     def __init__(
         self,
@@ -192,20 +192,24 @@ class _PatchedImplementer(ImplementerActor):
         self._stub_send_error = send_error
         self.stub_client: _StubClient | None = None
 
-    async def _build_client(self) -> Any:  # type: ignore[override]
-        client = _StubClient(
+    def _make_agent(self) -> CodingAgent:  # type: ignore[override]
+        self.stub_client = _StubClient(
             send_results=self._stub_send_results, send_error=self._stub_send_error
         )
-        self.stub_client = client
-        return client
+        agent = CodingAgent(
+            handle=opencode_handle_for(self.address),
+            cwd=self._cwd,
+            client_factory=lambda: self.stub_client,
+        )
+        # Bypass tier cascade — these tests don't ship a /provider response.
+        agent.provider_tier = None  # type: ignore[assignment]
+        return agent
 
     async def get_send_calls(self) -> list[dict[str, Any]]:
         return list(self.stub_client.send_calls) if self.stub_client else []
 
 
 class _PatchedReviewer(ReviewerActor):
-    provider_tier = None  # type: ignore[assignment]
-
     def __init__(
         self,
         supervisor_ref: xo.ActorRef,
@@ -219,12 +223,20 @@ class _PatchedReviewer(ReviewerActor):
         self._stub_send_error = send_error
         self.stub_client: _StubClient | None = None
 
-    async def _build_client(self) -> Any:  # type: ignore[override]
-        client = _StubClient(
+    def _make_agent(self) -> ReviewerAgent:  # type: ignore[override]
+        self.stub_client = _StubClient(
             send_results=self._stub_send_results, send_error=self._stub_send_error
         )
-        self.stub_client = client
-        return client
+        agent = ReviewerAgent(
+            handle=opencode_handle_for(self.address),
+            cwd=self._cwd,
+            review_kind=self._review_kind,
+            opencode_agent=self._opencode_agent_name,
+            client_factory=lambda: self.stub_client,
+        )
+        # Bypass tier cascade — these tests don't ship a /provider response.
+        agent.provider_tier = None  # type: ignore[assignment]
+        return agent
 
 
 @pytest.fixture

@@ -29,12 +29,14 @@ from maverick.actors.xoscar.messages import (
 )
 from maverick.actors.xoscar.pool import create_pool
 from maverick.actors.xoscar.reviewer import ReviewerActor
+from maverick.agents.reviewer import ReviewerAgent
 from maverick.payloads import ReviewFindingPayload, SubmitReviewPayload
 from maverick.runtime.opencode import (
     OpenCodeAuthError,
     OpenCodeServerHandle,
     SendResult,
     invalidate_cache,
+    opencode_handle_for,
     register_opencode_handle,
     unregister_opencode_handle,
 )
@@ -170,9 +172,7 @@ class _StubClient:
 
 
 class _PatchedReviewer(ReviewerActor):
-    """Reviewer with a pre-installed stub client."""
-
-    provider_tier = None  # type: ignore[assignment]
+    """Reviewer whose agent wires up a pre-installed stub client."""
 
     def __init__(
         self,
@@ -187,13 +187,24 @@ class _PatchedReviewer(ReviewerActor):
         self._stub_send_error = send_error
         self.stub_client: _StubClient | None = None
 
-    async def _build_client(self) -> Any:  # type: ignore[override]
-        client = _StubClient(send_result=self._stub_send_result, send_error=self._stub_send_error)
-        self.stub_client = client
-        return client
+    def _make_agent(self) -> ReviewerAgent:  # type: ignore[override]
+        self.stub_client = _StubClient(
+            send_result=self._stub_send_result, send_error=self._stub_send_error
+        )
+        agent = ReviewerAgent(
+            handle=opencode_handle_for(self.address),
+            cwd=self._cwd,
+            review_kind=self._review_kind,
+            opencode_agent=self._opencode_agent_name,
+            client_factory=lambda: self.stub_client,
+        )
+        # Bypass tier cascade — these tests don't ship a /provider response.
+        agent.provider_tier = None  # type: ignore[assignment]
+        return agent
 
     async def get_session_id(self) -> str | None:
-        return self._session_id
+        agent = self._agent
+        return agent._session_id if agent is not None else None
 
     async def get_send_count(self) -> int:
         return len(self.stub_client.send_calls) if self.stub_client else 0

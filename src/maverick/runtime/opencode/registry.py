@@ -51,15 +51,15 @@ def opencode_handle_for(pool_address: str) -> OpenCodeServerHandle:
 
     Raises:
         KeyError: when no handle is registered — typically means the actor
-            was constructed outside an ``actor_pool(with_opencode=True)``
-            context, or the spawn failed.
+            was constructed outside an ``actor_pool(opencode_handle=...)``
+            context, or the squadron's spawn failed.
     """
     try:
         return _handle_by_pool[pool_address]
     except KeyError as exc:
         raise KeyError(
             f"No OpenCode server registered for pool {pool_address!r}. "
-            "Was the actor created inside actor_pool(with_opencode=True)?"
+            "Did the workflow forget to wrap actor_pool with a Squadron?"
         ) from exc
 
 

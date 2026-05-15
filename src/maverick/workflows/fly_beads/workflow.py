@@ -515,15 +515,33 @@ class FlyBeadsWorkflow(PythonWorkflow):
             level="info",
         )
 
-        from maverick.runtime.opencode import tiers_from_config
+        from maverick.squadron.fly import FlySquadron
 
-        async with actor_pool(
-            provider_tiers=tiers_from_config(self._config),
-            cost_sink=_cost_sink_for_cwd(cwd),
-        ) as (_pool, address):
+        cost_sink = _cost_sink_for_cwd(cwd)
+        async with (
+            FlySquadron(
+                cwd=cwd,
+                config=self._config,
+                cost_sink=cost_sink,
+                implementer_config=impl_config,
+                reviewer_config=review_config,
+                implementer_tiers=implementer_tiers,
+                reviewer_tiers=reviewer_tiers,
+            ) as squadron,
+            actor_pool(
+                opencode_handle=squadron.handle,
+                provider_tiers=squadron.tier_overrides,
+                cost_sink=squadron.cost_sink,
+            ) as (_pool, address),
+        ):
+            # Re-create FlyInputs with the live squadron so the supervisor
+            # can pull per-tier agents off it. ``dataclasses.replace`` is
+            # the standard way to "edit" a frozen dataclass.
+            from dataclasses import replace
+
             supervisor = await xo.create_actor(
                 FlySupervisor,
-                supervisor_inputs,
+                replace(supervisor_inputs, squadron=squadron),
                 address=address,
                 uid="fly-supervisor",
             )

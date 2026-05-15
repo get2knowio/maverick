@@ -8,12 +8,12 @@ Single-process model (``n_process=0``) is intentional — all actors run
 as coroutines in the pool's event loop, so process isolation comes from
 the OpenCode subprocess rather than the actor runtime.
 
-The actor-pool wrapper spawns one OpenCode HTTP server per workflow run
-(via :func:`spawn_opencode_server`) and registers its handle against the
-pool address so :class:`OpenCodeAgentMixin`-based actors can look it up
-via ``opencode_handle_for(self.address)``. Spawn defaults to ON since
-every mailbox actor now uses OpenCode; pass ``with_opencode=False`` for
-tests or special workflows that don't need the runtime.
+The pool no longer owns the OpenCode server lifecycle — that moved to
+:class:`maverick.squadron.Squadron`, which validates tier bindings at
+startup and exposes the handle / tier overrides / cost sink that the
+pool registers against its address. Pass ``opencode_handle=squadron.handle``
+when entering :func:`actor_pool` so actors can keep looking up the
+handle via ``opencode_handle_for(self.address)``.
 """
 
 from __future__ import annotations
@@ -32,7 +32,6 @@ from maverick.runtime.opencode import (
     register_cost_sink,
     register_opencode_handle,
     register_tier_overrides,
-    spawn_opencode_server,
     unregister_cost_sink,
     unregister_opencode_handle,
     unregister_tier_overrides,
@@ -92,12 +91,11 @@ async def teardown_pool(
 async def actor_pool(
     address: str = DEFAULT_POOL_ADDRESS,
     *,
-    with_opencode: bool = True,
     opencode_handle: OpenCodeServerHandle | None = None,
     provider_tiers: dict[str, Tier] | None = None,
     cost_sink: CostSink | None = None,
 ) -> AsyncIterator[tuple[MainActorPoolType, str]]:
-    """Context manager for a short-lived actor pool + OpenCode server.
+    """Context manager for a short-lived actor pool.
 
     Yields ``(pool, external_address)``. The pool is stopped on exit,
     but actor refs are NOT destroyed automatically — the caller is
@@ -108,55 +106,42 @@ async def actor_pool(
     Args:
         address: xoscar pool bind address. Default picks an ephemeral
             port on loopback.
-        with_opencode: When ``True`` (default), spawn an OpenCode HTTP
-            server for this pool's lifetime and register its handle so
-            mailbox actors can use it. Set to ``False`` for tests or
-            workflows that don't need the runtime.
-        opencode_handle: Pre-spawned OpenCode server handle. When given,
-            the pool registers it but does not spawn or terminate it
-            (caller owns the lifecycle).
-        provider_tiers: Optional ``{tier_name: Tier}`` map registered on
-            the pool address so :class:`OpenCodeAgentMixin`-based actors
-            pick up user-config tier overrides without each constructor
-            taking it as an argument. ``None`` (the default) leaves the
-            runtime on :data:`DEFAULT_TIERS`.
+        opencode_handle: OpenCode server handle to register on the
+            pool address so mailbox actors can look it up via
+            ``opencode_handle_for(self.address)``. The pool does NOT
+            spawn or terminate the server — that's the squadron's
+            job. Pass ``squadron.handle``.
+        provider_tiers: Optional ``{tier_name: Tier}`` map registered
+            on the pool address so agent classes pick up user-config
+            tier overrides without each constructor taking it as an
+            argument. Pass ``squadron.tier_overrides``.
         cost_sink: Optional async callable invoked with each
-            :class:`CostEntry` produced by mailbox sends. Workflows
-            typically pass an appender that closes over a
-            :class:`RunwayStore`; ``None`` (default) skips the sink and
-            keeps cost data in structured logs only.
+            :class:`CostEntry` produced by mailbox sends. Pass
+            ``squadron.cost_sink``.
 
     Typical use::
 
-        async with actor_pool() as (pool, address):
-            sup = await xo.create_actor(RefuelSupervisor, address=address, ...)
-            try:
-                async for event in await sup.run(inputs):
-                    yield event
-            finally:
-                await xo.destroy_actor(sup)
+        async with FlySquadron(cwd=cwd, config=cfg, cost_sink=sink) as squadron:
+            async with actor_pool(
+                opencode_handle=squadron.handle,
+                provider_tiers=squadron.tier_overrides,
+                cost_sink=squadron.cost_sink,
+            ) as (pool, address):
+                sup = await xo.create_actor(FlySupervisor, address=address, ...)
+                try:
+                    async for event in await sup.run(inputs):
+                        yield event
+                finally:
+                    await xo.destroy_actor(sup)
     """
     pool, external_address = await create_pool(address)
 
-    owns_opencode = False
-    bound_opencode: OpenCodeServerHandle | None = opencode_handle
-    if bound_opencode is None and with_opencode:
-        try:
-            bound_opencode = await spawn_opencode_server()
-            owns_opencode = True
-        except Exception:  # noqa: BLE001 — surface spawn failures to the caller
-            try:
-                await pool.stop()
-            except Exception as stop_exc:  # noqa: BLE001 — diagnostic only
-                logger.debug("xoscar.pool_stop_failed_during_unwind", error=str(stop_exc))
-            raise
-    if bound_opencode is not None:
-        register_opencode_handle(external_address, bound_opencode)
+    if opencode_handle is not None:
+        register_opencode_handle(external_address, opencode_handle)
         logger.debug(
             "xoscar.opencode_bound",
             pool=external_address,
-            opencode=bound_opencode.base_url,
-            owns=owns_opencode,
+            opencode=opencode_handle.base_url,
         )
 
     if provider_tiers:
@@ -178,13 +163,8 @@ async def actor_pool(
             unregister_cost_sink(external_address)
         if provider_tiers:
             unregister_tier_overrides(external_address)
-        if bound_opencode is not None:
+        if opencode_handle is not None:
             unregister_opencode_handle(external_address)
-            if owns_opencode:
-                try:
-                    await bound_opencode.stop()
-                except Exception as exc:  # noqa: BLE001 — exit must not raise
-                    logger.debug("xoscar.opencode_stop_failed", error=str(exc))
         try:
             await pool.stop()
         except Exception as exc:  # noqa: BLE001 — context exit must not raise
