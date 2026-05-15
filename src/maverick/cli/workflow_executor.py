@@ -541,7 +541,9 @@ async def execute_python_workflow(
     with cli_error_handler():
         from maverick.config import load_config
 
-        config = load_config()
+        config = (ctx.obj or {}).get("config") if ctx.obj else None
+        if config is None:
+            config = load_config()
         workflow_class = run_config.workflow_class
 
         # Ensure workflow_class is a class, not a string.
