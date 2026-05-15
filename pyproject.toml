@@ -39,6 +39,7 @@ dependencies = [
     "httpx>=0.27,<1",
     "jinja2>=3.1.0,<4",
     "openai>=1.50,<3",
+    "openai-codex-sdk>=0.1.11",
     "pydantic>=2.0,<3",
     "pydantic-settings>=2.0,<3",
     "pygithub>=2.1,<3",
