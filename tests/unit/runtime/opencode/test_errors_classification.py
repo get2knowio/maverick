@@ -44,6 +44,26 @@ def test_classify_authentication_failure() -> None:
     assert isinstance(err, OpenCodeAuthError)
 
 
+def test_classify_authenticate_token_name() -> None:
+    # github-copilot oauth-refresh failures surface as AuthenticateToken
+    # — neither "authentication" nor "unauthor" is a substring of the
+    # name, so the classifier must match the "authent" prefix.
+    err = classify_session_error(
+        {"name": "AuthenticateToken", "data": {"message": "AuthenticateToken authentication failed"}}
+    )
+    assert isinstance(err, OpenCodeAuthError)
+
+
+def test_classify_unauthorized_in_message_only() -> None:
+    # Some providers leave the name unhelpfully generic and put
+    # "Unauthorized" only in the message body — the classifier should
+    # still cascade rather than silently aborting the workflow.
+    err = classify_session_error(
+        {"name": "AI_APICallError", "data": {"message": "Unauthorized: bad key"}}
+    )
+    assert isinstance(err, OpenCodeAuthError)
+
+
 def test_classify_context_overflow() -> None:
     err = classify_session_error({"name": "ContextOverflowError", "data": {"message": "too big"}})
     assert isinstance(err, OpenCodeContextOverflowError)
