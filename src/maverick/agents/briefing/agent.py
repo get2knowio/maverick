@@ -1,9 +1,17 @@
-"""``BriefingAgent`` — generic briefing agent backed by OpenCode.
+"""``BriefingAgent`` — typed briefing agent.
 
-Used by both refuel briefings (navigator/structuralist/recon/contrarian)
-and pre-flight briefings (scopist/codebase_analyst/criteria_writer/
-preflight_contrarian). Each instance owns one result schema and one
-persona name, both passed at construction time.
+Used by both refuel briefings (navigator / structuralist / recon /
+contrarian) and pre-flight briefings (scopist / codebase_analyst /
+criteria_writer / preflight_contrarian). Each instance owns one result
+schema and one persona name, both passed at construction time.
+
+**Pattern D migration:** the constructor accepts either ``handle=`` (the
+legacy OpenCode path — inherits from :class:`Agent` and uses
+``_send_structured``) OR ``runtime=`` (the new path — delegates to an
+:class:`AgentRuntime` directly, no OpenCode server required). The two
+paths produce identical typed payloads + cost telemetry; only the
+transport differs. Phase 2 of
+``docs/migration-implementation-plan.md``.
 """
 
 from __future__ import annotations
@@ -11,9 +19,10 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, ClassVar
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
-from maverick.agents.base import Agent
+from maverick.agents.base import Agent, AgentPayloadValidationError
+from maverick.runtime.errors import RuntimeStructuredOutputError
 
 if TYPE_CHECKING:
     from maverick.executor.config import StepConfig
@@ -23,6 +32,7 @@ if TYPE_CHECKING:
         OpenCodeServerHandle,
         Tier,
     )
+    from maverick.runtime.protocol import AgentRuntime
 
 BRIEFING_TIMEOUT_SECONDS = 1200
 
@@ -61,7 +71,7 @@ class BriefingAgent(Agent):
     def __init__(
         self,
         *,
-        handle: OpenCodeServerHandle,
+        handle: OpenCodeServerHandle | None = None,
         cwd: str,
         agent_name: str,
         result_model: type[BaseModel],
@@ -70,7 +80,62 @@ class BriefingAgent(Agent):
         cost_sink: CostSink | None = None,
         tag: str | None = None,
         client_factory: Callable[[], OpenCodeClient] | None = None,
+        runtime: AgentRuntime | None = None,
     ) -> None:
+        """Initialize either the legacy OpenCode path or the Pattern D path.
+
+        Exactly one of ``handle`` or ``runtime`` must be provided.
+
+        - When ``handle`` is set: this is the legacy OpenCode HTTP path.
+          The agent inherits the base :class:`Agent` plumbing and
+          :meth:`brief` calls ``_send_structured``.
+        - When ``runtime`` is set: this is the Pattern D path. The agent
+          bypasses :class:`Agent`'s OpenCode session machinery and
+          :meth:`brief` calls ``runtime.execute`` directly. ``persona``
+          is forwarded so OpenCode-compatible runtimes still honour the
+          bundled persona file.
+
+        Args:
+            handle: OpenCode server handle (legacy path).
+            runtime: :class:`AgentRuntime` instance (Pattern D path).
+            ... other args are common to both paths.
+        """
+        if handle is None and runtime is None:
+            raise ValueError(f"{type(self).__name__} requires either 'handle' or 'runtime'")
+        if handle is not None and runtime is not None:
+            raise ValueError(
+                f"{type(self).__name__} got both 'handle' and 'runtime'; pass exactly one"
+            )
+
+        self._runtime = runtime
+        self._agent_name = agent_name
+
+        if runtime is not None:
+            # Pattern D path. Skip the OpenCode-shaped base init (which
+            # demands a handle) and set just enough state for the runtime
+            # path: cwd, tag, schema, persona, cost-record bookkeeping.
+            from maverick.actors.step_config import load_step_config
+
+            if not cwd:
+                raise ValueError(f"{type(self).__name__} requires 'cwd'")
+            self._handle = None  # type: ignore[assignment]
+            self._cwd = cwd
+            self._step_config = load_step_config(step_config)
+            self._tier_overrides = tier_overrides
+            self._cost_sink = cost_sink
+            self._tag = tag or f"briefing.{agent_name}"
+            self._client_factory = None
+            self._result_model_instance = result_model
+            self._opencode_agent_instance = opencode_agent_for(agent_name)
+            self._client = None
+            self._session_id = None
+            self._validated_bindings = set()
+            self._failed_bindings = set()
+            self._last_cost_record = None
+            return
+
+        # Legacy OpenCode path.
+        assert handle is not None
         super().__init__(
             handle=handle,
             cwd=cwd,
@@ -82,11 +147,28 @@ class BriefingAgent(Agent):
             result_model=result_model,
             client_factory=client_factory,
         )
-        self._agent_name = agent_name
 
     @property
     def agent_name(self) -> str:
         return self._agent_name
+
+    async def open(self) -> None:
+        if self._runtime is not None:
+            # Runtime manages its own lifecycle lazily.
+            return
+        await super().open()
+
+    async def close(self) -> None:
+        if self._runtime is not None:
+            await self._runtime.aclose()
+            return
+        await super().close()
+
+    async def rotate_session(self) -> None:
+        if self._runtime is not None:
+            await self._runtime.reset()
+            return
+        await super().rotate_session()
 
     async def brief(self, prompt: str) -> BaseModel:
         """Run the briefing prompt and return the typed payload."""
@@ -97,7 +179,58 @@ class BriefingAgent(Agent):
             "# Briefing input\n\n"
             f"{prompt}"
         )
+        if self._runtime is not None:
+            return await self._brief_via_runtime(wrapped)
         return await self._send_structured(wrapped, timeout=BRIEFING_TIMEOUT_SECONDS)
+
+    async def _brief_via_runtime(self, prompt: str) -> BaseModel:
+        """Pattern D send path."""
+        assert self._runtime is not None
+        schema = self._effective_result_model()
+        result = await self._runtime.execute(
+            prompt,
+            schema=schema,
+            persona=self._opencode_agent_instance,
+            timeout=BRIEFING_TIMEOUT_SECONDS,
+        )
+        if result.structured is None:
+            raise RuntimeStructuredOutputError(
+                f"{self._runtime.label}: structured payload missing",
+                body=result.text,
+            )
+        try:
+            payload = schema.model_validate(result.structured)
+        except ValidationError as exc:
+            raise AgentPayloadValidationError(
+                f"{schema.__name__} validation failed: {exc}",
+                body=result.structured,
+            ) from exc
+        self._last_cost_record = result.cost
+        self._emit_cost_log()
+        return payload
+
+    def _emit_cost_log(self) -> None:
+        """Emit the structured ``agent.cost`` row from ``last_cost_record``.
+
+        Mirrors the format produced by the base class's ``_record_cost``
+        so the structured-log shape is identical regardless of which
+        path served the request.
+        """
+        from maverick.agents.context import current_tags
+        from maverick.logging import get_logger
+
+        record = self._last_cost_record
+        if record is None:
+            return
+        tags = current_tags()
+        get_logger(__name__).info(
+            "agent.cost",
+            agent=self._tag,
+            tier=self.provider_tier or "inline",
+            runtime=self._runtime.label if self._runtime else None,
+            **tags,
+            **record.to_dict(),
+        )
 
 
 __all__ = [

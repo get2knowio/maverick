@@ -31,6 +31,7 @@ dependencies = [
     "aiolimiter>=1.2,<2",
     "anyio>=4.0,<5",
     "atomicwrites>=1.4,<2",
+    "claude-agent-sdk>=0.2.0,<1",
     "click>=8.1.0,<9",
     "detect-secrets>=1.4,<2",
     "gitpython>=3.1,<4",
