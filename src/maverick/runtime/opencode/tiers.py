@@ -1,35 +1,20 @@
-"""Provider-tier resolution and cascade logic.
+"""OpenCode-specific cascade logic + legacy re-exports.
 
-A "tier" is an ordered list of ``(provider_id, model_id)`` pairs an
-actor will try in turn. The first entry is the preferred binding; the
-rest are fallbacks engaged when the preferred binding fails for a
-recoverable reason (auth, model-not-found, transient outage,
-structured-output failure).
+The vendor-agnostic pieces (``ProviderModel``, ``Tier``,
+``DEFAULT_TIERS``, ``tiers_from_config``, ``resolve_tier``) live in
+:mod:`maverick.runtime.tiers` now. This module re-exports them for
+backward compatibility and keeps the OpenCode-specific cascade
+machinery (which takes ``SendResult`` and OpenCode-classified
+exceptions). The cascade migrates to a vendor-neutral home in Phase 6
+of the Pattern D migration.
 
-Each agentic actor declares a tier name in :class:`OpenCodeAgentMixin`
-via ``provider_tier: ClassVar[str | None]``. The names are role-based
-(``"review"``, ``"implement"``, ``"decompose"``, etc.) rather than
-cost-banded — this keeps the per-actor declaration stable while letting
-users tune the underlying model lists per role in
-``maverick.yaml::provider_tiers``.
-
-Defaults are set in :data:`DEFAULT_TIERS` and reflect the spike's
-empirical reliability data: qwen3-coder for cheap-and-fast roles,
-claude-haiku for typical mailbox work, claude-sonnet for frontier
-reasoning. Users can override the entire mapping via config without
-touching code.
-
-Cost telemetry: every send through :func:`cascade_send` records the
-``info.cost`` / ``info.tokens`` / ``info.modelID`` / ``info.providerID``
-fields on the structured log and (optionally) a per-actor sink, so
-``maverick fly`` runs can be aggregated without re-parsing trace logs.
+See ``docs/migration-implementation-plan.md``.
 """
 
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import Any
 
 from maverick.logging import get_logger
 from maverick.runtime.opencode.client import SendResult
@@ -42,50 +27,27 @@ from maverick.runtime.opencode.errors import (
     OpenCodeTransientError,
 )
 
+# Re-exports — these now live in the neutral runtime/tiers.py module.
+from maverick.runtime.tiers import (  # noqa: F401 — public re-export
+    DEFAULT_TIERS,
+    ProviderModel,
+    Tier,
+    resolve_tier,
+    tiers_from_config,
+)
+
 logger = get_logger(__name__)
 
 
-# ---------------------------------------------------------------------------
-# Types
-# ---------------------------------------------------------------------------
-
-
-@dataclass(frozen=True, slots=True)
-class ProviderModel:
-    """One ``(provider_id, model_id)`` binding within a tier."""
-
-    provider_id: str
-    model_id: str
-
-    @property
-    def label(self) -> str:
-        return f"{self.provider_id}/{self.model_id}"
-
-    def to_dict(self) -> dict[str, str]:
-        return {"providerID": self.provider_id, "modelID": self.model_id}
-
-
-@dataclass(frozen=True, slots=True)
-class Tier:
-    """Ordered cascade of bindings for a single actor role."""
-
-    name: str
-    bindings: tuple[ProviderModel, ...]
-
-    def __post_init__(self) -> None:
-        if not self.bindings:
-            raise ValueError(f"Tier {self.name!r} must have at least one binding")
-
-
-# ---------------------------------------------------------------------------
-# Default mapping (spec table from the migration plan)
-# ---------------------------------------------------------------------------
-
-
+# Legacy: the (provider, model) helper used by inline binding construction.
+# Kept private; new code should use ProviderModel directly.
 def _pm(provider: str, model: str) -> ProviderModel:
     return ProviderModel(provider_id=provider, model_id=model)
 
 
+#: (legacy DEFAULT_TIERS docstring preserved for grep-readers — the
+#: actual data lives in :mod:`maverick.runtime.tiers`.)
+#:
 #: Default tier cascades distribute load across the user's flat-rate
 #: subscriptions (github-copilot, openai/Codex, opencode-go, opencode/Zen)
 #: and reserve OpenRouter for free models only — OpenRouter is the only
@@ -99,106 +61,9 @@ def _pm(provider: str, model: str) -> ProviderModel:
 #: globally by editing this map. Each binding's first failure (auth,
 #: model-not-found, structured-output, sustained transient) silently
 #: falls over to the next.
-DEFAULT_TIERS: dict[str, Tier] = {
-    "review": Tier(
-        "review",
-        bindings=(
-            _pm("github-copilot", "claude-haiku-4.5"),
-            _pm("openai", "gpt-5.4-mini"),
-            _pm("opencode", "big-pickle"),
-            _pm("openrouter", "openai/gpt-oss-120b:free"),
-        ),
-    ),
-    "implement": Tier(
-        "implement",
-        bindings=(
-            _pm("github-copilot", "gpt-5.3-codex"),
-            _pm("openai", "gpt-5.3-codex"),
-            _pm("opencode-go", "qwen3.6-plus"),
-            _pm("openrouter", "qwen/qwen-2.5-coder-32b-instruct"),
-        ),
-    ),
-    "briefing": Tier(
-        "briefing",
-        bindings=(
-            _pm("github-copilot", "gpt-5-mini"),
-            _pm("openai", "gpt-5.4-mini-fast"),
-            _pm("opencode", "gpt-5-nano"),
-            _pm("openrouter", "openai/gpt-oss-120b:free"),
-        ),
-    ),
-    "decompose": Tier(
-        "decompose",
-        bindings=(
-            _pm("github-copilot", "claude-sonnet-4.6"),
-            _pm("openai", "gpt-5.5"),
-            _pm("opencode-go", "glm-5"),
-            _pm("openrouter", "nvidia/nemotron-3-super-120b-a12b:free"),
-        ),
-    ),
-    "generate": Tier(
-        "generate",
-        bindings=(
-            _pm("github-copilot", "claude-sonnet-4.6"),
-            _pm("openai", "gpt-5.5"),
-            _pm("github-copilot", "gemini-3.1-pro-preview"),
-            _pm("openrouter", "meta-llama/llama-3.3-70b-instruct:free"),
-        ),
-    ),
-}
-
-
-# ---------------------------------------------------------------------------
-# Resolution
-# ---------------------------------------------------------------------------
-
-
-def tiers_from_config(config: Any) -> dict[str, Tier]:
-    """Convert a :class:`MaverickConfig.provider_tiers` block into a runtime map.
-
-    Returns an empty dict when no overrides are configured. Workflows
-    pass the result to :func:`actor_pool(provider_tiers=...)`.
-    """
-    block = getattr(config, "provider_tiers", None)
-    if block is None:
-        return {}
-    raw = getattr(block, "tiers", None)
-    if not raw:
-        return {}
-    out: dict[str, Tier] = {}
-    for tier_name, entries in raw.items():
-        if not entries:
-            continue
-        bindings = tuple(
-            ProviderModel(provider_id=entry.provider, model_id=entry.model_id) for entry in entries
-        )
-        if bindings:
-            out[tier_name] = Tier(name=tier_name, bindings=bindings)
-    return out
-
-
-def resolve_tier(name: str, *, override: dict[str, Tier] | None = None) -> Tier:
-    """Return the configured tier for ``name``.
-
-    Args:
-        name: Role tier name as declared on an actor's
-            ``provider_tier`` class attribute (e.g. ``"review"``).
-        override: Optional per-call override map (typically built from
-            user config). Falls back to :data:`DEFAULT_TIERS` when the
-            override is ``None`` or doesn't include ``name``.
-
-    Raises:
-        KeyError: When ``name`` matches no entry in either map.
-    """
-    if override and name in override:
-        return override[name]
-    if name in DEFAULT_TIERS:
-        return DEFAULT_TIERS[name]
-    raise KeyError(
-        f"Unknown provider tier: {name!r}. "
-        f"Define it in maverick.yaml::provider_tiers or pick from "
-        f"{sorted(DEFAULT_TIERS.keys())}."
-    )
+#
+# DEFAULT_TIERS, tiers_from_config, and resolve_tier now live in
+# :mod:`maverick.runtime.tiers` and are re-exported above.
 
 
 # ---------------------------------------------------------------------------
@@ -316,30 +181,10 @@ def _classify(exc: BaseException) -> str:
 # ---------------------------------------------------------------------------
 
 
-@dataclass(frozen=True, slots=True)
-class CostRecord:
-    """One row of cost telemetry — captured from each send's ``info``."""
-
-    provider_id: str | None
-    model_id: str | None
-    cost_usd: float | None
-    input_tokens: int
-    output_tokens: int
-    cache_read_tokens: int
-    cache_write_tokens: int
-    finish: str | None
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "providerID": self.provider_id,
-            "modelID": self.model_id,
-            "cost_usd": self.cost_usd,
-            "input_tokens": self.input_tokens,
-            "output_tokens": self.output_tokens,
-            "cache_read_tokens": self.cache_read_tokens,
-            "cache_write_tokens": self.cache_write_tokens,
-            "finish": self.finish,
-        }
+# ``CostRecord`` lives in :mod:`maverick.runtime.cost` (neutral home).
+# Re-exported here for backward compatibility with the 32+ files that
+# currently import it from this module.
+from maverick.runtime.cost import CostRecord  # noqa: E402
 
 
 def cost_record_from_send(result: SendResult) -> CostRecord:
