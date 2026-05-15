@@ -36,13 +36,13 @@ from tenacity import (
 
 from maverick.logging import get_logger
 from maverick.runtime.opencode.errors import (
-    OpenCodeAuthError,
-    OpenCodeContextOverflowError,
-    OpenCodeError,
-    OpenCodeModelNotFoundError,
-    OpenCodeProtocolError,
-    OpenCodeStructuredOutputError,
-    OpenCodeTransientError,
+    AgentRuntimeError,
+    RuntimeAuthError,
+    RuntimeContextOverflowError,
+    RuntimeModelNotFoundError,
+    RuntimeProtocolError,
+    RuntimeStructuredOutputError,
+    RuntimeTransientError,
 )
 
 logger = get_logger(__name__)
@@ -167,7 +167,7 @@ def _safe_json(r: httpx.Response) -> Any:
         return r.text[:500]
 
 
-def classify_session_error(error_obj: Any) -> OpenCodeError:
+def classify_session_error(error_obj: Any) -> AgentRuntimeError:
     """Map an OpenCode ``session.error`` event payload to an exception.
 
     Args:
@@ -175,7 +175,7 @@ def classify_session_error(error_obj: Any) -> OpenCodeError:
             ``properties.error`` sub-dict. Tolerates both for callers.
     """
     if not isinstance(error_obj, dict):
-        return OpenCodeError(f"unrecognized session error: {error_obj!r}")
+        return AgentRuntimeError(f"unrecognized session error: {error_obj!r}")
     # Allow callers to pass the whole event.
     if "properties" in error_obj and "error" in error_obj.get("properties", {}):
         error_obj = error_obj["properties"]["error"]
@@ -196,7 +196,7 @@ def classify_session_error(error_obj: Any) -> OpenCodeError:
     lname = name.lower()
     lmsg = (msg or "").lower()
     if "providermodelnotfound" in lname or "modelnotfound" in lname:
-        return OpenCodeModelNotFoundError(text, body=body)
+        return RuntimeModelNotFoundError(text, body=body)
     if (
         "providerauth" in lname
         or "authent" in lname
@@ -204,14 +204,14 @@ def classify_session_error(error_obj: Any) -> OpenCodeError:
         or "authent" in lmsg
         or "unauthor" in lmsg
     ):
-        return OpenCodeAuthError(text, body=body)
+        return RuntimeAuthError(text, body=body)
     if "contextoverflow" in lname:
-        return OpenCodeContextOverflowError(text, body=body)
+        return RuntimeContextOverflowError(text, body=body)
     if "structuredoutput" in lname:
         retries = 0
         if isinstance(data, dict):
             retries = int(data.get("retries", 0) or 0)
-        return OpenCodeStructuredOutputError(text, body=body, retries=retries)
+        return RuntimeStructuredOutputError(text, body=body, retries=retries)
     # Upstream provider failure surfaced through opencode-go (Zen Go),
     # OpenAI's Vercel-AI-SDK wrapper, etc. arrives as ``AI_APICallError``
     # with a generic message like "Internal server error" / "Service
@@ -219,24 +219,24 @@ def classify_session_error(error_obj: Any) -> OpenCodeError:
     # These are exactly the cases the cascade is supposed to fall over
     # for: the binding is misbehaving but the next tier may be fine.
     # Without classifying them as transient they fall through to plain
-    # ``OpenCodeError``, which is NOT in ``CASCADE_ERRORS`` — so a Zen-
+    # ``AgentRuntimeError``, which is NOT in ``CASCADE_ERRORS`` — so a Zen-
     # Go outage would kill the entire workflow even with a healthy
     # github-copilot binding next in line. (2026-05-03 e2e — refuel
     # briefings hung up against opencode-go/qwen3.6-plus returning
     # AI_APICallError with no fallover.)
     if "apicall" in lname or "aiapierror" in lname:
-        return OpenCodeTransientError(text, body=body)
+        return RuntimeTransientError(text, body=body)
     if (
         "internal server error" in lmsg
         or "service unavailable" in lmsg
         or "rate limit" in lmsg
         or "rate-limit" in lmsg
     ):
-        return OpenCodeTransientError(text, body=body)
-    return OpenCodeError(text, body=body)
+        return RuntimeTransientError(text, body=body)
+    return AgentRuntimeError(text, body=body)
 
 
-def _classify_http_error(response: httpx.Response) -> OpenCodeError:
+def _classify_http_error(response: httpx.Response) -> AgentRuntimeError:
     body = _safe_json(response)
     status = response.status_code
     name = ""
@@ -254,14 +254,14 @@ def _classify_http_error(response: httpx.Response) -> OpenCodeError:
             data = body.get("data") if "data" in body else body.get("error", {}).get("data", {})
             if isinstance(data, dict):
                 retries = int(data.get("retries", 0) or 0)
-        return OpenCodeStructuredOutputError(text, status=status, body=body, retries=retries)
+        return RuntimeStructuredOutputError(text, status=status, body=body, retries=retries)
     if "providermodelnotfound" in lname or "modelnotfound" in lname:
-        return OpenCodeModelNotFoundError(text, status=status, body=body)
+        return RuntimeModelNotFoundError(text, status=status, body=body)
     if "providerauth" in lname or "authentication" in lname or status == 401:
-        return OpenCodeAuthError(text, status=status, body=body)
+        return RuntimeAuthError(text, status=status, body=body)
     if status in _TRANSIENT_STATUSES:
-        return OpenCodeTransientError(text, status=status, body=body)
-    return OpenCodeError(text, status=status, body=body)
+        return RuntimeTransientError(text, status=status, body=body)
+    return AgentRuntimeError(text, status=status, body=body)
 
 
 # ---------------------------------------------------------------------------
@@ -426,7 +426,7 @@ class OpenCodeClient:
         async for attempt in AsyncRetrying(
             stop=stop_after_attempt(self._max_retry_attempts),
             wait=wait_exponential(multiplier=0.5, min=0.5, max=8),
-            retry=retry_if_exception_type((OpenCodeTransientError, httpx.TransportError)),
+            retry=retry_if_exception_type((RuntimeTransientError, httpx.TransportError)),
             reraise=True,
         ):
             with attempt:
@@ -437,7 +437,7 @@ class OpenCodeClient:
                     return {"info": {}, "parts": [], "_empty": True}
                 return r.json()  # type: ignore[no-any-return]
         # Unreachable — AsyncRetrying with reraise=True raises before exit.
-        raise OpenCodeError("send_message exhausted retries without a result")
+        raise AgentRuntimeError("send_message exhausted retries without a result")
 
     async def send_message_async(
         self,
@@ -597,10 +597,10 @@ class OpenCodeClient:
         validation flag.
 
         Raises:
-            OpenCodeAuthError, OpenCodeModelNotFoundError,
-            OpenCodeContextOverflowError, OpenCodeStructuredOutputError,
-            OpenCodeError: When the event stream surfaces an error.
-            OpenCodeProtocolError: When the response was empty AND no
+            RuntimeAuthError, RuntimeModelNotFoundError,
+            RuntimeContextOverflowError, RuntimeStructuredOutputError,
+            AgentRuntimeError: When the event stream surfaces an error.
+            RuntimeProtocolError: When the response was empty AND no
                 error event arrived within the timeout (truly silent).
         """
         send_task = asyncio.create_task(
@@ -657,9 +657,9 @@ class OpenCodeClient:
                     await _drain(t)
 
         if message is None:  # defensive — flow above guarantees set
-            raise OpenCodeError("send_with_event_watch: no message returned")
+            raise AgentRuntimeError("send_with_event_watch: no message returned")
         if message.get("_empty"):
-            raise OpenCodeProtocolError(
+            raise RuntimeProtocolError(
                 "send_message returned HTTP 200 with empty body and no "
                 "session.error event was observed; likely a silent "
                 "model/auth failure (Landmine 2). Verify modelID via "
@@ -674,7 +674,7 @@ class OpenCodeClient:
             info=message.get("info", {}) or {},
         )
 
-    async def _watch_for_error(self, session_id: str) -> OpenCodeError | None:
+    async def _watch_for_error(self, session_id: str) -> AgentRuntimeError | None:
         """Drain events for ``session_id``; return classified error on first one.
 
         Returns ``None`` when the session reaches ``session.idle`` cleanly.
@@ -693,7 +693,7 @@ class OpenCodeClient:
                 if isinstance(err_field, dict):
                     return classify_session_error(err_field)
                 if info.get("finish") == "error":
-                    return OpenCodeError(
+                    return AgentRuntimeError(
                         f"message finished with error (no error field): {info.get('mode')}",
                         body=info,
                     )

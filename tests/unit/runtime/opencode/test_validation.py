@@ -8,7 +8,7 @@ import httpx
 import pytest
 
 from maverick.runtime.opencode.client import OpenCodeClient
-from maverick.runtime.opencode.errors import OpenCodeModelNotFoundError
+from maverick.runtime.opencode.errors import RuntimeModelNotFoundError
 from maverick.runtime.opencode.validation import (
     invalidate_cache,
     list_connected_providers,
@@ -58,7 +58,7 @@ async def test_validate_passes_when_model_listed() -> None:
 async def test_validate_rejects_unknown_provider() -> None:
     client = _make_client({"providers": [{"id": "openrouter", "models": {"x": {}}}]})
     try:
-        with pytest.raises(OpenCodeModelNotFoundError) as exc:
+        with pytest.raises(RuntimeModelNotFoundError) as exc:
             await validate_model_id(client, "anthropic-direct", "x")
         assert "is not connected" in str(exc.value)
         assert "openrouter" in str(exc.value)
@@ -78,7 +78,7 @@ async def test_validate_rejects_unknown_model_under_known_provider() -> None:
         }
     )
     try:
-        with pytest.raises(OpenCodeModelNotFoundError) as exc:
+        with pytest.raises(RuntimeModelNotFoundError) as exc:
             await validate_model_id(client, "openrouter", "anthropic/totally-fake")
         assert "totally-fake" in str(exc.value)
     finally:

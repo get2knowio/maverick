@@ -52,9 +52,9 @@ async def test_squadron_handle_registered_on_pool(tmp_path: Path) -> None:
                 # password we expect a classified error, not a network failure).
                 client = OpenCodeClient(base_url=info["base_url"], password="bogus")
                 try:
-                    from maverick.runtime.opencode import OpenCodeError
+                    from maverick.runtime.opencode import AgentRuntimeError
 
-                    with pytest.raises(OpenCodeError):
+                    with pytest.raises(AgentRuntimeError):
                         await client.health()
                 finally:
                     await client.aclose()

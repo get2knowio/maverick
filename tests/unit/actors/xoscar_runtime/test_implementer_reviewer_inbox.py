@@ -32,8 +32,8 @@ from maverick.payloads import (
     SubmitReviewPayload,
 )
 from maverick.runtime.opencode import (
-    OpenCodeAuthError,
     OpenCodeServerHandle,
+    RuntimeAuthError,
     SendResult,
     invalidate_cache,
     opencode_handle_for,
@@ -330,7 +330,7 @@ async def test_implementer_routes_auth_error_to_prompt_error(
         _PatchedImplementer,
         sup,
         cwd="/tmp",
-        send_error=OpenCodeAuthError("bad key"),
+        send_error=RuntimeAuthError("bad key"),
         address=address,
         uid="impl-3",
     )

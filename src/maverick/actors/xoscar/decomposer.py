@@ -30,7 +30,7 @@ from maverick.payloads import (
     SubmitOutlinePayload,
 )
 from maverick.runtime.opencode import (
-    OpenCodeError,
+    AgentRuntimeError,
     cost_sink_for,
     opencode_handle_for,
     tier_overrides_for,
@@ -115,7 +115,7 @@ class DecomposerActor(xo.Actor):
                 runway_context=request.runway_context,
                 validation_feedback=request.validation_feedback,
             )
-        except OpenCodeError as exc:
+        except AgentRuntimeError as exc:
             await self._report_failure(str(exc), phase="outline", unit_id=None)
             return
         except Exception as exc:  # noqa: BLE001
@@ -131,7 +131,7 @@ class DecomposerActor(xo.Actor):
         logger.debug("decomposer.phase_starting", phase="detail", unit_id=unit_id)
         try:
             payload = await self._agent.detail(unit_ids=request.unit_ids)
-        except OpenCodeError as exc:
+        except AgentRuntimeError as exc:
             await self._report_failure(str(exc), phase="detail", unit_id=unit_id)
             return
         except Exception as exc:  # noqa: BLE001
@@ -152,7 +152,7 @@ class DecomposerActor(xo.Actor):
                 details_json=request.details_json or None,
                 verification_properties=request.verification_properties or None,
             )
-        except OpenCodeError as exc:
+        except AgentRuntimeError as exc:
             await self._report_failure(str(exc), phase="fix", unit_id=None)
             return
         except Exception as exc:  # noqa: BLE001
@@ -170,7 +170,7 @@ class DecomposerActor(xo.Actor):
                 unit_id=request.unit_id,
                 reason=request.reason,
             )
-        except OpenCodeError as exc:
+        except AgentRuntimeError as exc:
             await self._report_failure(str(exc), phase="nudge", unit_id=request.unit_id)
             return
         except Exception as exc:  # noqa: BLE001

@@ -7,7 +7,7 @@ Covers:
   ``result_model`` and unwraps the envelope (Landmine 3).
 * ``_send_text`` returns the assistant's plain-text response.
 * Model validation runs on first send and is cached after.
-* Error classification (``OpenCodeAuthError``, payload-validation
+* Error classification (``RuntimeAuthError``, payload-validation
   failures) propagates to the caller.
 
 Tests exercise :class:`Agent` directly — no xoscar pool involved. The
@@ -22,7 +22,7 @@ import pytest
 from pydantic import BaseModel
 
 from maverick.agents.base import Agent, AgentPayloadValidationError
-from maverick.runtime.opencode import OpenCodeAuthError, SendResult
+from maverick.runtime.opencode import RuntimeAuthError, SendResult
 
 from .conftest import FakeClient, fake_handle, payload_send_result
 
@@ -100,10 +100,10 @@ async def test_send_structured_raises_payload_validation_error() -> None:
 
 
 async def test_send_structured_propagates_classified_runtime_error() -> None:
-    client = FakeClient(send_error=OpenCodeAuthError("bad key"))
+    client = FakeClient(send_error=RuntimeAuthError("bad key"))
     agent = _make_agent(client)
     async with agent:
-        with pytest.raises(OpenCodeAuthError):
+        with pytest.raises(RuntimeAuthError):
             await agent.review("review")
 
 

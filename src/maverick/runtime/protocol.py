@@ -1,10 +1,10 @@
-"""``Runtime`` protocol — vendor-agnostic agent transport.
+"""``AgentRuntime`` protocol — vendor-agnostic agent transport.
 
-Maverick agents talk to LLMs through a thin :class:`Runtime` protocol.
-Implementations live under ``maverick.runtime.<vendor>_adapter`` and
-wrap each vendor's preferred Python SDK (Claude Agent SDK, GitHub
+Maverick agents talk to LLMs through a thin :class:`AgentRuntime`
+protocol. Implementations live under ``maverick.runtime.<vendor>_adapter``
+and wrap each vendor's preferred Python SDK (Claude Agent SDK, GitHub
 Copilot Python SDK, OpenAI Codex SDK, OpenCode Zen HTTP, Anthropic
-direct API, etc.). An agent receives a :class:`Runtime` at
+direct API, etc.). An agent receives an :class:`AgentRuntime` at
 construction and never sees a vendor-specific type at the call site.
 
 Design principles:
@@ -81,7 +81,7 @@ class RuntimeResult:
 
 
 @runtime_checkable
-class Runtime(Protocol):
+class AgentRuntime(Protocol):
     """Vendor-agnostic agent runtime.
 
     Implementations:
@@ -204,10 +204,10 @@ class Runtime(Protocol):
 class UnsupportedBindingError(Exception):
     """Raised when a runtime is asked to serve a binding it can't serve.
 
-    Distinct from :class:`maverick.runtime.errors.RuntimeError_` —
+    Distinct from :class:`maverick.runtime.errors.AgentRuntimeError` —
     this is a programming error (the caller should have checked
-    :meth:`Runtime.validate_binding` first), not a runtime failure.
+    :meth:`AgentRuntime.validate_binding` first), not a runtime failure.
     """
 
 
-__all__ = ["Runtime", "RuntimeResult", "UnsupportedBindingError"]
+__all__ = ["AgentRuntime", "RuntimeResult", "UnsupportedBindingError"]

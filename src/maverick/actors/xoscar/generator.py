@@ -15,7 +15,7 @@ from maverick.actors.xoscar.messages import GenerateRequest, PromptError
 from maverick.agents.generator import GeneratorAgent
 from maverick.logging import get_logger
 from maverick.runtime.opencode import (
-    OpenCodeError,
+    AgentRuntimeError,
     cost_sink_for,
     opencode_handle_for,
     tier_overrides_for,
@@ -76,7 +76,7 @@ class GeneratorActor(xo.Actor):
         logger.debug("generator.prompt_starting")
         try:
             payload = await self._agent.generate(request.prompt)
-        except OpenCodeError as exc:
+        except AgentRuntimeError as exc:
             await self._report_prompt_error(str(exc))
             return
         except Exception as exc:  # noqa: BLE001 — supervisor decides retry policy

@@ -17,8 +17,8 @@ from maverick.executor.config import StepConfig
 from maverick.executor.errors import OutputSchemaValidationError
 from maverick.executor.result import ExecutorResult
 from maverick.runtime.opencode import (
-    OpenCodeAuthError,
     OpenCodeServerHandle,
+    RuntimeAuthError,
     SendResult,
     invalidate_cache,
 )
@@ -318,10 +318,10 @@ async def test_execute_named_validates_model_id_before_sending() -> None:
 
 
 async def test_execute_named_propagates_classified_runtime_errors() -> None:
-    client = _FakeClient(send_error=OpenCodeAuthError("bad key"))
+    client = _FakeClient(send_error=RuntimeAuthError("bad key"))
     executor = _PatchableExecutor(client)
     try:
-        with pytest.raises(OpenCodeAuthError):
+        with pytest.raises(RuntimeAuthError):
             await executor.execute_named(
                 agent="maverick.curator",
                 user_prompt="x",

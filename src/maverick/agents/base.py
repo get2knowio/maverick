@@ -45,15 +45,15 @@ from tenacity import (
 
 from maverick.logging import get_logger
 from maverick.runtime.opencode import (
+    AgentRuntimeError,
     CascadeOutcome,
     CostRecord,
     CostSink,
     OpenCodeClient,
-    OpenCodeError,
     OpenCodeServerHandle,
-    OpenCodeStructuredOutputError,
-    OpenCodeTransientError,
     ProviderModel,
+    RuntimeStructuredOutputError,
+    RuntimeTransientError,
     SendResult,
     Tier,
     cascade_send,
@@ -81,10 +81,10 @@ TRANSIENT_RETRY_WAIT_MIN_SECONDS = 1.0
 TRANSIENT_RETRY_WAIT_MAX_SECONDS = 10.0
 
 
-class AgentPayloadValidationError(OpenCodeStructuredOutputError):
+class AgentPayloadValidationError(RuntimeStructuredOutputError):
     """Server returned a structured payload that didn't match the agent's model.
 
-    Subclasses :class:`OpenCodeStructuredOutputError` so the tier cascade
+    Subclasses :class:`RuntimeStructuredOutputError` so the tier cascade
     treats schema-rejected payloads the same as server-reported
     structured-output failures — both indicate the current binding can't
     produce a usable response and the right recovery is to fall over to
@@ -223,7 +223,7 @@ class Agent:
         if client is not None and sid is not None:
             try:
                 await client.delete_session(sid)
-            except OpenCodeError as exc:
+            except AgentRuntimeError as exc:
                 logger.debug(
                     "agent.session_rotate_delete_failed",
                     agent=self._tag,
@@ -257,12 +257,12 @@ class Agent:
         per-instance override passed to ``__init__``).
 
         Raises:
-            OpenCodeAuthError, OpenCodeModelNotFoundError,
-            OpenCodeStructuredOutputError, OpenCodeContextOverflowError,
-            OpenCodeError: When the runtime classifies a server-side failure.
+            RuntimeAuthError, RuntimeModelNotFoundError,
+            RuntimeStructuredOutputError, RuntimeContextOverflowError,
+            AgentRuntimeError: When the runtime classifies a server-side failure.
             AgentPayloadValidationError: When the structured payload came
                 back but didn't match ``schema``.
-            OpenCodeProtocolError: When the server returned an empty 200
+            RuntimeProtocolError: When the server returned an empty 200
                 with no event explaining why (Landmine 2).
         """
         target_schema = schema or self._effective_result_model()
@@ -396,7 +396,7 @@ class Agent:
         Args:
             validate: Optional caller-supplied hook invoked synchronously
                 inside the cascade after each successful HTTP send. When
-                it raises a :class:`OpenCodeStructuredOutputError`
+                it raises a :class:`RuntimeStructuredOutputError`
                 subclass (e.g. :class:`AgentPayloadValidationError`),
                 the cascade treats the binding as failed and falls over
                 to the next one.
@@ -434,7 +434,7 @@ class Agent:
             # one retry round usually rides through a brief outage.
             result: SendResult | None = None
             async for attempt in AsyncRetrying(
-                retry=retry_if_exception_type(OpenCodeTransientError),
+                retry=retry_if_exception_type(RuntimeTransientError),
                 stop=stop_after_attempt(TRANSIENT_RETRY_ATTEMPTS),
                 wait=wait_exponential(
                     multiplier=1,
@@ -561,7 +561,7 @@ class Agent:
     def _coerce_payload(self, result: SendResult, schema: type[BaseModel]) -> BaseModel:
         """Validate the unwrapped structured payload against ``schema``."""
         if result.structured is None:
-            raise OpenCodeStructuredOutputError(
+            raise RuntimeStructuredOutputError(
                 "OpenCode response had no structured payload "
                 "(format=json_schema was requested but model emitted text only)",
                 body=result.message,

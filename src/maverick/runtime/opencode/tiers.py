@@ -19,12 +19,12 @@ from dataclasses import dataclass, field
 from maverick.logging import get_logger
 from maverick.runtime.opencode.client import SendResult
 from maverick.runtime.opencode.errors import (
-    OpenCodeAuthError,
-    OpenCodeContextOverflowError,
-    OpenCodeError,
-    OpenCodeModelNotFoundError,
-    OpenCodeStructuredOutputError,
-    OpenCodeTransientError,
+    AgentRuntimeError,
+    RuntimeAuthError,
+    RuntimeContextOverflowError,
+    RuntimeModelNotFoundError,
+    RuntimeStructuredOutputError,
+    RuntimeTransientError,
 )
 
 # Re-exports — these now live in the neutral runtime/tiers.py module.
@@ -75,11 +75,11 @@ def _pm(provider: str, model: str) -> ProviderModel:
 #: has a real chance of succeeding. Context-overflow needs a bigger
 #: context model rather than just a different one, so it's NOT in this
 #: set; callers handle it explicitly.
-CASCADE_ERRORS: tuple[type[OpenCodeError], ...] = (
-    OpenCodeAuthError,
-    OpenCodeModelNotFoundError,
-    OpenCodeTransientError,
-    OpenCodeStructuredOutputError,
+CASCADE_ERRORS: tuple[type[AgentRuntimeError], ...] = (
+    RuntimeAuthError,
+    RuntimeModelNotFoundError,
+    RuntimeTransientError,
+    RuntimeStructuredOutputError,
 )
 
 
@@ -109,7 +109,7 @@ async def cascade_send(
         send_fn: Async callable invoked with each :class:`ProviderModel`.
             Returns a :class:`SendResult` on success; raises a
             :class:`CASCADE_ERRORS` member to fail over, or any other
-            :class:`OpenCodeError` to abort.
+            :class:`AgentRuntimeError` to abort.
         skip: Bindings already known to fail this run (e.g. from a prior
             cascade for the same actor); skipped without retry.
 
@@ -119,7 +119,7 @@ async def cascade_send(
         and the failures observed along the way.
 
     Raises:
-        OpenCodeError: When every binding fails. The last raised
+        AgentRuntimeError: When every binding fails. The last raised
             exception is re-raised (the cascade history is preserved
             via the structured log).
     """
@@ -145,7 +145,7 @@ async def cascade_send(
                 error=str(exc)[:200],
             )
             continue
-        except OpenCodeContextOverflowError:
+        except RuntimeContextOverflowError:
             # Different shape — not a tier failure. Re-raise so the
             # caller can decide (shrink the prompt, escalate to a
             # larger-context model, abandon the bead).
@@ -167,7 +167,7 @@ async def cascade_send(
     )
     if last_exc is not None:
         raise last_exc
-    raise OpenCodeError(
+    raise AgentRuntimeError(
         f"Cascade for tier {tier.name!r} exhausted with no attempts (every binding was in `skip`)."
     )
 

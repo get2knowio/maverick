@@ -1,15 +1,15 @@
-"""Vendor-agnostic exception hierarchy for runtime adapters.
+"""Vendor-agnostic exception hierarchy for agent runtimes.
 
-The class names use ``Runtime*`` prefixes so every adapter (OpenCode,
-Claude Code, Copilot, Codex, Anthropic, etc.) can raise the same types
-without misnaming. The cascade machinery in :mod:`maverick.runtime.tiers`
-classifies failures by these types — caught at the same boundary
-regardless of which adapter raised them.
+The class names use ``AgentRuntimeError`` (base) and ``Runtime*Error``
+(subclasses) so every adapter (Claude Code, Copilot, Codex, OpenCode,
+Anthropic, etc.) raises the same types regardless of vendor. The
+cascade machinery in :mod:`maverick.runtime.tiers` classifies failures
+by these types and decides what to do based on which subclass fired.
 
-Legacy ``OpenCode*Error`` names are re-exported from
-``maverick.runtime.opencode.errors`` as aliases for one cycle so the
-existing OpenCode HTTP runtime keeps compiling unchanged. New code
-should use the ``Runtime*`` names directly.
+The base class is **``AgentRuntimeError``** rather than ``RuntimeError``
+to avoid shadowing Python's builtin :class:`RuntimeError` at every
+``except`` site. The subclasses keep the shorter ``Runtime*Error``
+prefix because they're already specific (no name collision).
 
 The hierarchy carves the failure modes the cascade needs to distinguish:
 
@@ -34,8 +34,8 @@ The hierarchy carves the failure modes the cascade needs to distinguish:
 - :class:`RuntimeCancelledError` — caller-initiated abort. Not a
   failure, just bookkeeping.
 
-All inherit from :class:`RuntimeError` (this module's, not the
-builtin) which inherits from :class:`MaverickError`.
+All inherit from :class:`AgentRuntimeError` which inherits from
+:class:`MaverickError`.
 """
 
 from __future__ import annotations
@@ -45,13 +45,8 @@ from typing import Any
 from maverick.exceptions.base import MaverickError
 
 
-class RuntimeError_(MaverickError):  # noqa: N801, N818
-    """Base class for runtime-adapter errors.
-
-    Named ``RuntimeError_`` internally to avoid shadowing Python's
-    builtin :class:`RuntimeError`; re-exported as :class:`RuntimeError`
-    via the module ``__all__`` so callers write
-    ``from maverick.runtime.errors import RuntimeError``.
+class AgentRuntimeError(MaverickError):
+    """Base class for agent-runtime adapter errors.
 
     Attributes:
         status: Optional HTTP / RPC status code from the server.
@@ -70,11 +65,11 @@ class RuntimeError_(MaverickError):  # noqa: N801, N818
         self.body = body
 
 
-class RuntimeServerStartError(RuntimeError_):
+class RuntimeServerStartError(AgentRuntimeError):
     """Failed to launch the runtime backend (subprocess, server, etc.)."""
 
 
-class RuntimeAuthError(RuntimeError_):
+class RuntimeAuthError(AgentRuntimeError):
     """Provider authentication failed (bad / missing / expired credentials).
 
     Cascadable: the cascade should try the next binding rather than
@@ -82,7 +77,7 @@ class RuntimeAuthError(RuntimeError_):
     """
 
 
-class RuntimeModelNotFoundError(RuntimeError_):
+class RuntimeModelNotFoundError(AgentRuntimeError):
     """The requested model is not available on this binding.
 
     Distinct from :class:`RuntimeAuthError` so callers can fall back
@@ -90,7 +85,7 @@ class RuntimeModelNotFoundError(RuntimeError_):
     """
 
 
-class RuntimeStructuredOutputError(RuntimeError_):
+class RuntimeStructuredOutputError(AgentRuntimeError):
     """The model failed to produce structured output matching the schema.
 
     Cascade falls over: the binding's capability gap won't be fixed
@@ -113,7 +108,7 @@ class RuntimeStructuredOutputError(RuntimeError_):
         self.retries = retries
 
 
-class RuntimeContextOverflowError(RuntimeError_):
+class RuntimeContextOverflowError(AgentRuntimeError):
     """Prompt exceeded the model's context window even after compaction.
 
     NOT cascadable — falling over to a smaller-context model just hits
@@ -122,7 +117,7 @@ class RuntimeContextOverflowError(RuntimeError_):
     """
 
 
-class RuntimeTransientError(RuntimeError_):
+class RuntimeTransientError(AgentRuntimeError):
     """Transient server/provider error: 5xx, rate limits, brief outages.
 
     Callers should retry with exponential backoff on the same binding
@@ -130,11 +125,11 @@ class RuntimeTransientError(RuntimeError_):
     """
 
 
-class RuntimeCancelledError(RuntimeError_):
+class RuntimeCancelledError(AgentRuntimeError):
     """The session was aborted (cooperatively or by an explicit cancel)."""
 
 
-class RuntimeProtocolError(RuntimeError_):
+class RuntimeProtocolError(AgentRuntimeError):
     """The runtime returned a response that didn't match the expected shape.
 
     Distinct from :class:`RuntimeTransientError` because protocol
@@ -143,17 +138,11 @@ class RuntimeProtocolError(RuntimeError_):
     """
 
 
-# Re-export ``RuntimeError_`` as ``RuntimeError`` for callers. This
-# intentionally shadows Python's builtin within this namespace; callers
-# should ``from maverick.runtime.errors import RuntimeError as
-# RuntimeError`` or just use the full path.
-RuntimeError = RuntimeError_
-
 __all__ = [
+    "AgentRuntimeError",
     "RuntimeAuthError",
     "RuntimeCancelledError",
     "RuntimeContextOverflowError",
-    "RuntimeError",
     "RuntimeModelNotFoundError",
     "RuntimeProtocolError",
     "RuntimeServerStartError",

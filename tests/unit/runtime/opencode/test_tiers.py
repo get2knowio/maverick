@@ -7,13 +7,13 @@ import pytest
 from maverick.runtime.opencode import (
     CASCADE_ERRORS,
     DEFAULT_TIERS,
-    OpenCodeAuthError,
-    OpenCodeContextOverflowError,
-    OpenCodeError,
-    OpenCodeModelNotFoundError,
-    OpenCodeStructuredOutputError,
-    OpenCodeTransientError,
+    AgentRuntimeError,
     ProviderModel,
+    RuntimeAuthError,
+    RuntimeContextOverflowError,
+    RuntimeModelNotFoundError,
+    RuntimeStructuredOutputError,
+    RuntimeTransientError,
     SendResult,
     Tier,
     cascade_send,
@@ -84,10 +84,10 @@ def _success(structured: dict | None = None) -> SendResult:
 @pytest.mark.parametrize(
     "exc_factory",
     [
-        lambda: OpenCodeAuthError("bad key"),
-        lambda: OpenCodeModelNotFoundError("no such model"),
-        lambda: OpenCodeStructuredOutputError("model didn't tool-call", retries=0),
-        lambda: OpenCodeTransientError("502 bad gateway"),
+        lambda: RuntimeAuthError("bad key"),
+        lambda: RuntimeModelNotFoundError("no such model"),
+        lambda: RuntimeStructuredOutputError("model didn't tool-call", retries=0),
+        lambda: RuntimeTransientError("502 bad gateway"),
     ],
 )
 async def test_cascade_falls_over_on_each_cascadable_error(exc_factory) -> None:
@@ -142,9 +142,9 @@ async def test_cascade_raises_when_every_binding_fails() -> None:
     )
 
     async def send(binding: ProviderModel) -> SendResult:
-        raise OpenCodeAuthError(f"auth failed on {binding.model_id}")
+        raise RuntimeAuthError(f"auth failed on {binding.model_id}")
 
-    with pytest.raises(OpenCodeAuthError) as exc:
+    with pytest.raises(RuntimeAuthError) as exc:
         await cascade_send(tier, send)
     # The last failure surfaces (cascade preserves the most recent error).
     assert "second" in str(exc.value)
@@ -157,20 +157,20 @@ async def test_cascade_does_not_swallow_context_overflow() -> None:
     )
 
     async def send(binding: ProviderModel) -> SendResult:
-        raise OpenCodeContextOverflowError("too big")
+        raise RuntimeContextOverflowError("too big")
 
-    with pytest.raises(OpenCodeContextOverflowError):
+    with pytest.raises(RuntimeContextOverflowError):
         await cascade_send(tier, send)
 
 
 def test_cascade_errors_set_includes_expected_classes() -> None:
     """Sanity-check that the cascade error tuple covers what we test."""
-    assert OpenCodeAuthError in CASCADE_ERRORS
-    assert OpenCodeModelNotFoundError in CASCADE_ERRORS
-    assert OpenCodeTransientError in CASCADE_ERRORS
-    assert OpenCodeStructuredOutputError in CASCADE_ERRORS
+    assert RuntimeAuthError in CASCADE_ERRORS
+    assert RuntimeModelNotFoundError in CASCADE_ERRORS
+    assert RuntimeTransientError in CASCADE_ERRORS
+    assert RuntimeStructuredOutputError in CASCADE_ERRORS
     # Context overflow is intentionally NOT cascadable.
-    assert OpenCodeContextOverflowError not in CASCADE_ERRORS
+    assert RuntimeContextOverflowError not in CASCADE_ERRORS
 
 
 async def test_cascade_outcome_records_attempts_and_failures() -> None:
@@ -185,7 +185,7 @@ async def test_cascade_outcome_records_attempts_and_failures() -> None:
 
     async def send(binding: ProviderModel) -> SendResult:
         if binding.model_id in {"first", "second"}:
-            raise OpenCodeAuthError(f"failed {binding.model_id}")
+            raise RuntimeAuthError(f"failed {binding.model_id}")
         return _success({"ok": True})
 
     outcome = await cascade_send(tier, send)
@@ -293,15 +293,15 @@ def test_tiers_from_config_skips_empty_tier_lists() -> None:
 
 
 def test_unrecognized_error_is_not_cascadable() -> None:
-    """Generic OpenCodeError (not a subclass listed in CASCADE_ERRORS) propagates."""
+    """Generic AgentRuntimeError (not a subclass listed in CASCADE_ERRORS) propagates."""
     tier = Tier("review", bindings=(ProviderModel("p", "first"),))
 
     async def send(_: ProviderModel) -> SendResult:
-        raise OpenCodeError("generic failure")
+        raise AgentRuntimeError("generic failure")
 
     import asyncio
 
-    with pytest.raises(OpenCodeError):
+    with pytest.raises(AgentRuntimeError):
         asyncio.get_event_loop_policy().new_event_loop().run_until_complete(
             cascade_send(tier, send)
         )

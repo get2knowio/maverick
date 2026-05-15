@@ -15,7 +15,7 @@ Mailbox actors don't go through the executor at all; they use
 :class:`maverick.actors.xoscar.opencode_mixin.OpenCodeAgentMixin`
 directly, which builds its own :class:`OpenCodeClient`.
 
-Errors surface via classified :class:`OpenCodeError` subclasses
+Errors surface via classified :class:`AgentRuntimeError` subclasses
 (Landmines 1-3 mitigations baked in). ``result_model`` translates
 to ``format=json_schema`` so the model is forced to call OpenCode's
 ``StructuredOutput`` tool when typed output is required.
@@ -43,8 +43,8 @@ from maverick.runtime.opencode.client import (
     text_of,
 )
 from maverick.runtime.opencode.errors import (
-    OpenCodeError,
-    OpenCodeStructuredOutputError,
+    AgentRuntimeError,
+    RuntimeStructuredOutputError,
 )
 from maverick.runtime.opencode.server import (
     OpenCodeServerHandle,
@@ -103,7 +103,7 @@ class OpenCodeStepExecutor:
             for sid in list(self._sessions):
                 try:
                     await client.delete_session(sid)
-                except OpenCodeError as exc:
+                except AgentRuntimeError as exc:
                     self._logger.debug(
                         "opencode_executor.session_delete_failed",
                         session_id=sid,
@@ -143,7 +143,7 @@ class OpenCodeStepExecutor:
             for sid in list(self._sessions):
                 try:
                     await client.delete_session(sid)
-                except OpenCodeError:
+                except AgentRuntimeError:
                     pass
             try:
                 await client.aclose()
@@ -211,9 +211,9 @@ class OpenCodeStepExecutor:
             response.
 
         Raises:
-            OpenCodeAuthError, OpenCodeModelNotFoundError,
-            OpenCodeContextOverflowError, OpenCodeStructuredOutputError,
-            OpenCodeError: classified failures from the runtime.
+            RuntimeAuthError, RuntimeModelNotFoundError,
+            RuntimeContextOverflowError, RuntimeStructuredOutputError,
+            AgentRuntimeError: classified failures from the runtime.
             OutputSchemaValidationError: when ``result_model`` is set
                 and the response payload didn't validate.
         """
@@ -257,7 +257,7 @@ class OpenCodeStepExecutor:
         finally:
             try:
                 await client.delete_session(session_id)
-            except OpenCodeError as exc:
+            except AgentRuntimeError as exc:
                 self._logger.debug(
                     "opencode_executor.delete_session_failed",
                     session_id=session_id,
@@ -394,7 +394,7 @@ class OpenCodeStepExecutor:
             return
         try:
             await client.cancel(session_id)
-        except OpenCodeError as exc:
+        except AgentRuntimeError as exc:
             self._logger.debug(
                 "opencode_executor.cancel_failed",
                 session_id=session_id,
@@ -409,7 +409,7 @@ class OpenCodeStepExecutor:
             return
         try:
             await client.delete_session(session_id)
-        except OpenCodeError as exc:
+        except AgentRuntimeError as exc:
             self._logger.debug(
                 "opencode_executor.close_session_failed",
                 session_id=session_id,
@@ -519,7 +519,7 @@ class OpenCodeStepExecutor:
                     model_label,
                 )
             except Exception as exc:
-                raise OpenCodeStructuredOutputError(
+                raise RuntimeStructuredOutputError(
                     "OpenCode response had no StructuredOutput payload and "
                     f"text-output extraction failed: {exc}",
                     body=send_result.message,

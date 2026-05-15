@@ -14,9 +14,9 @@ from maverick.logging import get_logger
 from maverick.runtime.opencode import (
     CostSink,
     OpenCodeClient,
-    OpenCodeModelNotFoundError,
     OpenCodeServerHandle,
     ProviderModel,
+    RuntimeModelNotFoundError,
     Tier,
     invalidate_cache,
     resolve_tier,
@@ -260,7 +260,7 @@ class Squadron(abc.ABC):
                 seen.add(binding)
                 try:
                     await validate_model_id(client, binding.provider_id, binding.model_id)
-                except OpenCodeModelNotFoundError as exc:
+                except RuntimeModelNotFoundError as exc:
                     body = getattr(exc, "body", None) or {}
                     if "model_id" in body:
                         raise

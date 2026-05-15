@@ -23,7 +23,7 @@ from maverick.actors.xoscar.messages import BriefingRequest, PromptError
 from maverick.agents.briefing.agent import BriefingAgent
 from maverick.payloads import SubmitNavigatorBriefPayload
 from maverick.runtime.opencode import (
-    OpenCodeAuthError,
+    RuntimeAuthError,
     SendResult,
     opencode_handle_for,
 )
@@ -172,7 +172,7 @@ async def test_briefing_routes_send_error_to_prompt_error(pool_address: str) -> 
         mcp_tool="submit_navigator_brief",
         forward_method="navigator_brief_ready",
         cwd="/tmp",
-        scripted_error=OpenCodeAuthError("bad key"),
+        scripted_error=RuntimeAuthError("bad key"),
         address=pool_address,
         uid="briefing-err",
     )

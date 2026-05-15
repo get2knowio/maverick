@@ -15,9 +15,9 @@ import shutil
 import pytest
 
 from maverick.runtime.opencode import (
-    OpenCodeError,
-    OpenCodeModelNotFoundError,
-    OpenCodeServerStartError,
+    AgentRuntimeError,
+    RuntimeModelNotFoundError,
+    RuntimeServerStartError,
     client_for,
     list_connected_providers,
     opencode_server,
@@ -57,7 +57,7 @@ async def test_validate_model_id_rejects_bogus_model() -> None:
     async with opencode_server() as handle:
         client = client_for(handle)
         try:
-            with pytest.raises(OpenCodeModelNotFoundError):
+            with pytest.raises(RuntimeModelNotFoundError):
                 await validate_model_id(client, "definitely-not-a-real-provider", "fake-model")
         finally:
             await client.aclose()
@@ -97,8 +97,8 @@ async def test_concurrent_sessions_do_not_serialize() -> None:
 
 
 async def test_spawn_with_invalid_executable_raises() -> None:
-    """Server-start failure surfaces as :class:`OpenCodeServerStartError`."""
-    with pytest.raises(OpenCodeServerStartError):
+    """Server-start failure surfaces as :class:`RuntimeServerStartError`."""
+    with pytest.raises(RuntimeServerStartError):
         await spawn_opencode_server(executable="/no/such/binary", startup_timeout=2.0)
 
 
@@ -110,7 +110,7 @@ async def test_unauthorized_request_rejected_when_password_set() -> None:
 
         bad = OpenCodeClient(base_url=handle.base_url)
         try:
-            with pytest.raises(OpenCodeError):
+            with pytest.raises(AgentRuntimeError):
                 await bad.health()
         finally:
             await bad.aclose()

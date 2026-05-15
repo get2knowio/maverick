@@ -26,7 +26,7 @@ from maverick.config import AgentProviderConfig
 from maverick.logging import get_logger
 from maverick.runners.preflight import ValidationResult
 from maverick.runtime.opencode import (
-    OpenCodeError,
+    AgentRuntimeError,
     OpenCodeServerHandle,
     client_for,
     list_connected_providers,
@@ -137,7 +137,7 @@ class OpenCodeProviderHealthCheck:
             try:
                 async with opencode_server() as owned_handle:
                     return await self._validate_with_handle(owned_handle, component, start_time)
-            except OpenCodeError as exc:
+            except AgentRuntimeError as exc:
                 return ValidationResult(
                     success=False,
                     component=component,
@@ -157,7 +157,7 @@ class OpenCodeProviderHealthCheck:
             connected = await asyncio.wait_for(
                 list_connected_providers(client), timeout=self.timeout
             )
-        except (TimeoutError, OpenCodeError) as exc:
+        except (TimeoutError, AgentRuntimeError) as exc:
             return ValidationResult(
                 success=False,
                 component=component,

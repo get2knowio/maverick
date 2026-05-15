@@ -32,8 +32,8 @@ from maverick.actors.xoscar.reviewer import ReviewerActor
 from maverick.agents.reviewer import ReviewerAgent
 from maverick.payloads import ReviewFindingPayload, SubmitReviewPayload
 from maverick.runtime.opencode import (
-    OpenCodeAuthError,
     OpenCodeServerHandle,
+    RuntimeAuthError,
     SendResult,
     invalidate_cache,
     opencode_handle_for,
@@ -303,7 +303,7 @@ async def test_review_auth_error_routes_to_prompt_error(review_pool: str) -> Non
         _PatchedReviewer,
         sup,
         cwd="/tmp",
-        send_error=OpenCodeAuthError("bad key"),
+        send_error=RuntimeAuthError("bad key"),
         address=address,
         uid="rev-3",
     )
@@ -424,7 +424,7 @@ async def test_aggregate_failure_routes_to_payload_parse_error(
         _PatchedReviewer,
         sup,
         cwd="/tmp",
-        send_error=OpenCodeAuthError("auth"),
+        send_error=RuntimeAuthError("auth"),
         address=address,
         uid="rev-agg-2",
     )

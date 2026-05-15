@@ -19,7 +19,7 @@ from maverick.agents.briefing.agent import BriefingAgent
 from maverick.logging import get_logger
 from maverick.payloads import SUPERVISOR_TOOL_PAYLOAD_MODELS
 from maverick.runtime.opencode import (
-    OpenCodeError,
+    AgentRuntimeError,
     cost_sink_for,
     opencode_handle_for,
     tier_overrides_for,
@@ -103,7 +103,7 @@ class BriefingActor(xo.Actor):
         )
         try:
             payload = await self._agent.brief(request.prompt)
-        except OpenCodeError as exc:
+        except AgentRuntimeError as exc:
             await self._report_briefing_failure(str(exc))
             return
         except Exception as exc:  # noqa: BLE001 — supervisor decides retry policy

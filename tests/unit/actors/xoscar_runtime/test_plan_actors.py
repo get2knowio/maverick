@@ -234,14 +234,14 @@ async def test_generator_forwards_flight_plan(pool_address: str) -> None:
 
 @pytest.mark.asyncio
 async def test_generator_routes_send_error_to_prompt_error(pool_address: str) -> None:
-    from maverick.runtime.opencode import OpenCodeAuthError
+    from maverick.runtime.opencode import RuntimeAuthError
 
     sup = await xo.create_actor(_PlanRecorder, address=pool_address, uid="gen-sup-err")
     gen = await xo.create_actor(
         _StubGenerator,
         sup,
         cwd="/tmp",
-        scripted_error=OpenCodeAuthError("bad key"),
+        scripted_error=RuntimeAuthError("bad key"),
         address=pool_address,
         uid="gen-err",
     )

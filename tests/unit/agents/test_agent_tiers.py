@@ -15,8 +15,8 @@ from pydantic import BaseModel
 
 from maverick.agents.base import Agent
 from maverick.runtime.opencode import (
-    OpenCodeAuthError,
     ProviderModel,
+    RuntimeAuthError,
     SendResult,
     Tier,
     invalidate_cache,
@@ -170,7 +170,7 @@ def _clear_validation_cache() -> None:
 async def test_cascade_falls_over_on_auth_error() -> None:
     client = _CascadeClient(
         binding_behavior={
-            "openrouter/anthropic/claude-haiku-4.5": OpenCodeAuthError("bad key"),
+            "openrouter/anthropic/claude-haiku-4.5": RuntimeAuthError("bad key"),
             "openrouter/qwen/qwen3-coder": _structured({"approved": True}),
         }
     )
@@ -193,7 +193,7 @@ async def test_cascade_skips_failed_bindings_on_subsequent_sends() -> None:
     """Once a binding fails, the agent remembers and doesn't retry it."""
     client = _CascadeClient(
         binding_behavior={
-            "openrouter/anthropic/claude-haiku-4.5": OpenCodeAuthError("bad"),
+            "openrouter/anthropic/claude-haiku-4.5": RuntimeAuthError("bad"),
             "openrouter/qwen/qwen3-coder": _structured({"approved": True}),
         }
     )
@@ -220,7 +220,7 @@ async def test_rotate_session_clears_failed_bindings() -> None:
     """
     client = _CascadeClient(
         binding_behavior={
-            "openrouter/anthropic/claude-haiku-4.5": OpenCodeAuthError("transient"),
+            "openrouter/anthropic/claude-haiku-4.5": RuntimeAuthError("transient"),
             "openrouter/qwen/qwen3-coder": _structured({"approved": True}),
         }
     )
@@ -286,13 +286,13 @@ async def test_validation_runs_once_per_binding() -> None:
 async def test_cascade_exhausted_propagates_last_error() -> None:
     client = _CascadeClient(
         binding_behavior={
-            "openrouter/anthropic/claude-haiku-4.5": OpenCodeAuthError("haiku auth"),
-            "openrouter/qwen/qwen3-coder": OpenCodeAuthError("qwen auth"),
+            "openrouter/anthropic/claude-haiku-4.5": RuntimeAuthError("haiku auth"),
+            "openrouter/qwen/qwen3-coder": RuntimeAuthError("qwen auth"),
         }
     )
     agent = _make_review_agent(client=client, tier_overrides=_two_binding_review_tier())
     async with agent:
-        with pytest.raises(OpenCodeAuthError) as exc:
+        with pytest.raises(RuntimeAuthError) as exc:
             await agent.review()
     assert "qwen auth" in str(exc.value)
 
@@ -300,12 +300,12 @@ async def test_cascade_exhausted_propagates_last_error() -> None:
 async def test_transient_error_retries_on_same_binding(monkeypatch: pytest.MonkeyPatch) -> None:
     """A transient blip retries the same binding before falling over.
 
-    Pre-3.6 a single ``OpenCodeTransientError`` made the cascade fall
+    Pre-3.6 a single ``RuntimeTransientError`` made the cascade fall
     straight over to the next provider. Now tenacity wraps the per-binding
     send: two transient blips followed by a success stays on the original
     binding.
     """
-    from maverick.runtime.opencode import OpenCodeTransientError
+    from maverick.runtime.opencode import RuntimeTransientError
 
     # No actual sleeps in tests.
     monkeypatch.setattr("maverick.agents.base.TRANSIENT_RETRY_WAIT_MIN_SECONDS", 0)
@@ -315,8 +315,8 @@ async def test_transient_error_retries_on_same_binding(monkeypatch: pytest.Monke
     client = _CascadeClient(
         binding_sequence={
             haiku: [
-                OpenCodeTransientError("503-1"),
-                OpenCodeTransientError("503-2"),
+                RuntimeTransientError("503-1"),
+                RuntimeTransientError("503-2"),
                 _structured({"approved": True}),
             ]
         }
@@ -338,7 +338,7 @@ async def test_transient_retry_exhausts_then_falls_over(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """If every retry on binding A fails transiently, cascade to B."""
-    from maverick.runtime.opencode import OpenCodeTransientError
+    from maverick.runtime.opencode import RuntimeTransientError
 
     monkeypatch.setattr("maverick.agents.base.TRANSIENT_RETRY_WAIT_MIN_SECONDS", 0)
     monkeypatch.setattr("maverick.agents.base.TRANSIENT_RETRY_WAIT_MAX_SECONDS", 0)
@@ -346,7 +346,7 @@ async def test_transient_retry_exhausts_then_falls_over(
     haiku = "openrouter/anthropic/claude-haiku-4.5"
     qwen = "openrouter/qwen/qwen3-coder"
     client = _CascadeClient(
-        binding_behavior={haiku: OpenCodeTransientError("flapping")},
+        binding_behavior={haiku: RuntimeTransientError("flapping")},
         binding_sequence={qwen: [_structured({"approved": True})]},
     )
     agent = _make_review_agent(client=client, tier_overrides=_two_binding_review_tier())
@@ -365,7 +365,7 @@ async def test_auth_error_does_not_retry_same_binding() -> None:
     qwen = "openrouter/qwen/qwen3-coder"
     client = _CascadeClient(
         binding_behavior={
-            haiku: OpenCodeAuthError("bad key"),
+            haiku: RuntimeAuthError("bad key"),
             qwen: _structured({"approved": True}),
         }
     )

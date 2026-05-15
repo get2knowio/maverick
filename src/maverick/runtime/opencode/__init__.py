@@ -15,7 +15,7 @@ a single OpenCode HTTP server. Public API:
   :func:`invalidate_cache` — provider/model validation (Landmine 1).
 * :class:`EventWatcher`, :func:`collect_events`, :func:`first_error` —
   SSE event helpers.
-* Error hierarchy: :class:`OpenCodeError` and subclasses.
+* Error hierarchy: :class:`AgentRuntimeError` and subclasses.
 """
 
 from __future__ import annotations
@@ -31,15 +31,15 @@ from maverick.runtime.opencode.client import (
     text_of,
 )
 from maverick.runtime.opencode.errors import (
-    OpenCodeAuthError,
-    OpenCodeCancelledError,
-    OpenCodeContextOverflowError,
-    OpenCodeError,
-    OpenCodeModelNotFoundError,
-    OpenCodeProtocolError,
-    OpenCodeServerStartError,
-    OpenCodeStructuredOutputError,
-    OpenCodeTransientError,
+    AgentRuntimeError,
+    RuntimeAuthError,
+    RuntimeCancelledError,
+    RuntimeContextOverflowError,
+    RuntimeModelNotFoundError,
+    RuntimeProtocolError,
+    RuntimeServerStartError,
+    RuntimeStructuredOutputError,
+    RuntimeTransientError,
 )
 from maverick.runtime.opencode.events import (
     DEFAULT_FORWARD_TYPES,
@@ -101,15 +101,15 @@ __all__ = [
     "structured_valid",
     "text_of",
     # errors
-    "OpenCodeError",
-    "OpenCodeAuthError",
-    "OpenCodeCancelledError",
-    "OpenCodeContextOverflowError",
-    "OpenCodeModelNotFoundError",
-    "OpenCodeProtocolError",
-    "OpenCodeServerStartError",
-    "OpenCodeStructuredOutputError",
-    "OpenCodeTransientError",
+    "AgentRuntimeError",
+    "RuntimeAuthError",
+    "RuntimeCancelledError",
+    "RuntimeContextOverflowError",
+    "RuntimeModelNotFoundError",
+    "RuntimeProtocolError",
+    "RuntimeServerStartError",
+    "RuntimeStructuredOutputError",
+    "RuntimeTransientError",
     # events
     "DEFAULT_FORWARD_TYPES",
     "EventCallback",

@@ -21,7 +21,7 @@ from maverick.actors.xoscar.messages import (
 from maverick.agents.coding import CodingAgent
 from maverick.logging import get_logger
 from maverick.runtime.opencode import (
-    OpenCodeError,
+    AgentRuntimeError,
     cost_sink_for,
     opencode_handle_for,
     tier_overrides_for,
@@ -104,7 +104,7 @@ class ImplementerActor(xo.Actor):
         try:
             with tagged(bead_id=request.bead_id):
                 payload = await self._agent.implement(request.prompt)
-        except OpenCodeError as exc:
+        except AgentRuntimeError as exc:
             await self._report_prompt_error(
                 phase="implement", error=str(exc), bead_id=request.bead_id
             )
@@ -125,7 +125,7 @@ class ImplementerActor(xo.Actor):
         try:
             with tagged(bead_id=request.bead_id):
                 payload = await self._agent.fix(request.prompt)
-        except OpenCodeError as exc:
+        except AgentRuntimeError as exc:
             await self._report_prompt_error(phase="fix", error=str(exc), bead_id=request.bead_id)
             return
         except Exception as exc:  # noqa: BLE001 — supervisor decides retry policy

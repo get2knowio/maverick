@@ -35,7 +35,7 @@ from maverick.runtime.opencode.client import (
     OpenCodeClient,
     classify_session_error,
 )
-from maverick.runtime.opencode.errors import OpenCodeError
+from maverick.runtime.opencode.errors import AgentRuntimeError
 
 logger = get_logger(__name__)
 
@@ -169,13 +169,13 @@ async def first_error(
     session_id: str,
     *,
     timeout: float | None = None,
-) -> OpenCodeError | None:
+) -> AgentRuntimeError | None:
     """Return the first classified ``session.error`` for the session, or ``None``.
 
     Resolves to ``None`` when the session reaches ``session.idle`` cleanly.
     """
 
-    async def _watch() -> OpenCodeError | None:
+    async def _watch() -> AgentRuntimeError | None:
         async for evt in client.stream_events(session_id=session_id):
             t = evt.get("type") or ""
             if t == "session.error":

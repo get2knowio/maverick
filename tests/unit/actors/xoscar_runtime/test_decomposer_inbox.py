@@ -24,7 +24,7 @@ from maverick.payloads import (
     SubmitFixPayload,
     SubmitOutlinePayload,
 )
-from maverick.runtime.opencode import OpenCodeAuthError, SendResult, opencode_handle_for
+from maverick.runtime.opencode import RuntimeAuthError, SendResult, opencode_handle_for
 
 
 class _DecomposerRecorder(xo.Actor):
@@ -225,7 +225,7 @@ async def test_outline_failure_routes_to_prompt_error(pool_address: str) -> None
         _StubDecomposer,
         sup,
         cwd="/tmp",
-        send_error=OpenCodeAuthError("bad key"),
+        send_error=RuntimeAuthError("bad key"),
         address=pool_address,
         uid="dec-4",
     )
@@ -251,7 +251,7 @@ async def test_detail_failure_includes_unit_id(pool_address: str) -> None:
         sup,
         cwd="/tmp",
         role="pool",
-        send_error=OpenCodeAuthError("auth"),
+        send_error=RuntimeAuthError("auth"),
         address=pool_address,
         uid="dec-5",
     )

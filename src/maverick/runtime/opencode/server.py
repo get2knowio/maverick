@@ -33,7 +33,7 @@ import httpx
 
 from maverick.logging import get_logger
 from maverick.runtime.opencode.client import OpenCodeClient
-from maverick.runtime.opencode.errors import OpenCodeServerStartError
+from maverick.runtime.opencode.errors import RuntimeServerStartError
 
 logger = get_logger(__name__)
 
@@ -148,7 +148,7 @@ async def spawn_opencode_server(
 
     The function returns once :func:`GET /global/health` returns 2xx. If
     the process exits or the timeout elapses first, raises
-    :class:`OpenCodeServerStartError`.
+    :class:`RuntimeServerStartError`.
 
     Args:
         executable: Path to the ``opencode`` binary; defaults to
@@ -204,11 +204,11 @@ async def spawn_opencode_server(
             stderr=asyncio.subprocess.PIPE,
         )
     except FileNotFoundError as exc:
-        raise OpenCodeServerStartError(
+        raise RuntimeServerStartError(
             f"opencode binary not found: {bin_path}",
         ) from exc
     except OSError as exc:
-        raise OpenCodeServerStartError(
+        raise RuntimeServerStartError(
             f"failed to spawn opencode at {bin_path}: {exc}",
         ) from exc
 
@@ -254,14 +254,14 @@ async def spawn_opencode_server(
             await asyncio.wait_for(listen_evt.wait(), timeout=startup_timeout)
         except TimeoutError as exc:
             await _kill_process(proc)
-            raise OpenCodeServerStartError(
+            raise RuntimeServerStartError(
                 f"opencode did not log a listen line within "
                 f"{startup_timeout}s. Last log lines: "
                 f"{log_lines[-10:]}"
             ) from exc
 
         if proc.returncode is not None:
-            raise OpenCodeServerStartError(
+            raise RuntimeServerStartError(
                 f"opencode exited with code {proc.returncode} during "
                 f"startup. Last log lines: {log_lines[-10:]}",
             )
@@ -279,7 +279,7 @@ async def spawn_opencode_server(
         ) as health:
             while True:
                 if proc.returncode is not None:
-                    raise OpenCodeServerStartError(
+                    raise RuntimeServerStartError(
                         f"opencode exited with code {proc.returncode} "
                         f"during health probe. Last log lines: "
                         f"{log_lines[-10:]}",
@@ -292,12 +292,12 @@ async def spawn_opencode_server(
                     pass
                 if asyncio.get_running_loop().time() > deadline:
                     await _kill_process(proc)
-                    raise OpenCodeServerStartError(
+                    raise RuntimeServerStartError(
                         f"opencode {base_url} did not pass /global/health "
                         f"within {startup_timeout}s",
                     )
                 await asyncio.sleep(0.1)
-    except OpenCodeServerStartError:
+    except RuntimeServerStartError:
         for t in drain_tasks:
             t.cancel()
         raise

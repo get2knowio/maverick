@@ -14,7 +14,7 @@ import shutil
 
 import pytest
 
-from maverick.runtime.opencode import OpenCodeError, opencode_server
+from maverick.runtime.opencode import AgentRuntimeError, opencode_server
 from maverick.runtime.opencode.executor import OpenCodeStepExecutor
 
 pytestmark = [pytest.mark.integration, pytest.mark.slow]
@@ -90,7 +90,7 @@ async def test_executor_does_not_kill_external_handle_on_cleanup() -> None:
         try:
             health = await client.health()
             assert isinstance(health, dict)
-        except OpenCodeError:
+        except AgentRuntimeError:
             pytest.fail("external handle was killed by executor.cleanup()")
         finally:
             await client.aclose()

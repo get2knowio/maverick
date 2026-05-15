@@ -3,11 +3,11 @@
 Exercises:
 
 * ``create_session`` / ``send_message`` happy path.
-* Landmine 2 silent failures: empty 200 → ``OpenCodeProtocolError`` via
+* Landmine 2 silent failures: empty 200 → ``RuntimeProtocolError`` via
   :meth:`send_with_event_watch` (when no error event is observed).
 * Landmine 2 visible failures: ``session.error`` event fires while the
-  send is in flight → classified exception (``OpenCodeAuthError``,
-  ``OpenCodeModelNotFoundError``).
+  send is in flight → classified exception (``RuntimeAuthError``,
+  ``RuntimeModelNotFoundError``).
 * Structured-output extraction with envelope unwrap (Landmine 3).
 * ``cancel`` returns the server's bool.
 """
@@ -21,11 +21,11 @@ import httpx
 import pytest
 
 from maverick.runtime.opencode import (
-    OpenCodeAuthError,
     OpenCodeClient,
-    OpenCodeModelNotFoundError,
-    OpenCodeProtocolError,
-    OpenCodeStructuredOutputError,
+    RuntimeAuthError,
+    RuntimeModelNotFoundError,
+    RuntimeProtocolError,
+    RuntimeStructuredOutputError,
 )
 
 # ---------------------------------------------------------------------------
@@ -133,7 +133,7 @@ async def test_send_message_raises_classified_4xx() -> None:
     ]
     client = _client_with(server)
     try:
-        with pytest.raises(OpenCodeStructuredOutputError):
+        with pytest.raises(RuntimeStructuredOutputError):
             await client.send_message("ses_x", "x")
     finally:
         await client.aclose()
@@ -162,7 +162,7 @@ def _patch_stream(monkeypatch: pytest.MonkeyPatch, events: list[dict[str, Any]])
 async def test_send_with_event_watch_raises_on_silent_empty_200(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """An empty 200 with no error event → OpenCodeProtocolError."""
+    """An empty 200 with no error event → RuntimeProtocolError."""
     server = _FakeServer()
     server.message_responses = [httpx.Response(200, content=b"")]
     client = _client_with(server)
@@ -170,7 +170,7 @@ async def test_send_with_event_watch_raises_on_silent_empty_200(
     _patch_stream(monkeypatch, [{"type": "session.idle", "properties": {"sessionID": "ses_x"}}])
 
     try:
-        with pytest.raises(OpenCodeProtocolError):
+        with pytest.raises(RuntimeProtocolError):
             await client.send_with_event_watch("ses_x", "x")
     finally:
         await client.aclose()
@@ -197,7 +197,7 @@ async def test_send_with_event_watch_classifies_auth_error_event(
     )
 
     try:
-        with pytest.raises(OpenCodeAuthError):
+        with pytest.raises(RuntimeAuthError):
             await client.send_with_event_watch("ses_x", "x")
     finally:
         await client.aclose()
@@ -227,7 +227,7 @@ async def test_send_with_event_watch_classifies_model_not_found_event(
     )
 
     try:
-        with pytest.raises(OpenCodeModelNotFoundError):
+        with pytest.raises(RuntimeModelNotFoundError):
             await client.send_with_event_watch("ses_x", "x")
     finally:
         await client.aclose()

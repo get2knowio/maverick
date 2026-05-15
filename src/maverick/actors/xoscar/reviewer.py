@@ -26,7 +26,7 @@ from maverick.agents.reviewer import (
 from maverick.logging import get_logger
 from maverick.payloads import SubmitReviewPayload
 from maverick.runtime.opencode import (
-    OpenCodeError,
+    AgentRuntimeError,
     cost_sink_for,
     opencode_handle_for,
     tier_overrides_for,
@@ -140,7 +140,7 @@ class ReviewerActor(xo.Actor):
                     work_unit_md=request.work_unit_md,
                     briefing_context=request.briefing_context,
                 )
-        except OpenCodeError as exc:
+        except AgentRuntimeError as exc:
             await self._report_prompt_error(
                 phase="review", error=str(exc), bead_id=request.bead_id
             )

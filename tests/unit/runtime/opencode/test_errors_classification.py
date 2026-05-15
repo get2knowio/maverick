@@ -10,12 +10,12 @@ from maverick.runtime.opencode.client import (
     classify_session_error,
 )
 from maverick.runtime.opencode.errors import (
-    OpenCodeAuthError,
-    OpenCodeContextOverflowError,
-    OpenCodeError,
-    OpenCodeModelNotFoundError,
-    OpenCodeStructuredOutputError,
-    OpenCodeTransientError,
+    AgentRuntimeError,
+    RuntimeAuthError,
+    RuntimeContextOverflowError,
+    RuntimeModelNotFoundError,
+    RuntimeStructuredOutputError,
+    RuntimeTransientError,
 )
 
 
@@ -30,18 +30,18 @@ def test_classify_provider_model_not_found() -> None:
     err = classify_session_error(
         {"name": "ProviderModelNotFoundError", "data": {"message": "no such model"}}
     )
-    assert isinstance(err, OpenCodeModelNotFoundError)
+    assert isinstance(err, RuntimeModelNotFoundError)
     assert "no such model" in str(err)
 
 
 def test_classify_provider_auth_error() -> None:
     err = classify_session_error({"name": "ProviderAuthError", "data": {"message": "bad key"}})
-    assert isinstance(err, OpenCodeAuthError)
+    assert isinstance(err, RuntimeAuthError)
 
 
 def test_classify_authentication_failure() -> None:
     err = classify_session_error({"name": "AuthenticationFailure", "data": {}})
-    assert isinstance(err, OpenCodeAuthError)
+    assert isinstance(err, RuntimeAuthError)
 
 
 def test_classify_authenticate_token_name() -> None:
@@ -54,7 +54,7 @@ def test_classify_authenticate_token_name() -> None:
             "data": {"message": "AuthenticateToken authentication failed"},
         }
     )
-    assert isinstance(err, OpenCodeAuthError)
+    assert isinstance(err, RuntimeAuthError)
 
 
 def test_classify_unauthorized_in_message_only() -> None:
@@ -64,27 +64,27 @@ def test_classify_unauthorized_in_message_only() -> None:
     err = classify_session_error(
         {"name": "AI_APICallError", "data": {"message": "Unauthorized: bad key"}}
     )
-    assert isinstance(err, OpenCodeAuthError)
+    assert isinstance(err, RuntimeAuthError)
 
 
 def test_classify_context_overflow() -> None:
     err = classify_session_error({"name": "ContextOverflowError", "data": {"message": "too big"}})
-    assert isinstance(err, OpenCodeContextOverflowError)
+    assert isinstance(err, RuntimeContextOverflowError)
 
 
 def test_classify_structured_output_error_carries_retries() -> None:
     err = classify_session_error(
         {"name": "StructuredOutputError", "data": {"message": "bad", "retries": 2}}
     )
-    assert isinstance(err, OpenCodeStructuredOutputError)
+    assert isinstance(err, RuntimeStructuredOutputError)
     assert err.retries == 2
 
 
 def test_classify_unknown_falls_back_to_base() -> None:
     err = classify_session_error({"name": "WhateverElse", "data": {}})
-    assert isinstance(err, OpenCodeError)
-    assert not isinstance(err, OpenCodeAuthError)
-    assert not isinstance(err, OpenCodeModelNotFoundError)
+    assert isinstance(err, AgentRuntimeError)
+    assert not isinstance(err, RuntimeAuthError)
+    assert not isinstance(err, RuntimeModelNotFoundError)
 
 
 def test_classify_ai_apicall_error_is_transient() -> None:
@@ -101,7 +101,7 @@ def test_classify_ai_apicall_error_is_transient() -> None:
             },
         }
     )
-    assert isinstance(err, OpenCodeTransientError)
+    assert isinstance(err, RuntimeTransientError)
 
 
 def test_classify_internal_server_error_message_is_transient() -> None:
@@ -114,7 +114,7 @@ def test_classify_internal_server_error_message_is_transient() -> None:
             "data": {"message": "Internal server error"},
         }
     )
-    assert isinstance(err, OpenCodeTransientError)
+    assert isinstance(err, RuntimeTransientError)
 
 
 def test_classify_rate_limit_message_is_transient() -> None:
@@ -124,7 +124,7 @@ def test_classify_rate_limit_message_is_transient() -> None:
             "data": {"message": "Rate limit exceeded"},
         }
     )
-    assert isinstance(err, OpenCodeTransientError)
+    assert isinstance(err, RuntimeTransientError)
 
 
 def test_classify_unwraps_nested_error_message() -> None:
@@ -141,7 +141,7 @@ def test_classify_unwraps_nested_error_message() -> None:
             },
         }
     )
-    assert isinstance(err, OpenCodeTransientError)
+    assert isinstance(err, RuntimeTransientError)
 
 
 def test_classify_unwraps_full_event_envelope() -> None:
@@ -155,12 +155,12 @@ def test_classify_unwraps_full_event_envelope() -> None:
         },
     }
     err = classify_session_error(full_event)
-    assert isinstance(err, OpenCodeAuthError)
+    assert isinstance(err, RuntimeAuthError)
 
 
 def test_classify_handles_non_dict_input() -> None:
     err = classify_session_error("not a dict")
-    assert isinstance(err, OpenCodeError)
+    assert isinstance(err, AgentRuntimeError)
 
 
 # ---- HTTP response classification ----------------------------------------
@@ -169,38 +169,38 @@ def test_classify_handles_non_dict_input() -> None:
 def test_http_4xx_structured_output_with_retries() -> None:
     body = {"name": "StructuredOutputError", "data": {"message": "bad", "retries": 0}}
     err = _classify_http_error(_resp(400, body))
-    assert isinstance(err, OpenCodeStructuredOutputError)
+    assert isinstance(err, RuntimeStructuredOutputError)
     assert err.status == 400
     assert err.retries == 0
 
 
 def test_http_401_classifies_as_auth_error() -> None:
     err = _classify_http_error(_resp(401, {"name": "Unauthorized", "data": {}}))
-    assert isinstance(err, OpenCodeAuthError)
+    assert isinstance(err, RuntimeAuthError)
 
 
 def test_http_5xx_classifies_as_transient() -> None:
     err = _classify_http_error(_resp(503, {"name": "ServiceUnavailable", "data": {}}))
-    assert isinstance(err, OpenCodeTransientError)
+    assert isinstance(err, RuntimeTransientError)
 
 
 def test_http_429_classifies_as_transient() -> None:
     err = _classify_http_error(_resp(429, {"name": "RateLimit", "data": {}}))
-    assert isinstance(err, OpenCodeTransientError)
+    assert isinstance(err, RuntimeTransientError)
 
 
 def test_http_400_unknown_falls_back_to_base() -> None:
     err = _classify_http_error(_resp(400, {"name": "Whatever", "data": {}}))
-    assert isinstance(err, OpenCodeError)
-    assert not isinstance(err, OpenCodeTransientError)
+    assert isinstance(err, AgentRuntimeError)
+    assert not isinstance(err, RuntimeTransientError)
     assert err.status == 400
 
 
 @pytest.mark.parametrize(
     "name,expected",
     [
-        ("ProviderModelNotFoundError", OpenCodeModelNotFoundError),
-        ("ProviderAuthError", OpenCodeAuthError),
+        ("ProviderModelNotFoundError", RuntimeModelNotFoundError),
+        ("ProviderAuthError", RuntimeAuthError),
     ],
 )
 def test_http_4xx_provider_errors_classify(name: str, expected: type) -> None:

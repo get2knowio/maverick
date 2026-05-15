@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 
 from maverick.logging import get_logger
 from maverick.runtime.opencode.client import OpenCodeClient
-from maverick.runtime.opencode.errors import OpenCodeModelNotFoundError
+from maverick.runtime.opencode.errors import RuntimeModelNotFoundError
 
 logger = get_logger(__name__)
 
@@ -109,13 +109,13 @@ async def validate_model_id(
         ttl_seconds: Cache TTL. Pass ``0`` to force a fresh fetch.
 
     Raises:
-        OpenCodeModelNotFoundError: When the provider isn't connected or
+        RuntimeModelNotFoundError: When the provider isn't connected or
             the model isn't listed under it.
     """
     entry = await _get_provider_snapshot(client, ttl_seconds=ttl_seconds)
     if provider_id not in entry.providers:
         connected = sorted(entry.providers.keys())
-        raise OpenCodeModelNotFoundError(
+        raise RuntimeModelNotFoundError(
             f"provider '{provider_id}' is not connected on {client.base_url}; "
             f"connected providers: {connected}",
             body={"provider_id": provider_id, "connected": connected},
@@ -125,7 +125,7 @@ async def validate_model_id(
         # Don't dump the full model list in the message (some providers
         # ship hundreds). Suggest similar ids if any are obviously close.
         sample = sorted(models)[:8]
-        raise OpenCodeModelNotFoundError(
+        raise RuntimeModelNotFoundError(
             f"model '{model_id}' not available on provider "
             f"'{provider_id}'. Sample of available models: {sample}",
             body={"provider_id": provider_id, "model_id": model_id, "sample": sample},

@@ -137,9 +137,9 @@ async def test_validate_surfaces_handle_query_failure(
     """When the /provider query raises, surface it in the result."""
 
     async def boom(client: Any) -> dict[str, set[str]]:
-        from maverick.runtime.opencode import OpenCodeError
+        from maverick.runtime.opencode import AgentRuntimeError
 
-        raise OpenCodeError("HTTP 502")
+        raise AgentRuntimeError("HTTP 502")
 
     monkeypatch.setattr("maverick.runners.provider_health.list_connected_providers", boom)
     check = OpenCodeProviderHealthCheck(
