@@ -614,3 +614,118 @@ github:
         config = load_config(config_path=temp_dir / "nonexistent.yaml")
         assert config.model.model_id == "sonnet"
         assert config.model.max_tokens == 64000
+
+
+class TestAgentsConfig:
+    """``agents:`` block — per-role airframe bindings."""
+
+    def test_defaults_to_all_none(self, clean_env: None, temp_dir: Path) -> None:
+        """Empty agents block: every role is ``None`` (factory raises at use)."""
+        import os
+
+        os.chdir(temp_dir)
+        from maverick.config import load_config
+
+        config = load_config()
+        assert config.agents.implement is None
+        assert config.agents.review is None
+        assert config.agents.briefing is None
+        assert config.agents.decompose is None
+        assert config.agents.generate is None
+
+    def test_loads_per_role_bindings_from_yaml(self, clean_env: None, temp_dir: Path) -> None:
+        """All five roles round-trip through YAML correctly."""
+        import os
+
+        os.chdir(temp_dir)
+        (temp_dir / "maverick.yaml").write_text(
+            """
+agents:
+  implement:
+    provider: claude
+    model_id: claude-sonnet-4-6
+  review:
+    provider: claude
+    model_id: claude-haiku-4-5
+  briefing:
+    provider: github-copilot
+    model_id: gpt-5-mini
+  decompose:
+    provider: claude
+    model_id: claude-sonnet-4-6
+  generate:
+    provider: codex
+    model_id: gpt-5-codex
+"""
+        )
+        from maverick.config import load_config
+
+        config = load_config()
+        assert config.agents.implement is not None
+        assert config.agents.implement.provider == "claude"
+        assert config.agents.implement.model_id == "claude-sonnet-4-6"
+        assert config.agents.review is not None
+        assert config.agents.review.model_id == "claude-haiku-4-5"
+        assert config.agents.briefing is not None
+        assert config.agents.briefing.provider == "github-copilot"
+        assert config.agents.decompose is not None
+        assert config.agents.decompose.provider == "claude"
+        assert config.agents.generate is not None
+        assert config.agents.generate.provider == "codex"
+
+    def test_partial_agents_block_leaves_unset_roles_none(
+        self, clean_env: None, temp_dir: Path
+    ) -> None:
+        """A partial agents block keeps unset roles at ``None``."""
+        import os
+
+        os.chdir(temp_dir)
+        (temp_dir / "maverick.yaml").write_text(
+            """
+agents:
+  implement:
+    provider: claude
+    model_id: claude-sonnet-4-6
+"""
+        )
+        from maverick.config import load_config
+
+        config = load_config()
+        assert config.agents.implement is not None
+        assert config.agents.review is None
+        assert config.agents.briefing is None
+
+    def test_empty_provider_string_fails_validation(self, clean_env: None, temp_dir: Path) -> None:
+        import os
+
+        os.chdir(temp_dir)
+        (temp_dir / "maverick.yaml").write_text(
+            """
+agents:
+  implement:
+    provider: ""
+    model_id: claude-sonnet-4-6
+"""
+        )
+        from maverick.config import load_config
+        from maverick.exceptions import ConfigError
+
+        with pytest.raises(ConfigError):
+            load_config()
+
+    def test_missing_model_id_fails_validation(self, clean_env: None, temp_dir: Path) -> None:
+        import os
+
+        os.chdir(temp_dir)
+        (temp_dir / "maverick.yaml").write_text(
+            """
+agents:
+  implement:
+    provider: claude
+"""
+        )
+        from maverick.config import load_config
+        from maverick.exceptions import ConfigError
+
+        with pytest.raises(ConfigError):
+            load_config()

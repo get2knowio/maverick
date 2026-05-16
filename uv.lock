@@ -155,9 +155,10 @@ wheels = [
 
 [[package]]
 name = "airframe-agents"
-version = "0.1.0"
+version = "0.2.0"
 source = { directory = "../airframe" }
 dependencies = [
+    { name = "httpx" },
     { name = "pydantic" },
 ]
 
@@ -175,13 +176,14 @@ requires-dist = [
     { name = "claude-agent-sdk", marker = "extra == 'claude'", specifier = ">=0.2.0,<1" },
     { name = "github-copilot-sdk", marker = "extra == 'all'", specifier = ">=0.3.0" },
     { name = "github-copilot-sdk", marker = "extra == 'copilot'", specifier = ">=0.3.0" },
+    { name = "httpx", specifier = ">=0.27,<1" },
     { name = "openai", marker = "extra == 'all'", specifier = ">=1.50,<3" },
-    { name = "openai", marker = "extra == 'opencode-zen'", specifier = ">=1.50,<3" },
+    { name = "openai", marker = "extra == 'openai-compat'", specifier = ">=1.50,<3" },
     { name = "openai-codex-sdk", marker = "extra == 'all'", specifier = ">=0.1.11" },
     { name = "openai-codex-sdk", marker = "extra == 'codex'", specifier = ">=0.1.11" },
     { name = "pydantic", specifier = ">=2.0,<3" },
 ]
-provides-extras = ["claude", "copilot", "codex", "opencode-zen", "all"]
+provides-extras = ["claude", "copilot", "codex", "openai-compat", "all"]
 
 [package.metadata.requires-dev]
 dev = [

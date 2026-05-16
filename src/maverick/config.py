@@ -24,29 +24,31 @@ from maverick.exceptions import ConfigError
 from maverick.logging import get_logger
 
 __all__ = [
-    "MaverickConfig",
-    "GitHubConfig",
-    "NotificationConfig",
-    "ValidationConfig",
-    "PreflightValidationConfig",
-    "CustomToolConfig",
-    "ModelConfig",
-    "ParallelConfig",
-    "TuiMetricsConfig",
-    "SessionLogConfig",
-    "WorkspaceConfig",
-    "ActorConfig",
     "ACTOR_WORKFLOW_KEY_MAP",
-    "lookup_actor_config",
+    "ActorConfig",
+    "AgentBindingConfig",
+    "AgentProviderConfig",
+    "AgentsConfig",
+    "CustomToolConfig",
+    "GitHubConfig",
+    "MaverickConfig",
+    "ModelConfig",
+    "NotificationConfig",
+    "ParallelConfig",
+    "PermissionMode",
+    "PreflightValidationConfig",
     "ProviderModelEntry",
     "ProviderTiersConfig",
     "RunwayConfig",
     "RunwayConsolidationConfig",
     "RunwayRetrievalConfig",
-    "PermissionMode",
-    "AgentProviderConfig",
-    "load_config",
+    "SessionLogConfig",
+    "TuiMetricsConfig",
+    "ValidationConfig",
+    "WorkspaceConfig",
     "get_user_config_path",
+    "load_config",
+    "lookup_actor_config",
 ]
 
 logger = get_logger(__name__)
@@ -459,6 +461,67 @@ class ProviderModelEntry(BaseModel, frozen=True):
     model_id: str = Field(..., min_length=1)
 
 
+class AgentBindingConfig(BaseModel, frozen=True):
+    """One ``(provider, model_id)`` binding for a single agent role.
+
+    The values are airframe-canonical: ``provider`` is one of
+    :func:`airframe.list_providers` (``claude``, ``github-copilot``,
+    ``codex``, ``opencode``), and ``model_id`` is whatever that adapter's
+    :meth:`list_models` would return.
+
+    A typo'd provider isn't caught at YAML load time — discovery and
+    construction happen inside :func:`runtime_for_agent`, which raises
+    :class:`ImportError` / :class:`ValueError` with the install hint the
+    user needs.
+    """
+
+    provider: str = Field(..., min_length=1, description="Airframe canonical PROVIDER_ID")
+    model_id: str = Field(..., min_length=1, description="Vendor model identifier")
+
+
+class AgentsConfig(BaseModel):
+    """Per-role default airframe bindings.
+
+    Replaces the legacy ``provider_tiers:`` cascade. Each role gets one
+    binding here; per-complexity overrides live under
+    ``actors.<workflow>.<actor>.tiers.<complexity>`` (the existing
+    surface — unchanged by this block).
+
+    Role names match each agent's :attr:`Agent.provider_tier`:
+
+    * ``implement`` — :class:`CodingAgent`
+    * ``review`` — :class:`ReviewerAgent` (both correctness + completeness)
+    * ``briefing`` — :class:`BriefingAgent` (every per-aspect briefing)
+    * ``decompose`` — :class:`DecomposerAgent`
+    * ``generate`` — :class:`GeneratorAgent`
+
+    Example ``maverick.yaml``::
+
+        agents:
+          implement:
+            provider: claude
+            model_id: claude-sonnet-4-6
+          review:
+            provider: claude
+            model_id: claude-haiku-4-5
+          briefing:
+            provider: github-copilot
+            model_id: gpt-5-mini
+          decompose:
+            provider: claude
+            model_id: claude-sonnet-4-6
+          generate:
+            provider: codex
+            model_id: gpt-5-codex
+    """
+
+    implement: AgentBindingConfig | None = None
+    review: AgentBindingConfig | None = None
+    briefing: AgentBindingConfig | None = None
+    decompose: AgentBindingConfig | None = None
+    generate: AgentBindingConfig | None = None
+
+
 class ProviderTiersConfig(BaseModel):
     """User-configurable per-tier model lists for the OpenCode runtime.
 
@@ -639,7 +702,16 @@ class MaverickConfig(BaseSettings):
         default_factory=ProviderTiersConfig,
         description=(
             "Per-tier (provider, model_id) cascades for OpenCode-backed "
-            "actors. Empty (default) means use the curated DEFAULT_TIERS."
+            "actors. Empty (default) means use the curated DEFAULT_TIERS. "
+            "DEPRECATED: superseded by ``agents:`` for airframe-routed agents."
+        ),
+    )
+    agents: AgentsConfig = Field(
+        default_factory=AgentsConfig,
+        description=(
+            "Per-role airframe bindings. Each entry pins one "
+            "(provider, model_id) for an agent role. Squadrons build "
+            "airframe runtimes via ``runtime_for_agent`` at construction."
         ),
     )
     project_type: str = Field(
