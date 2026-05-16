@@ -234,28 +234,6 @@ class TestBuildSeedPrompt:
 # ---------------------------------------------------------------------------
 
 
-def _mock_executor(
-    raise_error: Exception | None = None,
-) -> MagicMock:
-    """Create a mock executor for seed tests.
-
-    The seed agent writes files directly to disk via tools, so the executor
-    does not return structured output.
-    """
-    mock = MagicMock()
-
-    if raise_error:
-        mock.execute_named = AsyncMock(side_effect=raise_error)
-    else:
-        result = MagicMock()
-        result.success = True
-        result.output = None
-        mock.execute_named = AsyncMock(return_value=result)
-
-    mock.cleanup = AsyncMock()
-    return mock
-
-
 def _write_seed_files(tmp_path: Path) -> None:
     """Simulate the agent writing seed files to the semantic directory."""
     semantic_dir = tmp_path / ".maverick" / "runway" / "semantic"
@@ -266,22 +244,56 @@ def _write_seed_files(tmp_path: Path) -> None:
     (semantic_dir / "tech-stack.md").write_text("# Tech Stack")
 
 
+def _patch_seed_agent(
+    side_effect: Any = None,
+    raise_error: Exception | None = None,
+) -> Any:
+    """Return a context manager that patches the airframe seed plumbing.
+
+    Stubs out :func:`runtime_for_agent` (so no real binding is required)
+    and the :class:`RunwaySeedAgent` constructor so the test never opens
+    a real adapter session.
+    """
+    from contextlib import contextmanager
+
+    fake_runtime = MagicMock()
+    fake_runtime.label = "stub"
+    fake_runtime.close = AsyncMock()
+
+    @contextmanager
+    def _ctx() -> Any:
+        with (
+            patch(
+                "maverick.runtime.agent_factory.runtime_for_agent",
+                return_value=(fake_runtime, MagicMock()),
+            ),
+            patch("maverick.agents.personas.RunwaySeedAgent") as agent_cls,
+        ):
+            instance = AsyncMock()
+            instance.__aenter__ = AsyncMock(return_value=instance)
+            instance.__aexit__ = AsyncMock(return_value=None)
+            if raise_error is not None:
+                instance.seed = AsyncMock(side_effect=raise_error)
+            elif side_effect is not None:
+                instance.seed = AsyncMock(side_effect=side_effect)
+            else:
+                instance.seed = AsyncMock(return_value=MagicMock())
+            agent_cls.return_value = instance
+            yield instance
+
+    return _ctx()
+
+
 class TestRunSeed:
     @pytest.mark.asyncio
     async def test_writes_semantic_files(self, tmp_path: Path) -> None:
         """Successful seed should detect files written by the agent."""
-        mock_exec = _mock_executor()
 
-        async def _side_effect(**kwargs: Any) -> MagicMock:
+        async def _side_effect(*_args: Any, **_kwargs: Any) -> Any:
             _write_seed_files(tmp_path)
-            result = MagicMock()
-            result.success = True
-            result.output = None
-            return result
+            return MagicMock()
 
-        mock_exec.execute_named = AsyncMock(side_effect=_side_effect)
-
-        with patch("maverick.executor.create_default_executor", return_value=mock_exec):
+        with _patch_seed_agent(side_effect=_side_effect):
             result = await run_seed(tmp_path)
 
         assert result.success
@@ -293,20 +305,14 @@ class TestRunSeed:
     @pytest.mark.asyncio
     async def test_auto_initializes_runway(self, tmp_path: Path) -> None:
         """If runway is not initialized, seed should auto-initialize it."""
-        mock_exec = _mock_executor()
 
-        async def _side_effect(**kwargs: Any) -> MagicMock:
+        async def _side_effect(*_args: Any, **_kwargs: Any) -> Any:
             _write_seed_files(tmp_path)
-            result = MagicMock()
-            result.success = True
-            result.output = None
-            return result
-
-        mock_exec.execute_named = AsyncMock(side_effect=_side_effect)
+            return MagicMock()
 
         assert not (tmp_path / ".maverick" / "runway").exists()
 
-        with patch("maverick.executor.create_default_executor", return_value=mock_exec):
+        with _patch_seed_agent(side_effect=_side_effect):
             result = await run_seed(tmp_path)
 
         assert result.success
@@ -336,30 +342,21 @@ class TestRunSeed:
         await store.initialize()
         await store.write_semantic_file("architecture.md", "old content")
 
-        mock_exec = _mock_executor()
-
-        async def _side_effect(**kwargs: Any) -> MagicMock:
+        async def _side_effect(*_args: Any, **_kwargs: Any) -> Any:
             semantic_dir = tmp_path / ".maverick" / "runway" / "semantic"
             (semantic_dir / "architecture.md").write_text("# New Architecture")
-            result = MagicMock()
-            result.success = True
-            result.output = None
-            return result
+            return MagicMock()
 
-        mock_exec.execute_named = AsyncMock(side_effect=_side_effect)
-
-        with patch("maverick.executor.create_default_executor", return_value=mock_exec):
+        with _patch_seed_agent(side_effect=_side_effect):
             result = await run_seed(tmp_path, force=True)
 
         assert result.success
         assert "architecture.md" in result.files_written
 
     @pytest.mark.asyncio
-    async def test_executor_error_returns_gracefully(self, tmp_path: Path) -> None:
-        """Executor errors should not crash, return SeedResult with error."""
-        mock_exec = _mock_executor(raise_error=RuntimeError("connection refused"))
-
-        with patch("maverick.executor.create_default_executor", return_value=mock_exec):
+    async def test_agent_error_returns_gracefully(self, tmp_path: Path) -> None:
+        """Agent errors should not crash, return SeedResult with error."""
+        with _patch_seed_agent(raise_error=RuntimeError("connection refused")):
             result = await run_seed(tmp_path)
 
         assert not result.success
@@ -368,39 +365,8 @@ class TestRunSeed:
     @pytest.mark.asyncio
     async def test_no_files_written_reports_failure(self, tmp_path: Path) -> None:
         """If the agent completes but writes no files, report failure."""
-        mock_exec = _mock_executor()
-
-        with patch("maverick.executor.create_default_executor", return_value=mock_exec):
+        with _patch_seed_agent():
             result = await run_seed(tmp_path)
 
         assert not result.success
         assert "no semantic files" in (result.error or "").lower()
-
-    @pytest.mark.asyncio
-    async def test_cleanup_called_on_success(self, tmp_path: Path) -> None:
-        """Executor cleanup should be called even on success."""
-        mock_exec = _mock_executor()
-
-        async def _side_effect(**kwargs: Any) -> MagicMock:
-            _write_seed_files(tmp_path)
-            result = MagicMock()
-            result.success = True
-            result.output = None
-            return result
-
-        mock_exec.execute_named = AsyncMock(side_effect=_side_effect)
-
-        with patch("maverick.executor.create_default_executor", return_value=mock_exec):
-            await run_seed(tmp_path)
-
-        mock_exec.cleanup.assert_awaited_once()
-
-    @pytest.mark.asyncio
-    async def test_cleanup_called_on_error(self, tmp_path: Path) -> None:
-        """Executor cleanup should be called even on error."""
-        mock_exec = _mock_executor(raise_error=RuntimeError("boom"))
-
-        with patch("maverick.executor.create_default_executor", return_value=mock_exec):
-            await run_seed(tmp_path)
-
-        mock_exec.cleanup.assert_awaited_once()

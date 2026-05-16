@@ -50,15 +50,6 @@ from maverick.runtime.opencode.events import (
     session_idle_signal,
 )
 from maverick.runtime.opencode.executor import OpenCodeStepExecutor
-from maverick.runtime.registry import (
-    CostSink,
-    agents_config_for,
-    cost_sink_for,
-    register_agents_config,
-    register_cost_sink,
-    unregister_agents_config,
-    unregister_cost_sink,
-)
 from maverick.runtime.opencode.server import (
     DEFAULT_HOST,
     DEFAULT_SHUTDOWN_TIMEOUT,
@@ -85,6 +76,15 @@ from maverick.runtime.opencode.validation import (
     invalidate_cache,
     list_connected_providers,
     validate_model_id,
+)
+from maverick.runtime.registry import (
+    CostSink,
+    agents_config_for,
+    cost_sink_for,
+    register_agents_config,
+    register_cost_sink,
+    unregister_agents_config,
+    unregister_cost_sink,
 )
 
 __all__ = [

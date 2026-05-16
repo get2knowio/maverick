@@ -243,7 +243,9 @@ async def _synthesize_summary(
     Returns:
         True if summary was updated, False on failure.
     """
-    from maverick.executor import create_default_executor
+    from maverick.agents.personas import ConsolidatorAgent
+    from maverick.config import load_config
+    from maverick.runtime.agent_factory import runtime_for_agent
 
     existing_summary = await store.read_semantic_file(_INSIGHTS_FILE)
 
@@ -254,22 +256,20 @@ async def _synthesize_summary(
         fix_attempts=to_consolidate_attempts,
     )
 
-    executor = create_default_executor()
+    config = load_config()
+    runtime, _ = runtime_for_agent("briefing", agents_config=config.agents)
     try:
-        result = await executor.execute_named(
-            agent="maverick.consolidator",
-            user_prompt=user_prompt,
-            step_name="consolidate",
-        )
-        raw_output = str(result.output) if result.output else ""
-    finally:
-        await executor.cleanup()
+        async with ConsolidatorAgent(runtime=runtime, cwd=str(store.path)) as agent:
+            payload = await agent.consolidate(user_prompt)
+    except Exception as exc:
+        logger.warning("consolidator_execution_failed", error=str(exc))
+        return False
 
-    if not raw_output.strip():
+    summary = payload.summary_markdown.strip()
+    if not summary:
         logger.warning("consolidator_empty_output")
         return False
 
-    summary = _parse_consolidated_summary(raw_output)
     await store.write_semantic_file(_INSIGHTS_FILE, summary)
     return True
 

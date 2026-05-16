@@ -328,8 +328,12 @@ async def run_seed(
     Returns:
         SeedResult with success status and files written.
     """
-    from maverick.executor import StepConfig, create_default_executor
+    from maverick.agents.personas import SEED_TIMEOUT_SECONDS, RunwaySeedAgent
+    from maverick.config import load_config
+    from maverick.runtime.agent_factory import runtime_for_agent
     from maverick.runway.store import RunwayStore
+
+    del provider  # legacy parameter — airframe binding comes from agents.briefing
 
     runway_path = project_path / ".maverick" / "runway"
     store = RunwayStore(runway_path)
@@ -358,44 +362,33 @@ async def run_seed(
     if context is None:
         context = await gather_seed_context(project_path, output_dir=semantic_dir)
 
-    # Execute via OpenCode — the agent writes files directly to semantic_dir
-    executor = create_default_executor()
+    # Run the seed persona — it writes semantic files via tools.
+    config = load_config()
+    runtime, _ = runtime_for_agent("briefing", agents_config=config.agents)
+
+    user_prompt = build_seed_prompt(context)
     try:
-        # Seed agent explores the codebase and writes files — needs more time
-        # than the default 300s timeout.
-        step_config = StepConfig(provider=provider, timeout=600)
-
-        user_prompt = build_seed_prompt(context)
-        await executor.execute_named(
-            agent="maverick.runway-seed",
-            user_prompt=user_prompt,
-            step_name="runway-seed",
-            config=step_config,
-            cwd=project_path,
-        )
-
-        # Check which files the agent wrote
-        files_written: list[str] = []
-        for filename in _EXPECTED_FILES:
-            fpath = semantic_dir / filename
-            if fpath.is_file() and fpath.stat().st_size > 0:
-                files_written.append(filename)
-                logger.info(
-                    "seed_file_written",
-                    filename=filename,
-                    size=fpath.stat().st_size,
-                )
-
-        if not files_written:
-            return SeedResult(
-                success=False,
-                error="Agent completed but no semantic files were written.",
-            )
-
-        return SeedResult(success=True, files_written=tuple(files_written))
-
+        async with RunwaySeedAgent(runtime=runtime, cwd=str(project_path)) as agent:
+            await agent.seed(user_prompt, timeout=SEED_TIMEOUT_SECONDS)
     except Exception as exc:
         logger.warning("seed_execution_error", error=str(exc))
         return SeedResult(success=False, error=str(exc))
-    finally:
-        await executor.cleanup()
+
+    files_written: list[str] = []
+    for filename in _EXPECTED_FILES:
+        fpath = semantic_dir / filename
+        if fpath.is_file() and fpath.stat().st_size > 0:
+            files_written.append(filename)
+            logger.info(
+                "seed_file_written",
+                filename=filename,
+                size=fpath.stat().st_size,
+            )
+
+    if not files_written:
+        return SeedResult(
+            success=False,
+            error="Agent completed but no semantic files were written.",
+        )
+
+    return SeedResult(success=True, files_written=tuple(files_written))

@@ -426,6 +426,65 @@ class SubmitContrarianBriefPayload(SupervisorInboxPayload):
     summary: str
 
 
+# ---------------------------------------------------------------------------
+# One-shot persona payloads (used by the inline-agent migrations off
+# OpenCodeStepExecutor — consolidator / validation-fixer / runway-seed /
+# curator / flight-plan-generator). These do not flow through the mailbox
+# supervisor, but inherit the same base so dumping/round-trip stays
+# consistent.
+# ---------------------------------------------------------------------------
+
+
+class SubmitConsolidatedSummaryPayload(SupervisorInboxPayload):
+    """Payload for ``maverick.consolidator`` — produces the insights markdown."""
+
+    summary_markdown: str = Field(
+        ...,
+        description="Markdown body to write to consolidated-insights.md",
+    )
+
+
+class SubmitFixOutcomePayload(SupervisorInboxPayload):
+    """Payload for ``maverick.validation-fixer`` — confirms the fix run."""
+
+    success: bool
+    changes_made: str = Field(default="")
+
+
+class SubmitSeedOutcomePayload(SupervisorInboxPayload):
+    """Payload for ``maverick.runway-seed`` — confirms the seed run.
+
+    The agent writes its files via tools; this payload is a "done" signal
+    only. Callers re-scan disk for the expected filenames.
+    """
+
+    summary: str = Field(default="")
+
+
+class CurationStepPayload(SupervisorInboxPayload):
+    """One step of a curation plan."""
+
+    command: str
+    args: tuple[str, ...] = Field(default_factory=tuple)
+    reason: str = Field(default="")
+
+
+class SubmitCurationPlanPayload(SupervisorInboxPayload):
+    """Payload for ``maverick.curator`` — ordered list of jj commands."""
+
+    steps: tuple[CurationStepPayload, ...] = Field(default_factory=tuple)
+
+
+class SubmitVerificationPropertiesPayload(SupervisorInboxPayload):
+    """Payload for the inline verification-properties run.
+
+    The legacy persona returned a fenced code block of ``verify_scNNN``
+    test functions; this payload carries the test code body directly.
+    """
+
+    verification_code: str
+
+
 SUPERVISOR_TOOL_PAYLOAD_MODELS: dict[str, type[SupervisorInboxPayload]] = {
     "submit_outline": SubmitOutlinePayload,
     "submit_details": SubmitDetailsPayload,
@@ -470,6 +529,7 @@ __all__ = [
     "ArchitectureDecisionPayload",
     "ContrarianChallengePayload",
     "ContrarianSimplificationPayload",
+    "CurationStepPayload",
     "FileScopePayload",
     "FlightPlanSuccessCriterionPayload",
     "ReconAmbiguityPayload",
@@ -479,9 +539,12 @@ __all__ = [
     "StructuralInterfacePayload",
     "SubmitAnalysisPayload",
     "SubmitChallengePayload",
+    "SubmitConsolidatedSummaryPayload",
     "SubmitContrarianBriefPayload",
     "SubmitCriteriaPayload",
+    "SubmitCurationPlanPayload",
     "SubmitDetailsPayload",
+    "SubmitFixOutcomePayload",
     "SubmitFixPayload",
     "SubmitFixResultPayload",
     "SubmitFlightPlanPayload",
@@ -491,6 +554,8 @@ __all__ = [
     "SubmitReconBriefPayload",
     "SubmitReviewPayload",
     "SubmitScopePayload",
+    "SubmitSeedOutcomePayload",
+    "SubmitVerificationPropertiesPayload",
     "SubmitStructuralistBriefPayload",
     "SupervisorInboxPayload",
     "SupervisorToolPayloadError",

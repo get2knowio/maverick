@@ -332,26 +332,21 @@ async def _invoke_fixer_agent(
     Returns:
         Dict with success status and a description of changes made
     """
-    del stream_callback  # accepted for source compatibility; OpenCode owns streaming
+    del stream_callback  # accepted for source compatibility; the runtime owns streaming
 
     try:
-        # Import here to avoid circular imports
-        from maverick.executor import create_default_executor
+        from maverick.agents.personas import ValidationFixerAgent
+        from maverick.config import load_config
+        from maverick.runtime.agent_factory import runtime_for_agent
 
-        executor = create_default_executor()
-        try:
-            result = await executor.execute_named(
-                agent="maverick.validation-fixer",
-                user_prompt=fix_prompt,
-                step_name="fixer_agent",
-                cwd=cwd,
-            )
-            return {
-                "success": True,
-                "changes_made": str(result.output) if result.output else "Fix applied",
-            }
-        finally:
-            await executor.cleanup()
+        config = load_config()
+        runtime, _ = runtime_for_agent("implement", agents_config=config.agents)
+        async with ValidationFixerAgent(runtime=runtime, cwd=str(cwd)) as agent:
+            payload = await agent.fix(fix_prompt)
+        return {
+            "success": payload.success,
+            "changes_made": payload.changes_made or "Fix applied",
+        }
 
     except ImportError as e:
         logger.debug("Failed to import agent modules: %s", e)

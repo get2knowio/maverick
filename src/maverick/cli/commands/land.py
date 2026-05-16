@@ -272,30 +272,29 @@ async def _agent_curate(
     console.print("Analyzing commits with curator agent...")
 
     try:
-        from maverick.executor import create_default_executor
+        from maverick.agents.personas import CuratorAgent
+        from maverick.config import load_config
         from maverick.library.actions.curation import (
             build_curator_prompt,
             ensure_refs_trailers,
-            parse_curation_plan,
         )
+        from maverick.runtime.agent_factory import runtime_for_agent
 
-        _executor = create_default_executor()
-        try:
-            _result = await _executor.execute_named(
-                agent="maverick.curator",
-                user_prompt=build_curator_prompt(
+        config = load_config()
+        runtime, _ = runtime_for_agent("review", agents_config=config.agents)
+        async with CuratorAgent(runtime=runtime, cwd=str(cwd)) as agent:
+            payload = await agent.curate(
+                build_curator_prompt(
                     {
                         "commits": curation_ctx["commits"],
                         "log_summary": curation_ctx["log_summary"],
                     }
-                ),
-                step_name="curate",
-                cwd=cwd,
+                )
             )
-            raw_output = str(_result.output) if _result.output else ""
-        finally:
-            await _executor.cleanup()
-        plan = parse_curation_plan(raw_output)
+        plan = [
+            {"command": step.command, "args": list(step.args), "reason": step.reason}
+            for step in payload.steps
+        ]
         # Safety net: guarantee every ``describe`` carries a ``Refs:``
         # trailer so eval tooling can join landed commits to runway
         # state even if the curator skipped the prompt instruction

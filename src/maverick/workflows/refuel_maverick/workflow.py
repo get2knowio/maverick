@@ -360,9 +360,12 @@ class RefuelMaverickWorkflow(PythonWorkflow):
                 DERIVE_VERIFICATION, display_label="Deriving verification"
             )
             try:
-                from maverick.executor import create_default_executor
+                from maverick.agents.personas import VerificationPropertiesAgent
+                from maverick.config import load_config
+                from maverick.runtime.agent_factory import runtime_for_agent
 
-                _vp_executor = create_default_executor()
+                config = load_config()
+                runtime, _ = runtime_for_agent("generate", agents_config=config.agents)
                 sc_text = "\n".join(
                     f"SC-{i + 1:03d}: {sc.text}"
                     for i, sc in enumerate(flight_plan.success_criteria)
@@ -376,27 +379,25 @@ class RefuelMaverickWorkflow(PythonWorkflow):
                     "- Reference actual types/functions from the codebase\n"
                     "- Use exact expected values from the criteria\n"
                     "- Each test function must be named verify_scNNN\n"
-                    "- Skip structural or subjective criteria\n"
-                    "- Output ONE fenced code block with all tests\n\n"
+                    "- Skip structural or subjective criteria\n\n"
                     f"## Success Criteria\n\n{sc_text}\n\n"
                     f"## Codebase Files\n\n"
                     + "\n".join(f"- {f.path}" for f in codebase_context.files)
                     + "\n"
                 )
                 try:
-                    vp_result = await _vp_executor.execute_named(
-                        agent="maverick.flight-plan-generator",
-                        user_prompt=vp_prompt,
-                        step_name=DERIVE_VERIFICATION,
-                    )
+                    async with VerificationPropertiesAgent(
+                        runtime=runtime, cwd=str(ws_cwd)
+                    ) as agent:
+                        vp_payload = await agent.derive(vp_prompt)
+                    vp_text = vp_payload.verification_code
                 except Exception as vp_exec_err:
                     logger.debug(
                         "vp_executor_failed",
                         error=str(vp_exec_err),
                     )
-                    vp_result = None
-                if vp_result and vp_result.output:
-                    vp_text = str(vp_result.output)
+                    vp_text = ""
+                if vp_text:
                     if "verify_" in vp_text:
                         verification_properties = vp_text
                         # Write to flight plan file
