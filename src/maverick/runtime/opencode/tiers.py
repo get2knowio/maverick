@@ -49,8 +49,8 @@ def _pm(provider: str, model: str) -> ProviderModel:
 #: actual data lives in :mod:`maverick.runtime.tiers`.)
 #:
 #: Default tier cascades distribute load across the user's flat-rate
-#: subscriptions (github-copilot, openai/Codex, opencode-go, opencode/Zen)
-#: and reserve OpenRouter for free models only — OpenRouter is the only
+#: subscriptions (github-copilot, openai/Codex, opencode/Zen) and
+#: reserve OpenRouter for free models only — OpenRouter is the only
 #: per-token billed provider in the OpenCode-substrate world. Front-lane
 #: ordering is empirical: claude-sonnet-4.6 leads ``generate`` because
 #: it handles nested-object structured-output most reliably; gpt-codex

@@ -53,8 +53,8 @@ def _pm(provider: str, model: str) -> ProviderModel:
 
 
 #: Default tier cascades distribute load across the user's flat-rate
-#: subscriptions (github-copilot, openai/Codex, opencode-go, opencode/Zen)
-#: and a free fallback (openrouter). Ordering is empirical: each role's
+#: subscriptions (github-copilot, openai/Codex, opencode/Zen) and a
+#: free fallback (openrouter). Ordering is empirical: each role's
 #: front-of-line binding is the one that historically returned the best
 #: typed payload reliability for that role's payload shape. The cascade
 #: silently falls over to the next binding when the front-of-line one
@@ -75,7 +75,7 @@ DEFAULT_TIERS: dict[str, Tier] = {
         bindings=(
             _pm("github-copilot", "gpt-5.3-codex"),
             _pm("openai", "gpt-5.3-codex"),
-            _pm("opencode-go", "qwen3.6-plus"),
+            _pm("opencode", "qwen3.6-plus"),
             _pm("openrouter", "qwen/qwen-2.5-coder-32b-instruct"),
         ),
     ),
@@ -93,7 +93,7 @@ DEFAULT_TIERS: dict[str, Tier] = {
         bindings=(
             _pm("github-copilot", "claude-sonnet-4.6"),
             _pm("openai", "gpt-5.5"),
-            _pm("opencode-go", "glm-5"),
+            _pm("opencode", "glm-5"),
             _pm("openrouter", "nvidia/nemotron-3-super-120b-a12b:free"),
         ),
     ),

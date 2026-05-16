@@ -38,13 +38,12 @@ logger = get_logger(__name__)
 #: config, the first match in this list becomes the default. Order
 #: reflects "most useful first" for the typical Maverick user:
 #: GitHub Copilot covers Claude + GPT + Gemini under one sub; the
-#: OpenAI Codex sub covers the GPT-codex line; opencode-go is the
-#: paid-per-token gateway; opencode (Zen) is the free fallback;
-#: openrouter is per-token billed and lives at the bottom.
+#: OpenAI Codex sub covers the GPT-codex line; opencode (Zen) is the
+#: airframe-canonical opencode provider; openrouter is per-token
+#: billed and lives at the bottom.
 _PREFERENCE_ORDER: tuple[str, ...] = (
     "github-copilot",
     "openai",
-    "opencode-go",
     "opencode",
     "openrouter",
 )
