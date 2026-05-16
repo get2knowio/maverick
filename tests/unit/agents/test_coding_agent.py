@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 from typing import Any
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from airframe.cost import CostRecord
+from airframe.protocol import RuntimeResult
 
 from maverick.agents.coding import CodingAgent
 from maverick.payloads import SubmitFixResultPayload, SubmitImplementationPayload
-
-from .conftest import FakeClient, fake_handle, payload_send_result
 
 
 def _impl_payload() -> dict[str, Any]:
@@ -34,95 +35,8 @@ def _fix_payload() -> dict[str, Any]:
     }
 
 
-def _make_agent(client: FakeClient) -> CodingAgent:
-    return CodingAgent(handle=fake_handle(), cwd="/tmp", client_factory=lambda: client)
-
-
-async def test_implement_returns_typed_payload() -> None:
-    client = FakeClient(send_result=payload_send_result(_impl_payload()))
-    async with _make_agent(client) as agent:
-        payload = await agent.implement("do the thing")
-    assert isinstance(payload, SubmitImplementationPayload)
-    assert payload.summary == "did the work"
-    # Verify the agent sent a json_schema format block.
-    assert len(client.send_calls) == 1
-    call = client.send_calls[0]
-    assert call["format"]["type"] == "json_schema"
-    schema = call["format"]["schema"]
-    assert "summary" in schema["properties"]
-    # Persona is forwarded.
-    assert call["agent"] == "maverick.implementer"
-
-
-async def test_fix_returns_typed_payload() -> None:
-    client = FakeClient(send_result=payload_send_result(_fix_payload()))
-    async with _make_agent(client) as agent:
-        payload = await agent.fix("fix this")
-    assert isinstance(payload, SubmitFixResultPayload)
-    assert payload.summary == "fixed it"
-
-
-async def test_implement_then_fix_share_session() -> None:
-    """The same agent reuses its session across implement → fix."""
-    # Switch the result between calls.
-    client = FakeClient(send_result=payload_send_result(_impl_payload()))
-    async with _make_agent(client) as agent:
-        await agent.implement("do it")
-        sid_after_impl = agent._session_id  # noqa: SLF001 — test introspection
-        # Swap the next response and call fix.
-        client.send_result = payload_send_result(_fix_payload())
-        await agent.fix("fix it")
-        sid_after_fix = agent._session_id  # noqa: SLF001
-    assert sid_after_impl is not None
-    assert sid_after_fix == sid_after_impl
-    # Two sends, one session created.
-    assert len(client.send_calls) == 2
-    assert len(client.created_sessions) == 1
-
-
-async def test_rotate_session_drops_session() -> None:
-    client = FakeClient(send_result=payload_send_result(_impl_payload()))
-    async with _make_agent(client) as agent:
-        await agent.implement("first")
-        first_sid = agent._session_id  # noqa: SLF001
-        await agent.rotate_session()
-        assert agent._session_id is None  # noqa: SLF001
-        client.send_result = payload_send_result(_impl_payload())
-        await agent.implement("second")
-        second_sid = agent._session_id  # noqa: SLF001
-    assert second_sid is not None and second_sid != first_sid
-    assert first_sid in client.deleted_sessions
-
-
-async def test_construction_requires_cwd() -> None:
-    with pytest.raises(ValueError, match="requires 'cwd'"):
-        CodingAgent(handle=fake_handle(), cwd="")
-
-
-# ---------------------------------------------------------------------------
-# Pattern D path — runtime= constructor
-# ---------------------------------------------------------------------------
-
-
-def test_constructor_requires_handle_or_runtime() -> None:
-    with pytest.raises(ValueError, match="handle.*runtime"):
-        CodingAgent(cwd="/tmp")
-
-
-def test_constructor_rejects_both_handle_and_runtime() -> None:
-    from unittest.mock import MagicMock
-
-    with pytest.raises(ValueError, match="both"):
-        CodingAgent(handle=fake_handle(), runtime=MagicMock(), cwd="/tmp")
-
-
-async def test_implement_via_runtime_returns_typed_payload() -> None:
-    from unittest.mock import AsyncMock, MagicMock
-
-    from airframe.cost import CostRecord
-    from airframe.protocol import RuntimeResult
-
-    cost = CostRecord(
+def _cost() -> CostRecord:
+    return CostRecord(
         provider_id="anthropic",
         model_id="claude-haiku-4-5",
         cost_usd=0.05,
@@ -132,58 +46,58 @@ async def test_implement_via_runtime_returns_typed_payload() -> None:
         cache_write_tokens=0,
         finish="end_turn",
     )
-    fake_runtime = MagicMock()
-    fake_runtime.label = "claude_code"
-    fake_runtime.execute = AsyncMock(
-        return_value=RuntimeResult(
-            text="", structured=_impl_payload(), cost=cost, finish="end_turn"
-        )
-    )
-    fake_runtime.reset = AsyncMock()
-    fake_runtime.close = AsyncMock()
 
-    agent = CodingAgent(runtime=fake_runtime, cwd="/tmp")
+
+def _make_runtime(structured: dict[str, Any]) -> Any:
+    runtime = MagicMock()
+    runtime.label = "stub"
+    runtime.execute = AsyncMock(
+        return_value=RuntimeResult(text="", structured=structured, cost=_cost(), finish="end_turn")
+    )
+    runtime.reset = AsyncMock()
+    runtime.close = AsyncMock()
+    return runtime
+
+
+async def test_implement_returns_typed_payload() -> None:
+    runtime = _make_runtime(_impl_payload())
+    agent = CodingAgent(runtime=runtime, cwd="/tmp")
     async with agent:
         payload = await agent.implement("do the work")
-
     assert isinstance(payload, SubmitImplementationPayload)
     assert payload.summary == "did the work"
-    call = fake_runtime.execute.await_args
+    call = runtime.execute.await_args
     assert call.kwargs["schema"] is SubmitImplementationPayload
     assert call.kwargs["persona"] == "maverick.implementer"
 
 
-async def test_fix_via_runtime_uses_fix_schema() -> None:
-    """fix() passes SubmitFixResultPayload to runtime.execute, not the default."""
-    from unittest.mock import AsyncMock, MagicMock
-
-    from airframe.cost import CostRecord
-    from airframe.protocol import RuntimeResult
-
-    cost = CostRecord(
-        provider_id="anthropic",
-        model_id="claude-haiku-4-5",
-        cost_usd=0.05,
-        input_tokens=50,
-        output_tokens=100,
-        cache_read_tokens=0,
-        cache_write_tokens=0,
-        finish="end_turn",
-    )
-    fake_runtime = MagicMock()
-    fake_runtime.label = "claude_code"
-    fake_runtime.execute = AsyncMock(
-        return_value=RuntimeResult(
-            text="", structured=_fix_payload(), cost=cost, finish="end_turn"
-        )
-    )
-    fake_runtime.reset = AsyncMock()
-    fake_runtime.close = AsyncMock()
-
-    agent = CodingAgent(runtime=fake_runtime, cwd="/tmp")
+async def test_fix_uses_fix_schema() -> None:
+    runtime = _make_runtime(_fix_payload())
+    agent = CodingAgent(runtime=runtime, cwd="/tmp")
     async with agent:
         payload = await agent.fix("fix the bug")
-
     assert isinstance(payload, SubmitFixResultPayload)
-    call = fake_runtime.execute.await_args
+    call = runtime.execute.await_args
     assert call.kwargs["schema"] is SubmitFixResultPayload
+
+
+async def test_rotate_session_resets_runtime() -> None:
+    runtime = _make_runtime(_impl_payload())
+    agent = CodingAgent(runtime=runtime, cwd="/tmp")
+    async with agent:
+        await agent.implement("first")
+        await agent.rotate_session()
+    runtime.reset.assert_awaited()
+
+
+async def test_close_calls_runtime_close() -> None:
+    runtime = _make_runtime(_impl_payload())
+    agent = CodingAgent(runtime=runtime, cwd="/tmp")
+    async with agent:
+        pass
+    runtime.close.assert_awaited_once()
+
+
+def test_construction_requires_cwd() -> None:
+    with pytest.raises(ValueError, match="requires 'cwd'"):
+        CodingAgent(runtime=MagicMock(), cwd="")

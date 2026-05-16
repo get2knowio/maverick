@@ -216,9 +216,7 @@ async def test_reviewer_forwards_submit_review(pool_address: str) -> None:
     """review() payload reaches both per-kind and back-compat methods."""
     sup = await xo.create_actor(_SupervisorRecorder, address=pool_address, uid="sup-r")
     payload = SubmitReviewPayload(approved=True)
-    reviewer_agent = StubReviewerAgent(
-        review_kind="correctness", review_payloads=[payload]
-    )
+    reviewer_agent = StubReviewerAgent(review_kind="correctness", review_payloads=[payload])
     reviewer = await xo.create_actor(
         ReviewerActor,
         sup,

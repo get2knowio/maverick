@@ -101,53 +101,53 @@ async def test_sink_tolerates_dict_input(initialized_store: RunwayStore) -> None
 
 
 # ---------------------------------------------------------------------------
-# Agent._record_cost → sink wiring
+# Agent._emit_cost → sink wiring
 # ---------------------------------------------------------------------------
+
+
+def _stub_cost() -> Any:
+    from airframe.cost import CostRecord
+
+    return CostRecord(
+        provider_id="openrouter",
+        model_id="anthropic/claude-haiku-4.5",
+        cost_usd=0.0042,
+        input_tokens=100,
+        output_tokens=20,
+        cache_read_tokens=0,
+        cache_write_tokens=0,
+        finish="tool-calls",
+    )
+
+
+def _stub_runtime() -> Any:
+    from unittest.mock import AsyncMock, MagicMock
+
+    runtime = MagicMock()
+    runtime.label = "stub"
+    runtime.reset = AsyncMock()
+    runtime.close = AsyncMock()
+    return runtime
 
 
 async def test_agent_flushes_to_injected_sink(
     initialized_store: RunwayStore, tmp_path: Path
 ) -> None:
-    """_record_cost calls the constructor-injected sink, appending to runway."""
+    """_emit_cost calls the constructor-injected sink, appending to runway."""
+    import asyncio
+
     from maverick.agents.base import Agent
-    from maverick.runtime.opencode import (
-        ProviderModel,
-        SendResult,
-        cost_record_from_send,
-    )
-    from tests.unit.agents.conftest import fake_handle
+    from maverick.agents.context import tagged
 
     sink = make_cost_sink(initialized_store)
 
     class _BareAgent(Agent):
         provider_tier = "review"  # type: ignore[assignment]
 
-    from maverick.agents.context import tagged
+    agent = _BareAgent(runtime=_stub_runtime(), cwd="/tmp", cost_sink=sink)
 
-    agent = _BareAgent(handle=fake_handle(), cwd="/tmp", cost_sink=sink)
-
-    info = {
-        "providerID": "openrouter",
-        "modelID": "anthropic/claude-haiku-4.5",
-        "cost": 0.0042,
-        "tokens": {"input": 100, "output": 20, "cache": {"read": 0, "write": 0}},
-        "finish": "tool-calls",
-    }
-    result = SendResult(
-        message={"info": info},
-        text="",
-        structured=None,
-        valid=False,
-        info=info,
-    )
-    agent._last_cost_record = cost_record_from_send(result)
-    # Bead identity comes from ambient tags, not a mutable agent attr.
     with tagged(bead_id="bd-test"):
-        agent._record_cost(
-            result, binding=ProviderModel("openrouter", "anthropic/claude-haiku-4.5")
-        )
-
-    import asyncio
+        agent._emit_cost(_stub_cost())
 
     await asyncio.sleep(0)
     await asyncio.sleep(0.05)
@@ -166,33 +166,18 @@ async def test_cost_entry_without_active_tags_has_empty_bead_id(
     initialized_store: RunwayStore, tmp_path: Path
 ) -> None:
     """Outside any ``tagged()`` block, bead_id falls back to the empty string."""
+    import asyncio
+
     from maverick.agents.base import Agent
-    from maverick.runtime.opencode import (
-        ProviderModel,
-        SendResult,
-        cost_record_from_send,
-    )
-    from tests.unit.agents.conftest import fake_handle
 
     sink = make_cost_sink(initialized_store)
 
     class _BareAgent(Agent):
         provider_tier = "review"  # type: ignore[assignment]
 
-    agent = _BareAgent(handle=fake_handle(), cwd="/tmp", cost_sink=sink)
+    agent = _BareAgent(runtime=_stub_runtime(), cwd="/tmp", cost_sink=sink)
 
-    info = {
-        "providerID": "openrouter",
-        "modelID": "anthropic/claude-haiku-4.5",
-        "cost": 0.001,
-        "tokens": {"input": 1, "output": 1, "cache": {"read": 0, "write": 0}},
-        "finish": "stop",
-    }
-    result = SendResult(message={"info": info}, text="", structured=None, valid=False, info=info)
-    agent._last_cost_record = cost_record_from_send(result)
-    agent._record_cost(result, binding=ProviderModel("openrouter", "anthropic/claude-haiku-4.5"))
-
-    import asyncio
+    agent._emit_cost(_stub_cost())
 
     await asyncio.sleep(0)
     await asyncio.sleep(0.05)
@@ -203,21 +188,12 @@ async def test_cost_entry_without_active_tags_has_empty_bead_id(
 
 
 async def test_agent_no_sink_skips_silently(tmp_path: Path) -> None:
-    """When no sink is injected, _record_cost only logs (doesn't crash)."""
+    """When no sink is injected, _emit_cost only logs (doesn't crash)."""
     from maverick.agents.base import Agent
-    from maverick.runtime.opencode import (
-        ProviderModel,
-        SendResult,
-        cost_record_from_send,
-    )
-    from tests.unit.agents.conftest import fake_handle
 
     class _BareAgent(Agent):
         provider_tier = "review"  # type: ignore[assignment]
 
-    agent = _BareAgent(handle=fake_handle(), cwd="/tmp")  # no cost_sink
-    info = {"providerID": "x", "modelID": "y", "cost": 0.001, "tokens": {}}
-    result = SendResult(message={"info": info}, text="", structured=None, valid=False, info=info)
-    agent._last_cost_record = cost_record_from_send(result)
-    agent._record_cost(result, binding=ProviderModel("x", "y"))
+    agent = _BareAgent(runtime=_stub_runtime(), cwd="/tmp")  # no cost_sink
+    agent._emit_cost(_stub_cost())
     assert agent._cost_sink is None

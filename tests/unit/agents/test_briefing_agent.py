@@ -3,17 +3,18 @@
 from __future__ import annotations
 
 from typing import Any
+from unittest.mock import AsyncMock, MagicMock
 
+import pytest
+from airframe.cost import CostRecord
+from airframe.errors import RuntimeStructuredOutputError
+from airframe.protocol import RuntimeResult
 from pydantic import BaseModel
 
 from maverick.agents.briefing.agent import BriefingAgent, opencode_agent_for
 
-from .conftest import FakeClient, fake_handle, payload_send_result
-
 
 class _NavigatorPayload(BaseModel):
-    """Tiny stand-in for SubmitNavigatorBriefPayload in tests."""
-
     summary: str
     notes: str = ""
 
@@ -22,93 +23,8 @@ def _payload() -> dict[str, Any]:
     return {"summary": "all clear", "notes": ""}
 
 
-def _make_agent(client: FakeClient) -> BriefingAgent:
-    return BriefingAgent(
-        handle=fake_handle(),
-        cwd="/tmp",
-        agent_name="navigator",
-        result_model=_NavigatorPayload,
-        client_factory=lambda: client,
-    )
-
-
-async def test_brief_returns_typed_payload() -> None:
-    client = FakeClient(send_result=payload_send_result(_payload()))
-    async with _make_agent(client) as agent:
-        payload = await agent.brief("the project is X")
-    assert isinstance(payload, _NavigatorPayload)
-    assert payload.summary == "all clear"
-
-
-async def test_brief_wraps_prompt() -> None:
-    client = FakeClient(send_result=payload_send_result(_payload()))
-    async with _make_agent(client) as agent:
-        await agent.brief("project context here")
-    sent = client.send_calls[0]["content"]
-    assert "Briefing input" in sent
-    assert "project context here" in sent
-    # Greenfield-friendly preamble is present.
-    assert "no findings" in sent
-
-
-async def test_persona_resolved_from_agent_name() -> None:
-    client = FakeClient(send_result=payload_send_result(_payload()))
-    async with _make_agent(client) as agent:
-        await agent.brief("x")
-    assert client.send_calls[0]["agent"] == "maverick.navigator"
-
-
-async def test_per_instance_schema_overrides_class_default() -> None:
-    client = FakeClient(send_result=payload_send_result(_payload()))
-    async with _make_agent(client) as agent:
-        await agent.brief("x")
-    schema = client.send_calls[0]["format"]["schema"]
-    assert "summary" in schema["properties"]
-
-
-def test_opencode_agent_for_known_and_unknown() -> None:
-    assert opencode_agent_for("navigator") == "maverick.navigator"
-    assert opencode_agent_for("nonexistent") is None
-
-
-# ---------------------------------------------------------------------------
-# Pattern D path — runtime= constructor
-# ---------------------------------------------------------------------------
-
-
-def test_constructor_requires_handle_or_runtime() -> None:
-    """Pattern D safety: must pick exactly one transport."""
-    import pytest
-
-    with pytest.raises(ValueError, match="handle.*runtime"):
-        BriefingAgent(cwd="/tmp", agent_name="navigator", result_model=_NavigatorPayload)
-
-
-def test_constructor_rejects_both_handle_and_runtime() -> None:
-    """Both transports at once is a programmer error."""
-    from unittest.mock import MagicMock
-
-    import pytest
-
-    fake_runtime = MagicMock()
-    with pytest.raises(ValueError, match="both"):
-        BriefingAgent(
-            handle=fake_handle(),
-            runtime=fake_runtime,
-            cwd="/tmp",
-            agent_name="navigator",
-            result_model=_NavigatorPayload,
-        )
-
-
-async def test_brief_via_runtime_returns_typed_payload() -> None:
-    """The Pattern D path: brief() goes through runtime.execute()."""
-    from unittest.mock import AsyncMock, MagicMock
-
-    from airframe.cost import CostRecord
-    from airframe.protocol import RuntimeResult
-
-    cost = CostRecord(
+def _cost() -> CostRecord:
+    return CostRecord(
         provider_id="anthropic",
         model_id="claude-haiku-4-5",
         cost_usd=0.01,
@@ -118,97 +34,90 @@ async def test_brief_via_runtime_returns_typed_payload() -> None:
         cache_write_tokens=0,
         finish="end_turn",
     )
-    fake_runtime = MagicMock()
-    fake_runtime.label = "claude_code"
-    fake_runtime.execute = AsyncMock(
+
+
+def _make_runtime(structured: dict[str, Any] | None) -> Any:
+    runtime = MagicMock()
+    runtime.label = "stub"
+    runtime.execute = AsyncMock(
         return_value=RuntimeResult(
-            text="",
-            structured={"summary": "ok", "notes": "via runtime"},
-            cost=cost,
+            text="" if structured is not None else "I refuse",
+            structured=structured,
+            cost=_cost(),
             finish="end_turn",
         )
     )
-    fake_runtime.reset = AsyncMock()
-    fake_runtime.close = AsyncMock()
+    runtime.reset = AsyncMock()
+    runtime.close = AsyncMock()
+    return runtime
 
-    agent = BriefingAgent(
-        runtime=fake_runtime,
+
+def _make_agent(runtime: Any) -> BriefingAgent:
+    return BriefingAgent(
+        runtime=runtime,
         cwd="/tmp",
         agent_name="navigator",
         result_model=_NavigatorPayload,
     )
-    async with agent:
+
+
+async def test_brief_returns_typed_payload() -> None:
+    runtime = _make_runtime(_payload())
+    async with _make_agent(runtime) as agent:
         payload = await agent.brief("the project is X")
-
     assert isinstance(payload, _NavigatorPayload)
-    assert payload.summary == "ok"
-    assert payload.notes == "via runtime"
-    # runtime.execute was called with the schema and persona.
-    call = fake_runtime.execute.await_args
-    assert call.kwargs["schema"] is _NavigatorPayload
-    assert call.kwargs["persona"] == "maverick.navigator"
-    # Cost record was captured.
-    assert agent.last_cost_record is cost
+    assert payload.summary == "all clear"
 
 
-async def test_brief_via_runtime_raises_on_missing_structured_payload() -> None:
-    """If the runtime returns structured=None, brief() raises."""
-    from unittest.mock import AsyncMock, MagicMock
+async def test_brief_wraps_prompt() -> None:
+    runtime = _make_runtime(_payload())
+    async with _make_agent(runtime) as agent:
+        await agent.brief("project context here")
+    sent = runtime.execute.await_args.args[0]
+    assert "Briefing input" in sent
+    assert "project context here" in sent
+    assert "no findings" in sent
 
-    import pytest
-    from airframe.cost import CostRecord
-    from airframe.errors import RuntimeStructuredOutputError
-    from airframe.protocol import RuntimeResult
 
-    fake_runtime = MagicMock()
-    fake_runtime.label = "claude_code"
-    fake_runtime.execute = AsyncMock(
-        return_value=RuntimeResult(
-            text="I refuse",
-            structured=None,
-            cost=CostRecord(
-                provider_id="anthropic",
-                model_id="claude-haiku-4-5",
-                cost_usd=0.0,
-                input_tokens=0,
-                output_tokens=0,
-                cache_read_tokens=0,
-                cache_write_tokens=0,
-                finish="end_turn",
-            ),
-            finish="end_turn",
-        )
-    )
-    fake_runtime.reset = AsyncMock()
-    fake_runtime.close = AsyncMock()
+async def test_persona_resolved_from_agent_name() -> None:
+    runtime = _make_runtime(_payload())
+    async with _make_agent(runtime) as agent:
+        await agent.brief("x")
+    assert runtime.execute.await_args.kwargs["persona"] == "maverick.navigator"
 
-    agent = BriefingAgent(
-        runtime=fake_runtime,
-        cwd="/tmp",
-        agent_name="navigator",
-        result_model=_NavigatorPayload,
-    )
-    async with agent:
+
+async def test_per_instance_schema_used_in_execute() -> None:
+    runtime = _make_runtime(_payload())
+    async with _make_agent(runtime) as agent:
+        await agent.brief("x")
+    assert runtime.execute.await_args.kwargs["schema"] is _NavigatorPayload
+
+
+def test_opencode_agent_for_known_and_unknown() -> None:
+    assert opencode_agent_for("navigator") == "maverick.navigator"
+    assert opencode_agent_for("nonexistent") is None
+
+
+async def test_brief_raises_on_missing_structured_payload() -> None:
+    runtime = _make_runtime(None)
+    async with _make_agent(runtime) as agent:
         with pytest.raises(RuntimeStructuredOutputError):
             await agent.brief("x")
 
 
-async def test_rotate_session_routes_to_runtime_reset() -> None:
-    from unittest.mock import AsyncMock, MagicMock
-
-    fake_runtime = MagicMock()
-    fake_runtime.label = "claude_code"
-    fake_runtime.reset = AsyncMock()
-    fake_runtime.close = AsyncMock()
-
-    agent = BriefingAgent(
-        runtime=fake_runtime,
-        cwd="/tmp",
-        agent_name="navigator",
-        result_model=_NavigatorPayload,
-    )
+async def test_lifecycle_routes_to_runtime() -> None:
+    runtime = _make_runtime(_payload())
+    agent = _make_agent(runtime)
     await agent.open()
     await agent.rotate_session()
-    fake_runtime.reset.assert_awaited_once()
+    runtime.reset.assert_awaited_once()
     await agent.close()
-    fake_runtime.close.assert_awaited_once()
+    runtime.close.assert_awaited_once()
+
+
+async def test_cost_record_captured() -> None:
+    runtime = _make_runtime(_payload())
+    async with _make_agent(runtime) as agent:
+        await agent.brief("x")
+        assert agent.last_cost_record is not None
+        assert agent.last_cost_record.cost_usd == 0.01

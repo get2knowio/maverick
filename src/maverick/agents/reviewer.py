@@ -12,7 +12,6 @@ Findings that already carry a ``reviewer`` value are preserved.
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
 from maverick.agents.base import Agent
@@ -22,12 +21,7 @@ if TYPE_CHECKING:
     from airframe.protocol import AgentRuntime
 
     from maverick.executor.config import StepConfig
-    from maverick.runtime.opencode import (
-        CostSink,
-        OpenCodeClient,
-        OpenCodeServerHandle,
-        Tier,
-    )
+    from maverick.runtime.opencode import CostSink
 
 REVIEW_PROMPT_TIMEOUT_SECONDS = 600
 AGGREGATE_REVIEW_TIMEOUT_SECONDS = 600
@@ -36,7 +30,7 @@ ReviewKind = Literal["correctness", "completeness"]
 
 
 class ReviewerAgent(Agent):
-    """OpenCode-backed reviewer (correctness or completeness lens)."""
+    """Code reviewer (correctness or completeness lens)."""
 
     result_model: ClassVar[type[SubmitReviewPayload]] = SubmitReviewPayload
     provider_tier: ClassVar[str] = "review"
@@ -45,87 +39,37 @@ class ReviewerAgent(Agent):
     def __init__(
         self,
         *,
-        handle: OpenCodeServerHandle | None = None,
+        runtime: AgentRuntime,
         cwd: str,
         review_kind: ReviewKind,
         opencode_agent: str,
         step_config: StepConfig | dict[str, Any] | None = None,
-        tier_overrides: dict[str, Tier] | None = None,
         cost_sink: CostSink | None = None,
         tag: str | None = None,
-        client_factory: Callable[[], OpenCodeClient] | None = None,
-        runtime: AgentRuntime | None = None,
     ) -> None:
         if review_kind not in ("correctness", "completeness"):
             raise ValueError(
                 f"ReviewerAgent 'review_kind' must be 'correctness' or "
                 f"'completeness', got {review_kind!r}"
             )
-        if handle is None and runtime is None:
-            raise ValueError(f"{type(self).__name__} requires either 'handle' or 'runtime'")
-        if handle is not None and runtime is not None:
-            raise ValueError(
-                f"{type(self).__name__} got both 'handle' and 'runtime'; pass exactly one"
-            )
-
-        self._review_kind: ReviewKind = review_kind
-        self._review_count = 0
-
-        if runtime is not None:
-            from maverick.actors.step_config import load_step_config
-
-            if not cwd:
-                raise ValueError(f"{type(self).__name__} requires 'cwd'")
-            self._handle = None  # type: ignore[assignment]
-            self._cwd = cwd
-            self._step_config = load_step_config(step_config)
-            self._tier_overrides = tier_overrides
-            self._cost_sink = cost_sink
-            self._tag = tag or f"reviewer.{review_kind}"
-            self._client_factory = None
-            self._result_model_instance = None
-            self._opencode_agent_instance = opencode_agent
-            self._client = None
-            self._session_id = None
-            self._validated_bindings = set()
-            self._failed_bindings = set()
-            self._last_cost_record = None
-            self._runtime = runtime
-            return
-
-        assert handle is not None
         super().__init__(
-            handle=handle,
+            runtime=runtime,
             cwd=cwd,
             step_config=step_config,
-            tier_overrides=tier_overrides,
             cost_sink=cost_sink,
             tag=tag or f"reviewer.{review_kind}",
             opencode_agent=opencode_agent,
-            client_factory=client_factory,
         )
+        self._review_kind: ReviewKind = review_kind
+        self._review_count = 0
 
     @property
     def review_kind(self) -> ReviewKind:
         return self._review_kind
 
-    async def open(self) -> None:
-        if self._runtime is not None:
-            return
-        await super().open()
-
-    async def close(self) -> None:
-        if self._runtime is not None:
-            await self._runtime.close()
-            return
-        await super().close()
-
     async def rotate_session(self) -> None:
-        """Reset the per-bead review-round counter and drop the session."""
+        """Reset the per-bead review-round counter and drop the runtime scope."""
         self._review_count = 0
-        if self._runtime is not None:
-            await self._runtime.reset()
-            return
         await super().rotate_session()
 
     async def review(
@@ -140,7 +84,7 @@ class ReviewerAgent(Agent):
         The first call within a bead sends the full review context;
         subsequent calls (after the implementer has applied fixes)
         send a short "did you address my prior findings?" prompt that
-        relies on the persistent OpenCode session for context.
+        relies on the persistent airframe-runtime scope for context.
 
         Bead identity flows in via
         :func:`~maverick.agents.context.tagged` — the caller wraps the
@@ -152,12 +96,7 @@ class ReviewerAgent(Agent):
             work_unit_md=work_unit_md,
             briefing_context=briefing_context,
         )
-        if self._runtime is not None:
-            payload = await self._execute_via_runtime(
-                prompt, timeout=REVIEW_PROMPT_TIMEOUT_SECONDS
-            )
-        else:
-            payload = await self._send_structured(prompt, timeout=REVIEW_PROMPT_TIMEOUT_SECONDS)
+        payload = await self._execute_via_runtime(prompt, timeout=REVIEW_PROMPT_TIMEOUT_SECONDS)
         assert isinstance(payload, SubmitReviewPayload)
         return self._stamp_provenance(payload)
 
@@ -171,16 +110,11 @@ class ReviewerAgent(Agent):
         """Run the epic-level aggregate review.
 
         Always rotates the session first so the aggregate runs in a
-        fresh context (mirroring the prior actor-level behaviour).
+        fresh runtime scope.
         """
         await self.rotate_session()
         prompt = self._build_aggregate_prompt(objective, bead_list, diff_stat)
-        if self._runtime is not None:
-            payload = await self._execute_via_runtime(
-                prompt, timeout=AGGREGATE_REVIEW_TIMEOUT_SECONDS
-            )
-        else:
-            payload = await self._send_structured(prompt, timeout=AGGREGATE_REVIEW_TIMEOUT_SECONDS)
+        payload = await self._execute_via_runtime(prompt, timeout=AGGREGATE_REVIEW_TIMEOUT_SECONDS)
         assert isinstance(payload, SubmitReviewPayload)
         return self._stamp_provenance(payload)
 

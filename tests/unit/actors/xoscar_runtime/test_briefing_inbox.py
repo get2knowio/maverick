@@ -67,9 +67,7 @@ async def pool_address() -> AsyncIterator[str]:
 
 def _navigator_payload() -> SubmitNavigatorBriefPayload:
     return SubmitNavigatorBriefPayload(
-        architecture_decisions=(
-            {"title": "use x", "decision": "use x", "rationale": "it works"},
-        ),
+        architecture_decisions=({"title": "use x", "decision": "use x", "rationale": "it works"},),
         module_structure="module a -> module b",
         integration_points=("mcp", "acp"),
         summary="do x then y",
