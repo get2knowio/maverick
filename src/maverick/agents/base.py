@@ -63,6 +63,8 @@ from maverick.runtime.opencode import (
 )
 
 if TYPE_CHECKING:
+    from airframe.protocol import AgentRuntime
+
     from maverick.executor.config import StepConfig
 
 logger = get_logger(__name__)
@@ -153,6 +155,11 @@ class Agent:
         self._failed_bindings: set[ProviderModel] = set()
         self._last_cost_record: CostRecord | None = None
 
+        # Pattern D path: when set by a dual-path subclass that received
+        # ``runtime=`` instead of ``handle=``, public methods route through
+        # :meth:`_execute_via_runtime`. The legacy path leaves this ``None``.
+        self._runtime: AgentRuntime | None = None
+
     # ------------------------------------------------------------------
     # Public lifecycle
     # ------------------------------------------------------------------
@@ -237,6 +244,76 @@ class Agent:
     @property
     def tag(self) -> str:
         return self._tag
+
+    # ------------------------------------------------------------------
+    # Pattern D send path (dual-path subclasses)
+    # ------------------------------------------------------------------
+
+    async def _execute_via_runtime(
+        self,
+        prompt: str,
+        *,
+        schema: type[BaseModel] | None = None,
+        timeout: float = DEFAULT_STRUCTURED_TIMEOUT_SECONDS,
+    ) -> BaseModel:
+        """Run a prompt through the airframe :class:`AgentRuntime` path.
+
+        Used by dual-path agents that received ``runtime=`` instead of
+        ``handle=``. Validates the structured payload against ``schema``
+        (defaulting to the agent's effective result model), captures the
+        cost record on ``self._last_cost_record``, and emits the
+        ``agent.cost`` structured-log row.
+
+        Raises:
+            RuntimeStructuredOutputError: when ``result.structured`` is None.
+            AgentPayloadValidationError: when the payload fails schema
+                validation.
+        """
+        runtime = self._runtime
+        if runtime is None:
+            raise RuntimeError(
+                f"{type(self).__name__}._execute_via_runtime called without a runtime"
+            )
+        target = schema or self._effective_result_model()
+        result = await runtime.execute(
+            prompt,
+            schema=target,
+            persona=self._opencode_agent_instance,
+            timeout=timeout,
+        )
+        if result.structured is None:
+            raise RuntimeStructuredOutputError(
+                f"{runtime.label}: structured payload missing",
+                body=result.text,
+            )
+        try:
+            payload = target.model_validate(result.structured)
+        except ValidationError as exc:
+            raise AgentPayloadValidationError(
+                f"{target.__name__} validation failed: {exc}",
+                body=result.structured,
+            ) from exc
+        self._last_cost_record = result.cost
+        self._emit_runtime_cost_log()
+        return payload
+
+    def _emit_runtime_cost_log(self) -> None:
+        """Emit the ``agent.cost`` row for a runtime-path execute()."""
+        record = self._last_cost_record
+        if record is None:
+            return
+        from maverick.agents.context import current_tags
+
+        runtime = self._runtime
+        tags = current_tags()
+        logger.info(
+            "agent.cost",
+            agent=self._tag,
+            tier=self._tier_name_or_inline(),
+            runtime=runtime.label if runtime else None,
+            **tags,
+            **record.to_dict(),
+        )
 
     # ------------------------------------------------------------------
     # Send paths

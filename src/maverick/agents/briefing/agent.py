@@ -19,10 +19,9 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, ClassVar
 
-from airframe.errors import RuntimeStructuredOutputError
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel
 
-from maverick.agents.base import Agent, AgentPayloadValidationError
+from maverick.agents.base import Agent
 
 if TYPE_CHECKING:
     from airframe.protocol import AgentRuntime
@@ -181,57 +180,8 @@ class BriefingAgent(Agent):
             f"{prompt}"
         )
         if self._runtime is not None:
-            return await self._brief_via_runtime(wrapped)
+            return await self._execute_via_runtime(wrapped, timeout=BRIEFING_TIMEOUT_SECONDS)
         return await self._send_structured(wrapped, timeout=BRIEFING_TIMEOUT_SECONDS)
-
-    async def _brief_via_runtime(self, prompt: str) -> BaseModel:
-        """Pattern D send path."""
-        assert self._runtime is not None
-        schema = self._effective_result_model()
-        result = await self._runtime.execute(
-            prompt,
-            schema=schema,
-            persona=self._opencode_agent_instance,
-            timeout=BRIEFING_TIMEOUT_SECONDS,
-        )
-        if result.structured is None:
-            raise RuntimeStructuredOutputError(
-                f"{self._runtime.label}: structured payload missing",
-                body=result.text,
-            )
-        try:
-            payload = schema.model_validate(result.structured)
-        except ValidationError as exc:
-            raise AgentPayloadValidationError(
-                f"{schema.__name__} validation failed: {exc}",
-                body=result.structured,
-            ) from exc
-        self._last_cost_record = result.cost
-        self._emit_cost_log()
-        return payload
-
-    def _emit_cost_log(self) -> None:
-        """Emit the structured ``agent.cost`` row from ``last_cost_record``.
-
-        Mirrors the format produced by the base class's ``_record_cost``
-        so the structured-log shape is identical regardless of which
-        path served the request.
-        """
-        from maverick.agents.context import current_tags
-        from maverick.logging import get_logger
-
-        record = self._last_cost_record
-        if record is None:
-            return
-        tags = current_tags()
-        get_logger(__name__).info(
-            "agent.cost",
-            agent=self._tag,
-            tier=self.provider_tier or "inline",
-            runtime=self._runtime.label if self._runtime else None,
-            **tags,
-            **record.to_dict(),
-        )
 
 
 __all__ = [

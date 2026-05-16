@@ -176,3 +176,128 @@ async def test_persona_forwarded_in_send() -> None:
             briefing_context=None,
         )
     assert client.send_calls[0]["agent"] == "maverick.completeness-reviewer"
+
+
+# ---------------------------------------------------------------------------
+# Pattern D path — runtime= constructor
+# ---------------------------------------------------------------------------
+
+
+def test_constructor_requires_handle_or_runtime() -> None:
+    with pytest.raises(ValueError, match="handle.*runtime"):
+        ReviewerAgent(
+            cwd="/tmp",
+            review_kind="correctness",
+            opencode_agent="maverick.correctness-reviewer",
+        )
+
+
+def test_constructor_rejects_both_handle_and_runtime() -> None:
+    from unittest.mock import MagicMock
+
+    with pytest.raises(ValueError, match="both"):
+        ReviewerAgent(
+            handle=fake_handle(),
+            runtime=MagicMock(),
+            cwd="/tmp",
+            review_kind="correctness",
+            opencode_agent="maverick.correctness-reviewer",
+        )
+
+
+async def test_review_via_runtime_stamps_provenance() -> None:
+    """The runtime path still stamps `reviewer` onto findings."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    from airframe.cost import CostRecord
+    from airframe.protocol import RuntimeResult
+
+    cost = CostRecord(
+        provider_id="anthropic",
+        model_id="claude-haiku-4-5",
+        cost_usd=0.02,
+        input_tokens=20,
+        output_tokens=40,
+        cache_read_tokens=0,
+        cache_write_tokens=0,
+        finish="end_turn",
+    )
+    fake_runtime = MagicMock()
+    fake_runtime.label = "claude_code"
+    fake_runtime.execute = AsyncMock(
+        return_value=RuntimeResult(
+            text="", structured=_payload_with_finding(), cost=cost, finish="end_turn"
+        )
+    )
+    fake_runtime.reset = AsyncMock()
+    fake_runtime.close = AsyncMock()
+
+    agent = ReviewerAgent(
+        runtime=fake_runtime,
+        cwd="/tmp",
+        review_kind="correctness",
+        opencode_agent="maverick.correctness-reviewer",
+    )
+    async with agent:
+        payload = await agent.review(
+            bead_description="bead text",
+            work_unit_md=None,
+            briefing_context=None,
+        )
+
+    assert isinstance(payload, SubmitReviewPayload)
+    assert len(payload.findings) == 1
+    assert payload.findings[0].reviewer == "correctness"
+    call = fake_runtime.execute.await_args
+    assert call.kwargs["persona"] == "maverick.correctness-reviewer"
+
+
+async def test_aggregate_via_runtime_rotates_session_first() -> None:
+    """aggregate() calls runtime.reset before sending."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    from airframe.cost import CostRecord
+    from airframe.protocol import RuntimeResult
+
+    cost = CostRecord(
+        provider_id="anthropic",
+        model_id="claude-haiku-4-5",
+        cost_usd=0.02,
+        input_tokens=20,
+        output_tokens=40,
+        cache_read_tokens=0,
+        cache_write_tokens=0,
+        finish="end_turn",
+    )
+    fake_runtime = MagicMock()
+    fake_runtime.label = "claude_code"
+    fake_runtime.execute = AsyncMock(
+        return_value=RuntimeResult(
+            text="", structured=_approved_payload(), cost=cost, finish="end_turn"
+        )
+    )
+    fake_runtime.reset = AsyncMock()
+    fake_runtime.close = AsyncMock()
+
+    agent = ReviewerAgent(
+        runtime=fake_runtime,
+        cwd="/tmp",
+        review_kind="correctness",
+        opencode_agent="maverick.correctness-reviewer",
+    )
+    async with agent:
+        # First a review to set _review_count > 0.
+        await agent.review(
+            bead_description="bead",
+            work_unit_md=None,
+            briefing_context=None,
+        )
+        # Then aggregate — should call reset before execute.
+        await agent.aggregate(
+            objective="ship it",
+            bead_list="bead-1",
+            diff_stat="1 file changed",
+        )
+
+    fake_runtime.reset.assert_awaited()
+    assert fake_runtime.execute.await_count == 2

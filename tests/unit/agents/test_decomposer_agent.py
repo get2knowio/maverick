@@ -213,3 +213,111 @@ async def test_nudge_picks_schema_for_expected_tool(monkeypatch: Any) -> None:
     sent_prompt = client.send_calls[0]["content"]
     assert "u-1" in sent_prompt
     assert "missing field" in sent_prompt
+
+
+# ---------------------------------------------------------------------------
+# Pattern D path — runtime= constructor
+# ---------------------------------------------------------------------------
+
+
+def test_constructor_requires_handle_or_runtime() -> None:
+    import pytest
+
+    with pytest.raises(ValueError, match="handle.*runtime"):
+        DecomposerAgent(cwd="/tmp")
+
+
+def test_constructor_rejects_both_handle_and_runtime() -> None:
+    from unittest.mock import MagicMock
+
+    import pytest
+
+    with pytest.raises(ValueError, match="both"):
+        DecomposerAgent(handle=fake_handle(), runtime=MagicMock(), cwd="/tmp")
+
+
+async def test_outline_via_runtime_returns_typed_payload(monkeypatch: Any) -> None:
+    from unittest.mock import AsyncMock, MagicMock
+
+    from airframe.cost import CostRecord
+    from airframe.protocol import RuntimeResult
+
+    monkeypatch.setattr(
+        "maverick.library.actions.decompose.build_outline_prompt",
+        lambda *a, **k: "stubbed outline",
+    )
+    cost = CostRecord(
+        provider_id="anthropic",
+        model_id="claude-haiku-4-5",
+        cost_usd=0.02,
+        input_tokens=20,
+        output_tokens=40,
+        cache_read_tokens=0,
+        cache_write_tokens=0,
+        finish="end_turn",
+    )
+    fake_runtime = MagicMock()
+    fake_runtime.label = "claude_code"
+    fake_runtime.execute = AsyncMock(
+        return_value=RuntimeResult(
+            text="", structured=_outline_payload(), cost=cost, finish="end_turn"
+        )
+    )
+    fake_runtime.reset = AsyncMock()
+    fake_runtime.close = AsyncMock()
+
+    agent = DecomposerAgent(runtime=fake_runtime, cwd="/tmp")
+    async with agent:
+        payload = await agent.outline(
+            flight_plan_content="plan",
+            codebase_context=_StubCodebaseContext(),
+        )
+    assert isinstance(payload, SubmitOutlinePayload)
+    call = fake_runtime.execute.await_args
+    assert call.kwargs["schema"] is SubmitOutlinePayload
+    assert call.kwargs["persona"] == "maverick.decomposer"
+
+
+async def test_detail_via_runtime_rotates_session_on_mode_change() -> None:
+    """After outline (mode='outline'), first detail() rotates the session."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    from airframe.cost import CostRecord
+    from airframe.protocol import RuntimeResult
+
+    cost = CostRecord(
+        provider_id="anthropic",
+        model_id="claude-haiku-4-5",
+        cost_usd=0.02,
+        input_tokens=20,
+        output_tokens=40,
+        cache_read_tokens=0,
+        cache_write_tokens=0,
+        finish="end_turn",
+    )
+
+    fake_runtime = MagicMock()
+    fake_runtime.label = "claude_code"
+    fake_runtime.execute = AsyncMock(
+        return_value=RuntimeResult(
+            text="", structured=_details_payload(), cost=cost, finish="end_turn"
+        )
+    )
+    fake_runtime.reset = AsyncMock()
+    fake_runtime.close = AsyncMock()
+
+    agent = DecomposerAgent(runtime=fake_runtime, cwd="/tmp")
+    # Manually set the outline mode to skip the prompt builder.
+    agent._session_mode = "outline"  # noqa: SLF001
+    agent._session_turns_in_mode = 1  # noqa: SLF001
+
+    async with agent:
+        # detail call should rotate the session (mode change).
+        from unittest.mock import patch
+
+        with patch.object(agent, "_build_detail_prompt", return_value=("detail prompt", True)):
+            await agent.detail(unit_ids=["u-1"])
+
+    # rotate_session() called once — mode change from outline → detail.
+    fake_runtime.reset.assert_awaited()
+    assert agent._session_mode == "detail"  # noqa: SLF001

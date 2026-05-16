@@ -26,6 +26,8 @@ from maverick.payloads import (
 )
 
 if TYPE_CHECKING:
+    from airframe.protocol import AgentRuntime
+
     from maverick.executor.config import StepConfig
     from maverick.runtime.opencode import (
         CostSink,
@@ -48,7 +50,7 @@ class DecomposerAgent(Agent):
     def __init__(
         self,
         *,
-        handle: OpenCodeServerHandle,
+        handle: OpenCodeServerHandle | None = None,
         cwd: str,
         role: str = "primary",
         detail_session_max_turns: int = 5,
@@ -58,16 +60,47 @@ class DecomposerAgent(Agent):
         cost_sink: CostSink | None = None,
         tag: str | None = None,
         client_factory: Callable[[], OpenCodeClient] | None = None,
+        runtime: AgentRuntime | None = None,
     ) -> None:
-        super().__init__(
-            handle=handle,
-            cwd=cwd,
-            step_config=step_config,
-            tier_overrides=tier_overrides,
-            cost_sink=cost_sink,
-            tag=tag or f"decomposer.{role}",
-            client_factory=client_factory,
-        )
+        if handle is None and runtime is None:
+            raise ValueError(f"{type(self).__name__} requires either 'handle' or 'runtime'")
+        if handle is not None and runtime is not None:
+            raise ValueError(
+                f"{type(self).__name__} got both 'handle' and 'runtime'; pass exactly one"
+            )
+
+        if runtime is not None:
+            from maverick.actors.step_config import load_step_config
+
+            if not cwd:
+                raise ValueError(f"{type(self).__name__} requires 'cwd'")
+            self._handle = None  # type: ignore[assignment]
+            self._cwd = cwd
+            self._step_config = load_step_config(step_config)
+            self._tier_overrides = tier_overrides
+            self._cost_sink = cost_sink
+            self._tag = tag or f"decomposer.{role}"
+            self._client_factory = None
+            self._result_model_instance = None
+            self._opencode_agent_instance = self.opencode_agent
+            self._client = None
+            self._session_id = None
+            self._validated_bindings = set()
+            self._failed_bindings = set()
+            self._last_cost_record = None
+            self._runtime = runtime
+        else:
+            assert handle is not None
+            super().__init__(
+                handle=handle,
+                cwd=cwd,
+                step_config=step_config,
+                tier_overrides=tier_overrides,
+                cost_sink=cost_sink,
+                tag=tag or f"decomposer.{role}",
+                client_factory=client_factory,
+            )
+
         self._role = role
         self._detail_session_max_turns = max(1, int(detail_session_max_turns))
         self._fix_session_max_turns = max(1, int(fix_session_max_turns))
@@ -93,6 +126,17 @@ class DecomposerAgent(Agent):
     def role(self) -> str:
         return self._role
 
+    async def open(self) -> None:
+        if self._runtime is not None:
+            return
+        await super().open()
+
+    async def close(self) -> None:
+        if self._runtime is not None:
+            await self._runtime.close()
+            return
+        await super().close()
+
     async def rotate_session(self) -> None:
         """Reset per-bead session-mode bookkeeping, then drop the session.
 
@@ -103,6 +147,9 @@ class DecomposerAgent(Agent):
         """
         self._session_mode = None
         self._session_turns_in_mode = 0
+        if self._runtime is not None:
+            await self._runtime.reset()
+            return
         await super().rotate_session()
 
     async def set_context(
@@ -136,9 +183,14 @@ class DecomposerAgent(Agent):
             validation_feedback=validation_feedback,
         )
         await self._maybe_rotate_session(mode="outline", seed_stale=True, max_turns=1)
-        payload = await self._send_structured(
-            prompt, schema=SubmitOutlinePayload, timeout=DEFAULT_PROMPT_TIMEOUT_SECONDS
-        )
+        if self._runtime is not None:
+            payload = await self._execute_via_runtime(
+                prompt, schema=SubmitOutlinePayload, timeout=DEFAULT_PROMPT_TIMEOUT_SECONDS
+            )
+        else:
+            payload = await self._send_structured(
+                prompt, schema=SubmitOutlinePayload, timeout=DEFAULT_PROMPT_TIMEOUT_SECONDS
+            )
         assert isinstance(payload, SubmitOutlinePayload)
         return payload
 
@@ -150,9 +202,14 @@ class DecomposerAgent(Agent):
             seed_stale=refreshed_seed,
             max_turns=self._detail_session_max_turns,
         )
-        payload = await self._send_structured(
-            prompt, schema=SubmitDetailsPayload, timeout=DETAIL_TIMEOUT_SECONDS
-        )
+        if self._runtime is not None:
+            payload = await self._execute_via_runtime(
+                prompt, schema=SubmitDetailsPayload, timeout=DETAIL_TIMEOUT_SECONDS
+            )
+        else:
+            payload = await self._send_structured(
+                prompt, schema=SubmitDetailsPayload, timeout=DETAIL_TIMEOUT_SECONDS
+            )
         assert isinstance(payload, SubmitDetailsPayload)
         # The detail-mode seed has been delivered; future turns within
         # the same session reuse it.
@@ -185,9 +242,14 @@ class DecomposerAgent(Agent):
             seed_stale=refreshed_seed,
             max_turns=self._fix_session_max_turns,
         )
-        payload = await self._send_structured(
-            prompt, schema=SubmitFixPayload, timeout=DEFAULT_PROMPT_TIMEOUT_SECONDS
-        )
+        if self._runtime is not None:
+            payload = await self._execute_via_runtime(
+                prompt, schema=SubmitFixPayload, timeout=DEFAULT_PROMPT_TIMEOUT_SECONDS
+            )
+        else:
+            payload = await self._send_structured(
+                prompt, schema=SubmitFixPayload, timeout=DEFAULT_PROMPT_TIMEOUT_SECONDS
+            )
         assert isinstance(payload, SubmitFixPayload)
         self._fix_seed_stale = False
         if self._session_mode == "fix":
@@ -211,6 +273,10 @@ class DecomposerAgent(Agent):
             "submit_fix": SubmitFixPayload,
         }
         schema = schema_map.get(expected_tool, SubmitOutlinePayload)
+        if self._runtime is not None:
+            return await self._execute_via_runtime(
+                prompt, schema=schema, timeout=DEFAULT_PROMPT_TIMEOUT_SECONDS
+            )
         return await self._send_structured(
             prompt, schema=schema, timeout=DEFAULT_PROMPT_TIMEOUT_SECONDS
         )
@@ -220,8 +286,17 @@ class DecomposerAgent(Agent):
     # ------------------------------------------------------------------
 
     async def _maybe_rotate_session(self, *, mode: str, seed_stale: bool, max_turns: int) -> None:
-        """Rotate the OpenCode session when the mode changes or budget is hit."""
-        if self._session_id is None:
+        """Rotate the session when the mode changes or budget is hit.
+
+        Legacy path tracks "first send" via ``_session_id is None`` (the
+        OpenCode HTTP session ID is set on first send). Pattern D path
+        uses ``_session_mode is None`` since the runtime doesn't expose
+        a session ID.
+        """
+        first_send = (
+            self._session_id is None if self._runtime is None else self._session_mode is None
+        )
+        if first_send:
             self._session_mode = mode
             self._session_turns_in_mode = 0
             return

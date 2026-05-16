@@ -97,3 +97,93 @@ async def test_rotate_session_drops_session() -> None:
 async def test_construction_requires_cwd() -> None:
     with pytest.raises(ValueError, match="requires 'cwd'"):
         CodingAgent(handle=fake_handle(), cwd="")
+
+
+# ---------------------------------------------------------------------------
+# Pattern D path — runtime= constructor
+# ---------------------------------------------------------------------------
+
+
+def test_constructor_requires_handle_or_runtime() -> None:
+    with pytest.raises(ValueError, match="handle.*runtime"):
+        CodingAgent(cwd="/tmp")
+
+
+def test_constructor_rejects_both_handle_and_runtime() -> None:
+    from unittest.mock import MagicMock
+
+    with pytest.raises(ValueError, match="both"):
+        CodingAgent(handle=fake_handle(), runtime=MagicMock(), cwd="/tmp")
+
+
+async def test_implement_via_runtime_returns_typed_payload() -> None:
+    from unittest.mock import AsyncMock, MagicMock
+
+    from airframe.cost import CostRecord
+    from airframe.protocol import RuntimeResult
+
+    cost = CostRecord(
+        provider_id="anthropic",
+        model_id="claude-haiku-4-5",
+        cost_usd=0.05,
+        input_tokens=50,
+        output_tokens=100,
+        cache_read_tokens=0,
+        cache_write_tokens=0,
+        finish="end_turn",
+    )
+    fake_runtime = MagicMock()
+    fake_runtime.label = "claude_code"
+    fake_runtime.execute = AsyncMock(
+        return_value=RuntimeResult(
+            text="", structured=_impl_payload(), cost=cost, finish="end_turn"
+        )
+    )
+    fake_runtime.reset = AsyncMock()
+    fake_runtime.close = AsyncMock()
+
+    agent = CodingAgent(runtime=fake_runtime, cwd="/tmp")
+    async with agent:
+        payload = await agent.implement("do the work")
+
+    assert isinstance(payload, SubmitImplementationPayload)
+    assert payload.summary == "did the work"
+    call = fake_runtime.execute.await_args
+    assert call.kwargs["schema"] is SubmitImplementationPayload
+    assert call.kwargs["persona"] == "maverick.implementer"
+
+
+async def test_fix_via_runtime_uses_fix_schema() -> None:
+    """fix() passes SubmitFixResultPayload to runtime.execute, not the default."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    from airframe.cost import CostRecord
+    from airframe.protocol import RuntimeResult
+
+    cost = CostRecord(
+        provider_id="anthropic",
+        model_id="claude-haiku-4-5",
+        cost_usd=0.05,
+        input_tokens=50,
+        output_tokens=100,
+        cache_read_tokens=0,
+        cache_write_tokens=0,
+        finish="end_turn",
+    )
+    fake_runtime = MagicMock()
+    fake_runtime.label = "claude_code"
+    fake_runtime.execute = AsyncMock(
+        return_value=RuntimeResult(
+            text="", structured=_fix_payload(), cost=cost, finish="end_turn"
+        )
+    )
+    fake_runtime.reset = AsyncMock()
+    fake_runtime.close = AsyncMock()
+
+    agent = CodingAgent(runtime=fake_runtime, cwd="/tmp")
+    async with agent:
+        payload = await agent.fix("fix the bug")
+
+    assert isinstance(payload, SubmitFixResultPayload)
+    call = fake_runtime.execute.await_args
+    assert call.kwargs["schema"] is SubmitFixResultPayload
