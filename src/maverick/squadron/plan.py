@@ -16,7 +16,7 @@ from pydantic import BaseModel
 from maverick.agents.base import Agent
 from maverick.agents.briefing.agent import BriefingAgent
 from maverick.agents.generator import GeneratorAgent
-from maverick.runtime.opencode import ProviderModel
+from maverick.runtime.agent_factory import runtime_for_agent
 from maverick.squadron.base import Squadron
 
 if TYPE_CHECKING:
@@ -43,10 +43,12 @@ class PlanSquadron(Squadron):
         self._briefings: list[BriefingAgent] = []
 
     async def _build_agents(self) -> None:
+        generator_runtime, _ = runtime_for_agent(
+            "generate", agents_config=self._config.agents
+        )
         self.generator = GeneratorAgent(
-            handle=self.handle,
+            runtime=generator_runtime,
             cwd=str(self._cwd),
-            tier_overrides=self._tier_overrides,
             cost_sink=self._cost_sink,
         )
         await self.generator.open()
@@ -58,10 +60,12 @@ class PlanSquadron(Squadron):
         result_model: type[BaseModel],
     ) -> BriefingAgent:
         """Build one briefing agent on demand and track it for teardown."""
+        briefing_runtime, _ = runtime_for_agent(
+            "briefing", agents_config=self._config.agents
+        )
         agent = BriefingAgent(
-            handle=self.handle,
+            runtime=briefing_runtime,
             cwd=str(self._cwd),
-            tier_overrides=self._tier_overrides,
             cost_sink=self._cost_sink,
             agent_name=agent_name,
             result_model=result_model,
@@ -74,14 +78,6 @@ class PlanSquadron(Squadron):
         if gen is not None:
             yield gen
         yield from self._briefings
-
-    def _declared_bindings(self) -> Iterable[ProviderModel]:
-        seen: set[ProviderModel] = set()
-        for agent_cls in (BriefingAgent, GeneratorAgent):
-            for binding in self._resolved_bindings_for(agent_cls):
-                if binding not in seen:
-                    seen.add(binding)
-                    yield binding
 
 
 __all__ = ["PlanSquadron"]

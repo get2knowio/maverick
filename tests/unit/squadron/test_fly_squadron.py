@@ -1,4 +1,9 @@
-"""Tests for :class:`maverick.squadron.fly.FlySquadron`."""
+"""Tests for :class:`maverick.squadron.fly.FlySquadron`.
+
+Pattern D path: the squadron constructs agents via
+:func:`maverick.runtime.agent_factory.runtime_for_agent`, which is
+stubbed via the shared :func:`stub_airframe_runtime` fixture.
+"""
 
 from __future__ import annotations
 
@@ -7,153 +12,136 @@ from typing import Any
 
 import pytest
 
-from maverick.config import MaverickConfig
-from maverick.squadron.fly import FlySquadron
-from tests.unit.agents.conftest import FakeClient, fake_handle, payload_send_result
+from maverick.config import AgentBindingConfig, AgentsConfig, MaverickConfig
+from maverick.squadron.fly import DEFAULT_TIER, FlySquadron
 
 
-@pytest.fixture
-def fake_squadron_handle(monkeypatch: Any) -> Any:
-    """Patch spawn_opencode_server + tier-binding validation.
-
-    Squadron is reasonably testable when (a) spawn_opencode_server
-    returns a fake handle and (b) the startup validation pass against
-    the live ``/provider`` endpoint is short-circuited (no real HTTP).
-    """
-    handle = fake_handle()
-
-    async def _fake_spawn(*_args: Any, **_kwargs: Any) -> Any:
-        return handle
-
-    async def _fake_validate(*_args: Any, **_kwargs: Any) -> None:
-        return None
-
-    monkeypatch.setattr("maverick.squadron.base.spawn_opencode_server", _fake_spawn)
-    monkeypatch.setattr("maverick.squadron.base.validate_model_id", _fake_validate)
-    return handle
-
-
-@pytest.fixture
-def fake_agent_clients(monkeypatch: Any) -> dict[str, FakeClient]:
-    """Override Agent._build_client to hand out a fresh FakeClient per agent."""
-    clients: dict[str, FakeClient] = {}
-
-    def _build_client(self: Any) -> Any:
-        c = FakeClient(send_result=payload_send_result({"approved": True}))
-        clients[self.tag] = c
-        return c
-
-    monkeypatch.setattr("maverick.agents.base.Agent._build_client", _build_client)
-    return clients
-
-
-async def test_open_spawns_and_builds_agents(
-    fake_squadron_handle: Any,
-    fake_agent_clients: dict[str, FakeClient],
+async def test_open_builds_agents_under_default_tier(
+    stub_airframe_runtime: dict[str, Any],
+    config_with_agents: MaverickConfig,
     tmp_path: Path,
 ) -> None:
-    config = MaverickConfig()
-    async with FlySquadron(cwd=tmp_path, config=config) as squadron:
-        # Single-actor fallback (no tier configs) → one coder + one pair
-        # of reviewers under the DEFAULT_TIER key.
-        from maverick.squadron.fly import DEFAULT_TIER
-
+    """No tier configs → one coder + one pair of reviewers under DEFAULT_TIER."""
+    async with FlySquadron(cwd=tmp_path, config=config_with_agents) as squadron:
         assert list(squadron.coders) == [DEFAULT_TIER]
         assert list(squadron.correctness_reviewers) == [DEFAULT_TIER]
         assert list(squadron.completeness_reviewers) == [DEFAULT_TIER]
-        # Tier overrides defaulted to empty (user didn't set any).
-        assert squadron.tier_overrides == {}
-        # Handle is the fake one we injected.
-        assert squadron.handle is fake_squadron_handle
+    # One coder + two reviewers = three airframe runtimes constructed.
+    assert len(stub_airframe_runtime["constructed"]) == 3
 
 
-async def test_handle_unavailable_before_open(tmp_path: Path) -> None:
-    """Accessing handle before opening raises a clear error."""
-    config = MaverickConfig()
-    squadron = FlySquadron(cwd=tmp_path, config=config)
-    with pytest.raises(RuntimeError, match="not opened"):
-        _ = squadron.handle
+async def test_squadron_requires_agents_config(tmp_path: Path) -> None:
+    """An empty ``agents:`` block surfaces as a clear ValueError at open."""
+    config = MaverickConfig()  # nothing in agents
+    with pytest.raises(ValueError, match="agents.implement"):
+        async with FlySquadron(cwd=tmp_path, config=config):
+            pass
 
 
-async def test_validate_tier_bindings_runs_at_open(
-    fake_squadron_handle: Any,
-    fake_agent_clients: dict[str, FakeClient],
+async def test_per_tier_coder_built_when_implementer_tiers_configured(
+    stub_airframe_runtime: dict[str, Any],
+    config_with_agents: MaverickConfig,
     tmp_path: Path,
 ) -> None:
-    """Squadron.open validates every declared (provider, model) binding once."""
-    config = MaverickConfig()
-    async with FlySquadron(cwd=tmp_path, config=config):
-        pass
-    # Every Agent shares one client class but distinct instances built
-    # via _build_client. Validation goes through a separate ad-hoc
-    # OpenCodeClient — that one is constructed inside Squadron.open()
-    # against the fake handle. We can't see its calls here, but we
-    # verified above that open() succeeds end-to-end.
-    # (Detailed cascade-cache + per-binding tests live in
-    # tests/unit/agents/test_agent_tiers.py.)
+    """``implementer_tiers`` → one coder per defined tier; overrides flow through.
+
+    Per-complexity ``ImplementerTierConfig`` is converted to an
+    :class:`AgentBindingConfig` and passed as ``binding_override=`` to
+    the factory, so the resulting runtime is pinned to the tier's
+    provider/model_id (not the role default).
+    """
+    from maverick.config import ImplementerTierConfig, ImplementerTiersConfig
+
+    tiers = ImplementerTiersConfig(
+        simple=ImplementerTierConfig(provider="opencode", model_id="gpt-5-nano"),
+        complex=ImplementerTierConfig(provider="claude", model_id="claude-opus-4-7"),
+    )
+    async with FlySquadron(
+        cwd=tmp_path,
+        config=config_with_agents,
+        implementer_tiers=tiers,
+    ) as squadron:
+        assert set(squadron.coders) == {"simple", "complex"}
+        assert squadron.coder_for("simple") is not squadron.coder_for("complex")
+        # Lookup for an undefined tier falls back to an arbitrary cached
+        # coder — the supervisor's escalation resolver handles unknown
+        # tiers before reaching us.
+        assert squadron.coder_for("trivial") in squadron.coders.values()
+    # The factory was called with the per-tier provider IDs.
+    providers = [r.provider_id for r in stub_airframe_runtime["constructed"]]
+    assert "opencode" in providers  # simple
+    assert "claude" in providers  # complex (or the role default — both match)
 
 
-async def test_rotate_for_new_bead_rotates_each_agent(
-    fake_squadron_handle: Any,
-    fake_agent_clients: dict[str, FakeClient],
+async def test_implementer_tier_override_pins_model_on_runtime(
+    stub_airframe_runtime: dict[str, Any],
     tmp_path: Path,
 ) -> None:
-    """rotate_for_new_bead drops every agent's session pointer."""
-    from maverick.squadron.fly import DEFAULT_TIER
+    """A defined tier's (provider, model_id) lands on the constructed runtime."""
+    from maverick.config import ImplementerTierConfig, ImplementerTiersConfig
 
-    config = MaverickConfig()
-    async with FlySquadron(cwd=tmp_path, config=config) as squadron:
-        coder = squadron.coder_for(DEFAULT_TIER)
-        correctness = squadron.correctness_reviewer_for(DEFAULT_TIER)
-        completeness = squadron.completeness_reviewer_for(DEFAULT_TIER)
-        # Open a session on each agent without going through a typed
-        # send (skip schema validation against fake payloads).
-        await coder._ensure_session()  # noqa: SLF001
-        await correctness._ensure_session()  # noqa: SLF001
-        await completeness._ensure_session()  # noqa: SLF001
+    config = MaverickConfig(
+        agents=AgentsConfig(
+            implement=AgentBindingConfig(provider="claude", model_id="claude-sonnet-4-6"),
+            review=AgentBindingConfig(provider="claude", model_id="claude-haiku-4-5"),
+        )
+    )
+    tiers = ImplementerTiersConfig(
+        complex=ImplementerTierConfig(provider="claude", model_id="claude-opus-4-7"),
+    )
+    async with FlySquadron(
+        cwd=tmp_path,
+        config=config,
+        implementer_tiers=tiers,
+    ) as squadron:
+        assert "complex" in squadron.coders
+    # Find the runtime built for the `complex` coder — it should be
+    # pinned to claude-opus-4-7 (the tier override), not the
+    # claude-sonnet-4-6 role default.
+    pinned_models = {r.model for r in stub_airframe_runtime["constructed"]}
+    assert "claude-opus-4-7" in pinned_models
 
-        assert coder._session_id is not None  # noqa: SLF001
-        assert correctness._session_id is not None  # noqa: SLF001
-        assert completeness._session_id is not None  # noqa: SLF001
 
+async def test_default_tier_fallback_when_no_implementer_tiers(
+    stub_airframe_runtime: dict[str, Any],
+    config_with_agents: MaverickConfig,
+    tmp_path: Path,
+) -> None:
+    """No tier configs → one coder under DEFAULT_TIER (legacy single-actor mode)."""
+    async with FlySquadron(cwd=tmp_path, config=config_with_agents) as squadron:
+        assert list(squadron.coders) == [DEFAULT_TIER]
+        assert squadron.coder_for("anything") is squadron.coder_for(DEFAULT_TIER)
+
+
+async def test_rotate_for_new_bead_resets_each_runtime(
+    stub_airframe_runtime: dict[str, Any],
+    config_with_agents: MaverickConfig,
+    tmp_path: Path,
+) -> None:
+    """rotate_for_new_bead calls reset() on every agent's runtime."""
+    async with FlySquadron(cwd=tmp_path, config=config_with_agents) as squadron:
         await squadron.rotate_for_new_bead()
+    # All three constructed runtimes (coder + correctness + completeness)
+    # had reset() called once during rotate_for_new_bead.
+    reset_counts = [r.reset_calls for r in stub_airframe_runtime["constructed"]]
+    assert all(c >= 1 for c in reset_counts), reset_counts
 
-        assert coder._session_id is None  # noqa: SLF001
-        assert correctness._session_id is None  # noqa: SLF001
-        assert completeness._session_id is None  # noqa: SLF001
 
-
-async def test_close_tears_down_handle(
-    monkeypatch: Any,
-    fake_agent_clients: dict[str, FakeClient],
+async def test_close_tears_down_all_runtimes(
+    stub_airframe_runtime: dict[str, Any],
+    config_with_agents: MaverickConfig,
     tmp_path: Path,
 ) -> None:
-    """Squadron.close stops the OpenCode server it spawned."""
-    stopped = {"count": 0}
-    handle = fake_handle()
-
-    async def _fake_spawn(*_args: Any, **_kwargs: Any) -> Any:
-        return handle
-
-    async def _fake_stop(self: Any) -> None:
-        stopped["count"] += 1
-
-    async def _fake_validate(*_args: Any, **_kwargs: Any) -> None:
-        return None
-
-    monkeypatch.setattr("maverick.squadron.base.spawn_opencode_server", _fake_spawn)
-    monkeypatch.setattr("maverick.squadron.base.validate_model_id", _fake_validate)
-    monkeypatch.setattr("maverick.runtime.opencode.OpenCodeServerHandle.stop", _fake_stop)
-
-    config = MaverickConfig()
-    async with FlySquadron(cwd=tmp_path, config=config):
+    """Squadron.close() calls runtime.close() on every agent."""
+    async with FlySquadron(cwd=tmp_path, config=config_with_agents):
         pass
-    assert stopped["count"] == 1
+    close_counts = [r.close_calls for r in stub_airframe_runtime["constructed"]]
+    assert all(c >= 1 for c in close_counts)
 
 
 async def test_bead_context_tags_propagate_through_gather(
-    fake_squadron_handle: Any,
-    fake_agent_clients: dict[str, FakeClient],
+    stub_airframe_runtime: dict[str, Any],
+    config_with_agents: MaverickConfig,
     tmp_path: Path,
 ) -> None:
     """``bead_context`` stamps tags visible to concurrent tasks underneath."""
@@ -161,8 +149,7 @@ async def test_bead_context_tags_propagate_through_gather(
 
     from maverick.agents.context import current_tags
 
-    config = MaverickConfig()
-    async with FlySquadron(cwd=tmp_path, config=config) as squadron:
+    async with FlySquadron(cwd=tmp_path, config=config_with_agents) as squadron:
         seen: dict[str, dict[str, str]] = {}
 
         async def capture(name: str) -> None:
@@ -174,48 +161,3 @@ async def test_bead_context_tags_propagate_through_gather(
 
     assert seen["a"] == {"bead_id": "b-7", "complexity": "simple"}
     assert seen["b"] == {"bead_id": "b-7", "complexity": "simple"}
-
-
-async def test_per_tier_coder_built_when_implementer_tiers_configured(
-    fake_squadron_handle: Any,
-    fake_agent_clients: dict[str, FakeClient],
-    tmp_path: Path,
-) -> None:
-    """When ``implementer_tiers`` is set, one coder is built per defined tier.
-
-    Mirrors the supervisor's legacy per-tier actor-spawning shape — but
-    the per-tier StepConfig merge now lives on the squadron, not the
-    supervisor.
-    """
-    from maverick.config import ImplementerTierConfig, ImplementerTiersConfig
-
-    tiers = ImplementerTiersConfig(
-        simple=ImplementerTierConfig(provider="openrouter", model_id="cheap"),
-        complex=ImplementerTierConfig(provider="openrouter", model_id="strong"),
-    )
-    config = MaverickConfig()
-    async with FlySquadron(
-        cwd=tmp_path,
-        config=config,
-        implementer_tiers=tiers,
-    ) as squadron:
-        assert set(squadron.coders) == {"simple", "complex"}
-        assert squadron.coder_for("simple") is not squadron.coder_for("complex")
-        # Lookup for an undefined tier falls back to an arbitrary cached
-        # coder — the supervisor's escalation resolver handles unknown
-        # tiers before reaching us.
-        assert squadron.coder_for("trivial") in squadron.coders.values()
-
-
-async def test_default_tier_fallback_when_no_implementer_tiers(
-    fake_squadron_handle: Any,
-    fake_agent_clients: dict[str, FakeClient],
-    tmp_path: Path,
-) -> None:
-    """No tier configs → one coder under DEFAULT_TIER (legacy single-actor mode)."""
-    from maverick.squadron.fly import DEFAULT_TIER
-
-    config = MaverickConfig()
-    async with FlySquadron(cwd=tmp_path, config=config) as squadron:
-        assert list(squadron.coders) == [DEFAULT_TIER]
-        assert squadron.coder_for("anything") is squadron.coder_for(DEFAULT_TIER)

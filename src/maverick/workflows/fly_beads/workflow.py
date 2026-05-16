@@ -529,8 +529,6 @@ class FlyBeadsWorkflow(PythonWorkflow):
                 reviewer_tiers=reviewer_tiers,
             ) as squadron,
             actor_pool(
-                opencode_handle=squadron.handle,
-                provider_tiers=squadron.tier_overrides,
                 cost_sink=squadron.cost_sink,
             ) as (_pool, address),
         ):

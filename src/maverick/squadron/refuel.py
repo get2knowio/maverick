@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 from maverick.agents.briefing.agent import BriefingAgent
 from maverick.agents.decomposer import DecomposerAgent
 from maverick.agents.generator import GeneratorAgent
-from maverick.runtime.opencode import ProviderModel
+from maverick.runtime.agent_factory import runtime_for_agent
 from maverick.squadron.base import Squadron
 from maverick.squadron.decomposer_pool import DecomposerAgentPool
 
@@ -55,12 +55,13 @@ class RefuelSquadron(Squadron):
         self._briefings: list[BriefingAgent] = []
 
     async def _build_agents(self) -> None:
-        handle = self.handle
         cwd = str(self._cwd)
+        generator_runtime, _ = runtime_for_agent(
+            "generate", agents_config=self._config.agents
+        )
         self.generator = GeneratorAgent(
-            handle=handle,
+            runtime=generator_runtime,
             cwd=cwd,
-            tier_overrides=self._tier_overrides,
             cost_sink=self._cost_sink,
         )
         await self.generator.open()
@@ -72,10 +73,12 @@ class RefuelSquadron(Squadron):
         )
 
     async def _build_decomposer(self, tier: str) -> DecomposerAgent:
+        decomposer_runtime, _ = runtime_for_agent(
+            "decompose", agents_config=self._config.agents
+        )
         agent = DecomposerAgent(
-            handle=self.handle,
+            runtime=decomposer_runtime,
             cwd=str(self._cwd),
-            tier_overrides=self._tier_overrides,
             cost_sink=self._cost_sink,
             role="pool",
             detail_session_max_turns=self._detail_session_max_turns,
@@ -95,12 +98,15 @@ class RefuelSquadron(Squadron):
 
         Briefings are short-lived — built per supervisor fan-out, not
         pooled. The squadron retains a reference so :meth:`close` shuts
-        down every briefing's HTTP session even if the caller forgets.
+        down every briefing's airframe runtime even if the caller
+        forgets.
         """
+        briefing_runtime, _ = runtime_for_agent(
+            "briefing", agents_config=self._config.agents
+        )
         agent = BriefingAgent(
-            handle=self.handle,
+            runtime=briefing_runtime,
             cwd=str(self._cwd),
-            tier_overrides=self._tier_overrides,
             cost_sink=self._cost_sink,
             agent_name=agent_name,
             result_model=result_model,
@@ -121,14 +127,6 @@ class RefuelSquadron(Squadron):
         if gen is not None:
             yield gen
         yield from self._briefings
-
-    def _declared_bindings(self) -> Iterable[ProviderModel]:
-        seen: set[ProviderModel] = set()
-        for agent_cls in (BriefingAgent, GeneratorAgent, DecomposerAgent):
-            for binding in self._resolved_bindings_for(agent_cls):
-                if binding not in seen:
-                    seen.add(binding)
-                    yield binding
 
 
 __all__ = ["RefuelSquadron"]

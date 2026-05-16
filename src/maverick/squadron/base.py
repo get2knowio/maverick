@@ -1,4 +1,28 @@
-"""``Squadron`` base — substrate lifecycle + agent factory."""
+"""``Squadron`` base — per-workflow agent lifecycle container.
+
+A Squadron owns one set of airframe-backed agents for a single workflow
+run. Subclasses (one per workflow) declare which agents to build in
+:meth:`_build_agents`, calling :func:`runtime_for_agent` for each role.
+Agents own their own :class:`airframe.AgentRuntime` instances — there is
+no shared OpenCode server, no port allocation, no auth password
+juggling, no startup validation pass against a ``/provider`` endpoint.
+
+Pattern D wiring:
+
+* Construct: ``Squadron(cwd=..., config=..., cost_sink=...)``
+* Open: ``async with squadron:`` — builds agents, opens each one.
+* Use: ``squadron.coder_for(...)``, ``squadron.build_briefing_agent(...)``
+  etc., depending on the subclass.
+* Bead boundary: ``with squadron.bead_context(bead_id=..., complexity=...):``
+  then ``await squadron.rotate_for_new_bead()``.
+* Close: ``__aexit__`` calls ``close()`` on every agent, which in turn
+  closes each agent's airframe runtime.
+
+The :func:`maverick.runtime.agent_factory.runtime_for_agent` factory
+dispatches via :func:`airframe.runtime_for`, so a missing
+``[<extra>]`` install surfaces as ``ImportError`` at squadron open
+with the right pip hint, and a typo'd provider as ``ValueError``.
+"""
 
 from __future__ import annotations
 
@@ -11,37 +35,19 @@ from typing import TYPE_CHECKING, Any, Self
 from maverick.agents.base import Agent
 from maverick.agents.context import tagged
 from maverick.logging import get_logger
-from maverick.runtime.opencode import (
-    CostSink,
-    OpenCodeClient,
-    OpenCodeServerHandle,
-    ProviderModel,
-    RuntimeModelNotFoundError,
-    Tier,
-    invalidate_cache,
-    resolve_tier,
-    spawn_opencode_server,
-    validate_model_id,
-)
 
 if TYPE_CHECKING:
     from maverick.config import MaverickConfig
+    from maverick.runtime.opencode import CostSink
 
 logger = get_logger(__name__)
 
 
 class Squadron(abc.ABC):
-    """Base class: owns one OpenCode server + a set of agents.
+    """Base class: owns a set of airframe-backed agents.
 
     Subclasses (one per workflow) declare which agents to build in
     :meth:`_build_agents` and expose them as attributes.
-
-    Path A wiring (current step): the squadron *owns* the server but
-    actors still construct their own agents via the pool registry. The
-    workflow passes ``squadron.handle`` / ``squadron.tier_overrides`` /
-    ``squadron.cost_sink`` into ``actor_pool(...)`` so the existing
-    registry lookups (``opencode_handle_for(self.address)`` etc.) keep
-    working unchanged.
     """
 
     def __init__(
@@ -54,11 +60,6 @@ class Squadron(abc.ABC):
         self._cwd = cwd
         self._config = config
         self._cost_sink = cost_sink
-        self._tier_overrides: dict[str, Tier] = self._build_tier_overrides(config)
-
-        # Set in __aenter__.
-        self._handle: OpenCodeServerHandle | None = None
-        self._owns_handle = False
         self._opened = False
 
     @property
@@ -68,16 +69,6 @@ class Squadron(abc.ABC):
     @property
     def config(self) -> MaverickConfig:
         return self._config
-
-    @property
-    def handle(self) -> OpenCodeServerHandle:
-        if self._handle is None:
-            raise RuntimeError(f"{type(self).__name__} not opened — use `async with squadron:`")
-        return self._handle
-
-    @property
-    def tier_overrides(self) -> dict[str, Tier]:
-        return self._tier_overrides
 
     @property
     def cost_sink(self) -> CostSink | None:
@@ -95,25 +86,22 @@ class Squadron(abc.ABC):
         await self.close()
 
     async def open(self) -> None:
-        """Spawn OpenCode, validate tier bindings, build agents."""
+        """Build the squadron's agents.
+
+        Each agent's airframe runtime is constructed via
+        :func:`runtime_for_agent`. A missing ``agents.<role>`` binding
+        in :class:`MaverickConfig.agents` surfaces here as
+        :class:`ValueError`; a missing adapter SDK surfaces as
+        :class:`ImportError` with the right pip-extra hint.
+        """
         if self._opened:
             return
-        self._handle = await spawn_opencode_server()
-        self._owns_handle = True
-        # Drop any cached provider snapshots from previous runs against
-        # the same base_url before this run validates its bindings.
-        invalidate_cache(self._handle.base_url)
-        try:
-            await self._validate_tier_bindings()
-            await self._build_agents()
-        except BaseException:
-            await self._teardown_handle()
-            raise
+        await self._build_agents()
         self._opened = True
 
     async def close(self) -> None:
-        """Close all agents, then tear down the server."""
-        if not self._opened and self._handle is None:
+        """Close all agents (which in turn closes their airframe runtimes)."""
+        if not self._opened:
             return
         agents = list(self._all_agents())
         for agent in agents:
@@ -126,22 +114,7 @@ class Squadron(abc.ABC):
                     agent=agent.tag,
                     error=str(exc),
                 )
-        await self._teardown_handle()
         self._opened = False
-
-    async def _teardown_handle(self) -> None:
-        handle = self._handle
-        self._handle = None
-        if handle is not None and self._owns_handle:
-            try:
-                await handle.stop()
-            except Exception as exc:  # noqa: BLE001 — teardown must not raise
-                logger.debug(
-                    "squadron.opencode_stop_failed",
-                    squadron=type(self).__name__,
-                    error=str(exc),
-                )
-        self._owns_handle = False
 
     # ------------------------------------------------------------------
     # Bead boundary
@@ -167,11 +140,11 @@ class Squadron(abc.ABC):
             yield
 
     async def rotate_for_new_bead(self) -> None:
-        """Rotate every agent's OpenCode session.
+        """Rotate every agent's session — called between beads.
 
-        Workflows call this between beads; agents that have role-specific
-        rotation behaviour (e.g. the reviewer reset its review-round
-        counter) handle it inside :meth:`Agent.rotate_session`.
+        Each agent's :meth:`Agent.rotate_session` resets its airframe
+        runtime's scope; runtime-wide resources (HTTP clients,
+        subprocess pools) survive.
         """
         for agent in self._all_agents():
             try:
@@ -195,98 +168,6 @@ class Squadron(abc.ABC):
     @abc.abstractmethod
     def _all_agents(self) -> Iterable[Agent]:
         """Iterate every live agent — used for rotate / teardown."""
-
-    @abc.abstractmethod
-    def _declared_bindings(self) -> Iterable[ProviderModel]:
-        """Every (provider, model) binding the squadron will exercise.
-
-        Used at startup to pre-validate against the live OpenCode
-        server's ``/provider`` endpoint, collapsing the silent
-        bad-modelID landmine to one place.
-        """
-
-    # ------------------------------------------------------------------
-    # Helpers
-    # ------------------------------------------------------------------
-
-    def _build_tier_overrides(self, config: MaverickConfig) -> dict[str, Tier]:
-        """Pull tier overrides out of :class:`ProviderTiersConfig`.
-
-        Normalises the on-disk shape (``{tier_name: [ProviderModelEntry, ...]}``)
-        to the runtime's ``{tier_name: Tier}`` dict consumed directly by
-        :func:`resolve_tier` and the agent cascade.
-        """
-        provider_tiers = getattr(config, "provider_tiers", None)
-        if provider_tiers is None:
-            return {}
-        tiers = getattr(provider_tiers, "tiers", None)
-        if not tiers:
-            return {}
-        out: dict[str, Tier] = {}
-        for tier_name, entries in tiers.items():
-            bindings = tuple(ProviderModel(entry.provider, entry.model_id) for entry in entries)
-            if bindings:
-                out[tier_name] = Tier(name=tier_name, bindings=bindings)
-        return out
-
-    async def _validate_tier_bindings(self) -> None:
-        """Validate every declared binding against the live server.
-
-        Runs against the just-spawned server so a typo'd model ID in
-        ``maverick.yaml`` (the silent bad-modelID landmine) fails fast
-        at workflow start instead of mid-run.
-
-        A binding whose **provider** isn't connected on this server is
-        not an error — that's a legitimate cascade scenario (e.g.
-        ``opencode-go`` configured by default but not authenticated in
-        the local dev environment). The cascade will skip it at first
-        send. We only raise when the provider IS connected but the
-        model ID isn't listed under it.
-        """
-        if self._handle is None:
-            return
-        bindings = list(self._declared_bindings())
-        if not bindings:
-            return
-        seen: set[ProviderModel] = set()
-        client = OpenCodeClient(
-            base_url=self._handle.base_url,
-            password=self._handle.password,
-        )
-        try:
-            for binding in bindings:
-                if binding in seen:
-                    continue
-                seen.add(binding)
-                try:
-                    await validate_model_id(client, binding.provider_id, binding.model_id)
-                except RuntimeModelNotFoundError as exc:
-                    body = getattr(exc, "body", None) or {}
-                    if "model_id" in body:
-                        raise
-                    logger.info(
-                        "squadron.binding_skipped",
-                        provider_id=binding.provider_id,
-                        model_id=binding.model_id,
-                        reason="provider_not_connected",
-                    )
-        finally:
-            await client.aclose()
-
-    def _resolved_bindings_for(self, agent_cls: type[Agent]) -> tuple[ProviderModel, ...]:
-        """Resolve a tier name to the bindings the cascade will try.
-
-        Subclass helper. Honours :attr:`Squadron.tier_overrides` so user
-        config is reflected in the validation pass.
-        """
-        tier_name = getattr(agent_cls, "provider_tier", None)
-        if not tier_name:
-            return ()
-        try:
-            tier = resolve_tier(tier_name, override=self._tier_overrides)
-        except KeyError:
-            return ()
-        return tuple(tier.bindings)
 
 
 __all__ = ["Squadron"]

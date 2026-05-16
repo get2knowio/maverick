@@ -752,8 +752,11 @@ class MaverickConfig(BaseSettings):
             env_settings,  # Environment variables (highest priority)
             # Project config
             YamlConfigSource(settings_cls, project_config_path),
-            # User config (lowest)
+            # User config
             YamlConfigSource(settings_cls, user_config_path),
+            # Constructor kwargs (lowest) — required so tests + direct
+            # callers can pass overrides like ``MaverickConfig(agents=...)``.
+            init_settings,
         )
 
 

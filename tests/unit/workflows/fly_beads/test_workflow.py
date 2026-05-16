@@ -21,8 +21,18 @@ _REQUIRES_OPENCODE = pytest.mark.skipif(
 
 
 def _make_workflow() -> FlyBeadsWorkflow:
+    from maverick.config import AgentBindingConfig, AgentsConfig
+
     config = MagicMock(spec=MaverickConfig)
     config.model = ModelConfig()
+    binding = AgentBindingConfig(provider="claude", model_id="claude-sonnet-4-6")
+    config.agents = AgentsConfig(
+        implement=binding,
+        review=binding,
+        briefing=binding,
+        decompose=binding,
+        generate=binding,
+    )
     config.actors = {
         "fly": {
             "implementer": {
@@ -120,13 +130,23 @@ class TestFlyBeadsWorkflowXoscarConfig:
         config to the supervisor instead of letting reviewer inherit the
         implementer's config."""
         from maverick.config import (
+            AgentBindingConfig,
             AgentProviderConfig,
+            AgentsConfig,
             MaverickConfig,
             ModelConfig,
         )
 
         config = MagicMock(spec=MaverickConfig)
         config.model = ModelConfig()
+        binding = AgentBindingConfig(provider="claude", model_id="claude-sonnet-4-6")
+        config.agents = AgentsConfig(
+            implement=binding,
+            review=binding,
+            briefing=binding,
+            decompose=binding,
+            generate=binding,
+        )
         config.actors = {
             "fly": {
                 "implementer": {

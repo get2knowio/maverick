@@ -12,29 +12,35 @@ import pytest
 
 @contextmanager
 def stub_squadron_io() -> Any:
-    """Bypass real OpenCode spawn/validate for unit-level workflow tests.
+    """Bypass real airframe runtime construction for unit-level workflow tests.
 
-    Workflows now wrap ``actor_pool`` with a ``Squadron`` that spawns
-    one ``opencode serve`` and validates every tier binding against
-    ``GET /provider`` at startup. Pure-unit workflow tests don't want
-    that — they care about supervisor inputs, not substrate. This
-    helper short-circuits both calls.
+    Pattern D squadrons construct one :class:`airframe.AgentRuntime` per
+    agent role via :func:`airframe.runtime_for`. Pure-unit workflow
+    tests don't want to pull in real adapter SDKs — they care about
+    supervisor inputs, not substrate. This helper substitutes a
+    minimal stub class for whatever provider the factory dispatches to.
     """
-    fake_handle = MagicMock(base_url="http://fake-opencode", password="x")
-    fake_handle.stop = AsyncMock(return_value=None)
+
+    class _StubRuntime:
+        label = "stub"
+
+        def __init__(self, *_args: Any, **_kwargs: Any) -> None:
+            pass
+
+        async def reset(self) -> None:
+            return None
+
+        async def close(self) -> None:
+            return None
+
+        async def execute(self, *_args: Any, **_kwargs: Any) -> Any:
+            raise NotImplementedError("stub")
+
+    def _stub_runtime_for(_provider_id: str) -> type[_StubRuntime]:
+        return _StubRuntime
+
     with ExitStack() as stack:
-        stack.enter_context(
-            patch(
-                "maverick.squadron.base.spawn_opencode_server",
-                new=AsyncMock(return_value=fake_handle),
-            )
-        )
-        stack.enter_context(
-            patch(
-                "maverick.squadron.base.validate_model_id",
-                new=AsyncMock(return_value=None),
-            )
-        )
+        stack.enter_context(patch("airframe.runtime_for", new=_stub_runtime_for))
         yield
 
 
@@ -74,12 +80,30 @@ def _make_concrete_workflow_class() -> type:
 
 @pytest.fixture
 def mock_config() -> MagicMock:
-    """Return a MagicMock with spec=MaverickConfig providing steps/model/parallel."""
-    from maverick.config import MaverickConfig, ModelConfig, ParallelConfig
+    """Return a MagicMock with spec=MaverickConfig providing steps/model/parallel.
+
+    The ``agents:`` field is a real :class:`AgentsConfig` with every role
+    populated — the squadron's :meth:`open` requires bindings to construct
+    airframe runtimes via :func:`runtime_for_agent`.
+    """
+    from maverick.config import (
+        AgentBindingConfig,
+        AgentsConfig,
+        MaverickConfig,
+        ModelConfig,
+        ParallelConfig,
+    )
 
     cfg = MagicMock(spec=MaverickConfig)
     cfg.steps = {}
-    cfg.agents = {}
+    binding = AgentBindingConfig(provider="claude", model_id="claude-sonnet-4-6")
+    cfg.agents = AgentsConfig(
+        implement=binding,
+        review=binding,
+        briefing=binding,
+        decompose=binding,
+        generate=binding,
+    )
     cfg.actors = {}
     cfg.agent_providers = {}
     cfg.model = ModelConfig()
