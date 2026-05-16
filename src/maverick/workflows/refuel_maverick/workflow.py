@@ -122,7 +122,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
     Pipeline:
     1. parse_flight_plan - Parse flight plan file via FlightPlanFile.aload()
     2. gather_context - Read in-scope files from codebase
-    3. decompose - Agent decomposes flight plan into work units (via StepExecutor)
+    3. decompose - Agent decomposes flight plan into work units
     4. validate - Validate dependency graph (acyclic), unique IDs, SC coverage
     5. write_work_units - Write work unit files to .maverick/plans/<name>/
     6. create_beads - Create epic + task beads via BeadClient
