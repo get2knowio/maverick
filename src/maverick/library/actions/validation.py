@@ -342,10 +342,10 @@ async def _invoke_fixer_agent(
         config = load_config()
         runtime, _ = runtime_for_agent("implement", agents_config=config.agents)
         async with ValidationFixerAgent(runtime=runtime, cwd=str(cwd)) as agent:
-            payload = await agent.fix(fix_prompt)
+            changes = await agent.fix(fix_prompt)
         return {
-            "success": payload.success,
-            "changes_made": payload.changes_made or "Fix applied",
+            "success": True,
+            "changes_made": changes.strip() or "Fix applied",
         }
 
     except ImportError as e:

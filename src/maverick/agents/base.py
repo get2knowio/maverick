@@ -186,6 +186,39 @@ class Agent:
         self._emit_cost(result.cost)
         return payload
 
+    async def _execute_text_via_runtime(
+        self,
+        prompt: str,
+        *,
+        timeout: float = DEFAULT_TEXT_TIMEOUT_SECONDS,
+    ) -> str:
+        """Run a prompt through the airframe runtime in plain-text mode.
+
+        For personas that genuinely return free-form text (consolidator,
+        validation-fixer, runway-seed, verification-properties), or that
+        return a "done" signal only — wrapping their response in a
+        throwaway one-field Pydantic schema buys no validation. Plain-text
+        mode (airframe v0.3+) returns ``result.text`` directly.
+
+        Captures the cost record + emits the ``agent.cost`` row exactly
+        like the structured path. Empty text is a legitimate outcome
+        (e.g. a tool-only turn that wrote files and finished); callers
+        decide whether empty means failure.
+        """
+        from maverick.agents.system_prompts import load_persona_system_prompt
+
+        persona = self._persona_name_instance or self.persona_name
+        result = await self._runtime.execute(
+            prompt,
+            schema=None,
+            persona=persona,
+            system=load_persona_system_prompt(persona),
+            timeout=timeout,
+        )
+        self._last_cost_record = result.cost
+        self._emit_cost(result.cost)
+        return result.text
+
     # ------------------------------------------------------------------
     # Schema resolution
     # ------------------------------------------------------------------

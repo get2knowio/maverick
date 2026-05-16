@@ -260,12 +260,12 @@ async def _synthesize_summary(
     runtime, _ = runtime_for_agent("briefing", agents_config=config.agents)
     try:
         async with ConsolidatorAgent(runtime=runtime, cwd=str(store.path)) as agent:
-            payload = await agent.consolidate(user_prompt)
+            raw = await agent.consolidate(user_prompt)
     except Exception as exc:
         logger.warning("consolidator_execution_failed", error=str(exc))
         return False
 
-    summary = payload.summary_markdown.strip()
+    summary = _parse_consolidated_summary(raw)
     if not summary:
         logger.warning("consolidator_empty_output")
         return False

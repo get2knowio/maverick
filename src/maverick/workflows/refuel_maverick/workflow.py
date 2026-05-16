@@ -389,8 +389,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
                     async with VerificationPropertiesAgent(
                         runtime=runtime, cwd=str(ws_cwd)
                     ) as agent:
-                        vp_payload = await agent.derive(vp_prompt)
-                    vp_text = vp_payload.verification_code
+                        vp_text = await agent.derive(vp_prompt)
                 except Exception as vp_exec_err:
                     logger.debug(
                         "vp_executor_failed",
