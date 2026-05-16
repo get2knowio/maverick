@@ -21,7 +21,7 @@ class GeneratorAgent(Agent):
 
     result_model: ClassVar[type[SubmitFlightPlanPayload]] = SubmitFlightPlanPayload
     provider_tier: ClassVar[str] = "generate"
-    opencode_agent: ClassVar[str | None] = "maverick.generator"
+    persona_name: ClassVar[str | None] = "maverick.generator"
 
     def __init__(
         self,

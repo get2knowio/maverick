@@ -11,7 +11,7 @@ from airframe.errors import RuntimeStructuredOutputError
 from airframe.protocol import RuntimeResult
 from pydantic import BaseModel
 
-from maverick.agents.briefing.agent import BriefingAgent, opencode_agent_for
+from maverick.agents.briefing.agent import BriefingAgent, persona_name_for_briefing
 
 
 class _NavigatorPayload(BaseModel):
@@ -93,9 +93,9 @@ async def test_per_instance_schema_used_in_execute() -> None:
     assert runtime.execute.await_args.kwargs["schema"] is _NavigatorPayload
 
 
-def test_opencode_agent_for_known_and_unknown() -> None:
-    assert opencode_agent_for("navigator") == "maverick.navigator"
-    assert opencode_agent_for("nonexistent") is None
+def test_persona_name_for_briefing_known_and_unknown() -> None:
+    assert persona_name_for_briefing("navigator") == "maverick.navigator"
+    assert persona_name_for_briefing("nonexistent") is None
 
 
 async def test_brief_raises_on_missing_structured_payload() -> None:

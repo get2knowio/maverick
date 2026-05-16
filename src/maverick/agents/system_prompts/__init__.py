@@ -32,7 +32,7 @@ def load_persona_system_prompt(name: str | None) -> str | None:
     ``name`` is the bundled-persona label (``"maverick.consolidator"``,
     ``"maverick.implementer"``, etc.) carried on each
     :class:`maverick.agents.base.Agent` subclass via its
-    ``opencode_agent`` class var.
+    ``persona_name`` class var.
 
     A missing file is not an error — returning ``None`` lets the agent
     fall back to no system prompt rather than crashing on a typo or a

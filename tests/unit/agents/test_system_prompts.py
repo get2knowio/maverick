@@ -131,7 +131,7 @@ async def test_execute_passes_system_none_for_unknown_persona() -> None:
     runtime = _make_runtime()
     agent = CodingAgent(runtime=runtime, cwd="/tmp")
     # Override the class-var to something unmapped.
-    agent._opencode_agent_instance = "maverick.does-not-exist"  # noqa: SLF001
+    agent._persona_name_instance = "maverick.does-not-exist"  # noqa: SLF001
     async with agent:
         await agent.implement("x")
     assert runtime.execute.await_args.kwargs.get("system") is None

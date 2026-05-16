@@ -51,7 +51,7 @@ class ReviewerActor(xo.Actor):
         *,
         cwd: str,
         config: StepConfig | dict[str, Any] | None = None,
-        opencode_agent: str = "maverick.correctness-reviewer",
+        persona_name: str = "maverick.correctness-reviewer",
         review_kind: ReviewKind = "correctness",
         agent: ReviewerAgent | None = None,
     ) -> None:
@@ -66,7 +66,7 @@ class ReviewerActor(xo.Actor):
         self._supervisor_ref = supervisor_ref
         self._cwd = cwd
         self._step_config = load_step_config(config)
-        self._opencode_agent_name = opencode_agent
+        self._persona_name = persona_name
         self._review_kind: ReviewKind = review_kind
         # Pre-built agent provided by the squadron (when wired). When None,
         # ``_make_agent`` falls back to constructing one from the pool
@@ -96,7 +96,7 @@ class ReviewerActor(xo.Actor):
             runtime=runtime,
             cwd=self._cwd,
             review_kind=self._review_kind,
-            opencode_agent=self._opencode_agent_name,
+            persona_name=self._persona_name,
             step_config=self._step_config,
             cost_sink=cost_sink_for(pool_address),
             tag=f"reviewer[{self.uid.decode()}]",

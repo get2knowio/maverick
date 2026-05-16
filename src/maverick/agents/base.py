@@ -66,8 +66,8 @@ class Agent:
     # Optional persona passed through to airframe-runtime adapters that
     # honour it (Claude Code's bundled agents, OpenCode personas).
     # Subclasses that vary the persona per instance pass
-    # ``opencode_agent=...`` to ``__init__`` instead.
-    opencode_agent: ClassVar[str | None] = None
+    # ``persona_name=...`` to ``__init__`` instead.
+    persona_name: ClassVar[str | None] = None
 
     def __init__(
         self,
@@ -77,7 +77,7 @@ class Agent:
         step_config: Any = None,
         cost_sink: CostSink | None = None,
         tag: str | None = None,
-        opencode_agent: str | None = None,
+        persona_name: str | None = None,
         result_model: type[BaseModel] | None = None,
     ) -> None:
         if not cwd:
@@ -92,7 +92,7 @@ class Agent:
 
         # Per-instance overrides for schema / persona.
         self._result_model_instance: type[BaseModel] | None = result_model
-        self._opencode_agent_instance: str | None = opencode_agent
+        self._persona_name_instance: str | None = persona_name
 
         # Last cost record observed from the runtime; populated on every
         # successful execute. Cleared by :meth:`rotate_session`.
@@ -160,7 +160,7 @@ class Agent:
         from maverick.agents.system_prompts import load_persona_system_prompt
 
         target = schema or self._effective_result_model()
-        persona = self._opencode_agent_instance or self.opencode_agent
+        persona = self._persona_name_instance or self.persona_name
         result = await self._runtime.execute(
             prompt,
             schema=target,

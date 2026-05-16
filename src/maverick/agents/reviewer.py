@@ -34,7 +34,7 @@ class ReviewerAgent(Agent):
 
     result_model: ClassVar[type[SubmitReviewPayload]] = SubmitReviewPayload
     provider_tier: ClassVar[str] = "review"
-    # opencode_agent is per-instance (correctness vs completeness).
+    # persona_name is per-instance (correctness vs completeness).
 
     def __init__(
         self,
@@ -42,7 +42,7 @@ class ReviewerAgent(Agent):
         runtime: AgentRuntime,
         cwd: str,
         review_kind: ReviewKind,
-        opencode_agent: str,
+        persona_name: str,
         step_config: StepConfig | dict[str, Any] | None = None,
         cost_sink: CostSink | None = None,
         tag: str | None = None,
@@ -58,7 +58,7 @@ class ReviewerAgent(Agent):
             step_config=step_config,
             cost_sink=cost_sink,
             tag=tag or f"reviewer.{review_kind}",
-            opencode_agent=opencode_agent,
+            persona_name=persona_name,
         )
         self._review_kind: ReviewKind = review_kind
         self._review_count = 0

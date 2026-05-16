@@ -35,7 +35,7 @@ class CodingAgent(Agent):
     # Default schema; ``fix`` overrides per call.
     result_model: ClassVar[type[BaseModel]] = SubmitImplementationPayload
     provider_tier: ClassVar[str] = "implement"
-    opencode_agent: ClassVar[str | None] = "maverick.implementer"
+    persona_name: ClassVar[str | None] = "maverick.implementer"
 
     def __init__(
         self,

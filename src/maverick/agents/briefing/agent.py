@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 BRIEFING_TIMEOUT_SECONDS = 1200
 
 # Map the in-process agent label to the bundled OpenCode persona file.
-OPENCODE_AGENT_MAP: dict[str, str] = {
+BRIEFING_PERSONA_MAP: dict[str, str] = {
     "navigator": "maverick.navigator",
     "structuralist": "maverick.structuralist",
     "recon": "maverick.recon",
@@ -35,13 +35,13 @@ OPENCODE_AGENT_MAP: dict[str, str] = {
 }
 
 
-def opencode_agent_for(agent_name: str) -> str | None:
+def persona_name_for_briefing(agent_name: str) -> str | None:
     """Map an agent label (``"navigator"``) to its bundled persona name.
 
     Returns ``None`` for unmapped names so the runtime falls back to its
     default persona rather than silently routing to the wrong system prompt.
     """
-    return OPENCODE_AGENT_MAP.get(agent_name)
+    return BRIEFING_PERSONA_MAP.get(agent_name)
 
 
 class BriefingAgent(Agent):
@@ -67,7 +67,7 @@ class BriefingAgent(Agent):
             step_config=step_config,
             cost_sink=cost_sink,
             tag=tag or f"briefing.{agent_name}",
-            opencode_agent=opencode_agent_for(agent_name),
+            persona_name=persona_name_for_briefing(agent_name),
             result_model=result_model,
         )
         self._agent_name = agent_name
@@ -90,7 +90,7 @@ class BriefingAgent(Agent):
 
 __all__ = [
     "BRIEFING_TIMEOUT_SECONDS",
-    "OPENCODE_AGENT_MAP",
+    "BRIEFING_PERSONA_MAP",
     "BriefingAgent",
-    "opencode_agent_for",
+    "persona_name_for_briefing",
 ]

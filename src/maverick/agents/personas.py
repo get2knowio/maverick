@@ -57,7 +57,7 @@ class ConsolidatorAgent(Agent):
         SubmitConsolidatedSummaryPayload
     )
     provider_tier: ClassVar[str] = "briefing"
-    opencode_agent: ClassVar[str | None] = "maverick.consolidator"
+    persona_name: ClassVar[str | None] = "maverick.consolidator"
 
     def __init__(
         self,
@@ -80,7 +80,7 @@ class ValidationFixerAgent(Agent):
 
     result_model: ClassVar[type[SubmitFixOutcomePayload]] = SubmitFixOutcomePayload
     provider_tier: ClassVar[str] = "implement"
-    opencode_agent: ClassVar[str | None] = "maverick.validation-fixer"
+    persona_name: ClassVar[str | None] = "maverick.validation-fixer"
 
     def __init__(
         self,
@@ -103,7 +103,7 @@ class RunwaySeedAgent(Agent):
 
     result_model: ClassVar[type[SubmitSeedOutcomePayload]] = SubmitSeedOutcomePayload
     provider_tier: ClassVar[str] = "briefing"
-    opencode_agent: ClassVar[str | None] = "maverick.runway-seed"
+    persona_name: ClassVar[str | None] = "maverick.runway-seed"
 
     def __init__(
         self,
@@ -128,7 +128,7 @@ class CuratorAgent(Agent):
 
     result_model: ClassVar[type[SubmitCurationPlanPayload]] = SubmitCurationPlanPayload
     provider_tier: ClassVar[str] = "review"
-    opencode_agent: ClassVar[str | None] = "maverick.curator"
+    persona_name: ClassVar[str | None] = "maverick.curator"
 
     def __init__(
         self,
@@ -153,7 +153,7 @@ class VerificationPropertiesAgent(Agent):
         SubmitVerificationPropertiesPayload
     )
     provider_tier: ClassVar[str] = "generate"
-    opencode_agent: ClassVar[str | None] = "maverick.flight-plan-generator"
+    persona_name: ClassVar[str | None] = "maverick.flight-plan-generator"
 
     def __init__(
         self,

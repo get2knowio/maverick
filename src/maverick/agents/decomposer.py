@@ -40,7 +40,7 @@ class DecomposerAgent(Agent):
 
     result_model: ClassVar[type[BaseModel]] = SubmitOutlinePayload
     provider_tier: ClassVar[str] = "decompose"
-    opencode_agent: ClassVar[str | None] = "maverick.decomposer"
+    persona_name: ClassVar[str | None] = "maverick.decomposer"
 
     def __init__(
         self,

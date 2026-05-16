@@ -145,7 +145,7 @@ class FlySquadron(Squadron):
             cost_sink=self._cost_sink,
             step_config=step_config,
             review_kind="correctness",
-            opencode_agent="maverick.correctness-reviewer",
+            persona_name="maverick.correctness-reviewer",
             tag=f"correctness-reviewer{suffix}",
         )
         self.completeness_reviewers[tier_name] = ReviewerAgent(
@@ -154,7 +154,7 @@ class FlySquadron(Squadron):
             cost_sink=self._cost_sink,
             step_config=step_config,
             review_kind="completeness",
-            opencode_agent="maverick.completeness-reviewer",
+            persona_name="maverick.completeness-reviewer",
             tag=f"completeness-reviewer{suffix}",
         )
 

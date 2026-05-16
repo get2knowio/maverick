@@ -67,13 +67,13 @@ def _make_agent(
     runtime: Any,
     *,
     review_kind: str = "correctness",
-    opencode_agent: str = "maverick.correctness-reviewer",
+    persona_name: str = "maverick.correctness-reviewer",
 ) -> ReviewerAgent:
     return ReviewerAgent(
         runtime=runtime,
         cwd="/tmp",
         review_kind=review_kind,  # type: ignore[arg-type]
-        opencode_agent=opencode_agent,
+        persona_name=persona_name,
     )
 
 
@@ -155,7 +155,7 @@ async def test_aggregate_rotates_session_first() -> None:
     async with _make_agent(
         runtime,
         review_kind="completeness",
-        opencode_agent="maverick.completeness-reviewer",
+        persona_name="maverick.completeness-reviewer",
     ) as agent:
         await agent.review(
             bead_description="bead",
@@ -178,7 +178,7 @@ async def test_review_kind_validation() -> None:
             runtime=MagicMock(),
             cwd="/tmp",
             review_kind="bogus",  # type: ignore[arg-type]
-            opencode_agent="x",
+            persona_name="x",
         )
 
 
@@ -187,7 +187,7 @@ async def test_persona_forwarded_in_send() -> None:
     async with _make_agent(
         runtime,
         review_kind="completeness",
-        opencode_agent="maverick.completeness-reviewer",
+        persona_name="maverick.completeness-reviewer",
     ) as agent:
         await agent.review(
             bead_description="bead",
