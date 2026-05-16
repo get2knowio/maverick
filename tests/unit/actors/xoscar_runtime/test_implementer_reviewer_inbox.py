@@ -1,10 +1,15 @@
-"""Tests for ImplementerActor + ReviewerActor under the OpenCode runtime.
+"""Tests for ImplementerActor + ReviewerActor (airframe-stub injection path).
 
 Exercises the supervisor-facing contract (``implementation_ready``,
 ``fix_result_ready``, ``review_ready``, ``payload_parse_error``,
-``prompt_error``) without spawning a real OpenCode subprocess. The mixin's
-client construction is overridden via a ``_PatchedActor`` subclass so we
-can script exact :class:`SendResult` instances per send.
+``prompt_error``) by injecting a stub :class:`StubCodingAgent` /
+:class:`StubReviewerAgent` via the actor's ``agent=`` constructor
+parameter — no OpenCode subprocess, no airframe SDK adapter, no HTTP
+transport.
+
+The shared :func:`pool_address` fixture (see ``conftest.py``) provides
+a torn-down-on-exit xoscar pool. Tests register ``__pre_destroy__``-
+sensitive actors and destroy them explicitly via :func:`xo.destroy_actor`.
 """
 
 from __future__ import annotations
@@ -14,6 +19,7 @@ from typing import Any
 
 import pytest
 import xoscar as xo
+from airframe.errors import RuntimeAuthError
 
 from maverick.actors.xoscar.implementer import ImplementerActor
 from maverick.actors.xoscar.messages import (
@@ -21,51 +27,21 @@ from maverick.actors.xoscar.messages import (
     ImplementRequest,
     NewBeadRequest,
     PromptError,
+    ReviewRequest,
 )
 from maverick.actors.xoscar.pool import create_pool
 from maverick.actors.xoscar.reviewer import ReviewerActor
-from maverick.agents.coding import CodingAgent
-from maverick.agents.reviewer import ReviewerAgent
 from maverick.payloads import (
     SubmitFixResultPayload,
     SubmitImplementationPayload,
     SubmitReviewPayload,
 )
-from maverick.runtime.opencode import (
-    OpenCodeServerHandle,
-    RuntimeAuthError,
-    SendResult,
-    invalidate_cache,
-    opencode_handle_for,
-    register_opencode_handle,
-    unregister_opencode_handle,
-)
-
-
-class _FakeProcess:
-    pid = 0
-    returncode = 0
-
-    def terminate(self) -> None:
-        pass
-
-    def kill(self) -> None:
-        pass
-
-    async def wait(self) -> int:
-        return 0
-
-
-def _fake_handle() -> OpenCodeServerHandle:
-    return OpenCodeServerHandle(
-        base_url="http://fake-opencode",
-        password="fake",
-        pid=0,
-        _process=_FakeProcess(),  # type: ignore[arg-type]
-    )
+from tests.unit.agents.airframe_stubs import StubCodingAgent, StubReviewerAgent
 
 
 class _SupervisorRecorder(xo.Actor):
+    """Captures every supervisor-bound call for later assertion."""
+
     async def __post_create__(self) -> None:
         self._calls: list[tuple[str, Any]] = []
 
@@ -78,10 +54,6 @@ class _SupervisorRecorder(xo.Actor):
         self._calls.append(("fix_result_ready", payload.model_dump()))
 
     @xo.no_lock
-    async def review_ready(self, payload: SubmitReviewPayload) -> None:
-        self._calls.append(("review_ready", payload.model_dump()))
-
-    @xo.no_lock
     async def correctness_review_ready(self, payload: SubmitReviewPayload) -> None:
         self._calls.append(("correctness_review_ready", payload.model_dump()))
 
@@ -90,12 +62,8 @@ class _SupervisorRecorder(xo.Actor):
         self._calls.append(("completeness_review_ready", payload.model_dump()))
 
     @xo.no_lock
-    async def aggregate_review_ready(self, payload: SubmitReviewPayload) -> None:
-        self._calls.append(("aggregate_review_ready", payload.model_dump()))
-
-    @xo.no_lock
-    async def payload_parse_error(self, tool: str, message: str) -> None:
-        self._calls.append(("payload_parse_error", (tool, message)))
+    async def review_ready(self, payload: SubmitReviewPayload) -> None:
+        self._calls.append(("review_ready", payload.model_dump()))
 
     @xo.no_lock
     async def prompt_error(self, error: PromptError) -> None:
@@ -116,149 +84,18 @@ class _SupervisorRecorder(xo.Actor):
         return list(self._calls)
 
 
-class _StubClient:
-    """Programmable OpenCode client stub.
-
-    ``send_results`` is consumed in order; the first send pops the head.
-    A ``send_error`` short-circuits with the named exception.
-    """
-
-    def __init__(
-        self,
-        *,
-        send_results: list[SendResult] | None = None,
-        send_error: BaseException | None = None,
-    ) -> None:
-        self._send_results = list(send_results or [])
-        self._send_error = send_error
-        self.created_sessions: list[str | None] = []
-        self.deleted_sessions: list[str] = []
-        self.send_calls: list[dict[str, Any]] = []
-        self.closed = False
-
-    @property
-    def base_url(self) -> str:
-        return "http://stub"
-
-    async def list_providers(self) -> dict[str, Any]:
-        return {"all": [], "connected": []}
-
-    async def create_session(self, *, title: str | None = None, **_: Any) -> str:
-        sid = f"ses_{len(self.created_sessions)}"
-        self.created_sessions.append(title)
-        return sid
-
-    async def delete_session(self, session_id: str) -> bool:
-        self.deleted_sessions.append(session_id)
-        return True
-
-    async def send_with_event_watch(
-        self,
-        session_id: str,
-        content: str,
-        **kwargs: Any,
-    ) -> SendResult:
-        self.send_calls.append(
-            {
-                "session_id": session_id,
-                "content": content,
-                "format": kwargs.get("format"),
-                "model": kwargs.get("model"),
-            }
-        )
-        if self._send_error is not None:
-            raise self._send_error
-        if not self._send_results:
-            return SendResult(message={}, text="", structured=None, valid=False)
-        return self._send_results.pop(0)
-
-    async def aclose(self) -> None:
-        self.closed = True
-
-
-class _PatchedImplementer(ImplementerActor):
-    """Implementer whose agent wires up an in-process stub client."""
-
-    def __init__(
-        self,
-        supervisor_ref: xo.ActorRef,
-        *,
-        cwd: str = "/tmp",
-        send_results: list[SendResult] | None = None,
-        send_error: BaseException | None = None,
-    ) -> None:
-        super().__init__(supervisor_ref, cwd=cwd)
-        self._stub_send_results = send_results
-        self._stub_send_error = send_error
-        self.stub_client: _StubClient | None = None
-
-    def _make_agent(self) -> CodingAgent:  # type: ignore[override]
-        self.stub_client = _StubClient(
-            send_results=self._stub_send_results, send_error=self._stub_send_error
-        )
-        agent = CodingAgent(
-            handle=opencode_handle_for(self.address),
-            cwd=self._cwd,
-            client_factory=lambda: self.stub_client,
-        )
-        # Bypass tier cascade — these tests don't ship a /provider response.
-        agent.provider_tier = None  # type: ignore[assignment]
-        return agent
-
-    async def get_send_calls(self) -> list[dict[str, Any]]:
-        return list(self.stub_client.send_calls) if self.stub_client else []
-
-
-class _PatchedReviewer(ReviewerActor):
-    def __init__(
-        self,
-        supervisor_ref: xo.ActorRef,
-        *,
-        cwd: str = "/tmp",
-        send_results: list[SendResult] | None = None,
-        send_error: BaseException | None = None,
-    ) -> None:
-        super().__init__(supervisor_ref, cwd=cwd)
-        self._stub_send_results = send_results
-        self._stub_send_error = send_error
-        self.stub_client: _StubClient | None = None
-
-    def _make_agent(self) -> ReviewerAgent:  # type: ignore[override]
-        self.stub_client = _StubClient(
-            send_results=self._stub_send_results, send_error=self._stub_send_error
-        )
-        agent = ReviewerAgent(
-            handle=opencode_handle_for(self.address),
-            cwd=self._cwd,
-            review_kind=self._review_kind,
-            opencode_agent=self._opencode_agent_name,
-            client_factory=lambda: self.stub_client,
-        )
-        # Bypass tier cascade — these tests don't ship a /provider response.
-        agent.provider_tier = None  # type: ignore[assignment]
-        return agent
-
-
 @pytest.fixture
-async def actor_pool_address() -> AsyncIterator[str]:
-    invalidate_cache()
+async def pool_address() -> AsyncIterator[str]:
+    """Yield a torn-down-on-exit xoscar pool address.
+
+    Pattern D: no OpenCode handle to register — the stubbed agent
+    bypasses every runtime concern.
+    """
     pool, address = await create_pool()
-    register_opencode_handle(address, _fake_handle())
     try:
         yield address
     finally:
-        unregister_opencode_handle(address)
         await pool.stop()
-
-
-def _structured(payload: dict[str, Any]) -> SendResult:
-    return SendResult(
-        message={"info": {"structured": payload}, "parts": []},
-        text="",
-        structured=payload,
-        valid=True,
-        info={},
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -266,20 +103,17 @@ def _structured(payload: dict[str, Any]) -> SendResult:
 # ---------------------------------------------------------------------------
 
 
-async def test_implementer_forwards_submit_implementation(actor_pool_address: str) -> None:
-    address = actor_pool_address
-    sup = await xo.create_actor(_SupervisorRecorder, address=address, uid="sup-1")
-    impl_payload = {
-        "summary": "implemented",
-        "files_changed": [],
-        "tests_added": [],
-    }
+async def test_implementer_forwards_submit_implementation(pool_address: str) -> None:
+    """implement() success path: payload reaches supervisor.implementation_ready."""
+    sup = await xo.create_actor(_SupervisorRecorder, address=pool_address, uid="sup-1")
+    payload = SubmitImplementationPayload(summary="implemented")
+    coder = StubCodingAgent(implement_payloads=[payload])
     impl = await xo.create_actor(
-        _PatchedImplementer,
+        ImplementerActor,
         sup,
         cwd="/tmp",
-        send_results=[_structured(impl_payload)],
-        address=address,
+        agent=coder,
+        address=pool_address,
         uid="impl-1",
     )
     try:
@@ -287,29 +121,24 @@ async def test_implementer_forwards_submit_implementation(actor_pool_address: st
         calls = await sup.get_calls()
         assert any(name == "implementation_ready" for name, _ in calls)
         assert not any(name == "prompt_error" for name, _ in calls)
-        # The send was framed with a json_schema format
-        send_calls = await impl.get_send_calls()
-        fmt = send_calls[0]["format"]
-        assert fmt is not None and fmt["type"] == "json_schema"
+        # The agent saw the prompt verbatim.
+        assert coder.calls == [("implement", {"prompt": "implement x"})]
     finally:
         await xo.destroy_actor(impl)
         await xo.destroy_actor(sup)
 
 
-async def test_implementer_forwards_submit_fix_result(actor_pool_address: str) -> None:
-    address = actor_pool_address
-    sup = await xo.create_actor(_SupervisorRecorder, address=address, uid="sup-2")
-    fix_payload = {
-        "summary": "fixed",
-        "files_changed": [],
-        "addressed_findings": [],
-    }
+async def test_implementer_forwards_submit_fix_result(pool_address: str) -> None:
+    """fix() success path: payload reaches supervisor.fix_result_ready."""
+    sup = await xo.create_actor(_SupervisorRecorder, address=pool_address, uid="sup-2")
+    payload = SubmitFixResultPayload(summary="fixed")
+    coder = StubCodingAgent(fix_payloads=[payload])
     impl = await xo.create_actor(
-        _PatchedImplementer,
+        ImplementerActor,
         sup,
         cwd="/tmp",
-        send_results=[_structured(fix_payload)],
-        address=address,
+        agent=coder,
+        address=pool_address,
         uid="impl-2",
     )
     try:
@@ -321,17 +150,17 @@ async def test_implementer_forwards_submit_fix_result(actor_pool_address: str) -
         await xo.destroy_actor(sup)
 
 
-async def test_implementer_routes_auth_error_to_prompt_error(
-    actor_pool_address: str,
-) -> None:
-    address = actor_pool_address
-    sup = await xo.create_actor(_SupervisorRecorder, address=address, uid="sup-3")
+async def test_implementer_routes_auth_error_to_prompt_error(pool_address: str) -> None:
+    """Airframe RuntimeAuthError surfaces as a classified PromptError."""
+    sup = await xo.create_actor(_SupervisorRecorder, address=pool_address, uid="sup-3")
+    coder = StubCodingAgent()
+    coder.raise_error = RuntimeAuthError("bad key")
     impl = await xo.create_actor(
-        _PatchedImplementer,
+        ImplementerActor,
         sup,
         cwd="/tmp",
-        send_error=RuntimeAuthError("bad key"),
-        address=address,
+        agent=coder,
+        address=pool_address,
         uid="impl-3",
     )
     try:
@@ -348,28 +177,31 @@ async def test_implementer_routes_auth_error_to_prompt_error(
         await xo.destroy_actor(sup)
 
 
-async def test_implementer_new_bead_rotates_session(actor_pool_address: str) -> None:
-    address = actor_pool_address
-    sup = await xo.create_actor(_SupervisorRecorder, address=address, uid="sup-4")
+async def test_implementer_new_bead_rotates_session(pool_address: str) -> None:
+    """new_bead() forwards to agent.rotate_session()."""
+    sup = await xo.create_actor(_SupervisorRecorder, address=pool_address, uid="sup-4")
+    coder = StubCodingAgent(
+        implement_payloads=[
+            SubmitImplementationPayload(summary="a"),
+            SubmitImplementationPayload(summary="b"),
+        ]
+    )
     impl = await xo.create_actor(
-        _PatchedImplementer,
+        ImplementerActor,
         sup,
         cwd="/tmp",
-        send_results=[
-            _structured({"summary": "a", "files_changed": [], "tests_added": []}),
-            _structured({"summary": "b", "files_changed": [], "tests_added": []}),
-        ],
-        address=address,
+        agent=coder,
+        address=pool_address,
         uid="impl-4",
     )
     try:
         await impl.send_implement(ImplementRequest(bead_id="b-1", prompt="x"))
+        assert coder.rotate_calls == 0
         await impl.new_bead(NewBeadRequest(bead_id="b-2"))
+        assert coder.rotate_calls == 1
         await impl.send_implement(ImplementRequest(bead_id="b-2", prompt="y"))
-        send_calls = await impl.get_send_calls()
-        # Two distinct sessions used.
-        sessions = {c["session_id"] for c in send_calls}
-        assert len(sessions) == 2
+        # Both implement payloads got consumed.
+        assert len(coder.implement_payloads) == 0
     finally:
         await xo.destroy_actor(impl)
         await xo.destroy_actor(sup)
@@ -380,23 +212,35 @@ async def test_implementer_new_bead_rotates_session(actor_pool_address: str) -> 
 # ---------------------------------------------------------------------------
 
 
-async def test_reviewer_forwards_submit_review(actor_pool_address: str) -> None:
-    address = actor_pool_address
-    sup = await xo.create_actor(_SupervisorRecorder, address=address, uid="sup-r")
-    payload = {"approved": True, "findings": []}
+async def test_reviewer_forwards_submit_review(pool_address: str) -> None:
+    """review() payload reaches both per-kind and back-compat methods."""
+    sup = await xo.create_actor(_SupervisorRecorder, address=pool_address, uid="sup-r")
+    payload = SubmitReviewPayload(approved=True)
+    reviewer_agent = StubReviewerAgent(
+        review_kind="correctness", review_payloads=[payload]
+    )
     reviewer = await xo.create_actor(
-        _PatchedReviewer,
+        ReviewerActor,
         sup,
         cwd="/tmp",
-        send_results=[_structured(payload)],
-        address=address,
+        review_kind="correctness",
+        agent=reviewer_agent,
+        address=pool_address,
         uid="rev-1",
     )
     try:
-        from maverick.actors.xoscar.messages import ReviewRequest
-
-        await reviewer.send_review(ReviewRequest(bead_id="b-1", bead_description="x"))
+        await reviewer.send_review(
+            ReviewRequest(
+                bead_id="b-1",
+                bead_description="x",
+                work_unit_md="md",
+                briefing_context="",
+            )
+        )
         calls = await sup.get_calls()
+        # Correctness lens lands twice: typed correctness_review_ready
+        # + back-compat review_ready fan-out.
+        assert any(name == "correctness_review_ready" for name, _ in calls)
         assert any(name == "review_ready" for name, _ in calls)
     finally:
         await xo.destroy_actor(reviewer)
