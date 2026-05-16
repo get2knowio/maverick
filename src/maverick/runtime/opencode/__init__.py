@@ -50,7 +50,7 @@ from maverick.runtime.opencode.events import (
     session_idle_signal,
 )
 from maverick.runtime.opencode.executor import OpenCodeStepExecutor
-from maverick.runtime.opencode.registry import (
+from maverick.runtime.registry import (
     CostSink,
     agents_config_for,
     cost_sink_for,

@@ -21,7 +21,7 @@ if TYPE_CHECKING:
     from airframe.protocol import AgentRuntime
 
     from maverick.executor.config import StepConfig
-    from maverick.runtime.opencode import CostSink
+    from maverick.runtime.registry import CostSink
 
 REVIEW_PROMPT_TIMEOUT_SECONDS = 600
 AGGREGATE_REVIEW_TIMEOUT_SECONDS = 600

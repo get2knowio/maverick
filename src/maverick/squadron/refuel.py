@@ -19,7 +19,7 @@ from maverick.agents.base import Agent
 
 if TYPE_CHECKING:
     from maverick.config import MaverickConfig
-    from maverick.runtime.opencode import CostSink
+    from maverick.runtime.registry import CostSink
 from maverick.agents.briefing.agent import BriefingAgent
 from maverick.agents.decomposer import DecomposerAgent
 from maverick.agents.generator import GeneratorAgent

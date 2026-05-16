@@ -23,8 +23,8 @@ import xoscar as xo
 
 from maverick.actors.xoscar.pool import create_pool
 from maverick.config import AgentBindingConfig, AgentsConfig
-from maverick.runtime.opencode import (
-    invalidate_cache,
+from maverick.runtime.opencode import invalidate_cache
+from maverick.runtime.registry import (
     register_agents_config,
     unregister_agents_config,
 )

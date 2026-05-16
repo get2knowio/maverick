@@ -30,7 +30,7 @@ from maverick.squadron.base import Squadron
 
 if TYPE_CHECKING:
     from maverick.config import MaverickConfig
-    from maverick.runtime.opencode import CostSink
+    from maverick.runtime.registry import CostSink
 
 #: Ordered tier names (low → high intelligence). Matches WorkUnitComplexity
 #: and ``maverick.actors.xoscar.fly_supervisor.TIER_ORDER``.

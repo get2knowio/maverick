@@ -38,7 +38,7 @@ from maverick.logging import get_logger
 
 if TYPE_CHECKING:
     from maverick.config import MaverickConfig
-    from maverick.runtime.opencode import CostSink
+    from maverick.runtime.registry import CostSink
 
 logger = get_logger(__name__)
 

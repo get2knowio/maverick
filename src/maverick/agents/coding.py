@@ -24,7 +24,7 @@ if TYPE_CHECKING:
     from airframe.protocol import AgentRuntime
 
     from maverick.executor.config import StepConfig
-    from maverick.runtime.opencode import CostSink
+    from maverick.runtime.registry import CostSink
 
 CODING_PROMPT_TIMEOUT_SECONDS = 1800
 

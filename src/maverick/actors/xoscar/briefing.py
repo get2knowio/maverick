@@ -20,7 +20,7 @@ from maverick.agents.briefing.agent import BriefingAgent
 from maverick.logging import get_logger
 from maverick.payloads import SUPERVISOR_TOOL_PAYLOAD_MODELS
 from maverick.runtime.agent_factory import runtime_for_agent
-from maverick.runtime.opencode import agents_config_for, cost_sink_for
+from maverick.runtime.registry import agents_config_for, cost_sink_for
 
 if TYPE_CHECKING:
     from maverick.executor.config import StepConfig

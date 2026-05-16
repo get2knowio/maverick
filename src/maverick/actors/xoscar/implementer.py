@@ -22,7 +22,7 @@ from maverick.actors.xoscar.messages import (
 from maverick.agents.coding import CodingAgent
 from maverick.logging import get_logger
 from maverick.runtime.agent_factory import runtime_for_agent
-from maverick.runtime.opencode import agents_config_for, cost_sink_for
+from maverick.runtime.registry import agents_config_for, cost_sink_for
 
 if TYPE_CHECKING:
     from maverick.executor.config import StepConfig
