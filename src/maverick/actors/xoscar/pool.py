@@ -27,7 +27,7 @@ from typing import TYPE_CHECKING
 import xoscar as xo
 
 from maverick.logging import get_logger
-from maverick.runtime.opencode import (
+from maverick.runtime.registry import (
     CostSink,
     register_agents_config,
     register_cost_sink,

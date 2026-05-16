@@ -1,41 +1,40 @@
-"""Provider health checks against the OpenCode runtime.
+"""Airframe-backed provider health checks.
 
-Each check spawns (or shares) an ``opencode serve`` subprocess, calls
-``GET /provider``, and verifies that:
+For each configured provider name, the check instantiates the matching
+:class:`airframe.AgentRuntime` adapter, calls
+:meth:`AgentRuntime.list_models`, and verifies:
 
-1. The configured provider name is in OpenCode's ``connected`` list (the
-   server has valid auth for it via ``opencode auth login``).
+1. The adapter can be constructed (matching ``airframe-agents`` extra is
+   installed) and ``list_models`` succeeds (credentials present + vendor
+   reachable).
 2. Every model the user references — provider default, global
-   ``model.model_id``, per-agent overrides — appears in that provider's
-   catalogue.
+   ``model.model_id``, per-agent overrides — appears in the adapter's
+   live catalogue.
 
-Used by ``maverick doctor`` and the workflow preflights. Class name
-``AcpProviderHealthCheck`` and the ``test_mcp_tool_call`` argument are
-kept for source compatibility with the legacy callers; both delegate
-through to the OpenCode probe.
+Used by ``maverick doctor`` and the workflow preflights. The class
+names ``OpenCodeProviderHealthCheck`` / ``AcpProviderHealthCheck`` and
+the ``test_mcp_tool_call`` argument are kept for source compatibility
+with legacy callers; both delegate to the same airframe-based probe.
 """
 
 from __future__ import annotations
 
 import asyncio
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
+
+import airframe
+from airframe.errors import AgentRuntimeError
 
 from maverick.config import AgentProviderConfig
 from maverick.logging import get_logger
 from maverick.runners.preflight import ValidationResult
-from maverick.runtime.opencode import (
-    AgentRuntimeError,
-    OpenCodeServerHandle,
-    client_for,
-    list_connected_providers,
-    opencode_server,
-)
 
 __all__ = [
     "AcpProviderHealthCheck",
     "OpenCodeProviderHealthCheck",
+    "ProviderHealthCheck",
     "build_provider_health_checks",
     "providers_for_fly",
     "providers_referenced_by_actors",
@@ -87,101 +86,81 @@ def providers_for_fly(config: Any) -> set[str]:
 
 
 # ---------------------------------------------------------------------------
-# OpenCode-backed health check
+# Airframe-backed health check
 # ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True, slots=True)
-class OpenCodeProviderHealthCheck:
-    """Probe one provider against an OpenCode server's ``/provider`` response.
+class ProviderHealthCheck:
+    """Probe one provider via :func:`airframe.runtime_for` + ``list_models``.
 
-    Fast: spawns a server, hits one HTTP endpoint, terminates. The server
-    spawn cost (~0.5-1s) dominates; the actual check is sub-millisecond.
-    For multi-provider checks pass a shared ``handle`` so the spawn cost
-    is paid once.
+    A successful :meth:`list_models` call means: the adapter's vendor SDK
+    is installed, credentials are present, and the vendor is reachable.
 
     Args:
-        provider_name: Logical provider name (e.g. ``"openrouter"``).
-        provider_config: Provider configuration. Currently only used to
-            surface a meaningful error message when the binary isn't on
-            PATH; the probe itself reaches OpenCode, not the bridge.
-        models_to_validate: Model IDs that must appear in the provider's
-            catalogue. Empty means "just check the provider is connected".
-        timeout: Maximum seconds for the entire check.
-        test_mcp_tool_call: Preserved for source compatibility with the
-            legacy ACP doctor flag. Currently a no-op — OpenCode's
-            ``StructuredOutput`` tool-forcing makes a per-provider tool
-            probe redundant.
+        provider_name: Airframe canonical provider id
+            (``claude`` / ``github-copilot`` / ``codex`` / ``opencode``).
+        provider_config: Configuration; kept for source compatibility
+            with the legacy doctor surface.
+        models_to_validate: Model IDs that must appear in the adapter's
+            catalogue. Empty means "just check the adapter answers".
+        timeout: Maximum seconds for ``list_models``.
+        test_mcp_tool_call: Preserved for source compatibility — no-op
+            under airframe; structured-output round-trip is exercised
+            by the agent layer, not by this probe.
     """
 
     provider_name: str
     provider_config: AgentProviderConfig
-    models_to_validate: frozenset[str] = frozenset()
+    models_to_validate: frozenset[str] = field(default_factory=frozenset)
     timeout: float = 30.0
     test_mcp_tool_call: bool = False
 
-    async def validate(self, handle: OpenCodeServerHandle | None = None) -> ValidationResult:
+    async def validate(self) -> ValidationResult:
         """Run the health check.
 
-        Args:
-            handle: Optional pre-spawned OpenCode server handle. When
-                ``None``, the check spawns its own server and tears it
-                down on exit. Doctor / preflight callers SHOULD pass a
-                shared handle so multi-provider checks don't pay the
-                spawn cost N times.
+        Args/Returns/Raises: see class docstring.
         """
-        component = f"OpenCode:{self.provider_name}"
+        component = f"airframe:{self.provider_name}"
         start_time = time.monotonic()
 
-        if handle is None:
-            try:
-                async with opencode_server() as owned_handle:
-                    return await self._validate_with_handle(owned_handle, component, start_time)
-            except AgentRuntimeError as exc:
-                return ValidationResult(
-                    success=False,
-                    component=component,
-                    errors=(f"OpenCode subprocess spawn failed: {exc}",),
-                    duration_ms=int((time.monotonic() - start_time) * 1000),
-                )
-        return await self._validate_with_handle(handle, component, start_time)
-
-    async def _validate_with_handle(
-        self,
-        handle: OpenCodeServerHandle,
-        component: str,
-        start_time: float,
-    ) -> ValidationResult:
-        client = client_for(handle, timeout=self.timeout)
         try:
-            connected = await asyncio.wait_for(
-                list_connected_providers(client), timeout=self.timeout
+            runtime_cls = airframe.runtime_for(self.provider_name)
+        except ImportError as exc:
+            return ValidationResult(
+                success=False,
+                component=component,
+                errors=(f"Adapter for provider '{self.provider_name}' not installed: {exc}",),
+                duration_ms=int((time.monotonic() - start_time) * 1000),
             )
+        except ValueError as exc:
+            return ValidationResult(
+                success=False,
+                component=component,
+                errors=(f"Unknown airframe provider '{self.provider_name}': {exc}",),
+                duration_ms=int((time.monotonic() - start_time) * 1000),
+            )
+
+        runtime = runtime_cls()
+        try:
+            models = await asyncio.wait_for(runtime.list_models(), timeout=self.timeout)
         except (TimeoutError, AgentRuntimeError) as exc:
             return ValidationResult(
                 success=False,
                 component=component,
-                errors=(f"Failed to query OpenCode /provider for '{self.provider_name}': {exc}",),
-                duration_ms=int((time.monotonic() - start_time) * 1000),
-            )
-        finally:
-            await client.aclose()
-
-        if self.provider_name not in connected:
-            available = ", ".join(sorted(connected.keys())) or "(none)"
-            return ValidationResult(
-                success=False,
-                component=component,
                 errors=(
-                    f"Provider '{self.provider_name}' is not connected on "
-                    f"the OpenCode server. Run "
-                    f"`opencode auth login {self.provider_name}` to add an "
-                    f"API key. Connected providers: {available}.",
+                    f"Failed to enumerate models for '{self.provider_name}': {exc}. "
+                    f"If credentials are missing, run the provider's login flow.",
                 ),
                 duration_ms=int((time.monotonic() - start_time) * 1000),
             )
+        finally:
+            try:
+                await runtime.close()
+            except Exception:  # noqa: BLE001
+                pass
 
-        catalogue = connected[self.provider_name]
+        catalogue = {m.id for m in models}
         missing = sorted(self.models_to_validate - catalogue)
         if missing:
             sample = sorted(catalogue)[:8]
@@ -203,11 +182,11 @@ class OpenCodeProviderHealthCheck:
         )
 
 
-#: Backwards-compatible alias. The class name is misleading now (the
-#: check no longer touches ACP), but renaming the public symbol would
-#: break ``maverick.runners.provider_health.AcpProviderHealthCheck``
-#: imports across docstrings, tests, and downstream tooling.
-AcpProviderHealthCheck = OpenCodeProviderHealthCheck
+#: Backwards-compatible aliases. The names are misleading now (the
+#: check runs through airframe, not OpenCode or ACP), but renaming
+#: them would break imports across the codebase and downstream tooling.
+OpenCodeProviderHealthCheck = ProviderHealthCheck
+AcpProviderHealthCheck = ProviderHealthCheck
 
 
 # ---------------------------------------------------------------------------
@@ -221,7 +200,7 @@ def build_provider_health_checks(
     timeout: float | None = None,
     test_mcp_tool_call: bool = False,
     provider_filter: set[str] | frozenset[str] | None = None,
-) -> list[OpenCodeProviderHealthCheck]:
+) -> list[ProviderHealthCheck]:
     """Build one health check per configured provider.
 
     The result mirrors :class:`AgentProviderRegistry`'s shape: every
@@ -236,7 +215,7 @@ def build_provider_health_checks(
     ``timeout`` defaults to 30s — generous so a slow provider catalogue
     doesn't fail an otherwise-healthy check.
     """
-    del test_mcp_tool_call  # legacy flag, currently ignored
+    del test_mcp_tool_call  # legacy flag, no longer load-bearing
     if timeout is None:
         timeout = 30.0
 
@@ -257,7 +236,7 @@ def build_provider_health_checks(
 
     items = sorted(config.agent_providers.items())
     return [
-        OpenCodeProviderHealthCheck(
+        ProviderHealthCheck(
             provider_name=name,
             provider_config=pcfg,
             models_to_validate=frozenset(provider_models.get(name, set())),
@@ -269,15 +248,14 @@ def build_provider_health_checks(
 
 
 async def run_provider_health_checks(
-    checks: list[OpenCodeProviderHealthCheck],
+    checks: list[ProviderHealthCheck],
 ) -> list[ValidationResult]:
-    """Run every check against ONE shared OpenCode subprocess.
+    """Run every check concurrently.
 
-    Pays the spawn cost once instead of N times. Use this whenever
-    you have multiple checks to run; the per-check ``validate()`` API
-    is preserved for one-shot callers.
+    Each check is independent — there's no shared subprocess to
+    amortise like the legacy OpenCode-backed probe had — so we
+    simply gather them.
     """
     if not checks:
         return []
-    async with opencode_server() as handle:
-        return await asyncio.gather(*(check.validate(handle) for check in checks))
+    return await asyncio.gather(*(check.validate() for check in checks))

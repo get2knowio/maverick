@@ -68,13 +68,6 @@ class TestStepExecutorProtocol:
         # This would raise TypeError if not runtime_checkable
         assert isinstance(_ConformingExecutor(), StepExecutor)
 
-    def test_opencode_executor_satisfies_protocol(self) -> None:
-        """OpenCodeStepExecutor satisfies isinstance(executor, StepExecutor)."""
-        from maverick.runtime.opencode import OpenCodeStepExecutor
-
-        executor = OpenCodeStepExecutor()
-        assert isinstance(executor, StepExecutor)
-
     def test_protocol_has_execute_named_method(self) -> None:
         """StepExecutor protocol has an execute_named method."""
         assert hasattr(StepExecutor, "execute_named")

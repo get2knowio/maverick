@@ -23,7 +23,6 @@ import xoscar as xo
 
 from maverick.actors.xoscar.pool import create_pool
 from maverick.config import AgentBindingConfig, AgentsConfig
-from maverick.runtime.opencode import invalidate_cache
 from maverick.runtime.registry import (
     register_agents_config,
     unregister_agents_config,
@@ -86,7 +85,6 @@ async def pool_address() -> AsyncIterator[str]:
     that create actors should ``xo.destroy_actor(ref)`` them explicitly
     so ``__pre_destroy__`` runs before the pool stops.
     """
-    invalidate_cache()
     pool, address = await create_pool()
     register_agents_config(address, _agents_config_for_tests())
     try:
@@ -100,7 +98,6 @@ async def pool_address() -> AsyncIterator[str]:
 async def pool() -> AsyncIterator[tuple[xo.Actor, str]]:
     """Yield ``(pool, address)`` with an :class:`AgentsConfig` registered."""
 
-    invalidate_cache()
     pool_obj, address = await create_pool()
     register_agents_config(address, _agents_config_for_tests())
     try:

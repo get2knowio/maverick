@@ -1,28 +1,34 @@
-"""OpenCode-backed provider discovery for ``maverick init``.
+"""Airframe-backed provider discovery for ``maverick init``.
 
-Replaces the legacy PATH-based ``shutil.which("claude-agent-acp")``
-probe — which made sense when each "provider" was an ACP bridge binary
-on PATH but means nothing under the OpenCode HTTP runtime. The new
-discovery spawns ``opencode serve`` once, hits ``GET /provider``, and
-returns the provider IDs OpenCode reports as authenticated (the
-``connected[]`` list) along with their default model IDs.
+For each adapter the user has installed (via ``pip install
+airframe-agents[<extra>]``), this module attempts to enumerate the
+provider's live model catalogue via :meth:`AgentRuntime.list_models`.
+A successful list means the user has working credentials for that
+provider; a failure (no auth, vendor down) is reported as
+"not connected" and the provider is excluded from the result.
 
-Output drives the generated ``maverick.yaml::agent_providers`` block
-and is suggested in the verbose console output. Failures are
-non-fatal; init still writes the config without an
-``agent_providers`` block when discovery fails (the default tier
-cascade still works as long as the runtime can reach OpenCode at
-workflow time).
+The module name is kept for source compatibility with the legacy
+init flow. The dataclass names (``OpenCodeDiscoveryResult``,
+``ConnectedProvider``) are likewise retained so callers in
+:mod:`maverick.init` and :mod:`maverick.cli.commands.init` don't churn
+on rename.
+
+Output drives the generated ``maverick.yaml::agents`` defaults and the
+verbose console output during init. Failures are non-fatal; init still
+writes the config without an inferred provider when discovery fails.
 """
 
 from __future__ import annotations
 
+import asyncio
 import time
 from dataclasses import dataclass
 from typing import Any
 
+import airframe
+from airframe.errors import AgentRuntimeError
+
 from maverick.logging import get_logger
-from maverick.runtime.opencode import client_for, list_connected_providers, opencode_server
 
 __all__ = [
     "ConnectedProvider",
@@ -34,32 +40,27 @@ logger = get_logger(__name__)
 
 
 #: Conventional preference order — when multiple providers are
-#: connected and none are flagged ``default: true`` in an existing
-#: config, the first match in this list becomes the default. Order
-#: reflects "most useful first" for the typical Maverick user:
-#: GitHub Copilot covers Claude + GPT + Gemini under one sub; the
-#: OpenAI Codex sub covers the GPT-codex line; opencode (Zen) is the
-#: airframe-canonical opencode provider; openrouter is per-token
-#: billed and lives at the bottom.
+#: connected, the first match in this list becomes the default. The
+#: ordering reflects "most useful first" for the typical Maverick user.
 _PREFERENCE_ORDER: tuple[str, ...] = (
     "github-copilot",
-    "openai",
+    "claude",
+    "codex",
     "opencode",
-    "openrouter",
 )
 
 
 @dataclass(frozen=True, slots=True)
 class ConnectedProvider:
-    """One connected provider as advertised by ``GET /provider``.
+    """One adapter that successfully enumerated its catalogue.
 
     Attributes:
-        provider_id: OpenCode provider id (e.g. ``"github-copilot"``).
-        display_name: Human-readable name (best-effort — falls back to
-            ``provider_id`` when OpenCode doesn't supply one).
-        default_model_id: The provider's default model id when the
-            server registered one. ``None`` when no default is exposed.
-        model_count: How many models the provider's catalogue carries.
+        provider_id: Airframe canonical provider id.
+        display_name: Human-readable name — falls back to ``provider_id``.
+        default_model_id: First model in the adapter's catalogue, used
+            as a reasonable default for generated config. ``None`` when
+            the catalogue came back empty.
+        model_count: Number of models the adapter reported.
     """
 
     provider_id: str
@@ -78,15 +79,7 @@ class ConnectedProvider:
 
 @dataclass(frozen=True, slots=True)
 class OpenCodeDiscoveryResult:
-    """Aggregate result of probing OpenCode for connected providers.
-
-    Attributes:
-        providers: Probed providers, sorted by :data:`_PREFERENCE_ORDER`.
-        default_provider_id: The provider id chosen as the conventional
-            default (the highest-preference connected provider). ``None``
-            when no providers are connected.
-        duration_ms: Wall-clock time of the discovery call.
-    """
+    """Aggregate discovery result. Name kept for source compatibility."""
 
     providers: tuple[ConnectedProvider, ...]
     default_provider_id: str | None
@@ -104,54 +97,31 @@ async def discover_opencode_providers(
     *,
     timeout: float = 30.0,
 ) -> OpenCodeDiscoveryResult | None:
-    """Spawn an OpenCode server, query ``/provider``, return connected providers.
+    """Probe every installed airframe adapter for live model listings.
 
-    Returns ``None`` when the server can't be spawned or the probe
-    fails — discovery is best-effort during init, not a hard
-    prerequisite.
+    Returns ``None`` only when the discovery layer itself can't be
+    walked (no adapters at all); per-provider failures get logged and
+    the provider is skipped.
     """
     start = time.monotonic()
     try:
-        async with opencode_server() as handle:
-            client = client_for(handle, timeout=timeout)
-            try:
-                connected = await list_connected_providers(client)
-                # Pull the full /provider payload so we can extract the
-                # default_model and the per-provider display name.
-                raw = await client.list_providers()
-            finally:
-                await client.aclose()
-    except Exception as exc:  # noqa: BLE001 — discovery failures are non-fatal
-        logger.debug("opencode_discovery_failed", error=str(exc))
+        installed = airframe.list_providers(installed_only=True)
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("airframe_list_providers_failed", error=str(exc))
         return None
 
-    elapsed_ms = int((time.monotonic() - start) * 1000)
-
-    defaults_block = raw.get("default") if isinstance(raw, dict) else None
-    if not isinstance(defaults_block, dict):
-        defaults_block = {}
-    all_block = raw.get("all") if isinstance(raw, dict) else None
-    by_id: dict[str, dict[str, Any]] = {}
-    if isinstance(all_block, list):
-        for entry in all_block:
-            if isinstance(entry, dict) and isinstance(entry.get("id"), str):
-                by_id[entry["id"]] = entry
+    if not installed:
+        return OpenCodeDiscoveryResult(
+            providers=(),
+            default_provider_id=None,
+            duration_ms=int((time.monotonic() - start) * 1000),
+        )
 
     rows: list[ConnectedProvider] = []
-    for pid in connected:
-        prov = by_id.get(pid, {})
-        name = prov.get("name") if isinstance(prov.get("name"), str) else pid
-        default_model = defaults_block.get(pid)
-        if not isinstance(default_model, str):
-            default_model = None
-        rows.append(
-            ConnectedProvider(
-                provider_id=pid,
-                display_name=name or pid,
-                default_model_id=default_model,
-                model_count=len(connected.get(pid, ())),
-            )
-        )
+    for pid in installed:
+        row = await _probe_provider(pid, timeout=timeout)
+        if row is not None:
+            rows.append(row)
 
     rows.sort(key=lambda r: (_preference_index(r.provider_id), r.provider_id))
     default_id = rows[0].provider_id if rows else None
@@ -159,12 +129,50 @@ async def discover_opencode_providers(
     return OpenCodeDiscoveryResult(
         providers=tuple(rows),
         default_provider_id=default_id,
-        duration_ms=elapsed_ms,
+        duration_ms=int((time.monotonic() - start) * 1000),
+    )
+
+
+async def _probe_provider(provider_id: str, *, timeout: float) -> ConnectedProvider | None:
+    """Instantiate the adapter and call ``list_models`` with a deadline.
+
+    Returns ``None`` on any failure (auth missing, vendor down, SDK
+    raised). Successful runs become one :class:`ConnectedProvider`.
+    """
+    try:
+        runtime_cls = airframe.runtime_for(provider_id)
+        runtime = runtime_cls()
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("airframe_runtime_init_failed", provider=provider_id, error=str(exc))
+        return None
+
+    try:
+        models = await asyncio.wait_for(runtime.list_models(), timeout=timeout)
+    except (TimeoutError, AgentRuntimeError) as exc:
+        logger.debug("airframe_list_models_failed", provider=provider_id, error=str(exc))
+        return None
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("airframe_list_models_failed", provider=provider_id, error=str(exc))
+        return None
+    finally:
+        try:
+            await runtime.close()
+        except Exception:  # noqa: BLE001
+            pass
+
+    if not models:
+        return None
+
+    display = models[0].provider_id if hasattr(models[0], "provider_id") else provider_id
+    return ConnectedProvider(
+        provider_id=provider_id,
+        display_name=display or provider_id,
+        default_model_id=models[0].id,
+        model_count=len(models),
     )
 
 
 def _preference_index(provider_id: str) -> int:
-    """Sort key — providers in :data:`_PREFERENCE_ORDER` come first."""
     try:
         return _PREFERENCE_ORDER.index(provider_id)
     except ValueError:

@@ -1,159 +1,163 @@
-"""Tests for OpenCode-backed provider health checks.
+"""Tests for airframe-backed provider health checks.
 
-The probe spawns an ``opencode serve`` subprocess in production; for
-unit tests we inject a fake :class:`OpenCodeServerHandle` and patch
-:func:`list_connected_providers` so the check runs synchronously
-without touching the network.
+The probe instantiates an :class:`airframe.AgentRuntime` and calls
+``list_models``; tests patch :func:`airframe.runtime_for` with a fake
+adapter class so the check runs synchronously without touching the
+network.
 """
 
 from __future__ import annotations
 
 from typing import Any
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from airframe.errors import AgentRuntimeError, RuntimeAuthError
 
 from maverick.config import AgentProviderConfig
 from maverick.runners.provider_health import (
     AcpProviderHealthCheck,
     OpenCodeProviderHealthCheck,
+    ProviderHealthCheck,
     build_provider_health_checks,
     providers_for_fly,
     run_provider_health_checks,
 )
 
 # ---------------------------------------------------------------------------
-# Fake handle (no actual subprocess)
+# Fake airframe runtime
 # ---------------------------------------------------------------------------
 
 
-class _FakeProcess:
-    pid = 0
-    returncode = 0
-
-    def terminate(self) -> None:
-        pass
-
-    def kill(self) -> None:
-        pass
-
-    async def wait(self) -> int:
-        return 0
+def _model(model_id: str) -> Any:
+    info = MagicMock()
+    info.id = model_id
+    return info
 
 
-def _fake_handle():
-    from maverick.runtime.opencode import OpenCodeServerHandle
+def _patch_airframe(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    model_ids: list[str] | None = None,
+    raise_on_list: BaseException | None = None,
+    runtime_for_error: BaseException | None = None,
+) -> MagicMock:
+    """Patch :func:`airframe.runtime_for` to return a controllable stub.
 
-    return OpenCodeServerHandle(
-        base_url="http://fake-opencode",
-        password="fake",
-        pid=0,
-        _process=_FakeProcess(),  # type: ignore[arg-type]
-    )
-
-
-def _patch_providers(monkeypatch: pytest.MonkeyPatch, mapping: dict[str, set[str]]) -> None:
-    """Patch ``list_connected_providers`` at the module-import site.
-
-    The provider_health module imports the symbol locally, so we monkey-
-    patch THAT binding (not the runtime module's binding).
+    The provider_health module imports ``airframe`` at module-load and
+    refers to it by attribute, so we patch ``airframe.runtime_for``
+    directly.
     """
+    runtime = MagicMock()
+    runtime.label = "stub"
+    if raise_on_list is not None:
+        runtime.list_models = AsyncMock(side_effect=raise_on_list)
+    else:
+        runtime.list_models = AsyncMock(return_value=[_model(m) for m in (model_ids or [])])
+    runtime.close = AsyncMock()
 
-    async def fake(client: Any) -> dict[str, set[str]]:
-        return {k: set(v) for k, v in mapping.items()}
+    def fake_runtime_for(_pid: str) -> type[Any]:
+        if runtime_for_error is not None:
+            raise runtime_for_error
+        return lambda: runtime
 
-    monkeypatch.setattr("maverick.runners.provider_health.list_connected_providers", fake)
+    monkeypatch.setattr("airframe.runtime_for", fake_runtime_for)
+    return runtime
 
 
 # ---------------------------------------------------------------------------
-# OpenCodeProviderHealthCheck.validate
+# ProviderHealthCheck.validate
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_validate_passes_when_provider_connected_and_models_match(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _patch_providers(
+async def test_validate_passes_when_models_match(monkeypatch: pytest.MonkeyPatch) -> None:
+    _patch_airframe(
         monkeypatch,
-        {"openrouter": {"anthropic/claude-haiku-4.5", "openai/gpt-4o-mini"}},
+        model_ids=["claude-haiku-4-5", "claude-sonnet-4-6"],
     )
-    check = OpenCodeProviderHealthCheck(
-        provider_name="openrouter",
+    check = ProviderHealthCheck(
+        provider_name="claude",
         provider_config=AgentProviderConfig(),
-        models_to_validate=frozenset({"anthropic/claude-haiku-4.5"}),
+        models_to_validate=frozenset({"claude-haiku-4-5"}),
     )
-    result = await check.validate(handle=_fake_handle())
+    result = await check.validate()
     assert result.success is True
-    assert result.component == "OpenCode:openrouter"
+    assert result.component == "airframe:claude"
 
 
 @pytest.mark.asyncio
-async def test_validate_fails_when_provider_not_connected(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _patch_providers(monkeypatch, {"openrouter": {"x"}})
-    check = OpenCodeProviderHealthCheck(
-        provider_name="anthropic-direct",
+async def test_validate_fails_when_adapter_not_installed(monkeypatch: pytest.MonkeyPatch) -> None:
+    _patch_airframe(
+        monkeypatch,
+        runtime_for_error=ImportError("install airframe-agents[claude]"),
+    )
+    check = ProviderHealthCheck(
+        provider_name="claude",
         provider_config=AgentProviderConfig(),
     )
-    result = await check.validate(handle=_fake_handle())
+    result = await check.validate()
     assert result.success is False
-    assert any("not connected" in m for m in result.errors)
-    assert any("openrouter" in m for m in result.errors)
+    assert any("not installed" in m for m in result.errors)
 
 
 @pytest.mark.asyncio
-async def test_validate_fails_when_model_missing(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _patch_providers(monkeypatch, {"openrouter": {"openai/gpt-4o-mini"}})
-    check = OpenCodeProviderHealthCheck(
-        provider_name="openrouter",
+async def test_validate_fails_when_model_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+    _patch_airframe(monkeypatch, model_ids=["claude-haiku-4-5"])
+    check = ProviderHealthCheck(
+        provider_name="claude",
         provider_config=AgentProviderConfig(),
-        models_to_validate=frozenset({"anthropic/claude-haiku-4.5"}),
+        models_to_validate=frozenset({"claude-opus-4-5"}),
     )
-    result = await check.validate(handle=_fake_handle())
+    result = await check.validate()
     assert result.success is False
     assert any("not available" in m for m in result.errors)
 
 
 @pytest.mark.asyncio
-async def test_validate_passes_with_no_models_when_connected(
+async def test_validate_passes_with_no_models_when_listable(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _patch_providers(monkeypatch, {"openrouter": set()})
-    check = OpenCodeProviderHealthCheck(
-        provider_name="openrouter",
+    _patch_airframe(monkeypatch, model_ids=[])
+    check = ProviderHealthCheck(
+        provider_name="claude",
         provider_config=AgentProviderConfig(),
     )
-    result = await check.validate(handle=_fake_handle())
+    result = await check.validate()
     assert result.success is True
 
 
 @pytest.mark.asyncio
-async def test_validate_surfaces_handle_query_failure(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """When the /provider query raises, surface it in the result."""
-
-    async def boom(client: Any) -> dict[str, set[str]]:
-        from maverick.runtime.opencode import AgentRuntimeError
-
-        raise AgentRuntimeError("HTTP 502")
-
-    monkeypatch.setattr("maverick.runners.provider_health.list_connected_providers", boom)
-    check = OpenCodeProviderHealthCheck(
-        provider_name="openrouter",
+async def test_validate_surfaces_runtime_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A vendor/auth failure surfaces in the result."""
+    _patch_airframe(monkeypatch, raise_on_list=RuntimeAuthError("no credentials"))
+    check = ProviderHealthCheck(
+        provider_name="claude",
         provider_config=AgentProviderConfig(),
     )
-    result = await check.validate(handle=_fake_handle())
+    result = await check.validate()
+    assert result.success is False
+    assert any("no credentials" in m for m in result.errors)
+
+
+@pytest.mark.asyncio
+async def test_validate_surfaces_generic_runtime_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_airframe(monkeypatch, raise_on_list=AgentRuntimeError("HTTP 502"))
+    check = ProviderHealthCheck(
+        provider_name="claude",
+        provider_config=AgentProviderConfig(),
+    )
+    result = await check.validate()
     assert result.success is False
     assert any("HTTP 502" in m for m in result.errors)
 
 
-def test_acp_alias_is_opencode_check() -> None:
-    """Source-compat alias for the renamed class."""
-    assert AcpProviderHealthCheck is OpenCodeProviderHealthCheck
+def test_opencode_alias_is_provider_health_check() -> None:
+    """Source-compat aliases for the renamed class."""
+    assert OpenCodeProviderHealthCheck is ProviderHealthCheck
+    assert AcpProviderHealthCheck is ProviderHealthCheck
 
 
 # ---------------------------------------------------------------------------
@@ -294,3 +298,19 @@ def test_providers_for_fly_includes_default_and_actor_overrides() -> None:
 @pytest.mark.asyncio
 async def test_run_provider_health_checks_empty_returns_empty() -> None:
     assert await run_provider_health_checks([]) == []
+
+
+@pytest.mark.asyncio
+async def test_run_provider_health_checks_runs_each(monkeypatch: pytest.MonkeyPatch) -> None:
+    _patch_airframe(monkeypatch, model_ids=["m-1"])
+    checks = [
+        ProviderHealthCheck(
+            provider_name=name,
+            provider_config=AgentProviderConfig(),
+            models_to_validate=frozenset({"m-1"}),
+        )
+        for name in ("claude", "github-copilot")
+    ]
+    results = await run_provider_health_checks(checks)
+    assert len(results) == 2
+    assert all(r.success for r in results)
