@@ -31,7 +31,6 @@ from maverick.init.models import (
     GitRemoteInfo,
     InitConfig,
     InitGitHubConfig,
-    InitModelConfig,
     InitPreflightResult,
     InitResult,
     InitValidationConfig,
@@ -78,7 +77,6 @@ __all__ = [
     # Pydantic models
     "InitGitHubConfig",
     "InitValidationConfig",
-    "InitModelConfig",
     "InitConfig",
 ]
 

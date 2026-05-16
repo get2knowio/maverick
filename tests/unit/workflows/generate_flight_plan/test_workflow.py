@@ -401,8 +401,6 @@ class TestGenerateFlightPlanWorkflowXoscarConfig:
     ) -> None:
         """PlanSupervisor gets PlanInputs carrying the generator's StepConfig
         and the resolved provider labels for the briefing Rich Live table."""
-        from maverick.config import AgentProviderConfig
-
         mock_config.actors = {
             "plan": {
                 "scopist": {
@@ -414,17 +412,6 @@ class TestGenerateFlightPlanWorkflowXoscarConfig:
                     "model_id": "opus",
                 },
             }
-        }
-        mock_config.agent_providers = {
-            "claude": AgentProviderConfig(
-                command=["claude-agent"],
-                default=True,
-                default_model="sonnet",
-            ),
-            "gemini": AgentProviderConfig(
-                command=["gemini-agent"],
-                default_model="gemini-default",
-            ),
         }
 
         workflow = _make_workflow(mock_config)
@@ -487,8 +474,6 @@ class TestGenerateFlightPlanWorkflowXoscarConfig:
         """Each briefing agent gets its own StepConfig resolved through the
         actors.plan.<agent_name> path — the user's symptom of all briefings
         sharing claude/sonnet was caused by a single shared config."""
-        from maverick.config import AgentProviderConfig
-
         mock_config.actors = {
             "plan": {
                 "scopist": {
@@ -506,18 +491,6 @@ class TestGenerateFlightPlanWorkflowXoscarConfig:
                 "contrarian": {"provider": "claude", "model_id": "opus"},
                 "flight_plan_generator": {"provider": "claude", "model_id": "sonnet"},
             }
-        }
-        mock_config.agent_providers = {
-            "claude": AgentProviderConfig(
-                command=["claude-agent"], default=True, default_model="sonnet"
-            ),
-            "copilot": AgentProviderConfig(command=["copilot-agent"], default_model="gpt-5-mini"),
-            "gemini": AgentProviderConfig(
-                command=["gemini-agent"], default_model="gemini-default"
-            ),
-            "opencode": AgentProviderConfig(
-                command=["opencode-agent"], default_model="opencode/default"
-            ),
         }
 
         workflow = _make_workflow(mock_config)

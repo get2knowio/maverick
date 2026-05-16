@@ -21,7 +21,6 @@ from maverick.init.models import (
     GitRemoteInfo,
     InitConfig,
     InitGitHubConfig,
-    InitModelConfig,
     InitPreflightResult,
     InitResult,
     InitValidationConfig,
@@ -1033,43 +1032,6 @@ class TestInitValidationConfig:
 
 
 # =============================================================================
-# Pydantic Model Tests - InitModelConfig
-# =============================================================================
-
-
-class TestInitModelConfig:
-    """Test suite for InitModelConfig Pydantic model."""
-
-    def test_create_with_defaults(self) -> None:
-        """Test creating InitModelConfig with default values."""
-        config = InitModelConfig()
-        assert config.model_id == "sonnet"
-        assert config.max_tokens == 64000
-        assert config.temperature == 0.0
-
-    def test_create_with_custom_values(self) -> None:
-        """Test creating InitModelConfig with custom values."""
-        config = InitModelConfig(
-            model_id="claude-opus-4-20250514",
-            max_tokens=16384,
-            temperature=0.7,
-        )
-        assert config.model_id == "claude-opus-4-20250514"
-        assert config.max_tokens == 16384
-        assert config.temperature == 0.7
-
-    def test_model_dump(self) -> None:
-        """Test model_dump serialization."""
-        config = InitModelConfig()
-        output = config.model_dump()
-        assert output == {
-            "model_id": "sonnet",
-            "max_tokens": 64000,
-            "temperature": 0.0,
-        }
-
-
-# =============================================================================
 # Pydantic Model Tests - InitConfig
 # =============================================================================
 
@@ -1082,10 +1044,6 @@ class TestInitConfig:
         config = InitConfig()
         assert isinstance(config.github, InitGitHubConfig)
         assert isinstance(config.validation, InitValidationConfig)
-        # The legacy model.* block defaults to None — provider_tiers
-        # supersedes it. The field still exists so older yaml that
-        # carries it parses without error.
-        assert config.model is None
         assert config.notifications == {"enabled": False}
         assert config.parallel == {
             "max_agents": 3,
@@ -1101,14 +1059,12 @@ class TestInitConfig:
         config = InitConfig(
             github=InitGitHubConfig(owner="org", repo="project"),
             validation=InitValidationConfig(format_cmd=["black", "."]),
-            model=InitModelConfig(model_id="custom-model"),
             notifications={"enabled": True, "topic": "test"},
             parallel={"max_agents": 5, "max_tasks": 10},
             verbosity="debug",
         )
         assert config.github.owner == "org"
         assert config.validation.format_cmd == ["black", "."]
-        assert config.model.model_id == "custom-model"
         assert config.notifications["enabled"] is True
         assert config.parallel["max_agents"] == 5
         assert config.verbosity == "debug"
@@ -1120,9 +1076,6 @@ class TestInitConfig:
 
         assert "github" in output
         assert "validation" in output
-        # `model` is present in the dump (with value None); to_yaml's
-        # exclude_none=True is what drops it from the YAML output.
-        assert output["model"] is None
         assert "notifications" in output
         assert "parallel" in output
         assert "verbosity" in output
@@ -1149,22 +1102,6 @@ class TestInitConfig:
 
         # format_cmd is None by default, should be excluded
         assert "format_cmd" not in parsed.get("validation", {})
-
-    def test_to_yaml_omits_empty_agent_providers(self) -> None:
-        """Empty agent_providers should not appear in YAML output."""
-        config = InitConfig()
-        yaml_output = config.to_yaml()
-        assert "agent_providers" not in yaml_output
-
-    def test_to_yaml_includes_agent_providers_when_populated(self) -> None:
-        """Non-empty agent_providers should appear in YAML output."""
-        config = InitConfig(
-            agent_providers={"claude": {"default": True}},
-        )
-        yaml_output = config.to_yaml()
-        parsed = yaml.safe_load(yaml_output)
-        assert "agent_providers" in parsed
-        assert parsed["agent_providers"]["claude"]["default"] is True
 
     def test_to_yaml_format(self) -> None:
         """Test that to_yaml uses block style (not flow style)."""
@@ -1401,7 +1338,7 @@ class TestInitResult:
         assert isinstance(output["config"], dict)
         assert "github" in output["config"]
         assert "validation" in output["config"]
-        assert "model" in output["config"]
+        assert "agents" in output["config"]
 
     def test_provider_discovery_default_none(self) -> None:
         """provider_discovery defaults to None."""

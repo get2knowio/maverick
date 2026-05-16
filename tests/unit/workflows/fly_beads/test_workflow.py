@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from maverick.config import AgentProviderConfig, MaverickConfig, ModelConfig
+from maverick.config import MaverickConfig
 from maverick.workflows.fly_beads.constants import WORKFLOW_NAME
 from maverick.workflows.fly_beads.workflow import FlyBeadsWorkflow
 from tests.unit.workflows.conftest import stub_squadron_io as _stub_squadron_io
@@ -24,7 +24,6 @@ def _make_workflow() -> FlyBeadsWorkflow:
     from maverick.config import AgentBindingConfig, AgentsConfig
 
     config = MagicMock(spec=MaverickConfig)
-    config.model = ModelConfig()
     binding = AgentBindingConfig(provider="claude", model_id="claude-sonnet-4-6")
     config.agents = AgentsConfig(
         implement=binding,
@@ -44,17 +43,6 @@ def _make_workflow() -> FlyBeadsWorkflow:
                 "model_id": "opus",
             },
         },
-    }
-    config.agent_providers = {
-        "claude": AgentProviderConfig(
-            command=["claude-agent"],
-            default=True,
-            default_model="sonnet",
-        ),
-        "gemini": AgentProviderConfig(
-            command=["gemini-agent"],
-            default_model="gemini-default",
-        ),
     }
     config.validation = MagicMock(timeout_seconds=300)
     config.parallel = MagicMock(max_agents=3)
@@ -131,14 +119,11 @@ class TestFlyBeadsWorkflowXoscarConfig:
         implementer's config."""
         from maverick.config import (
             AgentBindingConfig,
-            AgentProviderConfig,
             AgentsConfig,
             MaverickConfig,
-            ModelConfig,
         )
 
         config = MagicMock(spec=MaverickConfig)
-        config.model = ModelConfig()
         binding = AgentBindingConfig(provider="claude", model_id="claude-sonnet-4-6")
         config.agents = AgentsConfig(
             implement=binding,
@@ -158,15 +143,6 @@ class TestFlyBeadsWorkflowXoscarConfig:
                     "model_id": "gemini-3.1-pro-preview",
                 },
             },
-        }
-        config.agent_providers = {
-            "claude": AgentProviderConfig(
-                command=["claude-agent"], default=True, default_model="sonnet"
-            ),
-            "copilot": AgentProviderConfig(command=["copilot-agent"], default_model="gpt-5-mini"),
-            "gemini": AgentProviderConfig(
-                command=["gemini-agent"], default_model="gemini-default"
-            ),
         }
         config.validation = MagicMock(timeout_seconds=300)
         config.parallel = MagicMock(max_agents=3)

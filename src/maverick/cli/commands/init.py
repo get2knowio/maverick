@@ -89,16 +89,16 @@ def _format_detection_output(
 def _format_provider_output(
     discovery: OpenCodeDiscoveryResult | None,
 ) -> list[str]:
-    """Format OpenCode-connected provider output."""
+    """Format airframe-discovered provider output."""
     if discovery is None:
         return [
-            "[bold]OpenCode Providers[/]",
-            "  [yellow]Warning:[/yellow] OpenCode discovery failed; "
-            "agent_providers section will be empty.",
+            "[bold]Connected Providers[/]",
+            "  [yellow]Warning:[/yellow] provider discovery failed; "
+            "edit the agents: block in maverick.yaml manually.",
             "",
         ]
 
-    lines: list[str] = ["[bold]OpenCode Providers[/]"]
+    lines: list[str] = ["[bold]Connected Providers[/]"]
 
     if not discovery.providers:
         lines.append("  [yellow]Warning:[/yellow] No providers connected.")

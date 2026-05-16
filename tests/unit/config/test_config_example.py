@@ -33,7 +33,6 @@ class TestConfigPatterns:
         # All required nested config objects are present
         assert sample_config.github is not None
         assert sample_config.notifications is not None
-        assert sample_config.model is not None
         assert sample_config.parallel is not None
 
     def test_config_github_values(self, sample_config: MaverickConfig) -> None:
@@ -47,21 +46,6 @@ class TestConfigPatterns:
         assert sample_config.github.owner == "test-org"
         assert sample_config.github.repo == "test-repo"
         assert sample_config.github.default_branch == "main"
-
-    def test_config_model_values(self, sample_config: MaverickConfig) -> None:
-        """Test model configuration values.
-
-        This demonstrates:
-        - Testing model settings
-        - Verifying numeric constraints
-        """
-        # Model config should have expected test values
-        assert sample_config.model.model_id == "sonnet"
-        assert sample_config.model.max_tokens == 4096
-        assert sample_config.model.temperature == 0.5
-
-        # Verify temperature is within valid range
-        assert 0.0 <= sample_config.model.temperature <= 1.0
 
     def test_config_parallel_values(self, sample_config: MaverickConfig) -> None:
         """Test parallel execution settings.
@@ -98,9 +82,8 @@ github:
   owner: "custom-org"
   repo: "custom-repo"
 
-model:
-  max_tokens: 2048
-  temperature: 0.7
+parallel:
+  max_agents: 7
 """
         config_path = temp_dir / "maverick.yaml"
         config_path.write_text(config_content)
@@ -111,8 +94,7 @@ model:
         # Verify custom values were loaded
         assert config.github.owner == "custom-org"
         assert config.github.repo == "custom-repo"
-        assert config.model.max_tokens == 2048
-        assert config.model.temperature == 0.7
+        assert config.parallel.max_agents == 7
 
         # Verify no environment variables interfered (thanks to clean_env)
         # This would fail if there were MAVERICK_* env vars set

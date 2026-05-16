@@ -351,7 +351,7 @@ class TestProviderDiscovery:
             result = cli_runner.invoke(cli, ["init", "--type", "python"])
 
         assert result.exit_code == 0, f"Failed: {result.output}"
-        assert "OpenCode Providers" in result.output
+        assert "Connected Providers" in result.output
         assert "GitHub Copilot" in result.output
         assert "(default)" in result.output
 

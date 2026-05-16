@@ -84,11 +84,6 @@ github:
 notifications:
   enabled: false
 
-model:
-  model_id: "sonnet"
-  max_tokens: 4096
-  temperature: 0.5
-
 parallel:
   max_agents: 2
   max_tasks: 3

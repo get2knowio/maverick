@@ -27,13 +27,10 @@ from typing import Any
 import airframe
 from airframe.errors import AgentRuntimeError
 
-from maverick.config import AgentProviderConfig
 from maverick.logging import get_logger
 from maverick.runners.preflight import ValidationResult
 
 __all__ = [
-    "AcpProviderHealthCheck",
-    "OpenCodeProviderHealthCheck",
     "ProviderHealthCheck",
     "build_provider_health_checks",
     "providers_for_fly",
@@ -48,14 +45,22 @@ logger = get_logger(__name__)
 # ---------------------------------------------------------------------------
 
 
-def _default_provider_name(config: Any) -> str | None:
-    """Return the name of the default provider in ``config.agent_providers``."""
-    for name, pcfg in config.agent_providers.items():
-        if getattr(pcfg, "default", False):
-            return name
-    if config.agent_providers:
-        return next(iter(config.agent_providers))
-    return None
+def _providers_from_agents(config: Any) -> dict[str, set[str]]:
+    """Walk ``config.agents.<role>`` → ``{provider: {model_id, ...}}``.
+
+    The airframe-canonical config surface. Each populated role
+    contributes its binding's ``(provider, model_id)`` to the result.
+    """
+    out: dict[str, set[str]] = {}
+    agents = getattr(config, "agents", None)
+    if agents is None:
+        return out
+    for role in ("implement", "review", "briefing", "decompose", "generate"):
+        binding = getattr(agents, role, None)
+        if binding is None:
+            continue
+        out.setdefault(binding.provider, set()).add(binding.model_id)
+    return out
 
 
 def providers_referenced_by_actors(config: Any, workflow: str) -> set[str]:
@@ -79,9 +84,7 @@ def providers_for_fly(config: Any) -> set[str]:
     """Union of every provider ``maverick fly`` may route through."""
     seen: set[str] = set()
     seen |= providers_referenced_by_actors(config, "fly")
-    default = _default_provider_name(config)
-    if default:
-        seen.add(default)
+    seen |= set(_providers_from_agents(config).keys())
     return seen
 
 
@@ -100,21 +103,14 @@ class ProviderHealthCheck:
     Args:
         provider_name: Airframe canonical provider id
             (``claude`` / ``github-copilot`` / ``codex`` / ``opencode``).
-        provider_config: Configuration; kept for source compatibility
-            with the legacy doctor surface.
         models_to_validate: Model IDs that must appear in the adapter's
             catalogue. Empty means "just check the adapter answers".
         timeout: Maximum seconds for ``list_models``.
-        test_mcp_tool_call: Preserved for source compatibility — no-op
-            under airframe; structured-output round-trip is exercised
-            by the agent layer, not by this probe.
     """
 
     provider_name: str
-    provider_config: AgentProviderConfig
     models_to_validate: frozenset[str] = field(default_factory=frozenset)
     timeout: float = 30.0
-    test_mcp_tool_call: bool = False
 
     async def validate(self) -> ValidationResult:
         """Run the health check.
@@ -182,13 +178,6 @@ class ProviderHealthCheck:
         )
 
 
-#: Backwards-compatible aliases. The names are misleading now (the
-#: check runs through airframe, not OpenCode or ACP), but renaming
-#: them would break imports across the codebase and downstream tooling.
-OpenCodeProviderHealthCheck = ProviderHealthCheck
-AcpProviderHealthCheck = ProviderHealthCheck
-
-
 # ---------------------------------------------------------------------------
 # Builder
 # ---------------------------------------------------------------------------
@@ -198,51 +187,27 @@ def build_provider_health_checks(
     config: Any,
     *,
     timeout: float | None = None,
-    test_mcp_tool_call: bool = False,
     provider_filter: set[str] | frozenset[str] | None = None,
 ) -> list[ProviderHealthCheck]:
-    """Build one health check per configured provider.
+    """Build one health check per provider referenced in ``config.agents``.
 
-    The result mirrors :class:`AgentProviderRegistry`'s shape: every
-    entry in ``config.agent_providers`` produces a check, optionally
-    filtered to ``provider_filter``. Each check's ``models_to_validate``
-    is the union of:
-
-    * the provider's ``default_model``,
-    * for the default provider only: the global ``config.model.model_id``
-      (when explicitly set) and any per-agent ``model_id`` overrides.
-
-    ``timeout`` defaults to 30s — generous so a slow provider catalogue
-    doesn't fail an otherwise-healthy check.
+    Each populated ``agents.<role>`` contributes its binding's
+    ``(provider, model_id)``; the result is one check per unique
+    provider with the model_ids it's expected to serve. ``timeout``
+    defaults to 30s — generous so a slow provider catalogue doesn't
+    fail an otherwise-healthy check.
     """
-    del test_mcp_tool_call  # legacy flag, no longer load-bearing
     if timeout is None:
         timeout = 30.0
 
-    default_provider = _default_provider_name(config)
-    provider_models: dict[str, set[str]] = {}
-    for name, pcfg in config.agent_providers.items():
-        models: set[str] = set()
-        if pcfg.default_model:
-            models.add(pcfg.default_model)
-        provider_models[name] = models
-
-    if default_provider:
-        # Global ``model.model_id`` only counts when the user explicitly
-        # set it — the Pydantic default is a Claude alias, meaningless
-        # for non-Claude providers.
-        if "model_id" in config.model.model_fields_set and config.model.model_id:
-            provider_models.setdefault(default_provider, set()).add(config.model.model_id)
-
-    items = sorted(config.agent_providers.items())
+    provider_models = _providers_from_agents(config)
     return [
         ProviderHealthCheck(
             provider_name=name,
-            provider_config=pcfg,
-            models_to_validate=frozenset(provider_models.get(name, set())),
+            models_to_validate=frozenset(models),
             timeout=timeout,
         )
-        for name, pcfg in items
+        for name, models in sorted(provider_models.items())
         if provider_filter is None or name in provider_filter
     ]
 

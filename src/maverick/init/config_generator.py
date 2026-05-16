@@ -1,29 +1,21 @@
 """Configuration generation for ``maverick init``.
 
 Builds an ``InitConfig`` from project detection, git remote info, and
-OpenCode provider discovery. The generator writes:
+airframe provider discovery. The generator writes:
 
 * ``project_type``, ``github`` — from detection + git parsing.
 * ``validation`` — language defaults from the detected project type.
-* ``model`` — optional global default model id (rare; the ``agents:``
-  block drives routing now).
-* ``agent_providers`` — one entry per provider returned by
-  ``GET /provider`` (the OpenCode runtime's ``connected[]`` list).
-  Used by ``maverick doctor`` for health checks.
 * ``agents`` — per-role airframe bindings (one ``(provider, model_id)``
   per role). Baked into the generated yaml so users see the routing
   decisions and can edit them per project.
 
-The legacy PATH-based ACP probe + ``actors:`` auto-distribution were
-deleted in the OpenCode-substrate cleanup. The runtime resolves
-``agents`` from the yaml directly; per-actor overrides go under
-``actors.<workflow>.<actor>``, written manually when needed.
+Per-actor overrides go under ``actors.<workflow>.<actor>``, written
+manually when needed.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 from maverick.exceptions.init import ConfigExistsError, ConfigWriteError
 from maverick.init.models import (
@@ -57,17 +49,15 @@ def generate_config(
             was skipped (e.g. explicit ``project_type`` override).
         project_type: Explicit project type override; takes precedence
             over ``detection.primary_type``.
-        provider_discovery: Result of querying OpenCode's
-            ``/provider`` endpoint. When present, populates the
-            ``agent_providers`` block with the connected providers and
-            flags the highest-preference one as ``default: true``.
+        provider_discovery: Airframe discovery result. Surfaced to the
+            caller for verbose console output; not currently written
+            into the generated yaml (the ``agents:`` block is the
+            canonical routing surface).
 
     Returns:
-        Complete :class:`InitConfig` ready for serialization. The
-        ``model`` block is omitted (``None``) — the ``agents:`` block
-        drives routing now; the legacy ``model.model_id`` field would
-        break doctor when set to short aliases like ``sonnet``.
+        Complete :class:`InitConfig` ready for serialization.
     """
+    del provider_discovery  # surfaced to caller for verbose output; not written into yaml
     # Determine effective project type
     if project_type is not None:
         effective_type = project_type
@@ -96,24 +86,10 @@ def generate_config(
         test_cmd=list(validation_commands.test_cmd) if validation_commands.test_cmd else None,
     )
 
-    # agent_providers from /provider connected list. The first entry in
-    # preference order (per OpenCodeDiscoveryResult sort) becomes the
-    # default. When discovery failed (None) the block stays empty —
-    # workflows still work via the runtime DEFAULT_TIERS, doctor just
-    # has nothing to validate.
-    agent_providers: dict[str, dict[str, Any]] = {}
-    if provider_discovery is not None:
-        for prov in provider_discovery.providers:
-            agent_providers[prov.provider_id] = {
-                "default": prov.provider_id == provider_discovery.default_provider_id,
-            }
-
     return InitConfig(
         project_type=effective_type.value,
         github=github_config,
         validation=validation_config,
-        model=None,
-        agent_providers=agent_providers,
     )
 
 

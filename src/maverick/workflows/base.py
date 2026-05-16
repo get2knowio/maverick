@@ -102,69 +102,16 @@ class PythonWorkflow(ABC):
         """Read-only access to the project configuration."""
         return self._config
 
-    def _resolve_display_provider(self) -> str | None:
-        """Return the default provider name for display purposes."""
-        try:
-            providers = self._config.agent_providers
-            for name, pcfg in providers.items():
-                if pcfg.default:
-                    return name
-            # No default marked — try first provider
-            for name in providers:
-                return name
-        except (AttributeError, TypeError):
-            pass
-        return None
-
-    def _resolve_display_model(self) -> str | None:
-        """Resolve the effective model ID for display purposes.
-
-        Returns the explicitly-configured model_id, or the default
-        provider's default_model, or None if neither is available.
-        """
-        try:
-            model_cfg = self._config.model
-            fields_set: set[str] = getattr(model_cfg, "model_fields_set", set())
-            if "model_id" in fields_set:
-                return model_cfg.model_id
-        except (AttributeError, TypeError):
-            return None
-
-        try:
-            providers = self._config.agent_providers
-            for _name, pcfg in providers.items():
-                if pcfg.default:
-                    return pcfg.default_model
-            for _name, pcfg in providers.items():
-                return pcfg.default_model
-        except (AttributeError, TypeError):
-            pass
-        return None
-
-    def _resolve_provider_default_model(self, provider_name: str | None = None) -> str | None:
-        """Return the default model for a specific provider or the workflow default."""
-        try:
-            providers = self._config.agent_providers
-            if provider_name and provider_name in providers:
-                return providers[provider_name].default_model
-            for _name, pcfg in providers.items():
-                if pcfg.default:
-                    return pcfg.default_model
-            for _name, pcfg in providers.items():
-                return pcfg.default_model
-        except (AttributeError, TypeError):
-            pass
-        return None
-
     def _resolve_display_label_for_config(self, config: StepConfig) -> str:
-        """Build a provider/model display label for a resolved StepConfig."""
-        provider = config.provider or self._resolve_display_provider() or "default"
-        model_id = (
-            config.model_id
-            or self._resolve_provider_default_model(config.provider)
-            or self._resolve_display_model()
-            or "default"
-        )
+        """Build a provider/model display label for a resolved StepConfig.
+
+        Falls back to ``"default"`` when the StepConfig doesn't pin a
+        provider/model — the airframe runtime owns the canonical binding
+        via ``MaverickConfig.agents.<role>`` at squadron-open, so display
+        labels are best-effort hints rather than the source of truth.
+        """
+        provider = config.provider or "default"
+        model_id = config.model_id or "default"
         return f"{provider}/{model_id}"
 
     # ------------------------------------------------------------------
@@ -260,19 +207,16 @@ class PythonWorkflow(ABC):
     ) -> StepConfig:
         """Resolve per-step configuration by merging defaults with overrides.
 
-        Uses the layered resolution from maverick.executor.config:
-
-        - inline_config: None (Python workflows have no YAML inline config)
-        - actor_config: from
-          ``self._config.actors[<workflow-key>][agent_name]`` — the
-          canonical per-step surface
-        - global_model: from ``self._config.model``
-        - provider_default_model: from the default provider config
+        Routing (provider + model) is no longer threaded through StepConfig
+        — :func:`runtime_for_agent` reads it from
+        ``MaverickConfig.agents.<role>`` at squadron-open. This helper now
+        only resolves the actor-level constructor overrides
+        (timeout, max_tokens, allowed_tools, etc.).
 
         Args:
             step_name: The step name to resolve config for.
             step_type: Step type for mode inference. Defaults to StepType.PYTHON.
-            agent_name: Optional agent name for actor / agent-level config lookup.
+            agent_name: Optional agent name for actor-level config lookup.
 
         Returns:
             Resolved StepConfig with merged values.
@@ -284,16 +228,11 @@ class PythonWorkflow(ABC):
             if agent_name
             else None
         )
-        provider_name = (
-            actor_config.provider if actor_config is not None and actor_config.provider else None
-        )
         return _resolve_step_config(
             inline_config=None,
             actor_config=actor_config,
-            global_model=self._config.model,
             step_type=step_type,
             step_name=step_name,
-            provider_default_model=self._resolve_provider_default_model(provider_name),
         )
 
     # ------------------------------------------------------------------

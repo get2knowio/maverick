@@ -17,8 +17,6 @@ def test_load_defaults_when_no_config(clean_env: None, temp_dir: Path) -> None:
     config = load_config()
     assert isinstance(config, MaverickConfig)
     # Check defaults
-    assert config.model.model_id == "sonnet"
-    assert config.model.max_tokens == 64000
     assert config.parallel.max_agents == 3
     assert config.verbosity == "warning"
 
@@ -37,7 +35,7 @@ def test_load_project_config(clean_env: None, temp_dir: Path, sample_config_yaml
     config = load_config()
     assert config.github.owner == "test-org"
     assert config.github.repo == "test-repo"
-    assert config.model.max_tokens == 4096
+    assert config.parallel.max_agents == 2
     assert config.verbosity == "info"
 
 
@@ -47,13 +45,13 @@ def test_env_var_overrides(clean_env: None, temp_dir: Path) -> None:
 
     os.chdir(temp_dir)
     os.environ["MAVERICK_GITHUB__OWNER"] = "env-org"
-    os.environ["MAVERICK_MODEL__MAX_TOKENS"] = "2048"
+    os.environ["MAVERICK_VERBOSITY"] = "debug"
 
     from maverick.config import load_config
 
     config = load_config()
     assert config.github.owner == "env-org"
-    assert config.model.max_tokens == 2048
+    assert config.verbosity == "debug"
 
 
 def test_invalid_config_raises_config_error(clean_env: None, temp_dir: Path) -> None:
@@ -148,8 +146,7 @@ def test_load_user_config(
     user_config_path.write_text("""
 notifications:
   server: "https://custom-ntfy.example.com"
-model:
-  temperature: 0.3
+verbosity: "debug"
 """)
 
     # Patch Path.home() to return temp_dir
@@ -159,7 +156,7 @@ model:
 
     config = load_config()
     assert config.notifications.server == "https://custom-ntfy.example.com"
-    assert config.model.temperature == 0.3
+    assert config.verbosity == "debug"
 
 
 def test_project_config_overrides_user_config(
@@ -177,8 +174,7 @@ def test_project_config_overrides_user_config(
     user_config_path.write_text("""
 github:
   owner: "user-org"
-model:
-  max_tokens: 4096
+verbosity: "info"
 """)
 
     # Create project config that overrides some settings
@@ -196,7 +192,7 @@ github:
     # project config should override user config
     assert config.github.owner == "project-org"
     # user config should still apply for non-overridden values
-    assert config.model.max_tokens == 4096
+    assert config.verbosity == "info"
 
 
 def test_merge_partial_configs(
@@ -214,8 +210,8 @@ def test_merge_partial_configs(
     user_config_path.write_text("""
 notifications:
   topic: "user-notifications"
-model:
-  temperature: 0.2
+parallel:
+  max_agents: 5
 """)
 
     # Project config sets different values
@@ -233,12 +229,10 @@ verbosity: "debug"
     config = load_config()
     # Values from user config
     assert config.notifications.topic == "user-notifications"
-    assert config.model.temperature == 0.2
+    assert config.parallel.max_agents == 5
     # Values from project config
     assert config.github.repo == "my-project"
     assert config.verbosity == "debug"
-    # Defaults for unset values
-    assert config.model.model_id == "sonnet"
 
 
 def test_empty_config_file_uses_defaults_with_warning(
@@ -260,9 +254,8 @@ def test_empty_config_file_uses_defaults_with_warning(
         config = load_config()
 
     # Should use defaults
-    assert config.model.model_id == "sonnet"
-    assert config.model.max_tokens == 64000
     assert config.parallel.max_agents == 3
+    assert config.verbosity == "warning"
 
     # Should log a warning
     assert any("empty" in record.message.lower() for record in caplog.records)
@@ -293,7 +286,7 @@ def test_empty_config_with_comments_uses_defaults(
         config = load_config()
 
     # Should use defaults
-    assert config.model.model_id == "sonnet"
+    assert config.parallel.max_agents == 3
     assert config.verbosity == "warning"
 
     # Should log a warning
@@ -307,7 +300,7 @@ def test_invalid_env_var_value_produces_error(
     import os
 
     os.chdir(temp_dir)
-    os.environ["MAVERICK_MODEL__MAX_TOKENS"] = "not-a-number"
+    os.environ["MAVERICK_PARALLEL__MAX_AGENTS"] = "not-a-number"
     monkeypatch.setattr(Path, "home", lambda: temp_dir)
 
     from maverick.config import load_config
@@ -316,8 +309,8 @@ def test_invalid_env_var_value_produces_error(
     with pytest.raises(ConfigError) as exc_info:
         load_config()
 
-    assert "max_tokens" in str(exc_info.value.message).lower() or (
-        exc_info.value.field == "model.max_tokens"
+    assert "max_agents" in str(exc_info.value.message).lower() or (
+        exc_info.value.field == "parallel.max_agents"
     )
 
 
@@ -335,7 +328,7 @@ def test_missing_user_config_directory_works(
 
     config = load_config()
     # Should use defaults without error
-    assert config.model.model_id == "sonnet"
+    assert config.parallel.max_agents == 3
 
 
 def test_notification_enabled_without_topic_logs_warning(
@@ -573,8 +566,7 @@ github:
             """
 github:
   owner: "copilot-org"
-model:
-  max_tokens: 8192
+verbosity: "debug"
 """
         )
 
@@ -583,7 +575,7 @@ model:
         config = load_config(config_path=custom_path)
         # Should load from the custom file, NOT maverick.yaml
         assert config.github.owner == "copilot-org"
-        assert config.model.max_tokens == 8192
+        assert config.verbosity == "debug"
 
     def test_default_path_still_works(self, clean_env: None, temp_dir: Path) -> None:
         """load_config() without a path still loads maverick.yaml from cwd."""
@@ -612,8 +604,8 @@ github:
         from maverick.config import load_config
 
         config = load_config(config_path=temp_dir / "nonexistent.yaml")
-        assert config.model.model_id == "sonnet"
-        assert config.model.max_tokens == 64000
+        assert config.parallel.max_agents == 3
+        assert config.verbosity == "warning"
 
 
 class TestAgentsConfig:

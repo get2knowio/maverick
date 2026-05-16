@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import contextvars
-from enum import Enum
 from pathlib import Path
 from typing import Any, Literal, Self
 
@@ -14,12 +13,6 @@ from pydantic_settings import (
     SettingsConfigDict,
 )
 
-from maverick.constants import (
-    DEFAULT_MODEL as MAVERICK_DEFAULT_MODEL,
-)
-from maverick.constants import (
-    MAX_OUTPUT_TOKENS,
-)
 from maverick.exceptions import ConfigError
 from maverick.logging import get_logger
 
@@ -27,15 +20,12 @@ __all__ = [
     "ACTOR_WORKFLOW_KEY_MAP",
     "ActorConfig",
     "AgentBindingConfig",
-    "AgentProviderConfig",
     "AgentsConfig",
     "CustomToolConfig",
     "GitHubConfig",
     "MaverickConfig",
-    "ModelConfig",
     "NotificationConfig",
     "ParallelConfig",
-    "PermissionMode",
     "PreflightValidationConfig",
     "RunwayConfig",
     "RunwayConsolidationConfig",
@@ -54,43 +44,6 @@ logger = get_logger(__name__)
 _project_config_path_var: contextvars.ContextVar[Path | None] = contextvars.ContextVar(
     "_project_config_path", default=None
 )
-
-
-class PermissionMode(str, Enum):
-    """Permission handling strategy for ACP agent tool calls."""
-
-    AUTO_APPROVE = "auto_approve"
-    DENY_DANGEROUS = "deny_dangerous"
-    INTERACTIVE = "interactive"
-
-
-class AgentProviderConfig(BaseModel, frozen=True):
-    """Configuration for a single ACP agent provider.
-
-    Attributes:
-        command: Subprocess command and arguments to spawn the agent.
-        env: Environment variable overrides for the subprocess.
-        permission_mode: How to handle agent permission requests.
-        default: Whether this is the default provider.
-    """
-
-    command: list[str] | None = Field(
-        default=None,
-        description=(
-            "Spawn command and args. Optional for built-in providers "
-            "(claude, copilot) — resolved automatically by the registry."
-        ),
-    )
-    env: dict[str, str] = Field(default_factory=dict, description="Environment overrides")
-    permission_mode: PermissionMode = Field(
-        default=PermissionMode.AUTO_APPROVE,
-        description="Permission handling strategy",
-    )
-    default: bool = Field(default=False, description="Is this the default provider?")
-    default_model: str | None = Field(
-        default=None,
-        description="Default model for this provider (lowest precedence layer).",
-    )
 
 
 class GitHubConfig(BaseModel):
@@ -152,27 +105,6 @@ class ValidationConfig(BaseModel):
                 f"Configured project_root does not exist: {v}. Validation commands may fail."
             )
         return v
-
-
-class ModelConfig(BaseModel):
-    """Settings for Claude model selection.
-
-    Attributes:
-        model_id: Claude model identifier.
-        max_tokens: Maximum OUTPUT tokens per response (not context window).
-            Defaults to 64000 (maximum for all Claude 4.5 variants).
-            Context window (input): 200K tokens (fixed by model).
-            Max output (configurable): up to 64K tokens.
-            Model limits (all Claude 4.5 variants):
-            - {CLAUDE_SONNET_LATEST}: 64K output, 200K context (default)
-            - {CLAUDE_OPUS_LATEST}: 64K output, 200K context
-            - {CLAUDE_HAIKU_LATEST}: 64K output, 200K context
-        temperature: Sampling temperature (0.0 = deterministic, 1.0 = creative).
-    """
-
-    model_id: str = MAVERICK_DEFAULT_MODEL
-    max_tokens: int = Field(default=MAX_OUTPUT_TOKENS, gt=0, le=200000)
-    temperature: float = Field(default=0.0, ge=0.0, le=1.0)
 
 
 class ImplementerTierConfig(BaseModel):
@@ -645,16 +577,11 @@ class MaverickConfig(BaseSettings):
     notifications: NotificationConfig = Field(default_factory=NotificationConfig)
     validation: ValidationConfig = Field(default_factory=ValidationConfig)
     preflight: PreflightValidationConfig = Field(default_factory=PreflightValidationConfig)
-    model: ModelConfig = Field(default_factory=ModelConfig)
     parallel: ParallelConfig = Field(default_factory=ParallelConfig)
     tui_metrics: TuiMetricsConfig = Field(default_factory=TuiMetricsConfig)
     session_log: SessionLogConfig = Field(default_factory=SessionLogConfig)
     workspace: WorkspaceConfig = Field(default_factory=WorkspaceConfig)
     runway: RunwayConfig = Field(default_factory=RunwayConfig)
-    agent_providers: dict[str, AgentProviderConfig] = Field(
-        default_factory=dict,
-        description="OpenCode-connected provider configurations keyed by provider name.",
-    )
     actors: dict[str, dict[str, Any]] = Field(
         default_factory=dict,
         description="Actor configurations grouped by workflow (plan/refuel/fly/land).",

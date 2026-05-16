@@ -159,32 +159,27 @@ class TestGenerateConfig:
         assert config.validation.format_cmd == ["ruff", "format", "."]
         assert config.validation.lint_cmd == ["ruff", "check", "--fix", "."]
 
-    def test_generate_config_omits_legacy_model_block(self) -> None:
-        """Init no longer writes the legacy model.* block.
-
-        The ``agents:`` block fully supersedes the global model.model_id
-        field; leaving it set to a short alias like "sonnet" was breaking
-        doctor, which expects fully-qualified model IDs.
-        """
+    def test_generate_config_emits_agents_block(self) -> None:
+        """Init writes a per-role agents: block — the routing source of truth."""
         git_info = GitRemoteInfo()
 
         config = generate_config(git_info=git_info, detection=None)
 
-        assert config.model is None
-        # agents: is the routing source of truth now — every role pinned.
         for role in ("implement", "review", "briefing", "decompose", "generate"):
             assert role in config.agents
             assert "provider" in config.agents[role]
             assert "model_id" in config.agents[role]
 
-    def test_generate_config_with_provider_discovery(self) -> None:
-        """OpenCode provider discovery populates agent_providers in config."""
+    def test_generate_config_discovery_is_surfaced_only(self) -> None:
+        """Discovery result no longer writes into the YAML.
+
+        The ``agents:`` block is the canonical routing config; discovery
+        feeds the verbose console output but doesn't drive yaml content.
+        """
         git_info = GitRemoteInfo(owner="acme", repo="project")
         discovery = OpenCodeDiscoveryResult(
             providers=(
                 ConnectedProvider("github-copilot", "GitHub Copilot", "claude-sonnet-4.6", 17),
-                ConnectedProvider("openai", "OpenAI", "gpt-5.5", 9),
-                ConnectedProvider("openrouter", "OpenRouter", "google/gemini-3-pro-preview", 180),
             ),
             default_provider_id="github-copilot",
         )
@@ -195,32 +190,15 @@ class TestGenerateConfig:
             provider_discovery=discovery,
         )
 
-        assert "github-copilot" in config.agent_providers
-        assert config.agent_providers["github-copilot"]["default"] is True
-        assert "openai" in config.agent_providers
-        assert config.agent_providers["openai"]["default"] is False
-        assert "openrouter" in config.agent_providers
-        assert config.agent_providers["openrouter"]["default"] is False
-
-    def test_generate_config_no_discovery(self) -> None:
-        """No discovery result means empty agent_providers."""
-        git_info = GitRemoteInfo()
-        config = generate_config(git_info=git_info, detection=None)
-        assert config.agent_providers == {}
-
-    def test_generate_config_empty_discovery(self) -> None:
-        """Discovery with no connected providers yields empty agent_providers."""
-        git_info = GitRemoteInfo()
-        discovery = OpenCodeDiscoveryResult(
-            providers=(),
-            default_provider_id=None,
-        )
-        config = generate_config(
-            git_info=git_info,
-            detection=None,
-            provider_discovery=discovery,
-        )
-        assert config.agent_providers == {}
+        # The generated config has agents: from the defaults, regardless
+        # of what discovery returned.
+        assert set(config.agents.keys()) == {
+            "implement",
+            "review",
+            "briefing",
+            "decompose",
+            "generate",
+        }
 
     def test_generate_config_to_yaml(self) -> None:
         """Generated config should serialize to valid YAML."""
