@@ -56,9 +56,7 @@ class RefuelSquadron(Squadron):
 
     async def _build_agents(self) -> None:
         cwd = str(self._cwd)
-        generator_runtime, _ = runtime_for_agent(
-            "generate", agents_config=self._config.agents
-        )
+        generator_runtime, _ = runtime_for_agent("generate", agents_config=self._config.agents)
         self.generator = GeneratorAgent(
             runtime=generator_runtime,
             cwd=cwd,
@@ -73,9 +71,7 @@ class RefuelSquadron(Squadron):
         )
 
     async def _build_decomposer(self, tier: str) -> DecomposerAgent:
-        decomposer_runtime, _ = runtime_for_agent(
-            "decompose", agents_config=self._config.agents
-        )
+        decomposer_runtime, _ = runtime_for_agent("decompose", agents_config=self._config.agents)
         agent = DecomposerAgent(
             runtime=decomposer_runtime,
             cwd=str(self._cwd),
@@ -101,9 +97,7 @@ class RefuelSquadron(Squadron):
         down every briefing's airframe runtime even if the caller
         forgets.
         """
-        briefing_runtime, _ = runtime_for_agent(
-            "briefing", agents_config=self._config.agents
-        )
+        briefing_runtime, _ = runtime_for_agent("briefing", agents_config=self._config.agents)
         agent = BriefingAgent(
             runtime=briefing_runtime,
             cwd=str(self._cwd),

@@ -248,8 +248,10 @@ class StubBriefingAgent(StubAgentBase):
 class StubDecomposerAgent(StubAgentBase):
     """Stub for :class:`maverick.agents.decomposer.DecomposerAgent`.
 
-    Covers every callable surface the actor exercises:
-    outline / details / fix-outline / fix-details + set_context.
+    Mirrors the real agent's kwargs surface (``outline`` takes
+    ``flight_plan_content`` + ``codebase_context`` + …, ``detail`` takes
+    ``unit_ids``, etc.). Each method records its call kwargs in
+    ``calls`` so tests can verify the actor forwarded them verbatim.
     """
 
     tag = "stub-decomposer"
@@ -258,33 +260,40 @@ class StubDecomposerAgent(StubAgentBase):
         self,
         *,
         outline_payloads: list[SubmitOutlinePayload] | None = None,
-        details_payloads: list[SubmitDetailsPayload] | None = None,
+        detail_payloads: list[SubmitDetailsPayload] | None = None,
         fix_payloads: list[SubmitFixPayload] | None = None,
+        nudge_payloads: list[BaseModel] | None = None,
     ) -> None:
         super().__init__()
         self.outline_payloads: list[SubmitOutlinePayload] = list(outline_payloads or [])
-        self.details_payloads: list[SubmitDetailsPayload] = list(details_payloads or [])
+        self.detail_payloads: list[SubmitDetailsPayload] = list(detail_payloads or [])
         self.fix_payloads: list[SubmitFixPayload] = list(fix_payloads or [])
+        self.nudge_payloads: list[BaseModel] = list(nudge_payloads or [])
         self.contexts: list[dict[str, Any]] = []
 
     async def set_context(self, **kwargs: Any) -> None:
         self.contexts.append(kwargs)
         self._record("set_context", **kwargs)
 
-    async def outline(self, prompt: str) -> SubmitOutlinePayload:
-        self._record("outline", prompt=prompt)
+    async def outline(self, **kwargs: Any) -> SubmitOutlinePayload:
+        self._record("outline", **kwargs)
         self._maybe_raise()
         return self._pop(self.outline_payloads, "outline")
 
-    async def details(self, prompt: str) -> SubmitDetailsPayload:
-        self._record("details", prompt=prompt)
+    async def detail(self, **kwargs: Any) -> SubmitDetailsPayload:
+        self._record("detail", **kwargs)
         self._maybe_raise()
-        return self._pop(self.details_payloads, "details")
+        return self._pop(self.detail_payloads, "detail")
 
-    async def fix(self, prompt: str) -> SubmitFixPayload:
-        self._record("fix", prompt=prompt)
+    async def fix(self, **kwargs: Any) -> SubmitFixPayload:
+        self._record("fix", **kwargs)
         self._maybe_raise()
         return self._pop(self.fix_payloads, "fix")
+
+    async def nudge(self, **kwargs: Any) -> BaseModel:
+        self._record("nudge", **kwargs)
+        self._maybe_raise()
+        return self._pop(self.nudge_payloads, "nudge")
 
 
 # ---------------------------------------------------------------------------

@@ -94,9 +94,7 @@ class FlySquadron(Squadron):
         self.correctness_reviewers = {}
         self.completeness_reviewers = {}
 
-    def _binding_for_complexity(
-        self, tier_name: str, override: Any
-    ) -> AgentBindingConfig | None:
+    def _binding_for_complexity(self, tier_name: str, override: Any) -> AgentBindingConfig | None:
         """Convert a per-complexity ``ImplementerTierConfig`` to a factory override.
 
         The complexity-tier config is a Maverick-only shape with extra
@@ -113,9 +111,7 @@ class FlySquadron(Squadron):
             return None
         return AgentBindingConfig(provider=provider, model_id=model_id)
 
-    def _build_coder(
-        self, tier_name: str, step_config: Any, override: Any = None
-    ) -> CodingAgent:
+    def _build_coder(self, tier_name: str, step_config: Any, override: Any = None) -> CodingAgent:
         suffix = "" if tier_name == DEFAULT_TIER else f".{tier_name}"
         runtime, _ = runtime_for_agent(
             "implement",
@@ -130,9 +126,7 @@ class FlySquadron(Squadron):
             tag=f"coder{suffix}",
         )
 
-    def _build_reviewer_pair(
-        self, tier_name: str, step_config: Any, override: Any = None
-    ) -> None:
+    def _build_reviewer_pair(self, tier_name: str, step_config: Any, override: Any = None) -> None:
         suffix = "" if tier_name == DEFAULT_TIER else f".{tier_name}"
         binding_override = self._binding_for_complexity(tier_name, override)
         correctness_runtime, _ = runtime_for_agent(

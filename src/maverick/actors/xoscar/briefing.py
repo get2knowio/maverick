@@ -43,6 +43,7 @@ class BriefingActor(xo.Actor):
         forward_method: str,
         cwd: str,
         config: StepConfig | dict[str, Any] | None = None,
+        agent: BriefingAgent | None = None,
     ) -> None:
         super().__init__()
         if not cwd:
@@ -64,6 +65,10 @@ class BriefingActor(xo.Actor):
         self._cwd = cwd
         self._step_config = load_step_config(config)
         self._schema = schema
+        # Pre-built agent provided by the squadron (Pattern D) or test
+        # harness. When None, ``_make_agent`` falls back to constructing
+        # one from the legacy pool registries.
+        self._injected_agent = agent
         self._agent: BriefingAgent | None = None
 
     async def __post_create__(self) -> None:
@@ -71,7 +76,9 @@ class BriefingActor(xo.Actor):
         await self._agent.open()
 
     def _make_agent(self) -> BriefingAgent:
-        """Factory hook — override in tests to inject a stubbed agent."""
+        """Return the injected agent or fall back to legacy pool registries."""
+        if self._injected_agent is not None:
+            return self._injected_agent
         pool_address: str = self.address
         return BriefingAgent(
             handle=opencode_handle_for(pool_address),
@@ -85,7 +92,9 @@ class BriefingActor(xo.Actor):
         )
 
     async def __pre_destroy__(self) -> None:
-        if self._agent is not None:
+        # Squadron owns the lifecycle of injected agents; the actor only
+        # closes agents it constructed itself via the legacy fallback.
+        if self._agent is not None and self._injected_agent is None:
             await self._agent.close()
 
     # ------------------------------------------------------------------

@@ -142,18 +142,27 @@ async def test_briefing_returns_scripted_payload_with_arbitrary_schema() -> None
 # ---------------------------------------------------------------------------
 
 
-async def test_decomposer_outline_details_fix() -> None:
+async def test_decomposer_outline_detail_fix() -> None:
     outline = SubmitOutlinePayload(work_units=())
-    details = SubmitDetailsPayload(details=())
+    detail = SubmitDetailsPayload(details=())
     fix = SubmitFixPayload(work_units=(), details=())
     stub = StubDecomposerAgent(
         outline_payloads=[outline],
-        details_payloads=[details],
+        detail_payloads=[detail],
         fix_payloads=[fix],
     )
-    assert await stub.outline("prompt") is outline
-    assert await stub.details("prompt") is details
-    assert await stub.fix("prompt") is fix
+    assert await stub.outline(flight_plan_content="plan", codebase_context=None) is outline
+    assert await stub.detail(unit_ids=("wu-1",)) is detail
+    assert await stub.fix(coverage_gaps=(), overloaded=()) is fix
+    # Kwargs flow through to the call log.
+    assert stub.calls[0] == ("outline", {"flight_plan_content": "plan", "codebase_context": None})
+
+
+async def test_decomposer_nudge_returns_typed_payload() -> None:
+    outline = SubmitOutlinePayload(work_units=())
+    stub = StubDecomposerAgent(nudge_payloads=[outline])
+    result = await stub.nudge(expected_tool="submit_outline", unit_id=None, reason="retry")
+    assert result is outline
 
 
 async def test_decomposer_set_context_recorded() -> None:

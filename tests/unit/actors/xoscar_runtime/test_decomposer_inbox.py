@@ -1,14 +1,19 @@
-"""Tests for DecomposerActor under the OpenCode runtime.
+"""Tests for DecomposerActor (airframe-stub injection path).
 
 Covers the three phases (outline / detail / fix) plus the nudge path,
-error routing through ``prompt_error``, and session-mode rotation.
+error routing through ``prompt_error``. Uses :class:`StubDecomposerAgent`
+as the ``agent=`` injection — no OpenCode handle, no SDK adapter,
+no HTTP transport.
 """
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from typing import Any
 
+import pytest
 import xoscar as xo
+from airframe.errors import RuntimeAuthError
 
 from maverick.actors.xoscar.decomposer import DecomposerActor
 from maverick.actors.xoscar.messages import (
@@ -18,13 +23,13 @@ from maverick.actors.xoscar.messages import (
     OutlineRequest,
     PromptError,
 )
-from maverick.agents.decomposer import DecomposerAgent
+from maverick.actors.xoscar.pool import create_pool
 from maverick.payloads import (
     SubmitDetailsPayload,
     SubmitFixPayload,
     SubmitOutlinePayload,
 )
-from maverick.runtime.opencode import RuntimeAuthError, SendResult, opencode_handle_for
+from tests.unit.agents.airframe_stubs import StubDecomposerAgent
 
 
 class _DecomposerRecorder(xo.Actor):
@@ -55,84 +60,14 @@ class _DecomposerRecorder(xo.Actor):
         return list(self._calls)
 
 
-def _make_stub_client(
-    *,
-    scripted_results: list[SendResult],
-    scripted_error: BaseException | None,
-) -> Any:
-    class _Client:
-        base_url = "http://stub"
-
-        async def list_providers(self) -> dict[str, Any]:
-            return {"all": [], "connected": []}
-
-        async def create_session(self, *, title: str | None = None, **_: Any) -> str:
-            return f"ses_{id(self)}"
-
-        async def delete_session(self, session_id: str) -> bool:
-            return True
-
-        async def send_with_event_watch(self, *args: Any, **kwargs: Any) -> SendResult:
-            if scripted_error is not None:
-                raise scripted_error
-            if not scripted_results:
-                return SendResult(message={}, text="", structured=None, valid=False)
-            return scripted_results.pop(0)
-
-        async def aclose(self) -> None:
-            return None
-
-    return _Client()
-
-
-class _StubDecomposer(DecomposerActor):
-    """Decomposer whose agent wires up a scripted stub client. ``send_results``
-    is consumed FIFO; ``send_error`` short-circuits with the named exception."""
-
-    def __init__(
-        self,
-        supervisor_ref: xo.ActorRef,
-        *,
-        cwd: str = "/tmp",
-        send_results: list[SendResult] | None = None,
-        send_error: BaseException | None = None,
-        role: str = "primary",
-    ) -> None:
-        super().__init__(supervisor_ref, cwd=cwd, role=role)
-        self._scripted_results = list(send_results or [])
-        self._scripted_error = send_error
-
-    def _make_agent(self) -> DecomposerAgent:  # type: ignore[override]
-        client = _make_stub_client(
-            scripted_results=self._scripted_results,
-            scripted_error=self._scripted_error,
-        )
-        agent = DecomposerAgent(
-            handle=opencode_handle_for(self.address),
-            cwd=self._cwd,
-            role=self._role,
-            detail_session_max_turns=self._detail_session_max_turns,
-            fix_session_max_turns=self._fix_session_max_turns,
-            client_factory=lambda: client,
-        )
-        # Bypass tier cascade — these tests don't ship a /provider response.
-        agent.provider_tier = None  # type: ignore[assignment]
-        return agent
-
-
-def _structured(payload: dict[str, Any]) -> SendResult:
-    return SendResult(
-        message={"info": {"structured": payload}, "parts": []},
-        text="",
-        structured=payload,
-        valid=True,
-        info={},
-    )
-
-
-# ---------------------------------------------------------------------------
-# Outline / detail / fix happy paths
-# ---------------------------------------------------------------------------
+@pytest.fixture
+async def pool_address() -> AsyncIterator[str]:
+    """Torn-down-on-exit xoscar pool; no OpenCode handle registration."""
+    pool, address = await create_pool()
+    try:
+        yield address
+    finally:
+        await pool.stop()
 
 
 def _empty_context() -> Any:
@@ -142,14 +77,20 @@ def _empty_context() -> Any:
     return CodebaseContext(files=(), missing_files=(), total_size=0)
 
 
+# ---------------------------------------------------------------------------
+# Outline / detail / fix happy paths
+# ---------------------------------------------------------------------------
+
+
 async def test_outline_forwards_to_supervisor(pool_address: str) -> None:
     sup = await xo.create_actor(_DecomposerRecorder, address=pool_address, uid="dec-sup-1")
-    payload = {"work_units": []}
+    payload = SubmitOutlinePayload(work_units=())
+    decomposer_agent = StubDecomposerAgent(outline_payloads=[payload])
     dec = await xo.create_actor(
-        _StubDecomposer,
+        DecomposerActor,
         sup,
         cwd="/tmp",
-        send_results=[_structured(payload)],
+        agent=decomposer_agent,
         address=pool_address,
         uid="dec-1",
     )
@@ -160,6 +101,10 @@ async def test_outline_forwards_to_supervisor(pool_address: str) -> None:
         calls = await sup.calls()
         kinds = [k for k, _ in calls]
         assert kinds == ["outline_ready"]
+        # Actor forwarded the kwargs verbatim to the agent.
+        agent_call = decomposer_agent.calls[0]
+        assert agent_call[0] == "outline"
+        assert agent_call[1]["flight_plan_content"] == "plan"
     finally:
         await xo.destroy_actor(dec)
         await xo.destroy_actor(sup)
@@ -167,21 +112,14 @@ async def test_outline_forwards_to_supervisor(pool_address: str) -> None:
 
 async def test_detail_forwards_to_supervisor(pool_address: str) -> None:
     sup = await xo.create_actor(_DecomposerRecorder, address=pool_address, uid="dec-sup-2")
-    payload = {
-        "details": [
-            {
-                "id": "wu-1",
-                "instructions": "do x",
-                "files": [],
-            }
-        ]
-    }
+    payload = SubmitDetailsPayload(details=())
+    decomposer_agent = StubDecomposerAgent(detail_payloads=[payload])
     dec = await xo.create_actor(
-        _StubDecomposer,
+        DecomposerActor,
         sup,
         cwd="/tmp",
         role="pool",
-        send_results=[_structured(payload)],
+        agent=decomposer_agent,
         address=pool_address,
         uid="dec-2",
     )
@@ -189,6 +127,7 @@ async def test_detail_forwards_to_supervisor(pool_address: str) -> None:
         await dec.send_detail(DetailRequest(unit_ids=("wu-1",)))
         calls = await sup.calls()
         assert [k for k, _ in calls] == ["detail_ready"]
+        assert decomposer_agent.calls[0][1]["unit_ids"] == ("wu-1",)
     finally:
         await xo.destroy_actor(dec)
         await xo.destroy_actor(sup)
@@ -196,12 +135,13 @@ async def test_detail_forwards_to_supervisor(pool_address: str) -> None:
 
 async def test_fix_forwards_to_supervisor(pool_address: str) -> None:
     sup = await xo.create_actor(_DecomposerRecorder, address=pool_address, uid="dec-sup-3")
-    payload = {"work_units": [], "details": []}
+    payload = SubmitFixPayload(work_units=(), details=())
+    decomposer_agent = StubDecomposerAgent(fix_payloads=[payload])
     dec = await xo.create_actor(
-        _StubDecomposer,
+        DecomposerActor,
         sup,
         cwd="/tmp",
-        send_results=[_structured(payload)],
+        agent=decomposer_agent,
         address=pool_address,
         uid="dec-3",
     )
@@ -221,11 +161,13 @@ async def test_fix_forwards_to_supervisor(pool_address: str) -> None:
 
 async def test_outline_failure_routes_to_prompt_error(pool_address: str) -> None:
     sup = await xo.create_actor(_DecomposerRecorder, address=pool_address, uid="dec-sup-4")
+    decomposer_agent = StubDecomposerAgent()
+    decomposer_agent.raise_error = RuntimeAuthError("bad key")
     dec = await xo.create_actor(
-        _StubDecomposer,
+        DecomposerActor,
         sup,
         cwd="/tmp",
-        send_error=RuntimeAuthError("bad key"),
+        agent=decomposer_agent,
         address=pool_address,
         uid="dec-4",
     )
@@ -246,12 +188,14 @@ async def test_outline_failure_routes_to_prompt_error(pool_address: str) -> None
 
 async def test_detail_failure_includes_unit_id(pool_address: str) -> None:
     sup = await xo.create_actor(_DecomposerRecorder, address=pool_address, uid="dec-sup-5")
+    decomposer_agent = StubDecomposerAgent()
+    decomposer_agent.raise_error = RuntimeAuthError("auth")
     dec = await xo.create_actor(
-        _StubDecomposer,
+        DecomposerActor,
         sup,
         cwd="/tmp",
         role="pool",
-        send_error=RuntimeAuthError("auth"),
+        agent=decomposer_agent,
         address=pool_address,
         uid="dec-5",
     )
@@ -274,13 +218,15 @@ async def test_detail_failure_includes_unit_id(pool_address: str) -> None:
 
 
 async def test_nudge_dispatches_by_expected_tool(pool_address: str) -> None:
+    """Nudge payload typed as ``SubmitDetailsPayload`` lands on detail_ready."""
     sup = await xo.create_actor(_DecomposerRecorder, address=pool_address, uid="dec-sup-6")
-    payload = {"details": [{"id": "wu-7", "instructions": "do x", "files": []}]}
+    payload = SubmitDetailsPayload(details=())
+    decomposer_agent = StubDecomposerAgent(nudge_payloads=[payload])
     dec = await xo.create_actor(
-        _StubDecomposer,
+        DecomposerActor,
         sup,
         cwd="/tmp",
-        send_results=[_structured(payload)],
+        agent=decomposer_agent,
         address=pool_address,
         uid="dec-6",
     )

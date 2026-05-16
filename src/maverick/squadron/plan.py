@@ -43,9 +43,7 @@ class PlanSquadron(Squadron):
         self._briefings: list[BriefingAgent] = []
 
     async def _build_agents(self) -> None:
-        generator_runtime, _ = runtime_for_agent(
-            "generate", agents_config=self._config.agents
-        )
+        generator_runtime, _ = runtime_for_agent("generate", agents_config=self._config.agents)
         self.generator = GeneratorAgent(
             runtime=generator_runtime,
             cwd=str(self._cwd),
@@ -60,9 +58,7 @@ class PlanSquadron(Squadron):
         result_model: type[BaseModel],
     ) -> BriefingAgent:
         """Build one briefing agent on demand and track it for teardown."""
-        briefing_runtime, _ = runtime_for_agent(
-            "briefing", agents_config=self._config.agents
-        )
+        briefing_runtime, _ = runtime_for_agent("briefing", agents_config=self._config.agents)
         agent = BriefingAgent(
             runtime=briefing_runtime,
             cwd=str(self._cwd),

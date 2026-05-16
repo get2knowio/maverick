@@ -1,32 +1,33 @@
-"""Tests for BriefingActor under the OpenCode runtime.
+"""Tests for BriefingActor (airframe-stub injection path).
 
 Confirms:
 
-* ``send_briefing`` runs a structured prompt and forwards the typed
+* ``send_briefing`` runs through the agent and forwards the typed
   payload to the supervisor's named ``forward_method``.
 * The result schema is looked up by ``mcp_tool`` (legacy tool name) at
   construction time.
-* OpenCode runtime errors route through ``prompt_error``.
+* Airframe runtime errors route through ``prompt_error``.
 * Constructor validates required ``cwd`` / ``mcp_tool`` /
   ``forward_method``.
+
+Uses :class:`StubBriefingAgent` as the ``agent=`` injection — no
+OpenCode handle, no SDK adapter, no HTTP transport.
 """
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from typing import Any
 
 import pytest
 import xoscar as xo
+from airframe.errors import RuntimeAuthError
 
 from maverick.actors.xoscar.briefing import BriefingActor
 from maverick.actors.xoscar.messages import BriefingRequest, PromptError
-from maverick.agents.briefing.agent import BriefingAgent
+from maverick.actors.xoscar.pool import create_pool
 from maverick.payloads import SubmitNavigatorBriefPayload
-from maverick.runtime.opencode import (
-    RuntimeAuthError,
-    SendResult,
-    opencode_handle_for,
-)
+from tests.unit.agents.airframe_stubs import StubBriefingAgent
 
 
 class _BriefingRecorder(xo.Actor):
@@ -54,99 +55,44 @@ class _BriefingRecorder(xo.Actor):
         return list(self._calls)
 
 
-def _make_briefing_stub_client(
-    *, scripted_payload: dict | None, scripted_error: BaseException | None
-) -> Any:
-    class _Client:
-        base_url = "http://stub"
-
-        async def list_providers(self) -> dict[str, Any]:
-            return {"all": [], "connected": []}
-
-        async def create_session(self, *, title: str | None = None, **_: Any) -> str:
-            return "ses_brief"
-
-        async def delete_session(self, session_id: str) -> bool:
-            return True
-
-        async def send_with_event_watch(self, *args: Any, **kwargs: Any) -> SendResult:
-            if scripted_error is not None:
-                raise scripted_error
-            payload = scripted_payload
-            return SendResult(
-                message={"info": {"structured": payload}, "parts": []},
-                text="",
-                structured=payload,
-                valid=True,
-                info={},
-            )
-
-        async def aclose(self) -> None:
-            return None
-
-    return _Client()
+@pytest.fixture
+async def pool_address() -> AsyncIterator[str]:
+    """Torn-down-on-exit xoscar pool; no OpenCode handle registration."""
+    pool, address = await create_pool()
+    try:
+        yield address
+    finally:
+        await pool.stop()
 
 
-class _StubBriefing(BriefingActor):
-    """BriefingActor that wires a scripted stub client into its agent."""
-
-    def __init__(
-        self,
-        supervisor_ref: xo.ActorRef,
-        *,
-        agent_name: str,
-        mcp_tool: str,
-        forward_method: str,
-        cwd: str = "/tmp",
-        scripted_payload: dict | None = None,
-        scripted_error: BaseException | None = None,
-    ) -> None:
-        super().__init__(
-            supervisor_ref,
-            agent_name=agent_name,
-            mcp_tool=mcp_tool,
-            forward_method=forward_method,
-            cwd=cwd,
-        )
-        self._scripted_payload = scripted_payload
-        self._scripted_error = scripted_error
-
-    def _make_agent(self) -> BriefingAgent:  # type: ignore[override]
-        client = _make_briefing_stub_client(
-            scripted_payload=self._scripted_payload,
-            scripted_error=self._scripted_error,
-        )
-        agent = BriefingAgent(
-            handle=opencode_handle_for(self.address),
-            cwd=self._cwd,
-            agent_name=self._agent_name,
-            result_model=self._schema,
-            client_factory=lambda: client,
-        )
-        # Bypass tier cascade — these tests don't ship a real /provider response.
-        agent.provider_tier = None  # type: ignore[assignment]
-        return agent
+def _navigator_payload() -> SubmitNavigatorBriefPayload:
+    return SubmitNavigatorBriefPayload(
+        architecture_decisions=(
+            {"title": "use x", "decision": "use x", "rationale": "it works"},
+        ),
+        module_structure="module a -> module b",
+        integration_points=("mcp", "acp"),
+        summary="do x then y",
+    )
 
 
-@pytest.mark.asyncio
 async def test_briefing_forwards_to_named_supervisor_method(pool_address: str) -> None:
+    """Typed payload reaches the supervisor's per-agent forward method."""
     sup = await xo.create_actor(_BriefingRecorder, address=pool_address, uid="brief-sup")
-    payload = {
-        "architecture_decisions": [
-            {"title": "use x", "decision": "use x", "rationale": "it works"}
-        ],
-        "module_structure": "module a -> module b",
-        "integration_points": ["mcp", "acp"],
-        "summary": "do x then y",
-    }
+    payload = _navigator_payload()
+    briefing_agent = StubBriefingAgent(
+        agent_name="navigator",
+        result_model=SubmitNavigatorBriefPayload,
+        brief_payloads=[payload],
+    )
     briefing = await xo.create_actor(
-        _StubBriefing,
+        BriefingActor,
         sup,
         agent_name="navigator",
         mcp_tool="submit_navigator_brief",
         forward_method="navigator_brief_ready",
         cwd="/tmp",
-        scripted_payload=payload,
+        agent=briefing_agent,
         address=pool_address,
         uid="briefing-navigator",
     )
@@ -157,22 +103,28 @@ async def test_briefing_forwards_to_named_supervisor_method(pool_address: str) -
         kind, delivered = calls[0]
         assert kind == "navigator_brief_ready"
         assert isinstance(delivered, SubmitNavigatorBriefPayload)
+        # The stub saw the prompt verbatim.
+        assert briefing_agent.calls == [("brief", {"prompt": "brief x"})]
     finally:
         await xo.destroy_actor(briefing)
         await xo.destroy_actor(sup)
 
 
-@pytest.mark.asyncio
 async def test_briefing_routes_send_error_to_prompt_error(pool_address: str) -> None:
+    """Airframe RuntimeAuthError surfaces as a classified PromptError."""
     sup = await xo.create_actor(_BriefingRecorder, address=pool_address, uid="brief-sup-err")
+    briefing_agent = StubBriefingAgent(
+        agent_name="navigator", result_model=SubmitNavigatorBriefPayload
+    )
+    briefing_agent.raise_error = RuntimeAuthError("bad key")
     briefing = await xo.create_actor(
-        _StubBriefing,
+        BriefingActor,
         sup,
         agent_name="navigator",
         mcp_tool="submit_navigator_brief",
         forward_method="navigator_brief_ready",
         cwd="/tmp",
-        scripted_error=RuntimeAuthError("bad key"),
+        agent=briefing_agent,
         address=pool_address,
         uid="briefing-err",
     )
@@ -189,8 +141,8 @@ async def test_briefing_routes_send_error_to_prompt_error(pool_address: str) -> 
         await xo.destroy_actor(sup)
 
 
-@pytest.mark.asyncio
 async def test_briefing_constructor_validates_required_fields(pool_address: str) -> None:
+    """Cwd / mcp_tool / forward_method / known-tool — all validated."""
     sup = await xo.create_actor(_BriefingRecorder, address=pool_address, uid="brief-sup-v")
     try:
         for bad_kwargs in (
