@@ -12,9 +12,11 @@ from typing import Any
 
 import pytest
 import xoscar as xo
+from airframe.errors import RuntimeAuthError
 
 from maverick.actors.xoscar.generator import GeneratorActor
 from maverick.actors.xoscar.messages import (
+    GenerateRequest,
     PlanValidateRequest,
     PromptError,
     WritePlanRequest,
@@ -22,11 +24,11 @@ from maverick.actors.xoscar.messages import (
 from maverick.actors.xoscar.plan_supervisor import PlanInputs, PlanSupervisor
 from maverick.actors.xoscar.plan_validator import PlanValidatorActor
 from maverick.actors.xoscar.plan_writer import PlanWriterActor
-from maverick.agents.generator import GeneratorAgent
 from maverick.payloads import (
+    FlightPlanSuccessCriterionPayload,
     SubmitFlightPlanPayload,
 )
-from maverick.runtime.opencode import opencode_handle_for
+from tests.unit.agents.airframe_stubs import StubGeneratorAgent
 
 # ---------------------------------------------------------------------------
 # Plan deterministic actors
@@ -133,93 +135,31 @@ class _PlanRecorder(xo.Actor):
         return list(self._calls)
 
 
-def _make_generator_stub_client(
-    *, scripted_payload: dict | None, scripted_error: BaseException | None
-) -> Any:
-    from maverick.runtime.opencode import SendResult
-
-    class _Client:
-        base_url = "http://stub"
-
-        async def list_providers(self) -> dict[str, Any]:
-            return {"all": [], "connected": []}
-
-        async def create_session(self, *, title: str | None = None, **_: Any) -> str:
-            return "ses_1"
-
-        async def delete_session(self, session_id: str) -> bool:
-            return True
-
-        async def send_with_event_watch(self, *args: Any, **kwargs: Any) -> SendResult:
-            if scripted_error is not None:
-                raise scripted_error
-            payload = scripted_payload
-            return SendResult(
-                message={"info": {"structured": payload}, "parts": []},
-                text="",
-                structured=payload,
-                valid=True,
-                info={},
-            )
-
-        async def aclose(self) -> None:
-            return None
-
-    return _Client()
-
-
-class _StubGenerator(GeneratorActor):
-    """GeneratorActor that wires a scripted stub client into its agent."""
-
-    def __init__(
-        self,
-        supervisor_ref: xo.ActorRef,
-        *,
-        cwd: str = "/tmp",
-        scripted_payload: dict | None = None,
-        scripted_error: BaseException | None = None,
-    ) -> None:
-        super().__init__(supervisor_ref, cwd=cwd)
-        self._scripted_payload = scripted_payload
-        self._scripted_error = scripted_error
-
-    def _make_agent(self) -> GeneratorAgent:  # type: ignore[override]
-        client = _make_generator_stub_client(
-            scripted_payload=self._scripted_payload,
-            scripted_error=self._scripted_error,
-        )
-        agent = GeneratorAgent(
-            handle=opencode_handle_for(self.address),
-            cwd=self._cwd,
-            client_factory=lambda: client,
-        )
-        # Bypass tier cascade — stub doesn't surface real /provider data.
-        agent.provider_tier = None  # type: ignore[assignment]
-        return agent
+def _flight_plan_payload() -> SubmitFlightPlanPayload:
+    return SubmitFlightPlanPayload(
+        objective="Ship feature X",
+        success_criteria=(
+            FlightPlanSuccessCriterionPayload(description="SC1", verification="echo ok"),
+        ),
+        in_scope=("a",),
+        context="",
+    )
 
 
 @pytest.mark.asyncio
 async def test_generator_forwards_flight_plan(pool_address: str) -> None:
+    """Success: payload reaches supervisor.flight_plan_ready."""
     sup = await xo.create_actor(_PlanRecorder, address=pool_address, uid="gen-sup")
-    payload = {
-        "objective": "Ship feature X",
-        "success_criteria": [{"description": "SC1", "verification": "echo ok"}],
-        "in_scope": ["a"],
-        "out_of_scope": [],
-        "context": "",
-        "tags": [],
-    }
+    generator_agent = StubGeneratorAgent(generate_payloads=[_flight_plan_payload()])
     gen = await xo.create_actor(
-        _StubGenerator,
+        GeneratorActor,
         sup,
         cwd="/tmp",
-        scripted_payload=payload,
+        agent=generator_agent,
         address=pool_address,
         uid="gen-1",
     )
     try:
-        from maverick.actors.xoscar.messages import GenerateRequest
-
         await gen.send_generate(GenerateRequest(prompt="prd"))
         calls = await sup.calls()
         assert len(calls) == 1
@@ -234,26 +174,23 @@ async def test_generator_forwards_flight_plan(pool_address: str) -> None:
 
 @pytest.mark.asyncio
 async def test_generator_routes_send_error_to_prompt_error(pool_address: str) -> None:
-    from maverick.runtime.opencode import RuntimeAuthError
-
+    """RuntimeAuthError surfaces as PromptError with phase=generate."""
     sup = await xo.create_actor(_PlanRecorder, address=pool_address, uid="gen-sup-err")
+    generator_agent = StubGeneratorAgent()
+    generator_agent.raise_error = RuntimeAuthError("bad key")
     gen = await xo.create_actor(
-        _StubGenerator,
+        GeneratorActor,
         sup,
         cwd="/tmp",
-        scripted_error=RuntimeAuthError("bad key"),
+        agent=generator_agent,
         address=pool_address,
         uid="gen-err",
     )
     try:
-        from maverick.actors.xoscar.messages import GenerateRequest
-
         await gen.send_generate(GenerateRequest(prompt="x"))
         calls = await sup.calls()
         kinds = [k for k, _ in calls]
         assert "prompt_error" in kinds
-        # The supervisor recorder stores PromptError dataclasses; pull
-        # the first one off and assert its phase.
         prompt_err = next(detail for k, detail in calls if k == "prompt_error")
         assert prompt_err.phase == "generate"
     finally:
