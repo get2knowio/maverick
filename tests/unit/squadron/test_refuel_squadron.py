@@ -20,7 +20,6 @@ from maverick.config import MaverickConfig
 from maverick.squadron.decomposer_pool import DecomposerAgentPool
 from maverick.squadron.refuel import RefuelSquadron
 
-
 # ---------------------------------------------------------------------------
 # RefuelSquadron
 # ---------------------------------------------------------------------------

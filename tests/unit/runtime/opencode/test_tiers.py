@@ -250,48 +250,6 @@ def test_tiers_from_config_returns_empty_when_unset() -> None:
     assert tiers_from_config(_Empty()) == {}
 
 
-def test_tiers_from_config_translates_pydantic_block() -> None:
-    from maverick.config import ProviderModelEntry, ProviderTiersConfig
-
-    block = ProviderTiersConfig(
-        tiers={
-            "review": [
-                ProviderModelEntry(provider="openrouter", model_id="anthropic/claude-haiku-4.5"),
-                ProviderModelEntry(provider="openrouter", model_id="qwen/qwen3-coder"),
-            ],
-            "implement": [
-                ProviderModelEntry(provider="custom", model_id="x"),
-            ],
-        }
-    )
-
-    class _Cfg:
-        provider_tiers = block
-
-    out = tiers_from_config(_Cfg())
-    assert set(out.keys()) == {"review", "implement"}
-    assert out["review"].bindings[0].model_id == "anthropic/claude-haiku-4.5"
-    assert out["review"].bindings[1].model_id == "qwen/qwen3-coder"
-    assert out["implement"].bindings == (ProviderModel("custom", "x"),)
-
-
-def test_tiers_from_config_skips_empty_tier_lists() -> None:
-    """An empty list under a tier key is treated as "no override for that tier".
-
-    Tier construction rejects empty bindings, so we filter the empty list
-    out instead of raising.
-    """
-    from maverick.config import ProviderTiersConfig
-
-    block = ProviderTiersConfig(tiers={"review": []})
-
-    class _Cfg:
-        provider_tiers = block
-
-    out = tiers_from_config(_Cfg())
-    assert out == {}
-
-
 def test_unrecognized_error_is_not_cascadable() -> None:
     """Generic AgentRuntimeError (not a subclass listed in CASCADE_ERRORS) propagates."""
     tier = Tier("review", bindings=(ProviderModel("p", "first"),))

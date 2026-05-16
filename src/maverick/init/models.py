@@ -589,9 +589,9 @@ class InitConfig(BaseModel):
     model: InitModelConfig | None = Field(
         default=None,
         description=(
-            "Legacy global default model. Superseded by provider_tiers; "
-            "init no longer writes it. Field retained so older yaml that "
-            "still has the block parses cleanly."
+            "Legacy global default model. Superseded by the agents: "
+            "block; init no longer writes it. Field retained so older "
+            "yaml that still has the block parses cleanly."
         ),
     )
     notifications: dict[str, Any] = Field(default_factory=lambda: {"enabled": False})
@@ -609,11 +609,12 @@ class InitConfig(BaseModel):
         default_factory=dict,
         description="Actor configurations grouped by workflow (plan/refuel/fly/land).",
     )
-    provider_tiers: dict[str, Any] = Field(
-        default_factory=lambda: {
-            "tiers": _starter_provider_tiers(),
-        },
-        description="OpenCode-runtime tier cascades. Edit to override defaults.",
+    agents: dict[str, dict[str, str]] = Field(
+        default_factory=lambda: _starter_agents(),
+        description=(
+            "Per-role airframe bindings. Each role pins one "
+            "(provider, model_id). Edit to override defaults."
+        ),
     )
     verbosity: str = "warning"
 
@@ -621,11 +622,10 @@ class InitConfig(BaseModel):
         """Serialize configuration to YAML string.
 
         Empty ``agent_providers`` and ``actors`` are dropped so the
-        zero-config experience stays clean. ``provider_tiers`` is
-        always emitted so users discover the cascade configuration
-        surface — its default value mirrors a curated subset of the
-        runtime's :data:`DEFAULT_TIERS`. A short comment explaining the
-        block is injected above it.
+        zero-config experience stays clean. ``agents`` is always
+        emitted so users discover the per-role binding configuration
+        surface. A short comment explaining the block is injected
+        above it.
 
         Returns:
             YAML-formatted configuration string.
@@ -640,53 +640,52 @@ class InitConfig(BaseModel):
             default_flow_style=False,
             sort_keys=False,
         )
-        return _annotate_provider_tiers(body)
+        return _annotate_agents(body)
 
 
-def _starter_provider_tiers() -> dict[str, list[dict[str, str]]]:
-    """Return the canonical starter ``provider_tiers.tiers`` map.
+def _starter_agents() -> dict[str, dict[str, str]]:
+    """Return the canonical starter ``agents:`` block.
 
-    Mirrors :data:`maverick.runtime.opencode.tiers.DEFAULT_TIERS` so a
-    freshly-init'd repo carries the same routing the runtime uses
-    when no per-project override is set. Edit
-    ``maverick.yaml::provider_tiers.tiers.<role>`` to override per
-    project; edit ``DEFAULT_TIERS`` to override globally.
+    One binding per role — the airframe runtime is per-binding, not
+    cascading. Defaults route everything through ``claude``
+    (ClaudeCodeRuntime) since that's the most commonly-authenticated
+    path on dev machines (``claude setup-token`` / ``~/.claude/credentials.json``).
+    Users edit per-role to point at their preferred subscription.
     """
-    # Local import: importing the runtime at module load time would
-    # pull the OpenCode HTTP client + xoscar onto the init code path,
-    # which is otherwise pure stdlib + Pydantic.
-    from maverick.runtime.opencode import DEFAULT_TIERS
-
     return {
-        name: [{"provider": b.provider_id, "model_id": b.model_id} for b in tier.bindings]
-        for name, tier in DEFAULT_TIERS.items()
+        "implement": {"provider": "claude", "model_id": "claude-sonnet-4-6"},
+        "review": {"provider": "claude", "model_id": "claude-haiku-4-5"},
+        "briefing": {"provider": "claude", "model_id": "claude-haiku-4-5"},
+        "decompose": {"provider": "claude", "model_id": "claude-sonnet-4-6"},
+        "generate": {"provider": "claude", "model_id": "claude-sonnet-4-6"},
     }
 
 
-_PROVIDER_TIERS_COMMENT = """
-# OpenCode-runtime tier cascades. Each role lists ``(provider, model_id)``
-# bindings tried in order; the runtime falls over on auth /
-# model-not-found / sustained transient failures. Roles omitted here
-# fall through to the curated DEFAULT_TIERS baked into the runtime
-# (see ``maverick.runtime.opencode.tiers.DEFAULT_TIERS``).
+_AGENTS_COMMENT = """
+# Per-role airframe bindings. Each role pins one (provider, model_id);
+# the squadron constructs an airframe AgentRuntime per role at workflow
+# startup. Per-complexity overrides go under
+# actors.<workflow>.<actor>.tiers.<complexity>. Provider IDs are
+# airframe-canonical (claude / github-copilot / codex / opencode) — see
+# `airframe.list_providers()` for the live set.
 """
 
 
-def _annotate_provider_tiers(yaml_body: str) -> str:
-    """Inject a docstring comment block above ``provider_tiers:``.
+def _annotate_agents(yaml_body: str) -> str:
+    """Inject a docstring comment block above ``agents:``.
 
     PyYAML doesn't preserve comments through ``yaml.dump``, so we patch
     them in via string substitution. Idempotent: skips when the comment
     is already present.
     """
-    if "# OpenCode-runtime tier cascades." in yaml_body:
+    if "# Per-role airframe bindings." in yaml_body:
         return yaml_body
-    needle = "\nprovider_tiers:"
+    needle = "\nagents:"
     if needle not in yaml_body:
         return yaml_body
     return yaml_body.replace(
         needle,
-        _PROVIDER_TIERS_COMMENT.rstrip() + needle,
+        _AGENTS_COMMENT.rstrip() + needle,
         1,
     )
 

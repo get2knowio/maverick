@@ -162,19 +162,20 @@ class TestGenerateConfig:
     def test_generate_config_omits_legacy_model_block(self) -> None:
         """Init no longer writes the legacy model.* block.
 
-        provider_tiers fully supersedes the global model.model_id field;
-        leaving it set to a short alias like "sonnet" was breaking
-        doctor under the OpenCode runtime, which expects fully-qualified
-        model IDs.
+        The ``agents:`` block fully supersedes the global model.model_id
+        field; leaving it set to a short alias like "sonnet" was breaking
+        doctor, which expects fully-qualified model IDs.
         """
         git_info = GitRemoteInfo()
 
         config = generate_config(git_info=git_info, detection=None)
 
         assert config.model is None
-        # provider_tiers is the routing source of truth now
-        assert "tiers" in config.provider_tiers
-        assert config.provider_tiers["tiers"]
+        # agents: is the routing source of truth now — every role pinned.
+        for role in ("implement", "review", "briefing", "decompose", "generate"):
+            assert role in config.agents
+            assert "provider" in config.agents[role]
+            assert "model_id" in config.agents[role]
 
     def test_generate_config_with_provider_discovery(self) -> None:
         """OpenCode provider discovery populates agent_providers in config."""
@@ -237,10 +238,10 @@ class TestGenerateConfig:
         assert "owner: test" in yaml_output
         assert "repo: repo" in yaml_output
         assert "validation:" in yaml_output
-        # The legacy `model:` block is no longer written; provider_tiers
-        # is the routing source of truth now.
+        # The legacy `model:` block is no longer written; the agents:
+        # block is the routing source of truth now.
         assert "model:" not in yaml_output
-        assert "provider_tiers:" in yaml_output
+        assert "agents:" in yaml_output
 
 
 class TestWriteConfig:
@@ -258,9 +259,9 @@ class TestWriteConfig:
         assert "github:" in content
         assert "validation:" in content
         # Default `model` is None (legacy block), so it's excluded from
-        # the YAML output. provider_tiers is the routing source of truth.
+        # the YAML output. The agents: block is the routing source of truth.
         assert "model:" not in content
-        assert "provider_tiers:" in content
+        assert "agents:" in content
 
     def test_write_config_raises_if_exists(self, tmp_path: Path) -> None:
         """write_config raises ConfigExistsError if file exists and force=False."""

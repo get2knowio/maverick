@@ -5,19 +5,19 @@ OpenCode provider discovery. The generator writes:
 
 * ``project_type``, ``github`` — from detection + git parsing.
 * ``validation`` — language defaults from the detected project type.
-* ``model`` — optional global default model id (rare; tier cascades
-  drive routing now).
+* ``model`` — optional global default model id (rare; the ``agents:``
+  block drives routing now).
 * ``agent_providers`` — one entry per provider returned by
   ``GET /provider`` (the OpenCode runtime's ``connected[]`` list).
   Used by ``maverick doctor`` for health checks.
-* ``provider_tiers`` — the cross-provider cascade ``DEFAULT_TIERS``
-  baked into the generated yaml, so users see the routing decisions
-  and can edit them per project.
+* ``agents`` — per-role airframe bindings (one ``(provider, model_id)``
+  per role). Baked into the generated yaml so users see the routing
+  decisions and can edit them per project.
 
 The legacy PATH-based ACP probe + ``actors:`` auto-distribution were
 deleted in the OpenCode-substrate cleanup. The runtime resolves
-``provider_tiers`` from the yaml directly; per-actor overrides go
-under ``actors.<workflow>.<actor>``, written manually when needed.
+``agents`` from the yaml directly; per-actor overrides go under
+``actors.<workflow>.<actor>``, written manually when needed.
 """
 
 from __future__ import annotations
@@ -36,27 +36,11 @@ from maverick.init.models import (
     ValidationCommands,
 )
 from maverick.init.opencode_discovery import OpenCodeDiscoveryResult
-from maverick.runtime.opencode import DEFAULT_TIERS
 
 __all__ = [
     "generate_config",
     "write_config",
 ]
-
-
-def _provider_tiers_block() -> dict[str, list[dict[str, str]]]:
-    """Serialize :data:`DEFAULT_TIERS` into yaml-shaped dicts.
-
-    Mirrors the schema ``maverick.config::ProviderTiersConfig.tiers``
-    expects: ``{tier_name: [{provider, model_id}, ...]}``. Putting the
-    cascade in the user's yaml at init time means the user sees the
-    routing decisions and can edit them per project without spelunking
-    through the runtime defaults.
-    """
-    return {
-        name: [{"provider": b.provider_id, "model_id": b.model_id} for b in tier.bindings]
-        for name, tier in DEFAULT_TIERS.items()
-    }
 
 
 def generate_config(
@@ -80,8 +64,8 @@ def generate_config(
 
     Returns:
         Complete :class:`InitConfig` ready for serialization. The
-        ``model`` block is omitted (``None``) — provider tier cascades
-        drive routing now; the legacy ``model.model_id`` field would
+        ``model`` block is omitted (``None``) — the ``agents:`` block
+        drives routing now; the legacy ``model.model_id`` field would
         break doctor when set to short aliases like ``sonnet``.
     """
     # Determine effective project type
@@ -130,7 +114,6 @@ def generate_config(
         validation=validation_config,
         model=None,
         agent_providers=agent_providers,
-        provider_tiers={"tiers": _provider_tiers_block()},
     )
 
 

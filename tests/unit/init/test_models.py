@@ -1186,38 +1186,39 @@ class TestInitConfig:
         verbosity_pos = yaml_output.find("verbosity:")
         assert github_pos < verbosity_pos
 
-    def test_to_yaml_emits_provider_tiers_block(self) -> None:
-        """Fresh init writes a discoverable provider_tiers cascade.
+    def test_to_yaml_emits_agents_block(self) -> None:
+        """Fresh init writes a discoverable per-role agents block.
 
-        Users find the tier configuration surface by reading their
-        generated maverick.yaml, not by digging through docs.
+        Users find the role-binding surface by reading their generated
+        maverick.yaml, not by digging through docs.
         """
         config = InitConfig()
         yaml_output = config.to_yaml()
-        assert "provider_tiers:" in yaml_output
-        assert "review" in yaml_output
-        # The new DEFAULT_TIERS leads with github-copilot rather than openrouter.
-        assert "github-copilot" in yaml_output
+        assert "agents:" in yaml_output
+        # Every role appears as a key.
+        for role in ("implement", "review", "briefing", "decompose", "generate"):
+            assert f"  {role}:" in yaml_output
 
-    def test_to_yaml_provider_tiers_round_trips(self, tmp_path: Path) -> None:
-        """The emitted YAML parses back into the runtime config shape."""
+    def test_to_yaml_agents_round_trips(self, tmp_path: Path) -> None:
+        """The emitted YAML parses back into the runtime AgentsConfig shape."""
         from maverick.config import load_config
 
         config = InitConfig()
         cfg_path = tmp_path / "maverick.yaml"
         cfg_path.write_text(config.to_yaml())
         loaded = load_config(cfg_path)
-        assert "review" in loaded.provider_tiers.tiers
-        review = loaded.provider_tiers.tiers["review"]
-        # Primary review binding is github-copilot/claude-haiku-4.5.
-        assert review[0].provider == "github-copilot"
+        # Every role bound to an airframe-canonical provider.
+        assert loaded.agents.implement is not None
+        assert loaded.agents.implement.provider == "claude"
+        assert loaded.agents.review is not None
+        assert loaded.agents.review.provider == "claude"
 
-    def test_to_yaml_includes_tier_comment_block(self) -> None:
-        """Comment lines explaining the tier surface are injected by hand
+    def test_to_yaml_includes_agents_comment_block(self) -> None:
+        """Comment lines explaining the agents surface are injected by hand
         (PyYAML's dump can't emit comments)."""
         config = InitConfig()
         yaml_output = config.to_yaml()
-        assert "# OpenCode-runtime tier cascades." in yaml_output
+        assert "# Per-role airframe bindings." in yaml_output
 
 
 # =============================================================================
