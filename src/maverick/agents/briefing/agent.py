@@ -19,12 +19,14 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, ClassVar
 
+from airframe.errors import RuntimeStructuredOutputError
 from pydantic import BaseModel, ValidationError
 
 from maverick.agents.base import Agent, AgentPayloadValidationError
-from maverick.runtime.errors import RuntimeStructuredOutputError
 
 if TYPE_CHECKING:
+    from airframe.protocol import AgentRuntime
+
     from maverick.executor.config import StepConfig
     from maverick.runtime.opencode import (
         CostSink,
@@ -32,7 +34,6 @@ if TYPE_CHECKING:
         OpenCodeServerHandle,
         Tier,
     )
-    from maverick.runtime.protocol import AgentRuntime
 
 BRIEFING_TIMEOUT_SECONDS = 1200
 
@@ -160,7 +161,7 @@ class BriefingAgent(Agent):
 
     async def close(self) -> None:
         if self._runtime is not None:
-            await self._runtime.aclose()
+            await self._runtime.close()
             return
         await super().close()
 

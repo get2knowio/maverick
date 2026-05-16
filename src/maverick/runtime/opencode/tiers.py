@@ -181,10 +181,10 @@ def _classify(exc: BaseException) -> str:
 # ---------------------------------------------------------------------------
 
 
-# ``CostRecord`` lives in :mod:`maverick.runtime.cost` (neutral home).
-# Re-exported here for backward compatibility with the 32+ files that
-# currently import it from this module.
-from maverick.runtime.cost import CostRecord  # noqa: E402
+# ``CostRecord`` lives in :mod:`airframe.cost`. Re-exported here for
+# backward compatibility with the legacy import path used by OpenCode-
+# HTTP-runtime callers (deleted in Phase 7 of the Pattern D migration).
+from airframe.cost import CostRecord  # noqa: E402
 
 
 def cost_record_from_send(result: SendResult) -> CostRecord:

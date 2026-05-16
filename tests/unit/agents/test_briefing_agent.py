@@ -105,8 +105,8 @@ async def test_brief_via_runtime_returns_typed_payload() -> None:
     """The Pattern D path: brief() goes through runtime.execute()."""
     from unittest.mock import AsyncMock, MagicMock
 
-    from maverick.runtime.cost import CostRecord
-    from maverick.runtime.protocol import RuntimeResult
+    from airframe.cost import CostRecord
+    from airframe.protocol import RuntimeResult
 
     cost = CostRecord(
         provider_id="anthropic",
@@ -129,7 +129,7 @@ async def test_brief_via_runtime_returns_typed_payload() -> None:
         )
     )
     fake_runtime.reset = AsyncMock()
-    fake_runtime.aclose = AsyncMock()
+    fake_runtime.close = AsyncMock()
 
     agent = BriefingAgent(
         runtime=fake_runtime,
@@ -156,10 +156,9 @@ async def test_brief_via_runtime_raises_on_missing_structured_payload() -> None:
     from unittest.mock import AsyncMock, MagicMock
 
     import pytest
-
-    from maverick.runtime.cost import CostRecord
-    from maverick.runtime.errors import RuntimeStructuredOutputError
-    from maverick.runtime.protocol import RuntimeResult
+    from airframe.cost import CostRecord
+    from airframe.errors import RuntimeStructuredOutputError
+    from airframe.protocol import RuntimeResult
 
     fake_runtime = MagicMock()
     fake_runtime.label = "claude_code"
@@ -181,7 +180,7 @@ async def test_brief_via_runtime_raises_on_missing_structured_payload() -> None:
         )
     )
     fake_runtime.reset = AsyncMock()
-    fake_runtime.aclose = AsyncMock()
+    fake_runtime.close = AsyncMock()
 
     agent = BriefingAgent(
         runtime=fake_runtime,
@@ -200,7 +199,7 @@ async def test_rotate_session_routes_to_runtime_reset() -> None:
     fake_runtime = MagicMock()
     fake_runtime.label = "claude_code"
     fake_runtime.reset = AsyncMock()
-    fake_runtime.aclose = AsyncMock()
+    fake_runtime.close = AsyncMock()
 
     agent = BriefingAgent(
         runtime=fake_runtime,
@@ -212,4 +211,4 @@ async def test_rotate_session_routes_to_runtime_reset() -> None:
     await agent.rotate_session()
     fake_runtime.reset.assert_awaited_once()
     await agent.close()
-    fake_runtime.aclose.assert_awaited_once()
+    fake_runtime.close.assert_awaited_once()

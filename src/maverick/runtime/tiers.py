@@ -1,4 +1,4 @@
-"""Tier resolution — vendor-agnostic binding configuration.
+"""Tier resolution — Maverick's per-role cascade policy.
 
 A "tier" is an ordered list of ``(provider_id, model_id)`` bindings an
 agent role tries in turn. Tiers are role-named (``"review"``,
@@ -6,11 +6,16 @@ agent role tries in turn. Tiers are role-named (``"review"``,
 the agent declaration stays stable while users tune the underlying
 model lists per role via ``maverick.yaml::provider_tiers``.
 
-This module is **vendor-agnostic**: it knows about provider names but
-not how to talk to them. The cascade machinery that actually walks the
-bindings (and the per-runtime error classification it depends on)
-lives in :mod:`maverick.runtime.opencode.tiers` for now and migrates
-to a vendor-neutral home in Phase 6 of the Pattern D migration.
+The :class:`ProviderModel` binding type is re-exported from
+:mod:`airframe.protocol` — airframe owns the vendor-neutral primitive.
+This module owns the *policy* (cascade ordering, role-name defaults,
+config-shape parsing) — Maverick-specific decisions that don't belong
+in the runtime library.
+
+The cascade machinery that actually walks the bindings (and the
+per-runtime error classification it depends on) still lives in
+:mod:`maverick.runtime.opencode.tiers` for now and migrates to a
+vendor-neutral home in Phase 6 of the Pattern D migration.
 
 See ``docs/migration-implementation-plan.md``.
 """
@@ -20,20 +25,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from airframe.protocol import ProviderModel
 
-@dataclass(frozen=True, slots=True)
-class ProviderModel:
-    """One ``(provider_id, model_id)`` binding within a tier."""
-
-    provider_id: str
-    model_id: str
-
-    @property
-    def label(self) -> str:
-        return f"{self.provider_id}/{self.model_id}"
-
-    def to_dict(self) -> dict[str, str]:
-        return {"providerID": self.provider_id, "modelID": self.model_id}
+__all__ = [
+    "DEFAULT_TIERS",
+    "ProviderModel",
+    "Tier",
+    "resolve_tier",
+    "tiers_from_config",
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -154,12 +154,3 @@ def resolve_tier(name: str, *, override: dict[str, Tier] | None = None) -> Tier:
         f"Define it in maverick.yaml::provider_tiers or pick from "
         f"{sorted(DEFAULT_TIERS.keys())}."
     )
-
-
-__all__ = [
-    "DEFAULT_TIERS",
-    "ProviderModel",
-    "Tier",
-    "resolve_tier",
-    "tiers_from_config",
-]
