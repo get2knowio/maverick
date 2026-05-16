@@ -157,11 +157,15 @@ class Agent:
             AgentPayloadValidationError: when the payload fails schema
                 validation.
         """
+        from maverick.agents.system_prompts import load_persona_system_prompt
+
         target = schema or self._effective_result_model()
+        persona = self._opencode_agent_instance or self.opencode_agent
         result = await self._runtime.execute(
             prompt,
             schema=target,
-            persona=self._opencode_agent_instance or self.opencode_agent,
+            persona=persona,
+            system=load_persona_system_prompt(persona),
             timeout=timeout,
         )
         if result.structured is None:
