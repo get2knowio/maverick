@@ -14,10 +14,9 @@ Exercises the supervisor-facing contract:
 * ``new_bead`` forwards to ``agent.rotate_session()``.
 
 Uses :class:`StubReviewerAgent` as the ``agent=`` injection — no
-OpenCode handle, no SDK adapter, no HTTP transport. Prompt-content
-and OpenCode-session-id tests from the legacy substrate file were
-dropped — those exercise behavior that is now the agent's business,
-not the actor shell's.
+real adapter SDK, no HTTP transport. Prompt-content and session-id
+tests from the legacy substrate file were dropped — those exercise
+behavior that is now the agent's business, not the actor shell's.
 """
 
 from __future__ import annotations
@@ -96,7 +95,7 @@ class _SupervisorSpy(xo.Actor):
 
 @pytest.fixture
 async def review_pool() -> AsyncIterator[str]:
-    """Torn-down-on-exit xoscar pool; no OpenCode handle registration."""
+    """Torn-down-on-exit xoscar pool; no runtime registration."""
     pool, address = await create_pool()
     try:
         yield address

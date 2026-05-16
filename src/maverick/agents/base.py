@@ -63,10 +63,12 @@ class Agent:
     # the role's binding. Subclasses set this.
     provider_tier: ClassVar[str | None] = None
 
-    # Optional persona passed through to airframe-runtime adapters that
-    # honour it (Claude Code's bundled agents, OpenCode personas).
-    # Subclasses that vary the persona per instance pass
-    # ``persona_name=...`` to ``__init__`` instead.
+    # Optional persona label. Forwarded to airframe adapters as
+    # ``persona=`` (the OpenCode Zen adapter selects a bundled agent
+    # profile from it; others ignore it) and looked up via
+    # :func:`load_persona_system_prompt` to derive ``system=`` — the
+    # universal channel every adapter honours. Subclasses that vary the
+    # persona per instance pass ``persona_name=...`` to ``__init__``.
     persona_name: ClassVar[str | None] = None
 
     def __init__(

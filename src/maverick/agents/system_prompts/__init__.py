@@ -6,12 +6,6 @@ directory; the body of the file is the system prompt passed via
 universal route — every airframe adapter honours ``system=``, whereas
 ``persona=`` is provider-specific (only the OpenCode Zen adapter
 currently picks it up).
-
-The previous home was
-``runtime/opencode/profile/agents/maverick.<name>.md`` with YAML
-frontmatter declaring tool permissions / mode; under airframe those
-concerns moved to the ``agents:`` config block and the actor layer, so
-only the prompt body survived the move.
 """
 
 from __future__ import annotations

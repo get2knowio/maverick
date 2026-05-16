@@ -4,8 +4,7 @@ Exercises the supervisor-facing contract (``implementation_ready``,
 ``fix_result_ready``, ``review_ready``, ``payload_parse_error``,
 ``prompt_error``) by injecting a stub :class:`StubCodingAgent` /
 :class:`StubReviewerAgent` via the actor's ``agent=`` constructor
-parameter — no OpenCode subprocess, no airframe SDK adapter, no HTTP
-transport.
+parameter — no real adapter SDK, no HTTP transport.
 
 The shared :func:`pool_address` fixture (see ``conftest.py``) provides
 a torn-down-on-exit xoscar pool. Tests register ``__pre_destroy__``-
@@ -88,8 +87,8 @@ class _SupervisorRecorder(xo.Actor):
 async def pool_address() -> AsyncIterator[str]:
     """Yield a torn-down-on-exit xoscar pool address.
 
-    Pattern D: no OpenCode handle to register — the stubbed agent
-    bypasses every runtime concern.
+    The stubbed agent bypasses every runtime concern, so no pool-scoped
+    AgentsConfig registration is needed.
     """
     pool, address = await create_pool()
     try:

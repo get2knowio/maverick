@@ -2,8 +2,7 @@
 
 Covers the three phases (outline / detail / fix) plus the nudge path,
 error routing through ``prompt_error``. Uses :class:`StubDecomposerAgent`
-as the ``agent=`` injection — no OpenCode handle, no SDK adapter,
-no HTTP transport.
+as the ``agent=`` injection — no real adapter SDK, no HTTP transport.
 """
 
 from __future__ import annotations
@@ -62,7 +61,7 @@ class _DecomposerRecorder(xo.Actor):
 
 @pytest.fixture
 async def pool_address() -> AsyncIterator[str]:
-    """Torn-down-on-exit xoscar pool; no OpenCode handle registration."""
+    """Torn-down-on-exit xoscar pool; no runtime registration."""
     pool, address = await create_pool()
     try:
         yield address

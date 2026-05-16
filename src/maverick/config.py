@@ -231,7 +231,7 @@ class ParallelConfig(BaseModel):
 
     Attributes:
         max_agents: Soft cap on simultaneously running mailbox actors.
-            Currently advisory — actors share one OpenCode HTTP server
+            Currently advisory — actors share one airframe runtime
             per workflow run rather than spawning per-actor subprocesses,
             so subprocess-quota eviction is no longer a thing. Per-phase
             knobs below describe how much fan-out a phase wants; tune

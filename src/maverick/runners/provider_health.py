@@ -11,10 +11,7 @@ For each configured provider name, the check instantiates the matching
    ``model.model_id``, per-agent overrides — appears in the adapter's
    live catalogue.
 
-Used by ``maverick doctor`` and the workflow preflights. The class
-names ``OpenCodeProviderHealthCheck`` / ``AcpProviderHealthCheck`` and
-the ``test_mcp_tool_call`` argument are kept for source compatibility
-with legacy callers; both delegate to the same airframe-based probe.
+Used by ``maverick doctor`` and the workflow preflights.
 """
 
 from __future__ import annotations
@@ -218,7 +215,7 @@ async def run_provider_health_checks(
     """Run every check concurrently.
 
     Each check is independent — there's no shared subprocess to
-    amortise like the legacy OpenCode-backed probe had — so we
+    amortise like the legacy airframe-backed probe had — so we
     simply gather them.
     """
     if not checks:

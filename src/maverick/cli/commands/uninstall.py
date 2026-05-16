@@ -1,9 +1,8 @@
 """Maverick uninstall command.
 
-Removes the project's ``maverick.yaml`` configuration file. The legacy
-``~/.claude/skills/maverick-*`` cleanup was retired with the OpenCode
-substrate migration — those skills were never installed by ``maverick
-init`` so there is nothing to clean up there.
+Removes the project's ``maverick.yaml`` configuration file. The earlier
+``~/.claude/skills/maverick-*`` cleanup is gone — those skills were
+never installed by ``maverick init`` so there's nothing to clean up.
 """
 
 from __future__ import annotations

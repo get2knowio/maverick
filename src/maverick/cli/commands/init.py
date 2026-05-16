@@ -1,17 +1,10 @@
 """``maverick init`` command — project initialization.
 
-Validates prerequisites, detects project type from marker files, queries
-OpenCode's ``GET /provider`` endpoint to discover authenticated
-providers, and writes a complete ``maverick.yaml`` (project metadata +
-``agent_providers`` + ``provider_tiers`` + ``validation`` defaults).
-
-The legacy ``--providers`` / ``--skip-providers`` / ``--models`` flags
-were deleted in the OpenCode-substrate cleanup. The flags filtered which
-ACP bridges to probe via PATH, which made sense when each "provider"
-was a stdio binary like ``claude-agent-acp``. Under the OpenCode HTTP
-runtime, providers are connected at the OpenCode layer (via
-``opencode auth login <provider>``) and discovered automatically — no
-filter is meaningful.
+Validates prerequisites, detects project type from marker files,
+discovers installed airframe adapters via
+:func:`maverick.init.provider_discovery.discover_providers`, and writes
+a complete ``maverick.yaml`` (project metadata + ``agents:`` defaults
++ ``validation`` defaults).
 """
 
 from __future__ import annotations
@@ -103,8 +96,8 @@ def _format_provider_output(
     if not discovery.providers:
         lines.append("  [yellow]Warning:[/yellow] No providers connected.")
         lines.append(
-            "  Run [bold]opencode auth login <provider>[/] (e.g. "
-            "github-copilot, openai, openrouter)."
+            "  Install an adapter with [bold]pip install airframe-agents[<extra>][/] "
+            "and authenticate per the adapter's docs."
         )
         lines.append("")
         return lines
@@ -221,9 +214,9 @@ async def init(
 ) -> None:
     """Initialize maverick configuration for the current project.
 
-    Detects project type from marker files, probes OpenCode's connected
-    providers, and writes a maverick.yaml with provider_tiers cascade
-    pre-populated.
+    Detects project type from marker files, probes installed airframe
+    adapters for connected providers, and writes a maverick.yaml with
+    per-role airframe bindings under the ``agents:`` block.
 
     Examples:
 

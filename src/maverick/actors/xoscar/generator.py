@@ -1,6 +1,6 @@
 """xoscar GeneratorActor — thin shell over :class:`GeneratorAgent`.
 
-The actor is the xoscar-mailbox boundary; the OpenCode session +
+The actor is the xoscar-mailbox boundary; the runtime scope +
 structured-output cascade live in :class:`maverick.agents.generator.GeneratorAgent`.
 """
 

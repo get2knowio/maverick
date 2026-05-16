@@ -1,11 +1,12 @@
 """Tests for ``maverick.library.actions.curation`` helpers.
 
-The curator's persona / system prompt now lives at
-``runtime/opencode/profile/agents/maverick.curator.md`` (loaded by
-OpenCode via the ``agent=`` selector). The helpers tested here are
-the deterministic Python wrapper around it: prompt assembly, JSON
-plan parsing, bead-id extraction, and the ``Refs:`` trailer safety
-net (FUTURE.md §3.9).
+The curator's persona / system prompt lives at
+``src/maverick/agents/system_prompts/maverick.curator.md`` (loaded by
+:class:`maverick.agents.personas.CuratorAgent` and passed as
+``system=`` on every airframe ``execute()`` call). The helpers tested
+here are the deterministic Python wrapper around it: prompt assembly,
+JSON plan parsing, bead-id extraction, and the ``Refs:`` trailer
+safety net (FUTURE.md §3.9).
 """
 
 from __future__ import annotations

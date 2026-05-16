@@ -908,17 +908,16 @@ class FlySupervisor(xo.Actor):
     ) -> None:
         """Dispatch one reviewer with a wallclock backstop.
 
-        The reviewer's own ``_send_structured`` already passes
-        ``REVIEW_PROMPT_TIMEOUT_SECONDS`` (10 min) as the per-call httpx
+        The reviewer's airframe runtime passes
+        ``REVIEW_PROMPT_TIMEOUT_SECONDS`` (10 min) as the per-call
         budget. That budget *should* be the only timeout we need —
-        but when opencode's HTTP layer stops streaming mid-loop without
-        actually closing the connection (the 2026-05-03 sample-project
-        symptom: LLM stream events go silent, server keeps accepting
-        POSTs, httpx never times out), the inner budget never fires and
-        the actor RPC hangs. We add 60s of slack so the inner timeout
-        still gets first crack at the call; if we hit this outer one,
-        opencode is genuinely stuck and we treat it as a transient
-        review failure so the surrounding loop can escalate.
+        but if a vendor SDK stops streaming mid-loop without actually
+        closing the connection (LLM events go silent while the wire
+        stays half-open), the inner budget never fires and the actor
+        RPC hangs. We add 60s of slack so the inner timeout still gets
+        first crack; if we hit this outer one, the runtime is genuinely
+        stuck and we treat it as a transient review failure so the
+        surrounding loop can escalate.
 
         On timeout: record a transient :class:`PromptError` (when the
         actor hadn't already reported one) so
@@ -937,7 +936,7 @@ class FlySupervisor(xo.Actor):
                     error=(
                         f"{label} reviewer RPC exceeded "
                         f"{REVIEW_PROMPT_TIMEOUT_SECONDS + 60}s wallclock "
-                        f"backstop (opencode session likely stuck mid "
+                        f"backstop (runtime scope likely stuck mid "
                         f"tool-calling loop)"
                     ),
                     transient=True,
@@ -980,16 +979,13 @@ class FlySupervisor(xo.Actor):
             # pool; ``asyncio.gather`` waits for both.
             #
             # Each ``send_review`` is bounded with ``xo.wait_for`` rather
-            # than relying solely on the inner ``_send_structured``
-            # timeout — the 2026-05-03 e2e on sample-maverick-project hit
-            # a case where opencode's github-copilot session went silent
-            # mid tool-calling loop (LLM stream events stopped at step 18,
-            # POST endpoint kept accepting requests but no further
-            # dispatches happened) and the inner httpx timeout never
-            # fired. Without a backstop, the actor RPC hung forever and
-            # the gather sat with one reviewer returned and one stuck.
-            # The backstop window is the inner LLM budget plus 60s of
-            # slack so the inner timeout still has first crack.
+            # than relying solely on the inner runtime timeout — vendor
+            # SDKs occasionally stop streaming mid tool-calling loop
+            # without closing the connection, and the inner budget
+            # never fires. Without a backstop the actor RPC hangs
+            # forever and the gather sits with one reviewer returned
+            # and one stuck. The backstop window is the inner LLM budget
+            # plus 60s of slack so the inner timeout still has first crack.
             await asyncio.gather(
                 self._bounded_send_review(correctness_rev, request, label="correctness"),
                 self._bounded_send_review(completeness_rev, request, label="completeness"),

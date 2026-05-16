@@ -40,7 +40,7 @@ class StepExecutor(Protocol):
     The canonical entry point is :meth:`execute_named` — callers pass
     the bundled persona name (e.g. ``"maverick.curator"``) plus the
     per-call user prompt, and the implementation routes through the
-    OpenCode HTTP runtime.
+    airframe runtime.
 
     Lifecycle:
         Created once per workflow run, reused across all agent steps.
@@ -57,14 +57,14 @@ class StepExecutor(Protocol):
         config: StepConfig | None = None,
         timeout: float | None = None,
     ) -> ExecutorResult:
-        """Execute a bundled OpenCode markdown persona and return a typed result.
+        """Execute a bundled persona and return a typed result.
 
         Args:
             agent: Bundled persona name, e.g. ``"maverick.curator"``.
             user_prompt: The per-call user message body (already templated
                 by the caller).
             step_name: Logical step name used for logging and for titling
-                the OpenCode session.
+                the runtime scope.
             result_model: Optional Pydantic model to force structured
                 output (``format=json_schema``). When ``None``, the
                 assistant's plain text is returned.

@@ -136,10 +136,10 @@ class FixAttemptRecord(BaseModel):
 
 
 class CostEntry(BaseModel):
-    """Episodic record of one OpenCode-routed model invocation.
+    """Episodic record of one airframe-routed model invocation.
 
-    Captured per send by ``OpenCodeAgentMixin._record_cost`` so workflow
-    runs can be aggregated for cost / token reporting without re-parsing
+    Captured per send by :meth:`Agent._emit_cost` so workflow runs can
+    be aggregated for cost / token reporting without re-parsing
     structlog files.
 
     Attributes:
@@ -148,17 +148,18 @@ class CostEntry(BaseModel):
             ``"reviewer[fly-supervisor:reviewer]"``).
         tier: Tier name resolved for this send (``"review"`` etc., or
             ``"inline"`` when an explicit StepConfig override was used).
-        provider_id: OpenCode ``providerID`` from ``info.providerID``.
-        model_id: OpenCode ``modelID`` from ``info.modelID``.
-        cost_usd: Dollar cost from ``info.cost`` (None when the provider
-            doesn't surface cost).
-        input_tokens: ``info.tokens.input``.
-        output_tokens: ``info.tokens.output``.
-        cache_read_tokens: ``info.tokens.cache.read`` (provider cache hit
-            count — only Anthropic populates this today).
-        cache_write_tokens: ``info.tokens.cache.write``.
-        finish: OpenCode's ``info.finish`` (``"tool-calls"``,
-            ``"compaction"``, ``"error"``, ``"stop"``, etc.).
+        provider_id: Airframe canonical ``provider_id``
+            (``"claude"`` / ``"github-copilot"`` / etc.).
+        model_id: Vendor model identifier from the runtime's binding.
+        cost_usd: Dollar cost reported by the runtime (None when the
+            adapter can't compute one).
+        input_tokens: Prompt tokens consumed.
+        output_tokens: Completion tokens emitted.
+        cache_read_tokens: Provider cache-hit token count (Anthropic
+            primarily; ``0`` elsewhere).
+        cache_write_tokens: Provider cache-write token count.
+        finish: Stop reason reported by the adapter
+            (``"end_turn"`` / ``"stop"`` / ``"length"`` / ``"tool_calls"``).
         bead_id: Optional bead identifier when known from the workflow
             context. Empty for non-bead-scoped sends.
     """

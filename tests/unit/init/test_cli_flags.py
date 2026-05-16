@@ -305,12 +305,12 @@ class TestCombinedFlags:
 
 
 # =============================================================================
-# OpenCode provider discovery (replaces the deleted --skip-providers tests)
+# Airframe-backed provider discovery
 # =============================================================================
 
 
 class TestProviderDiscovery:
-    """Tests for OpenCode-backed provider discovery during init."""
+    """Tests for airframe-backed provider discovery during init."""
 
     def test_provider_output_shown(
         self,
@@ -319,7 +319,7 @@ class TestProviderDiscovery:
         mock_preflight_success: InitPreflightResult,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """OpenCode discovery results appear in init output."""
+        """Discovery results appear in init output."""
         os.chdir(git_repo)
         monkeypatch.setattr(Path, "home", lambda: git_repo)
 

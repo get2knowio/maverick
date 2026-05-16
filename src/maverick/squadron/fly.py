@@ -2,7 +2,7 @@
 
 When ``actors.fly.implementer.tiers`` / ``actors.fly.reviewer.tiers`` is
 configured, one agent per defined tier is built at startup. Each per-tier
-agent owns its own persistent OpenCode session and provider/model
+agent owns its own persistent runtime scope and provider/model
 binding. Bead routing (complexity → tier) and escalation policy
 (complex-bead-failed → retry on next-higher tier) stay in the supervisor;
 this layer just builds and hands out agents.

@@ -22,7 +22,7 @@ if TYPE_CHECKING:
 
 BRIEFING_TIMEOUT_SECONDS = 1200
 
-# Map the in-process agent label to the bundled OpenCode persona file.
+# Map the in-process agent label to the bundled persona file.
 BRIEFING_PERSONA_MAP: dict[str, str] = {
     "navigator": "maverick.navigator",
     "structuralist": "maverick.structuralist",

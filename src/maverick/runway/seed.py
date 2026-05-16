@@ -251,7 +251,7 @@ def build_seed_prompt(context: SeedContext | dict[str, Any]) -> str:
     """Build the user prompt for the ``maverick.runway-seed`` agent.
 
     The agent's persona / system prompt comes from
-    ``runtime/opencode/profile/agents/maverick.runway-seed.md``; this
+    ``agents/system_prompts/maverick.runway-seed.md``; this
     helper only shapes the per-call user message from gathered project
     context.
     """
@@ -313,8 +313,9 @@ async def run_seed(
 ) -> SeedResult:
     """Seed the runway with AI-generated codebase insights.
 
-    Runs the bundled ``maverick.runway-seed`` OpenCode agent. The agent
-    uses filesystem tools to explore the codebase and writes semantic
+    Runs the bundled ``maverick.runway-seed`` persona via
+    :class:`maverick.agents.personas.RunwaySeedAgent`. The agent uses
+    filesystem tools to explore the codebase and writes semantic
     markdown files directly to disk.
 
     Args:

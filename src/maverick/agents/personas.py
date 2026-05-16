@@ -1,11 +1,11 @@
-"""One-shot persona agents — bundled OpenCode personas, single airframe call.
+"""One-shot persona agents — bundled personas, single airframe call.
 
-These five agents wrap legacy ``OpenCodeStepExecutor.execute_named``
-flows that ran a bundled persona (``maverick.consolidator``,
-``maverick.curator``, etc.) for a single prompt and returned text. The
-text is now a typed payload — every airframe adapter requires a
-``schema`` on ``execute()`` — so each agent here pairs a persona name
-with a small Pydantic schema and a one-method send.
+These five agents (``maverick.consolidator``, ``maverick.curator``,
+``maverick.validation-fixer``, ``maverick.runway-seed``,
+``maverick.flight-plan-generator``) each take a per-call prompt and
+return a small typed payload. Airframe adapters require a ``schema``
+on ``execute()``, so each agent pairs its persona name with a tiny
+Pydantic schema and a one-method send.
 
 Each agent is constructed with an :class:`airframe.AgentRuntime` (built
 via :func:`runtime_for_agent`) and a working directory; callers

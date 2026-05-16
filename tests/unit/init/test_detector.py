@@ -262,9 +262,9 @@ class TestFindMarkerFiles:
 class TestBuildDetectionContext:
     """Tests for the build_detection_context function.
 
-    The Claude-assisted detection path was removed when Maverick switched
-    to a single OpenCode HTTP runtime substrate, but the context builder
-    is retained — verbose ``init`` output and diagnostics still consume it.
+    The Claude-assisted detection path is gone — marker-based detection
+    is the only path. The context builder remains because verbose
+    ``init`` output and diagnostics still consume it.
     """
 
     def test_context_includes_project_name(self, tmp_path: Path) -> None:

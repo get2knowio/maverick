@@ -1,11 +1,9 @@
 """StepExecutor protocol package — public API for maverick.executor.
 
-The legacy ``OpenCodeStepExecutor`` (and its ACP predecessor) have
-been removed; long-running personas now go through typed-payload
-airframe agents in :mod:`maverick.agents.personas`. The protocol
-types here are retained so :class:`maverick.executor.config.StepConfig`
-keeps its existing module path for callers that still build step
-config dataclasses.
+Long-running personas go through typed-payload airframe agents in
+:mod:`maverick.agents.personas`. The protocol types here are retained
+so :class:`maverick.executor.config.StepConfig` keeps its existing
+module path for callers that still build step-config dataclasses.
 
 Public API:
 

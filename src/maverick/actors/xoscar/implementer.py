@@ -31,7 +31,7 @@ logger = get_logger(__name__)
 
 
 class ImplementerActor(xo.Actor):
-    """Implements bead work and addresses fix requests via OpenCode."""
+    """Implements bead work and addresses fix requests via airframe."""
 
     def __init__(
         self,
@@ -96,7 +96,7 @@ class ImplementerActor(xo.Actor):
     # ------------------------------------------------------------------
 
     async def new_bead(self, request: NewBeadRequest) -> None:
-        """Rotate the OpenCode session so the next prompt starts clean."""
+        """Rotate the runtime scope so the next prompt starts clean."""
         assert self._agent is not None
         try:
             await self._agent.rotate_session()

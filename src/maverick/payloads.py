@@ -1,11 +1,10 @@
-"""Typed payloads returned by mailbox actors via OpenCode structured output.
+"""Typed payloads returned by mailbox actors via airframe structured output.
 
 Each :class:`SupervisorInboxPayload` subclass is the result schema for
-one actor role. The OpenCode runtime forces the model to call the
-synthesized ``StructuredOutput`` tool with arguments matching the
-schema (Phase 4 of the OpenCode migration); these models then validate
-the returned dict before it flows to the supervisor's typed domain
-methods.
+one actor role. Airframe adapters force the model to call a synthesized
+structured-output tool with arguments matching the schema; these models
+then validate the returned dict before it flows to the supervisor's
+typed domain methods.
 
 The models are intentionally permissive:
 - they accept legacy/alternate field names where prior runs emitted them,
@@ -17,9 +16,9 @@ pipeline where business invariants matter.
 
 Naming note: ``SUPERVISOR_TOOL_PAYLOAD_MODELS`` and the ``submit_*`` keys
 are kept verbatim from the legacy MCP-tool world so prior call sites
-(briefing actor's ``mcp_tool`` lookup, decomposer phase routing) keep
-working without renaming. The "tool" here is now OpenCode's synthesized
-``StructuredOutput`` tool, not an MCP tool.
+(briefing actor's per-aspect lookup, decomposer phase routing) keep
+working without renaming. The "tool" name persists; only the adapter
+that synthesizes it changed.
 """
 
 from __future__ import annotations
@@ -427,11 +426,10 @@ class SubmitContrarianBriefPayload(SupervisorInboxPayload):
 
 
 # ---------------------------------------------------------------------------
-# One-shot persona payloads (used by the inline-agent migrations off
-# OpenCodeStepExecutor — consolidator / validation-fixer / runway-seed /
-# curator / flight-plan-generator). These do not flow through the mailbox
-# supervisor, but inherit the same base so dumping/round-trip stays
-# consistent.
+# One-shot persona payloads (consolidator / validation-fixer /
+# runway-seed / curator / flight-plan-generator). These do not flow
+# through the mailbox supervisor, but inherit the same base so
+# dumping/round-trip stays consistent.
 # ---------------------------------------------------------------------------
 
 

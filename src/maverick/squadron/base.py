@@ -3,11 +3,11 @@
 A Squadron owns one set of airframe-backed agents for a single workflow
 run. Subclasses (one per workflow) declare which agents to build in
 :meth:`_build_agents`, calling :func:`runtime_for_agent` for each role.
-Agents own their own :class:`airframe.AgentRuntime` instances — there is
-no shared OpenCode server, no port allocation, no auth password
-juggling, no startup validation pass against a ``/provider`` endpoint.
+Agents own their own :class:`airframe.AgentRuntime` instances — no
+shared subprocess, no port allocation, no auth-password juggling. Each
+adapter manages its own credentials at instantiation.
 
-Pattern D wiring:
+Wiring:
 
 * Construct: ``Squadron(cwd=..., config=..., cost_sink=...)``
 * Open: ``async with squadron:`` — builds agents, opens each one.

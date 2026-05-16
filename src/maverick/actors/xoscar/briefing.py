@@ -29,7 +29,7 @@ logger = get_logger(__name__)
 
 
 class BriefingActor(xo.Actor):
-    """One briefing agent backed by OpenCode HTTP + structured output."""
+    """One briefing agent backed by airframe structured-output."""
 
     def __init__(
         self,

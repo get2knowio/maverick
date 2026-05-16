@@ -11,7 +11,7 @@ Actions are organized by domain:
 - dry_run: Dry-run mode support
 
 The legacy ``review`` action surface (text-mode dual-reviewer + fix
-loop) was removed in the OpenCode-substrate cleanup; the live actor
+loop) was removed in the airframe migration; the live actor
 flow under :mod:`maverick.actors.xoscar.fly_supervisor` runs reviews
 via two parallel ReviewerActor instances and a structured-output
 fixer instead.

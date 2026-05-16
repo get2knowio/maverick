@@ -113,7 +113,7 @@ class ReviewerActor(xo.Actor):
     # ------------------------------------------------------------------
 
     async def new_bead(self, request: NewBeadRequest) -> None:
-        """Rotate the OpenCode session for a new bead."""
+        """Rotate the runtime scope for a new bead."""
         assert self._agent is not None
         try:
             await self._agent.rotate_session()

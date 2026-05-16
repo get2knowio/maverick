@@ -5,7 +5,7 @@ Provides serialization for pre-flight briefing documents produced by
 PreFlightContrarian).
 
 Agent briefs originate as typed payloads (see :mod:`maverick.payloads`)
-from the OpenCode-backed ``BriefingActor``s. The serializer below
+from the airframe-backed ``BriefingActor``s. The serializer below
 accepts the dumped dict form so existing callers don't have to thread
 the typed objects through.
 
