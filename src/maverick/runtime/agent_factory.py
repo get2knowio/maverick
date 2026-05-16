@@ -110,8 +110,15 @@ def runtime_for_agent(
         ImportError: The provider's adapter SDK isn't installed.
             Error message names the right ``pip install
             airframe-agents[<extra>]`` command.
+        UnsupportedBindingError: The adapter loaded for ``binding.provider``
+            doesn't satisfy the binding (typically a model the adapter
+            explicitly rejects — e.g. CopilotRuntime won't serve
+            ``claude-*`` model ids). Surfaced here instead of at the
+            first :meth:`AgentRuntime.execute` so a misconfigured
+            ``agents:`` block fails at squadron-open with a clear
+            cause rather than mid-workflow.
     """
-    from airframe.protocol import ProviderModel
+    from airframe.protocol import ProviderModel, UnsupportedBindingError
 
     binding = binding_for_role(
         role,
@@ -120,4 +127,11 @@ def runtime_for_agent(
     )
     runtime_cls = airframe.runtime_for(binding.provider)
     runtime = runtime_cls(model=binding.model_id)
-    return runtime, ProviderModel(binding.provider, binding.model_id)
+    provider_model = ProviderModel(binding.provider, binding.model_id)
+    if not runtime.validate_binding(provider_model):
+        raise UnsupportedBindingError(
+            f"Provider {binding.provider!r} adapter {type(runtime).__name__} "
+            f"rejected model {binding.model_id!r} for role {role!r}. "
+            f"Check ``agents.{role}`` in maverick.yaml."
+        )
+    return runtime, provider_model

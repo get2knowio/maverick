@@ -92,11 +92,14 @@ def test_binding_for_role_missing_binding_raises_helpful_error() -> None:
 @pytest.fixture
 def stub_runtime_for(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     """Stub :func:`airframe.runtime_for` so tests don't touch real SDKs."""
-    captured: dict[str, Any] = {"runtime_kwargs": None}
+    captured: dict[str, Any] = {"runtime_kwargs": None, "validate_returns": True}
 
     class _FakeRuntime:
         def __init__(self, **kwargs: Any) -> None:
             captured["runtime_kwargs"] = kwargs
+
+        def validate_binding(self, _binding: Any) -> bool:
+            return bool(captured["validate_returns"])
 
     fake_cls = MagicMock(side_effect=_FakeRuntime)
     fake_cls.__name__ = "_FakeRuntime"
@@ -218,3 +221,23 @@ def test_runtime_for_agent_works_for_every_known_role(
     assert stub_runtime_for["calls"] == ["claude"]
     assert pm.model_id == "claude-haiku-4-5"
     assert runtime is not None
+
+
+def test_runtime_for_agent_raises_when_adapter_rejects_binding(
+    stub_runtime_for: dict[str, Any],
+) -> None:
+    """A binding the adapter rejects fails at squadron-open, not at execute."""
+    from airframe.protocol import UnsupportedBindingError
+
+    stub_runtime_for["validate_returns"] = False
+    agents = AgentsConfig(
+        # github-copilot rejects ``claude-*`` model ids (the canonical
+        # mismatch the protocol's validate_binding was designed for).
+        implement=AgentBindingConfig(provider="github-copilot", model_id="claude-sonnet-4-6"),
+    )
+    with pytest.raises(UnsupportedBindingError) as excinfo:
+        runtime_for_agent("implement", agents_config=agents)
+    msg = str(excinfo.value)
+    assert "github-copilot" in msg
+    assert "claude-sonnet-4-6" in msg
+    assert "agents.implement" in msg

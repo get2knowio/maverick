@@ -66,6 +66,9 @@ class _StubAdapterRuntime:
             "agent= with a stub from tests.unit.agents.airframe_stubs instead."
         )
 
+    def validate_binding(self, _binding: Any) -> bool:
+        return True
+
 
 @pytest.fixture(autouse=True)
 def _stub_airframe_for_actor_tests(monkeypatch: pytest.MonkeyPatch) -> None:

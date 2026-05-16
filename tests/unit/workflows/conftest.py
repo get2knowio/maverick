@@ -36,6 +36,9 @@ def stub_squadron_io() -> Any:
         async def execute(self, *_args: Any, **_kwargs: Any) -> Any:
             raise NotImplementedError("stub")
 
+        def validate_binding(self, _binding: Any) -> bool:
+            return True
+
     def _stub_runtime_for(_provider_id: str) -> type[_StubRuntime]:
         return _StubRuntime
 

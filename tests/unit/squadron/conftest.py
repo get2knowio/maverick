@@ -51,6 +51,9 @@ class StubAirframeRuntime:
     async def close(self) -> None:
         self.close_calls += 1
 
+    def validate_binding(self, _binding: Any) -> bool:
+        return True
+
 
 @pytest.fixture
 def stub_airframe_runtime(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
