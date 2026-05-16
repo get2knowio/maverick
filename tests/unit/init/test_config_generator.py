@@ -15,9 +15,9 @@ from maverick.init.models import (
     ProjectDetectionResult,
     ProjectType,
 )
-from maverick.init.opencode_discovery import (
-    ConnectedProvider,
-    OpenCodeDiscoveryResult,
+from maverick.init.provider_discovery import (
+    DiscoveredProvider,
+    ProviderDiscoveryResult,
 )
 
 
@@ -177,9 +177,9 @@ class TestGenerateConfig:
         feeds the verbose console output but doesn't drive yaml content.
         """
         git_info = GitRemoteInfo(owner="acme", repo="project")
-        discovery = OpenCodeDiscoveryResult(
+        discovery = ProviderDiscoveryResult(
             providers=(
-                ConnectedProvider("github-copilot", "GitHub Copilot", "claude-sonnet-4.6", 17),
+                DiscoveredProvider("github-copilot", "GitHub Copilot", "claude-sonnet-4.6", 17),
             ),
             default_provider_id="github-copilot",
         )

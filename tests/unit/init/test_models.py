@@ -1358,16 +1358,16 @@ class TestInitResult:
 
     def test_provider_discovery_in_to_dict(self) -> None:
         """provider_discovery is serialized in to_dict when present."""
-        from maverick.init.opencode_discovery import (
-            ConnectedProvider,
-            OpenCodeDiscoveryResult,
+        from maverick.init.provider_discovery import (
+            DiscoveredProvider,
+            ProviderDiscoveryResult,
         )
 
         preflight = InitPreflightResult(success=True)
         git_info = GitRemoteInfo()
         config = InitConfig()
-        discovery = OpenCodeDiscoveryResult(
-            providers=(ConnectedProvider("github-copilot", "GitHub Copilot", None, 17),),
+        discovery = ProviderDiscoveryResult(
+            providers=(DiscoveredProvider("github-copilot", "GitHub Copilot", None, 17),),
             default_provider_id="github-copilot",
         )
 

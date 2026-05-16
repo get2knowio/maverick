@@ -26,9 +26,9 @@ from maverick.cli.context import ExitCode, async_command
 from maverick.exceptions.init import PrerequisiteError
 from maverick.init import (
     InitResult,
-    OpenCodeDiscoveryResult,
     PreflightStatus,
     ProjectType,
+    ProviderDiscoveryResult,
     run_init,
 )
 
@@ -87,7 +87,7 @@ def _format_detection_output(
 
 
 def _format_provider_output(
-    discovery: OpenCodeDiscoveryResult | None,
+    discovery: ProviderDiscoveryResult | None,
 ) -> list[str]:
     """Format airframe-discovered provider output."""
     if discovery is None:

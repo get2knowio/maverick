@@ -14,7 +14,7 @@ from enum import Enum
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from maverick.init.opencode_discovery import OpenCodeDiscoveryResult
+    from maverick.init.provider_discovery import ProviderDiscoveryResult
 
 import yaml
 from pydantic import BaseModel, Field
@@ -689,7 +689,7 @@ class InitResult:
     findings_printed: bool = False
     beads_initialized: bool = False
     runway_initialized: bool = False
-    provider_discovery: OpenCodeDiscoveryResult | None = None
+    provider_discovery: ProviderDiscoveryResult | None = None
     config_existed: bool = False
 
     def to_dict(self) -> dict[str, Any]:

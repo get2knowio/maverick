@@ -42,12 +42,12 @@ from maverick.init.models import (
     ValidationCommands,
     resolve_model_id,
 )
-from maverick.init.opencode_discovery import (
-    ConnectedProvider,
-    OpenCodeDiscoveryResult,
-    discover_opencode_providers,
-)
 from maverick.init.prereqs import verify_prerequisites
+from maverick.init.provider_discovery import (
+    DiscoveredProvider,
+    ProviderDiscoveryResult,
+    discover_providers,
+)
 from maverick.logging import get_logger
 
 __all__ = [
@@ -55,7 +55,7 @@ __all__ = [
     "run_init",
     "parse_git_remote",
     "resolve_model_id",
-    "discover_opencode_providers",
+    "discover_providers",
     # Enums
     "ProjectType",
     "DetectionConfidence",
@@ -72,8 +72,8 @@ __all__ = [
     "ProjectDetectionResult",
     "InitPreflightResult",
     "InitResult",
-    "ConnectedProvider",
-    "OpenCodeDiscoveryResult",
+    "DiscoveredProvider",
+    "ProviderDiscoveryResult",
     # Pydantic models
     "InitGitHubConfig",
     "InitValidationConfig",
@@ -682,14 +682,14 @@ async def _untrack_bd_local_state(project_path: Path, verbose: bool) -> bool:
 
 async def _maybe_discover_providers(
     verbose: bool,
-) -> OpenCodeDiscoveryResult | None:
+) -> ProviderDiscoveryResult | None:
     """Discover providers connected to the OpenCode runtime.
 
     Spawns ``opencode serve``, hits ``GET /provider``, and returns the
     ``connected[]`` providers. Best-effort: failures are logged but
     never raised.
     """
-    result = await discover_opencode_providers()
+    result = await discover_providers()
     if result is not None and verbose:
         logger.info(
             "providers_discovered",
@@ -860,7 +860,7 @@ async def run_init(
             )
 
     # Step 3.5: Discover OpenCode-connected providers (best-effort)
-    provider_discovery: OpenCodeDiscoveryResult | None = await _maybe_discover_providers(verbose)
+    provider_discovery: ProviderDiscoveryResult | None = await _maybe_discover_providers(verbose)
 
     # Step 4: Generate configuration
     config = generate_config(

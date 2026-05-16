@@ -323,15 +323,15 @@ class TestProviderDiscovery:
         os.chdir(git_repo)
         monkeypatch.setattr(Path, "home", lambda: git_repo)
 
-        from maverick.init.opencode_discovery import (
-            ConnectedProvider,
-            OpenCodeDiscoveryResult,
+        from maverick.init.provider_discovery import (
+            DiscoveredProvider,
+            ProviderDiscoveryResult,
         )
 
-        discovery = OpenCodeDiscoveryResult(
+        discovery = ProviderDiscoveryResult(
             providers=(
-                ConnectedProvider("github-copilot", "GitHub Copilot", "claude-sonnet-4.6", 17),
-                ConnectedProvider("openai", "OpenAI", "gpt-5.5", 9),
+                DiscoveredProvider("github-copilot", "GitHub Copilot", "claude-sonnet-4.6", 17),
+                DiscoveredProvider("openai", "OpenAI", "gpt-5.5", 9),
             ),
             default_provider_id="github-copilot",
         )
@@ -366,13 +366,13 @@ class TestProviderDiscovery:
         os.chdir(git_repo)
         monkeypatch.setattr(Path, "home", lambda: git_repo)
 
-        from maverick.init.opencode_discovery import (
-            ConnectedProvider,
-            OpenCodeDiscoveryResult,
+        from maverick.init.provider_discovery import (
+            DiscoveredProvider,
+            ProviderDiscoveryResult,
         )
 
-        discovery = OpenCodeDiscoveryResult(
-            providers=(ConnectedProvider("github-copilot", "GitHub Copilot", None, 17),),
+        discovery = ProviderDiscoveryResult(
+            providers=(DiscoveredProvider("github-copilot", "GitHub Copilot", None, 17),),
             default_provider_id="github-copilot",
         )
 
@@ -437,13 +437,13 @@ class TestProviderDiscovery:
         os.chdir(git_repo)
         monkeypatch.setattr(Path, "home", lambda: git_repo)
 
-        from maverick.init.opencode_discovery import (
-            ConnectedProvider,
-            OpenCodeDiscoveryResult,
+        from maverick.init.provider_discovery import (
+            DiscoveredProvider,
+            ProviderDiscoveryResult,
         )
 
-        discovery = OpenCodeDiscoveryResult(
-            providers=(ConnectedProvider("github-copilot", "GitHub Copilot", None, 17),),
+        discovery = ProviderDiscoveryResult(
+            providers=(DiscoveredProvider("github-copilot", "GitHub Copilot", None, 17),),
             default_provider_id="github-copilot",
         )
 

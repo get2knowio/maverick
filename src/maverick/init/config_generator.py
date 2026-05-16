@@ -27,7 +27,7 @@ from maverick.init.models import (
     ProjectType,
     ValidationCommands,
 )
-from maverick.init.opencode_discovery import OpenCodeDiscoveryResult
+from maverick.init.provider_discovery import ProviderDiscoveryResult
 
 __all__ = [
     "generate_config",
@@ -39,7 +39,7 @@ def generate_config(
     git_info: GitRemoteInfo,
     detection: ProjectDetectionResult | None,
     project_type: ProjectType | None = None,
-    provider_discovery: OpenCodeDiscoveryResult | None = None,
+    provider_discovery: ProviderDiscoveryResult | None = None,
 ) -> InitConfig:
     """Generate :class:`InitConfig` from detection + git + provider discovery.
 

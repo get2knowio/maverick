@@ -7,15 +7,10 @@ A successful list means the user has working credentials for that
 provider; a failure (no auth, vendor down) is reported as
 "not connected" and the provider is excluded from the result.
 
-The module name is kept for source compatibility with the legacy
-init flow. The dataclass names (``OpenCodeDiscoveryResult``,
-``ConnectedProvider``) are likewise retained so callers in
-:mod:`maverick.init` and :mod:`maverick.cli.commands.init` don't churn
-on rename.
-
-Output drives the generated ``maverick.yaml::agents`` defaults and the
-verbose console output during init. Failures are non-fatal; init still
-writes the config without an inferred provider when discovery fails.
+Output drives the verbose console output during init; the generated
+``maverick.yaml::agents`` block uses curated defaults independent of
+discovery. Failures are non-fatal — init still writes the config when
+discovery fails.
 """
 
 from __future__ import annotations
@@ -31,9 +26,9 @@ from airframe.errors import AgentRuntimeError
 from maverick.logging import get_logger
 
 __all__ = [
-    "ConnectedProvider",
-    "OpenCodeDiscoveryResult",
-    "discover_opencode_providers",
+    "DiscoveredProvider",
+    "ProviderDiscoveryResult",
+    "discover_providers",
 ]
 
 logger = get_logger(__name__)
@@ -51,7 +46,7 @@ _PREFERENCE_ORDER: tuple[str, ...] = (
 
 
 @dataclass(frozen=True, slots=True)
-class ConnectedProvider:
+class DiscoveredProvider:
     """One adapter that successfully enumerated its catalogue.
 
     Attributes:
@@ -78,10 +73,10 @@ class ConnectedProvider:
 
 
 @dataclass(frozen=True, slots=True)
-class OpenCodeDiscoveryResult:
+class ProviderDiscoveryResult:
     """Aggregate discovery result. Name kept for source compatibility."""
 
-    providers: tuple[ConnectedProvider, ...]
+    providers: tuple[DiscoveredProvider, ...]
     default_provider_id: str | None
     duration_ms: int = 0
 
@@ -93,10 +88,10 @@ class OpenCodeDiscoveryResult:
         }
 
 
-async def discover_opencode_providers(
+async def discover_providers(
     *,
     timeout: float = 30.0,
-) -> OpenCodeDiscoveryResult | None:
+) -> ProviderDiscoveryResult | None:
     """Probe every installed airframe adapter for live model listings.
 
     Returns ``None`` only when the discovery layer itself can't be
@@ -111,13 +106,13 @@ async def discover_opencode_providers(
         return None
 
     if not installed:
-        return OpenCodeDiscoveryResult(
+        return ProviderDiscoveryResult(
             providers=(),
             default_provider_id=None,
             duration_ms=int((time.monotonic() - start) * 1000),
         )
 
-    rows: list[ConnectedProvider] = []
+    rows: list[DiscoveredProvider] = []
     for pid in installed:
         row = await _probe_provider(pid, timeout=timeout)
         if row is not None:
@@ -126,18 +121,18 @@ async def discover_opencode_providers(
     rows.sort(key=lambda r: (_preference_index(r.provider_id), r.provider_id))
     default_id = rows[0].provider_id if rows else None
 
-    return OpenCodeDiscoveryResult(
+    return ProviderDiscoveryResult(
         providers=tuple(rows),
         default_provider_id=default_id,
         duration_ms=int((time.monotonic() - start) * 1000),
     )
 
 
-async def _probe_provider(provider_id: str, *, timeout: float) -> ConnectedProvider | None:
+async def _probe_provider(provider_id: str, *, timeout: float) -> DiscoveredProvider | None:
     """Instantiate the adapter and call ``list_models`` with a deadline.
 
     Returns ``None`` on any failure (auth missing, vendor down, SDK
-    raised). Successful runs become one :class:`ConnectedProvider`.
+    raised). Successful runs become one :class:`DiscoveredProvider`.
     """
     try:
         runtime_cls = airframe.runtime_for(provider_id)
@@ -164,7 +159,7 @@ async def _probe_provider(provider_id: str, *, timeout: float) -> ConnectedProvi
         return None
 
     display = models[0].provider_id if hasattr(models[0], "provider_id") else provider_id
-    return ConnectedProvider(
+    return DiscoveredProvider(
         provider_id=provider_id,
         display_name=display or provider_id,
         default_model_id=models[0].id,
