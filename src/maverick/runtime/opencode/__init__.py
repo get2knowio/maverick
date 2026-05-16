@@ -54,16 +54,10 @@ from maverick.runtime.opencode.registry import (
     CostSink,
     agents_config_for,
     cost_sink_for,
-    opencode_handle_for,
     register_agents_config,
     register_cost_sink,
-    register_opencode_handle,
-    register_tier_overrides,
-    tier_overrides_for,
     unregister_agents_config,
     unregister_cost_sink,
-    unregister_opencode_handle,
-    unregister_tier_overrides,
 )
 from maverick.runtime.opencode.server import (
     DEFAULT_HOST,
@@ -137,16 +131,10 @@ __all__ = [
     "CostSink",
     "agents_config_for",
     "cost_sink_for",
-    "opencode_handle_for",
     "register_agents_config",
     "register_cost_sink",
-    "register_opencode_handle",
-    "register_tier_overrides",
-    "tier_overrides_for",
     "unregister_agents_config",
     "unregister_cost_sink",
-    "unregister_opencode_handle",
-    "unregister_tier_overrides",
     # executor
     "OpenCodeStepExecutor",
     # tiers
