@@ -315,6 +315,11 @@ class RefuelInputs:
     briefing_cache_schema_version: int = 1
     outline_cache_key_inputs: dict[str, str] = field(default_factory=dict)
     outline_cache_schema_version: int = 1
+    # The per-workflow squadron. When set, the supervisor pulls pre-built
+    # briefing / generator / decomposer agents off the squadron and
+    # injects them into the matching actors via ``agent=``. Typed as
+    # ``Any`` to avoid an import cycle (squadron → workflow → here).
+    squadron: Any = None  # RefuelSquadron | None
 
 
 class RefuelSupervisor(xo.Actor):

@@ -284,6 +284,7 @@ class GenerateFlightPlanWorkflow(PythonWorkflow):
         async with (
             PlanSquadron(cwd=Path(cwd), config=self._config, cost_sink=cost_sink) as squadron,
             actor_pool(
+                agents_config=self._config.agents,
                 cost_sink=squadron.cost_sink,
             ) as (_pool, address),
         ):

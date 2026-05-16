@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 import xoscar as xo
+from airframe.errors import AgentRuntimeError
 
 from maverick.actors.step_config import load_step_config
 from maverick.actors.xoscar.messages import (
@@ -20,12 +21,8 @@ from maverick.actors.xoscar.messages import (
 )
 from maverick.agents.coding import CodingAgent
 from maverick.logging import get_logger
-from maverick.runtime.opencode import (
-    AgentRuntimeError,
-    cost_sink_for,
-    opencode_handle_for,
-    tier_overrides_for,
-)
+from maverick.runtime.agent_factory import runtime_for_agent
+from maverick.runtime.opencode import agents_config_for, cost_sink_for
 
 if TYPE_CHECKING:
     from maverick.executor.config import StepConfig
@@ -62,15 +59,28 @@ class ImplementerActor(xo.Actor):
         await self._agent.open()
 
     def _make_agent(self) -> CodingAgent:
-        """Factory hook — return the squadron-provided agent or build one."""
+        """Return the injected agent or construct one via airframe.
+
+        Raises:
+            RuntimeError: When no agent is injected AND no
+                :class:`AgentsConfig` is registered on the pool — the
+                actor has no way to build a runtime for its role.
+        """
         if self._injected_agent is not None:
             return self._injected_agent
         pool_address: str = self.address
+        agents_config = agents_config_for(pool_address)
+        if agents_config is None:
+            raise RuntimeError(
+                f"ImplementerActor at {pool_address!r}: no agent= injected "
+                "and no AgentsConfig registered on the pool. Pass either "
+                "agent= explicitly or wrap actor_pool() with agents_config=."
+            )
+        runtime, _ = runtime_for_agent("implement", agents_config=agents_config)
         return CodingAgent(
-            handle=opencode_handle_for(pool_address),
+            runtime=runtime,
             cwd=self._cwd,
             step_config=self._step_config,
-            tier_overrides=tier_overrides_for(pool_address),
             cost_sink=cost_sink_for(pool_address),
             tag=f"implementer[{self.uid.decode()}]",
         )

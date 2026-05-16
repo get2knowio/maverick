@@ -29,9 +29,11 @@ from maverick.runtime.opencode import (
     CostSink,
     OpenCodeServerHandle,
     Tier,
+    register_agents_config,
     register_cost_sink,
     register_opencode_handle,
     register_tier_overrides,
+    unregister_agents_config,
     unregister_cost_sink,
     unregister_opencode_handle,
     unregister_tier_overrides,
@@ -39,6 +41,8 @@ from maverick.runtime.opencode import (
 
 if TYPE_CHECKING:
     from xoscar.backends.pool import MainActorPoolType
+
+    from maverick.config import AgentsConfig
 
 logger = get_logger(__name__)
 
@@ -93,6 +97,7 @@ async def actor_pool(
     *,
     opencode_handle: OpenCodeServerHandle | None = None,
     provider_tiers: dict[str, Tier] | None = None,
+    agents_config: AgentsConfig | None = None,
     cost_sink: CostSink | None = None,
 ) -> AsyncIterator[tuple[MainActorPoolType, str]]:
     """Context manager for a short-lived actor pool.
@@ -152,6 +157,10 @@ async def actor_pool(
             tiers=sorted(provider_tiers.keys()),
         )
 
+    if agents_config is not None:
+        register_agents_config(external_address, agents_config)
+        logger.debug("xoscar.agents_config_bound", pool=external_address)
+
     if cost_sink is not None:
         register_cost_sink(external_address, cost_sink)
         logger.debug("xoscar.cost_sink_bound", pool=external_address)
@@ -161,6 +170,8 @@ async def actor_pool(
     finally:
         if cost_sink is not None:
             unregister_cost_sink(external_address)
+        if agents_config is not None:
+            unregister_agents_config(external_address)
         if provider_tiers:
             unregister_tier_overrides(external_address)
         if opencode_handle is not None:

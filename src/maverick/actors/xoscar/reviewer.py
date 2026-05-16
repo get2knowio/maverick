@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 import xoscar as xo
+from airframe.errors import AgentRuntimeError
 
 from maverick.actors.step_config import load_step_config
 from maverick.actors.xoscar.messages import (
@@ -25,12 +26,8 @@ from maverick.agents.reviewer import (
 )
 from maverick.logging import get_logger
 from maverick.payloads import SubmitReviewPayload
-from maverick.runtime.opencode import (
-    AgentRuntimeError,
-    cost_sink_for,
-    opencode_handle_for,
-    tier_overrides_for,
-)
+from maverick.runtime.agent_factory import runtime_for_agent
+from maverick.runtime.opencode import agents_config_for, cost_sink_for
 
 if TYPE_CHECKING:
     from maverick.executor.config import StepConfig
@@ -87,13 +84,20 @@ class ReviewerActor(xo.Actor):
         if self._injected_agent is not None:
             return self._injected_agent
         pool_address: str = self.address
+        agents_config = agents_config_for(pool_address)
+        if agents_config is None:
+            raise RuntimeError(
+                f"ReviewerActor at {pool_address!r}: no agent= injected "
+                "and no AgentsConfig registered on the pool. Pass either "
+                "agent= explicitly or wrap actor_pool() with agents_config=."
+            )
+        runtime, _ = runtime_for_agent("review", agents_config=agents_config)
         return ReviewerAgent(
-            handle=opencode_handle_for(pool_address),
+            runtime=runtime,
             cwd=self._cwd,
             review_kind=self._review_kind,
             opencode_agent=self._opencode_agent_name,
             step_config=self._step_config,
-            tier_overrides=tier_overrides_for(pool_address),
             cost_sink=cost_sink_for(pool_address),
             tag=f"reviewer[{self.uid.decode()}]",
         )

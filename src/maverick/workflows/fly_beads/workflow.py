@@ -529,6 +529,7 @@ class FlyBeadsWorkflow(PythonWorkflow):
                 reviewer_tiers=reviewer_tiers,
             ) as squadron,
             actor_pool(
+                agents_config=self._config.agents,
                 cost_sink=squadron.cost_sink,
             ) as (_pool, address),
         ):
