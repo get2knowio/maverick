@@ -29,7 +29,7 @@ dependencies = [
     "aiofiles>=23.0.0,<25",
     "aiohttp>=3.9.0,<4",
     "aiolimiter>=1.2,<2",
-    "airframe-agents[all]",
+    "airframe-agents[all]>=0.6.1,<0.7",
     "anyio>=4.0,<5",
     "atomicwrites>=1.4,<2",
     "click>=8.1.0,<9",
@@ -179,6 +179,3 @@ exclude_lines = [
     "if TYPE_CHECKING:",
     "@abstractmethod",
 ]
-
-[tool.uv.sources]
-airframe-agents = { path = "../airframe" }
