@@ -27,9 +27,9 @@ github:
   owner: "user-level-org"
 notifications:
   server: "https://user-ntfy.example.com"
-model:
-  max_tokens: 2048
-  temperature: 0.1
+parallel:
+  max_agents: 4
+  max_tasks: 5
 verbosity: "info"
 """)
 
@@ -39,12 +39,12 @@ verbosity: "info"
 github:
   owner: "project-level-org"
   repo: "my-repo"
-model:
-  max_tokens: 4096
+parallel:
+  max_agents: 6
 """)
 
         # 3. Set environment variables (highest priority)
-        os.environ["MAVERICK_MODEL__MAX_TOKENS"] = "8192"
+        os.environ["MAVERICK_PARALLEL__MAX_AGENTS"] = "8"
 
         # Patch home directory
         monkeypatch.setattr(Path, "home", lambda: temp_dir)
@@ -60,14 +60,12 @@ model:
         assert config.github.repo == "my-repo"
         # - notifications.server: only in user -> "https://user-ntfy.example.com"
         assert config.notifications.server == "https://user-ntfy.example.com"
-        # - model.max_tokens: env overrides project -> 8192
-        assert config.model.max_tokens == 8192
-        # - model.temperature: only in user -> 0.1
-        assert config.model.temperature == 0.1
+        # - parallel.max_agents: env overrides project -> 8
+        assert config.parallel.max_agents == 8
+        # - parallel.max_tasks: only in user -> 5
+        assert config.parallel.max_tasks == 5
         # - verbosity: only in user -> "info"
         assert config.verbosity == "info"
-        # - parallel.max_agents: default -> 3
-        assert config.parallel.max_agents == 3
 
     def test_defaults_only(
         self, clean_env: None, temp_dir: Path, monkeypatch: pytest.MonkeyPatch
@@ -85,7 +83,5 @@ model:
         assert config.github.owner is None
         assert config.github.default_branch == "main"
         assert config.notifications.enabled is False
-        assert config.model.model_id == "sonnet"
-        assert config.model.max_tokens == 64000
         assert config.parallel.max_agents == 3
         assert config.verbosity == "warning"
