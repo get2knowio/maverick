@@ -634,7 +634,8 @@ _AGENTS_COMMENT = """
 # the squadron constructs an airframe AgentRuntime per role at workflow
 # startup. Per-complexity overrides go under
 # actors.<workflow>.<actor>.tiers.<complexity>. Provider IDs are
-# airframe-canonical (claude / github-copilot / codex / opencode) — see
+# airframe-canonical (claude / github-copilot / opencode /
+# opencode-go / opencode-zen / openrouter / bedrock) — see
 # `airframe.list_providers()` for the live set.
 """
 

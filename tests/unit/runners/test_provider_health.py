@@ -208,12 +208,12 @@ def test_providers_for_fly_unions_agents_and_actor_overrides() -> None:
         actors={
             "fly": {
                 "implementer": {"provider": "github-copilot"},
-                "reviewer": {"tiers": {"trivial": {"provider": "codex"}}},
+                "reviewer": {"tiers": {"trivial": {"provider": "opencode-go"}}},
             }
         },
     )
     seen = providers_for_fly(config)
-    assert seen == {"claude", "github-copilot", "codex"}
+    assert seen == {"claude", "github-copilot", "opencode-go"}
 
 
 # ---------------------------------------------------------------------------

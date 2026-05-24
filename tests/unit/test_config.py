@@ -646,8 +646,8 @@ agents:
     provider: claude
     model_id: claude-sonnet-4-6
   generate:
-    provider: codex
-    model_id: gpt-5-codex
+    provider: opencode-go
+    model_id: minimax-m2.7
 """
         )
         from maverick.config import load_config
@@ -663,7 +663,7 @@ agents:
         assert config.agents.decompose is not None
         assert config.agents.decompose.provider == "claude"
         assert config.agents.generate is not None
-        assert config.agents.generate.provider == "codex"
+        assert config.agents.generate.provider == "opencode-go"
 
     def test_partial_agents_block_leaves_unset_roles_none(
         self, clean_env: None, temp_dir: Path

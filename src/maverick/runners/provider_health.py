@@ -99,7 +99,9 @@ class ProviderHealthCheck:
 
     Args:
         provider_name: Airframe canonical provider id
-            (``claude`` / ``github-copilot`` / ``codex`` / ``opencode``).
+            (``claude`` / ``github-copilot`` / ``opencode`` /
+            ``opencode-go`` / ``opencode-zen`` / ``openrouter`` /
+            ``bedrock``).
         models_to_validate: Model IDs that must appear in the adapter's
             catalogue. Empty means "just check the adapter answers".
         timeout: Maximum seconds for ``list_models``.

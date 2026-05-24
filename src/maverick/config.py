@@ -385,7 +385,8 @@ class AgentBindingConfig(BaseModel, frozen=True):
 
     The values are airframe-canonical: ``provider`` is one of
     :func:`airframe.list_providers` (``claude``, ``github-copilot``,
-    ``codex``, ``opencode``), and ``model_id`` is whatever that adapter's
+    ``opencode``, ``opencode-go``, ``opencode-zen``, ``openrouter``,
+    ``bedrock``), and ``model_id`` is whatever that adapter's
     :meth:`list_models` would return.
 
     A typo'd provider isn't caught at YAML load time — discovery and
@@ -430,8 +431,8 @@ class AgentsConfig(BaseModel):
             provider: claude
             model_id: claude-sonnet-4-6
           generate:
-            provider: codex
-            model_id: gpt-5-codex
+            provider: opencode-go
+            model_id: minimax-m2.7
     """
 
     implement: AgentBindingConfig | None = None

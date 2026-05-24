@@ -92,7 +92,7 @@ def full_agents_config() -> AgentsConfig:
         review=AgentBindingConfig(provider="claude", model_id="claude-haiku-4-5"),
         briefing=AgentBindingConfig(provider="github-copilot", model_id="gpt-5-mini"),
         decompose=AgentBindingConfig(provider="claude", model_id="claude-sonnet-4-6"),
-        generate=AgentBindingConfig(provider="codex", model_id="gpt-5-codex"),
+        generate=AgentBindingConfig(provider="opencode-go", model_id="minimax-m2.7"),
     )
 
 
