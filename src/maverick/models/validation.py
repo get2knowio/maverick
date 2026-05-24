@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
@@ -30,7 +30,7 @@ __all__ = [
 # =============================================================================
 
 
-class StageStatus(str, Enum):
+class StageStatus(StrEnum):
     """Status of a validation stage.
 
     Represents the current or final state of a validation stage during

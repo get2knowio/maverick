@@ -12,7 +12,7 @@ All models use Pydantic v2 for validation and serialization.
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
@@ -23,7 +23,7 @@ from pydantic import BaseModel, ConfigDict, Field
 # =============================================================================
 
 
-class ReviewSeverity(str, Enum):
+class ReviewSeverity(StrEnum):
     """Severity levels for code review findings.
 
     Attributes:

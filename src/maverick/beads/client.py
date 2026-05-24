@@ -7,7 +7,7 @@ for async-safe subprocess execution with timeouts and retries.
 from __future__ import annotations
 
 import json
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
@@ -41,7 +41,7 @@ BD_TIMEOUT: float = 30.0
 BD_LIFECYCLE_TIMEOUT: float = 60.0
 
 
-class LifecycleAction(str, Enum):
+class LifecycleAction(StrEnum):
     """Action chosen by :meth:`BeadClient.init_or_bootstrap`."""
 
     INIT = "init"
