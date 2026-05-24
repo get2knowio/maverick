@@ -26,7 +26,7 @@ classifiers = [
 ]
 
 dependencies = [
-    "aiofiles>=23.0.0,<25",
+    "aiofiles>=23.0.0,<26",
     "aiohttp>=3.9.0,<4",
     "aiolimiter>=1.2,<2",
     "airframe-agents[all]>=0.9.0rc1,<0.10",
