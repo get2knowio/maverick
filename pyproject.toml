@@ -71,7 +71,7 @@ test = [
 ]
 lint = [
     "ruff>=0.1.0,<1",
-    "mypy>=1.0.0,<2",
+    "mypy>=1.0.0,<3",
 ]
 dev = [
     { include-group = "test" },
