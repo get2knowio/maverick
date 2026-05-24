@@ -187,19 +187,10 @@ class TestRefuelMaverickWorkflowHappyPath:
         """The xoscar supervisor receives a ``RefuelInputs`` carrying the
         resolved ``StepConfig`` and the internal detail/fix session
         thresholds. Replaces the two Thespian-specific init-dict tests."""
-        from maverick.config import AgentProviderConfig
-
         mock_config.actors = {
             "refuel": {
                 "decomposer": {"provider": "claude", "model_id": "opus"},
             }
-        }
-        mock_config.agent_providers = {
-            "claude": AgentProviderConfig(
-                command=["claude-agent"],
-                default=True,
-                default_model="sonnet",
-            ),
         }
 
         fp = make_simple_flight_plan(tmp_path)
@@ -251,6 +242,7 @@ class TestRefuelMaverickWorkflowHappyPath:
                 runway_context_text=None,
                 run_dir=None,
                 skip_briefing=True,
+                ws_cwd=tmp_path,
             )
 
         inputs = captured_inputs.get("value")
@@ -272,8 +264,6 @@ class TestRefuelMaverickWorkflowHappyPath:
         """Each refuel briefing agent (navigator/structuralist/recon/contrarian)
         gets its own StepConfig — fixes the symptom of all briefings sharing
         the decomposer's config."""
-        from maverick.config import AgentProviderConfig
-
         mock_config.actors = {
             "refuel": {
                 "navigator": {"provider": "gemini", "model_id": "gemini-3.1-pro-preview"},
@@ -285,18 +275,6 @@ class TestRefuelMaverickWorkflowHappyPath:
                 "contrarian": {"provider": "claude", "model_id": "opus"},
                 "decomposer": {"provider": "claude", "model_id": "sonnet"},
             }
-        }
-        mock_config.agent_providers = {
-            "claude": AgentProviderConfig(
-                command=["claude-agent"], default=True, default_model="sonnet"
-            ),
-            "copilot": AgentProviderConfig(command=["copilot-agent"], default_model="gpt-5-mini"),
-            "gemini": AgentProviderConfig(
-                command=["gemini-agent"], default_model="gemini-default"
-            ),
-            "opencode": AgentProviderConfig(
-                command=["opencode-agent"], default_model="opencode/default"
-            ),
         }
 
         fp = make_simple_flight_plan(tmp_path)
@@ -346,6 +324,7 @@ class TestRefuelMaverickWorkflowHappyPath:
                 runway_context_text=None,
                 run_dir=None,
                 skip_briefing=False,
+                ws_cwd=tmp_path,
             )
 
         inputs = captured_inputs["value"]

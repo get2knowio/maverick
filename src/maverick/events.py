@@ -469,18 +469,7 @@ class StepOutput:
 
     Example:
         # In a Python action:
-        async def fetch_pr_details(
-            pr_number: int,
-            stream_callback: Callable[[str], Awaitable[None]] | None = None,
-            event_callback: EventCallback | None = None,
-        ) -> dict:
-            if event_callback:
-                await event_callback(StepOutput(
-                    step_name="fetch_pr",
-                    message=f"Fetching PR #{pr_number}...",
-                    level="info",
-                    source="github",
-                ))
+        async def fetch_pr_details(pr_number: int) -> dict:
             # ... do work ...
     """
 

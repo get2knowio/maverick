@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 import xoscar as xo
+from airframe.errors import AgentRuntimeError
 
 from maverick.actors.step_config import load_step_config
 from maverick.actors.xoscar.messages import (
@@ -25,12 +26,8 @@ from maverick.agents.reviewer import (
 )
 from maverick.logging import get_logger
 from maverick.payloads import SubmitReviewPayload
-from maverick.runtime.opencode import (
-    OpenCodeError,
-    cost_sink_for,
-    opencode_handle_for,
-    tier_overrides_for,
-)
+from maverick.runtime.agent_factory import runtime_for_agent
+from maverick.runtime.registry import agents_config_for, cost_sink_for
 
 if TYPE_CHECKING:
     from maverick.executor.config import StepConfig
@@ -54,7 +51,7 @@ class ReviewerActor(xo.Actor):
         *,
         cwd: str,
         config: StepConfig | dict[str, Any] | None = None,
-        opencode_agent: str = "maverick.correctness-reviewer",
+        persona_name: str = "maverick.correctness-reviewer",
         review_kind: ReviewKind = "correctness",
         agent: ReviewerAgent | None = None,
     ) -> None:
@@ -69,7 +66,7 @@ class ReviewerActor(xo.Actor):
         self._supervisor_ref = supervisor_ref
         self._cwd = cwd
         self._step_config = load_step_config(config)
-        self._opencode_agent_name = opencode_agent
+        self._persona_name = persona_name
         self._review_kind: ReviewKind = review_kind
         # Pre-built agent provided by the squadron (when wired). When None,
         # ``_make_agent`` falls back to constructing one from the pool
@@ -87,13 +84,20 @@ class ReviewerActor(xo.Actor):
         if self._injected_agent is not None:
             return self._injected_agent
         pool_address: str = self.address
+        agents_config = agents_config_for(pool_address)
+        if agents_config is None:
+            raise RuntimeError(
+                f"ReviewerActor at {pool_address!r}: no agent= injected "
+                "and no AgentsConfig registered on the pool. Pass either "
+                "agent= explicitly or wrap actor_pool() with agents_config=."
+            )
+        runtime, _ = runtime_for_agent("review", agents_config=agents_config)
         return ReviewerAgent(
-            handle=opencode_handle_for(pool_address),
+            runtime=runtime,
             cwd=self._cwd,
             review_kind=self._review_kind,
-            opencode_agent=self._opencode_agent_name,
+            persona_name=self._persona_name,
             step_config=self._step_config,
-            tier_overrides=tier_overrides_for(pool_address),
             cost_sink=cost_sink_for(pool_address),
             tag=f"reviewer[{self.uid.decode()}]",
         )
@@ -109,7 +113,7 @@ class ReviewerActor(xo.Actor):
     # ------------------------------------------------------------------
 
     async def new_bead(self, request: NewBeadRequest) -> None:
-        """Rotate the OpenCode session for a new bead."""
+        """Rotate the runtime scope for a new bead."""
         assert self._agent is not None
         try:
             await self._agent.rotate_session()
@@ -140,7 +144,7 @@ class ReviewerActor(xo.Actor):
                     work_unit_md=request.work_unit_md,
                     briefing_context=request.briefing_context,
                 )
-        except OpenCodeError as exc:
+        except AgentRuntimeError as exc:
             await self._report_prompt_error(
                 phase="review", error=str(exc), bead_id=request.bead_id
             )

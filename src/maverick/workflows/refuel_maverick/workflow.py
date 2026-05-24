@@ -122,7 +122,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
     Pipeline:
     1. parse_flight_plan - Parse flight plan file via FlightPlanFile.aload()
     2. gather_context - Read in-scope files from codebase
-    3. decompose - Agent decomposes flight plan into work units (via StepExecutor)
+    3. decompose - Agent decomposes flight plan into work units
     4. validate - Validate dependency graph (acyclic), unique IDs, SC coverage
     5. write_work_units - Write work unit files to .maverick/plans/<name>/
     6. create_beads - Create epic + task beads via BeadClient
@@ -156,7 +156,13 @@ class RefuelMaverickWorkflow(PythonWorkflow):
             write_refuel_report,
         )
 
-        ctx: dict[str, Any] = {}
+        # Validate cwd before entering _run_impl so the finally block
+        # can rely on ctx["cwd"] being populated even on early failure.
+        cwd_input = inputs.get("cwd")
+        if not cwd_input:
+            raise WorkflowError("'cwd' input is required")
+
+        ctx: dict[str, Any] = {"cwd": Path(cwd_input)}
         started_at = datetime.now(tz=UTC).isoformat()
         start_time = _time.monotonic()
         error_msg: str | None = None
@@ -167,7 +173,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
             raise
         finally:
             run_id = ctx.get("run_id", "unknown")
-            ctx_cwd: Path = ctx.get("cwd") or Path.cwd()
+            ctx_cwd: Path = ctx["cwd"]
             run_dir = ctx.get("run_dir", ctx_cwd / ".maverick" / "runs" / run_id)
             report = RefuelReport(
                 plan_name=ctx.get("plan_name", ""),
@@ -212,11 +218,9 @@ class RefuelMaverickWorkflow(PythonWorkflow):
             raise WorkflowError("'flight_plan_path' input is required")
         skip_briefing: bool = bool(inputs.get("skip_briefing", False))
         auto_commit: bool = bool(inputs.get("auto_commit", False))
-        # Architecture A workspace path. None means "fall back to process
-        # cwd" so unit tests without a workspace continue to work.
-        cwd_input: str | None = inputs.get("cwd")
-        ws_cwd: Path = Path(cwd_input) if cwd_input else Path.cwd()
-        ctx["cwd"] = ws_cwd
+        # ``ctx["cwd"]`` was validated + set by ``_run`` before this
+        # call, so we can rely on it directly.
+        ws_cwd: Path = ctx["cwd"]
 
         flight_plan_path = Path(flight_plan_path_str)
 
@@ -360,9 +364,12 @@ class RefuelMaverickWorkflow(PythonWorkflow):
                 DERIVE_VERIFICATION, display_label="Deriving verification"
             )
             try:
-                from maverick.executor import create_default_executor
+                from maverick.agents.personas import VerificationPropertiesAgent
+                from maverick.config import load_config
+                from maverick.runtime.agent_factory import runtime_for_agent
 
-                _vp_executor = create_default_executor()
+                config = load_config()
+                runtime, _ = runtime_for_agent("generate", agents_config=config.agents)
                 sc_text = "\n".join(
                     f"SC-{i + 1:03d}: {sc.text}"
                     for i, sc in enumerate(flight_plan.success_criteria)
@@ -376,27 +383,24 @@ class RefuelMaverickWorkflow(PythonWorkflow):
                     "- Reference actual types/functions from the codebase\n"
                     "- Use exact expected values from the criteria\n"
                     "- Each test function must be named verify_scNNN\n"
-                    "- Skip structural or subjective criteria\n"
-                    "- Output ONE fenced code block with all tests\n\n"
+                    "- Skip structural or subjective criteria\n\n"
                     f"## Success Criteria\n\n{sc_text}\n\n"
                     f"## Codebase Files\n\n"
                     + "\n".join(f"- {f.path}" for f in codebase_context.files)
                     + "\n"
                 )
                 try:
-                    vp_result = await _vp_executor.execute_named(
-                        agent="maverick.flight-plan-generator",
-                        user_prompt=vp_prompt,
-                        step_name=DERIVE_VERIFICATION,
-                    )
+                    async with VerificationPropertiesAgent(
+                        runtime=runtime, cwd=str(ws_cwd)
+                    ) as agent:
+                        vp_text = await agent.derive(vp_prompt)
                 except Exception as vp_exec_err:
                     logger.debug(
                         "vp_executor_failed",
                         error=str(vp_exec_err),
                     )
-                    vp_result = None
-                if vp_result and vp_result.output:
-                    vp_text = str(vp_result.output)
+                    vp_text = ""
+                if vp_text:
                     if "verify_" in vp_text:
                         verification_properties = vp_text
                         # Write to flight plan file
@@ -835,7 +839,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
         run_dir: Path | None,
         skip_briefing: bool = False,
         ctx: dict[str, Any] | None = None,
-        ws_cwd: Path | None = None,
+        ws_cwd: Path,
     ) -> Any:
         """Run briefing + decomposition via xoscar supervisor.
 
@@ -862,7 +866,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
         # Check for cached briefing from a previous run
         import json as _json
 
-        cache_root = ws_cwd or Path.cwd()
+        cache_root = ws_cwd
         plan_dir = cache_root / ".maverick" / "plans" / flight_plan.name
         briefing_cache_path = plan_dir / "refuel-briefing.json"
         outline_cache_path = plan_dir / "refuel-outline.json"
@@ -1088,16 +1092,15 @@ class RefuelMaverickWorkflow(PythonWorkflow):
         from maverick.squadron.refuel import RefuelSquadron
         from maverick.workflows.fly_beads.workflow import _cost_sink_for_cwd
 
-        cost_sink = _cost_sink_for_cwd(ws_cwd or Path.cwd())
+        cost_sink = _cost_sink_for_cwd(ws_cwd)
         async with (
             RefuelSquadron(
-                cwd=ws_cwd or Path.cwd(),
+                cwd=ws_cwd,
                 config=self._config,
                 cost_sink=cost_sink,
             ) as squadron,
             actor_pool(
-                opencode_handle=squadron.handle,
-                provider_tiers=squadron.tier_overrides,
+                agents_config=self._config.agents,
                 cost_sink=squadron.cost_sink,
             ) as (_pool, address),
         ):

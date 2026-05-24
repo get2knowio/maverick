@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import contextvars
-from enum import Enum
 from pathlib import Path
 from typing import Any, Literal, Self
 
@@ -14,39 +13,30 @@ from pydantic_settings import (
     SettingsConfigDict,
 )
 
-from maverick.constants import (
-    DEFAULT_MODEL as MAVERICK_DEFAULT_MODEL,
-)
-from maverick.constants import (
-    MAX_OUTPUT_TOKENS,
-)
 from maverick.exceptions import ConfigError
 from maverick.logging import get_logger
 
 __all__ = [
-    "MaverickConfig",
-    "GitHubConfig",
-    "NotificationConfig",
-    "ValidationConfig",
-    "PreflightValidationConfig",
-    "CustomToolConfig",
-    "ModelConfig",
-    "ParallelConfig",
-    "TuiMetricsConfig",
-    "SessionLogConfig",
-    "WorkspaceConfig",
-    "ActorConfig",
     "ACTOR_WORKFLOW_KEY_MAP",
-    "lookup_actor_config",
-    "ProviderModelEntry",
-    "ProviderTiersConfig",
+    "ActorConfig",
+    "AgentBindingConfig",
+    "AgentsConfig",
+    "CustomToolConfig",
+    "GitHubConfig",
+    "MaverickConfig",
+    "NotificationConfig",
+    "ParallelConfig",
+    "PreflightValidationConfig",
     "RunwayConfig",
     "RunwayConsolidationConfig",
     "RunwayRetrievalConfig",
-    "PermissionMode",
-    "AgentProviderConfig",
-    "load_config",
+    "SessionLogConfig",
+    "TuiMetricsConfig",
+    "ValidationConfig",
+    "WorkspaceConfig",
     "get_user_config_path",
+    "load_config",
+    "lookup_actor_config",
 ]
 
 logger = get_logger(__name__)
@@ -54,43 +44,6 @@ logger = get_logger(__name__)
 _project_config_path_var: contextvars.ContextVar[Path | None] = contextvars.ContextVar(
     "_project_config_path", default=None
 )
-
-
-class PermissionMode(str, Enum):
-    """Permission handling strategy for ACP agent tool calls."""
-
-    AUTO_APPROVE = "auto_approve"
-    DENY_DANGEROUS = "deny_dangerous"
-    INTERACTIVE = "interactive"
-
-
-class AgentProviderConfig(BaseModel, frozen=True):
-    """Configuration for a single ACP agent provider.
-
-    Attributes:
-        command: Subprocess command and arguments to spawn the agent.
-        env: Environment variable overrides for the subprocess.
-        permission_mode: How to handle agent permission requests.
-        default: Whether this is the default provider.
-    """
-
-    command: list[str] | None = Field(
-        default=None,
-        description=(
-            "Spawn command and args. Optional for built-in providers "
-            "(claude, copilot) — resolved automatically by the registry."
-        ),
-    )
-    env: dict[str, str] = Field(default_factory=dict, description="Environment overrides")
-    permission_mode: PermissionMode = Field(
-        default=PermissionMode.AUTO_APPROVE,
-        description="Permission handling strategy",
-    )
-    default: bool = Field(default=False, description="Is this the default provider?")
-    default_model: str | None = Field(
-        default=None,
-        description="Default model for this provider (lowest precedence layer).",
-    )
 
 
 class GitHubConfig(BaseModel):
@@ -152,27 +105,6 @@ class ValidationConfig(BaseModel):
                 f"Configured project_root does not exist: {v}. Validation commands may fail."
             )
         return v
-
-
-class ModelConfig(BaseModel):
-    """Settings for Claude model selection.
-
-    Attributes:
-        model_id: Claude model identifier.
-        max_tokens: Maximum OUTPUT tokens per response (not context window).
-            Defaults to 64000 (maximum for all Claude 4.5 variants).
-            Context window (input): 200K tokens (fixed by model).
-            Max output (configurable): up to 64K tokens.
-            Model limits (all Claude 4.5 variants):
-            - {CLAUDE_SONNET_LATEST}: 64K output, 200K context (default)
-            - {CLAUDE_OPUS_LATEST}: 64K output, 200K context
-            - {CLAUDE_HAIKU_LATEST}: 64K output, 200K context
-        temperature: Sampling temperature (0.0 = deterministic, 1.0 = creative).
-    """
-
-    model_id: str = MAVERICK_DEFAULT_MODEL
-    max_tokens: int = Field(default=MAX_OUTPUT_TOKENS, gt=0, le=200000)
-    temperature: float = Field(default=0.0, ge=0.0, le=1.0)
 
 
 class ImplementerTierConfig(BaseModel):
@@ -299,7 +231,7 @@ class ParallelConfig(BaseModel):
 
     Attributes:
         max_agents: Soft cap on simultaneously running mailbox actors.
-            Currently advisory — actors share one OpenCode HTTP server
+            Currently advisory — actors share one airframe runtime
             per workflow run rather than spawning per-actor subprocesses,
             so subprocess-quota eviction is no longer a thing. Per-phase
             knobs below describe how much fan-out a phase wants; tune
@@ -448,41 +380,66 @@ class RunwayConfig(BaseModel):
     retrieval: RunwayRetrievalConfig = Field(default_factory=RunwayRetrievalConfig)
 
 
-class ProviderModelEntry(BaseModel, frozen=True):
-    """One ``(provider_id, model_id)`` binding within a provider tier.
+class AgentBindingConfig(BaseModel, frozen=True):
+    """One ``(provider, model_id)`` binding for a single agent role.
 
-    Mirrors :class:`maverick.runtime.opencode.tiers.ProviderModel` so
-    user config and runtime types stay aligned.
+    The values are airframe-canonical: ``provider`` is one of
+    :func:`airframe.list_providers` (``claude``, ``github-copilot``,
+    ``opencode``, ``opencode-go``, ``opencode-zen``, ``openrouter``,
+    ``bedrock``), and ``model_id`` is whatever that adapter's
+    :meth:`list_models` would return.
+
+    A typo'd provider isn't caught at YAML load time — discovery and
+    construction happen inside :func:`runtime_for_agent`, which raises
+    :class:`ImportError` / :class:`ValueError` with the install hint the
+    user needs.
     """
 
-    provider: str = Field(..., min_length=1)
-    model_id: str = Field(..., min_length=1)
+    provider: str = Field(..., min_length=1, description="Airframe canonical PROVIDER_ID")
+    model_id: str = Field(..., min_length=1, description="Vendor model identifier")
 
 
-class ProviderTiersConfig(BaseModel):
-    """User-configurable per-tier model lists for the OpenCode runtime.
+class AgentsConfig(BaseModel):
+    """Per-role default airframe bindings.
 
-    Keyed by tier name (matches each actor's ``provider_tier`` ClassVar
-    — e.g. ``review``, ``implement``, ``decompose``, ``briefing``,
-    ``generate``). Each entry is an ordered cascade: the runtime tries
-    the first ``(provider, model_id)`` and falls over to subsequent
-    bindings on auth / model-not-found / structured-output / sustained-
-    transient errors.
+    Replaces the legacy ``provider_tiers:`` cascade. Each role gets one
+    binding here; per-complexity overrides live under
+    ``actors.<workflow>.<actor>.tiers.<complexity>`` (the existing
+    surface — unchanged by this block).
 
-    When empty (the default), the runtime uses
-    :data:`maverick.runtime.opencode.tiers.DEFAULT_TIERS`.
+    Role names match each agent's :attr:`Agent.provider_tier`:
+
+    * ``implement`` — :class:`CodingAgent`
+    * ``review`` — :class:`ReviewerAgent` (both correctness + completeness)
+    * ``briefing`` — :class:`BriefingAgent` (every per-aspect briefing)
+    * ``decompose`` — :class:`DecomposerAgent`
+    * ``generate`` — :class:`GeneratorAgent`
 
     Example ``maverick.yaml``::
 
-        provider_tiers:
-          review:
-            - {provider: openrouter, model_id: anthropic/claude-haiku-4.5}
-            - {provider: openrouter, model_id: qwen/qwen3-coder}
+        agents:
           implement:
-            - {provider: openrouter, model_id: openai/gpt-4o-mini}
+            provider: claude
+            model_id: claude-sonnet-4-6
+          review:
+            provider: claude
+            model_id: claude-haiku-4-5
+          briefing:
+            provider: github-copilot
+            model_id: gpt-5-mini
+          decompose:
+            provider: claude
+            model_id: claude-sonnet-4-6
+          generate:
+            provider: opencode-go
+            model_id: minimax-m2.7
     """
 
-    tiers: dict[str, list[ProviderModelEntry]] = Field(default_factory=dict)
+    implement: AgentBindingConfig | None = None
+    review: AgentBindingConfig | None = None
+    briefing: AgentBindingConfig | None = None
+    decompose: AgentBindingConfig | None = None
+    generate: AgentBindingConfig | None = None
 
 
 class ActorConfig(BaseModel):
@@ -621,25 +578,21 @@ class MaverickConfig(BaseSettings):
     notifications: NotificationConfig = Field(default_factory=NotificationConfig)
     validation: ValidationConfig = Field(default_factory=ValidationConfig)
     preflight: PreflightValidationConfig = Field(default_factory=PreflightValidationConfig)
-    model: ModelConfig = Field(default_factory=ModelConfig)
     parallel: ParallelConfig = Field(default_factory=ParallelConfig)
     tui_metrics: TuiMetricsConfig = Field(default_factory=TuiMetricsConfig)
     session_log: SessionLogConfig = Field(default_factory=SessionLogConfig)
     workspace: WorkspaceConfig = Field(default_factory=WorkspaceConfig)
     runway: RunwayConfig = Field(default_factory=RunwayConfig)
-    agent_providers: dict[str, AgentProviderConfig] = Field(
-        default_factory=dict,
-        description="OpenCode-connected provider configurations keyed by provider name.",
-    )
     actors: dict[str, dict[str, Any]] = Field(
         default_factory=dict,
         description="Actor configurations grouped by workflow (plan/refuel/fly/land).",
     )
-    provider_tiers: ProviderTiersConfig = Field(
-        default_factory=ProviderTiersConfig,
+    agents: AgentsConfig = Field(
+        default_factory=AgentsConfig,
         description=(
-            "Per-tier (provider, model_id) cascades for OpenCode-backed "
-            "actors. Empty (default) means use the curated DEFAULT_TIERS."
+            "Per-role airframe bindings. Each entry pins one "
+            "(provider, model_id) for an agent role. Squadrons build "
+            "airframe runtimes via ``runtime_for_agent`` at construction."
         ),
     )
     project_type: str = Field(
@@ -680,8 +633,11 @@ class MaverickConfig(BaseSettings):
             env_settings,  # Environment variables (highest priority)
             # Project config
             YamlConfigSource(settings_cls, project_config_path),
-            # User config (lowest)
+            # User config
             YamlConfigSource(settings_cls, user_config_path),
+            # Constructor kwargs (lowest) — required so tests + direct
+            # callers can pass overrides like ``MaverickConfig(agents=...)``.
+            init_settings,
         )
 
 

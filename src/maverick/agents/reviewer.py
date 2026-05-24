@@ -12,20 +12,16 @@ Findings that already carry a ``reviewer`` value are preserved.
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
 from maverick.agents.base import Agent
 from maverick.payloads import SubmitReviewPayload
 
 if TYPE_CHECKING:
+    from airframe.protocol import AgentRuntime
+
     from maverick.executor.config import StepConfig
-    from maverick.runtime.opencode import (
-        CostSink,
-        OpenCodeClient,
-        OpenCodeServerHandle,
-        Tier,
-    )
+    from maverick.runtime.registry import CostSink
 
 REVIEW_PROMPT_TIMEOUT_SECONDS = 600
 AGGREGATE_REVIEW_TIMEOUT_SECONDS = 600
@@ -34,24 +30,22 @@ ReviewKind = Literal["correctness", "completeness"]
 
 
 class ReviewerAgent(Agent):
-    """OpenCode-backed reviewer (correctness or completeness lens)."""
+    """Code reviewer (correctness or completeness lens)."""
 
     result_model: ClassVar[type[SubmitReviewPayload]] = SubmitReviewPayload
     provider_tier: ClassVar[str] = "review"
-    # opencode_agent is per-instance (correctness vs completeness).
+    # persona_name is per-instance (correctness vs completeness).
 
     def __init__(
         self,
         *,
-        handle: OpenCodeServerHandle,
+        runtime: AgentRuntime,
         cwd: str,
         review_kind: ReviewKind,
-        opencode_agent: str,
+        persona_name: str,
         step_config: StepConfig | dict[str, Any] | None = None,
-        tier_overrides: dict[str, Tier] | None = None,
         cost_sink: CostSink | None = None,
         tag: str | None = None,
-        client_factory: Callable[[], OpenCodeClient] | None = None,
     ) -> None:
         if review_kind not in ("correctness", "completeness"):
             raise ValueError(
@@ -59,14 +53,12 @@ class ReviewerAgent(Agent):
                 f"'completeness', got {review_kind!r}"
             )
         super().__init__(
-            handle=handle,
+            runtime=runtime,
             cwd=cwd,
             step_config=step_config,
-            tier_overrides=tier_overrides,
             cost_sink=cost_sink,
             tag=tag or f"reviewer.{review_kind}",
-            opencode_agent=opencode_agent,
-            client_factory=client_factory,
+            persona_name=persona_name,
         )
         self._review_kind: ReviewKind = review_kind
         self._review_count = 0
@@ -76,7 +68,7 @@ class ReviewerAgent(Agent):
         return self._review_kind
 
     async def rotate_session(self) -> None:
-        """Reset the per-bead review-round counter and drop the session."""
+        """Reset the per-bead review-round counter and drop the runtime scope."""
         self._review_count = 0
         await super().rotate_session()
 
@@ -92,7 +84,7 @@ class ReviewerAgent(Agent):
         The first call within a bead sends the full review context;
         subsequent calls (after the implementer has applied fixes)
         send a short "did you address my prior findings?" prompt that
-        relies on the persistent OpenCode session for context.
+        relies on the persistent airframe-runtime scope for context.
 
         Bead identity flows in via
         :func:`~maverick.agents.context.tagged` — the caller wraps the
@@ -104,7 +96,7 @@ class ReviewerAgent(Agent):
             work_unit_md=work_unit_md,
             briefing_context=briefing_context,
         )
-        payload = await self._send_structured(prompt, timeout=REVIEW_PROMPT_TIMEOUT_SECONDS)
+        payload = await self._execute_via_runtime(prompt, timeout=REVIEW_PROMPT_TIMEOUT_SECONDS)
         assert isinstance(payload, SubmitReviewPayload)
         return self._stamp_provenance(payload)
 
@@ -118,11 +110,11 @@ class ReviewerAgent(Agent):
         """Run the epic-level aggregate review.
 
         Always rotates the session first so the aggregate runs in a
-        fresh context (mirroring the prior actor-level behaviour).
+        fresh runtime scope.
         """
         await self.rotate_session()
         prompt = self._build_aggregate_prompt(objective, bead_list, diff_stat)
-        payload = await self._send_structured(prompt, timeout=AGGREGATE_REVIEW_TIMEOUT_SECONDS)
+        payload = await self._execute_via_runtime(prompt, timeout=AGGREGATE_REVIEW_TIMEOUT_SECONDS)
         assert isinstance(payload, SubmitReviewPayload)
         return self._stamp_provenance(payload)
 

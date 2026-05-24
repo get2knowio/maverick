@@ -1,9 +1,9 @@
 """``DecomposerAgent`` — multi-phase decomposition (outline / detail / fix / nudge).
 
-Preserves the session-mode rotation behavior of the legacy actor: detail
-and fix phases reuse the same OpenCode session across multiple turns to
-keep the seeded context (flight plan + outline JSON) in cache, rotating
-when the mode changes or the per-mode turn budget is exhausted.
+Preserves session-mode rotation: detail and fix phases reuse the same
+runtime scope across multiple turns to keep the seeded context (flight
+plan + outline JSON) in cache, rotating when the mode changes or the
+per-mode turn budget is exhausted.
 
 Two roles:
 
@@ -13,7 +13,7 @@ Two roles:
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from pydantic import BaseModel
@@ -26,64 +26,53 @@ from maverick.payloads import (
 )
 
 if TYPE_CHECKING:
+    from airframe.protocol import AgentRuntime
+
     from maverick.executor.config import StepConfig
-    from maverick.runtime.opencode import (
-        CostSink,
-        OpenCodeClient,
-        OpenCodeServerHandle,
-        Tier,
-    )
+    from maverick.runtime.registry import CostSink
 
 DETAIL_TIMEOUT_SECONDS = 1200
 DEFAULT_PROMPT_TIMEOUT_SECONDS = 1800
 
 
 class DecomposerAgent(Agent):
-    """OpenCode-backed decomposer with session-mode reuse."""
+    """Decomposer with session-mode reuse across detail/fix turns."""
 
     result_model: ClassVar[type[BaseModel]] = SubmitOutlinePayload
     provider_tier: ClassVar[str] = "decompose"
-    opencode_agent: ClassVar[str | None] = "maverick.decomposer"
+    persona_name: ClassVar[str | None] = "maverick.decomposer"
 
     def __init__(
         self,
         *,
-        handle: OpenCodeServerHandle,
+        runtime: AgentRuntime,
         cwd: str,
         role: str = "primary",
         detail_session_max_turns: int = 5,
         fix_session_max_turns: int = 1,
         step_config: StepConfig | dict[str, Any] | None = None,
-        tier_overrides: dict[str, Tier] | None = None,
         cost_sink: CostSink | None = None,
         tag: str | None = None,
-        client_factory: Callable[[], OpenCodeClient] | None = None,
     ) -> None:
         super().__init__(
-            handle=handle,
+            runtime=runtime,
             cwd=cwd,
             step_config=step_config,
-            tier_overrides=tier_overrides,
             cost_sink=cost_sink,
             tag=tag or f"decomposer.{role}",
-            client_factory=client_factory,
         )
         self._role = role
         self._detail_session_max_turns = max(1, int(detail_session_max_turns))
         self._fix_session_max_turns = max(1, int(fix_session_max_turns))
 
-        # Session-mode bookkeeping (preserved from the legacy actor so we
-        # keep the seeded prompt-cache benefit across detail turns).
         self._session_mode: str | None = None
         self._session_turns_in_mode = 0
 
-        # Seeded context for detail prompts.
         self._detail_outline_json: str = "{}"
         self._detail_flight_plan: str = ""
         self._detail_verification: str = ""
         self._detail_seed_stale = True
 
-        # Seeded context for fix prompts.
         self._fix_outline_json: str = '{"work_units": []}'
         self._fix_details_json: str = '{"details": []}'
         self._fix_verification: str = ""
@@ -94,13 +83,7 @@ class DecomposerAgent(Agent):
         return self._role
 
     async def rotate_session(self) -> None:
-        """Reset per-bead session-mode bookkeeping, then drop the session.
-
-        Without this override, ``squadron.rotate_for_new_bead()`` (which
-        iterates :meth:`Agent.rotate_session` on every agent) would
-        leave ``_session_mode`` / ``_session_turns_in_mode`` carrying
-        over from the previous unit's last phase.
-        """
+        """Reset per-bead session-mode bookkeeping, then drop the runtime scope."""
         self._session_mode = None
         self._session_turns_in_mode = 0
         await super().rotate_session()
@@ -136,7 +119,7 @@ class DecomposerAgent(Agent):
             validation_feedback=validation_feedback,
         )
         await self._maybe_rotate_session(mode="outline", seed_stale=True, max_turns=1)
-        payload = await self._send_structured(
+        payload = await self._execute_via_runtime(
             prompt, schema=SubmitOutlinePayload, timeout=DEFAULT_PROMPT_TIMEOUT_SECONDS
         )
         assert isinstance(payload, SubmitOutlinePayload)
@@ -150,12 +133,10 @@ class DecomposerAgent(Agent):
             seed_stale=refreshed_seed,
             max_turns=self._detail_session_max_turns,
         )
-        payload = await self._send_structured(
+        payload = await self._execute_via_runtime(
             prompt, schema=SubmitDetailsPayload, timeout=DETAIL_TIMEOUT_SECONDS
         )
         assert isinstance(payload, SubmitDetailsPayload)
-        # The detail-mode seed has been delivered; future turns within
-        # the same session reuse it.
         self._detail_seed_stale = False
         if self._session_mode == "detail":
             self._session_turns_in_mode += 1
@@ -185,7 +166,7 @@ class DecomposerAgent(Agent):
             seed_stale=refreshed_seed,
             max_turns=self._fix_session_max_turns,
         )
-        payload = await self._send_structured(
+        payload = await self._execute_via_runtime(
             prompt, schema=SubmitFixPayload, timeout=DEFAULT_PROMPT_TIMEOUT_SECONDS
         )
         assert isinstance(payload, SubmitFixPayload)
@@ -211,7 +192,7 @@ class DecomposerAgent(Agent):
             "submit_fix": SubmitFixPayload,
         }
         schema = schema_map.get(expected_tool, SubmitOutlinePayload)
-        return await self._send_structured(
+        return await self._execute_via_runtime(
             prompt, schema=schema, timeout=DEFAULT_PROMPT_TIMEOUT_SECONDS
         )
 
@@ -220,8 +201,8 @@ class DecomposerAgent(Agent):
     # ------------------------------------------------------------------
 
     async def _maybe_rotate_session(self, *, mode: str, seed_stale: bool, max_turns: int) -> None:
-        """Rotate the OpenCode session when the mode changes or budget is hit."""
-        if self._session_id is None:
+        """Rotate the runtime scope when the mode changes or budget is hit."""
+        if self._session_mode is None:
             self._session_mode = mode
             self._session_turns_in_mode = 0
             return
@@ -269,8 +250,6 @@ class DecomposerAgent(Agent):
             build_detail_turn_prompt,
         )
 
-        # Always include the seed when the cache is stale; the session
-        # rotation logic decides whether the in-session cache hits.
         needs_seed = self._detail_seed_stale or self._session_mode != "detail"
         prompt_parts: list[str] = []
         if needs_seed:

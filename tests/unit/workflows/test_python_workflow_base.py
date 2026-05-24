@@ -43,13 +43,12 @@ def _make_workflow(
     Reuses the shared ``_make_concrete_workflow_class`` factory from conftest
     to avoid duplicating the ``ConcreteTestWorkflow`` class definition.
     """
-    from maverick.config import MaverickConfig, ModelConfig
+    from maverick.config import MaverickConfig
     from tests.unit.workflows.conftest import _make_concrete_workflow_class
 
     ConcreteTestWorkflow = _make_concrete_workflow_class()
 
     mock_config = MagicMock(spec=MaverickConfig)
-    mock_config.model = ModelConfig()
     mock_config.actors = actors_override or {}
 
     return ConcreteTestWorkflow(

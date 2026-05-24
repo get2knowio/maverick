@@ -1,20 +1,15 @@
-"""Per-workflow Squadron — owns OpenCode server + Agent factory/registry.
+"""Per-workflow Squadron — owns the airframe-backed agent set.
 
 A Squadron is the substrate-aware container for a single workflow run.
-It spawns one ``opencode serve`` subprocess, validates every binding it
-will use at startup (collapsing the silent-bad-modelID landmine to one
-place), and exposes the typed agents the workflow's actors need.
+It builds one :class:`airframe.AgentRuntime` per agent role via
+:func:`maverick.runtime.agent_factory.runtime_for_agent` (driven by
+:class:`MaverickConfig.agents`), and exposes the typed agents the
+workflow's actors need.
 
-Workflows compose Squadron with the xoscar :func:`actor_pool` so the
-pool's registry can hand actors back the same OpenCode handle / tier
-overrides / cost sink::
+Workflows compose Squadron with the xoscar :func:`actor_pool`::
 
     async with FlySquadron(cwd=cwd, config=config, cost_sink=sink) as squadron:
-        async with actor_pool(
-            opencode_handle=squadron.handle,
-            provider_tiers=squadron.tier_overrides,
-            cost_sink=squadron.cost_sink,
-        ) as (pool, address):
+        async with actor_pool(cost_sink=squadron.cost_sink) as (pool, address):
             ...
 """
 

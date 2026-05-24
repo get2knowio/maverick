@@ -11,6 +11,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 import xoscar as xo
+from airframe.errors import AgentRuntimeError
 from pydantic import BaseModel
 
 from maverick.actors.step_config import load_step_config
@@ -29,12 +30,8 @@ from maverick.payloads import (
     SubmitFixPayload,
     SubmitOutlinePayload,
 )
-from maverick.runtime.opencode import (
-    OpenCodeError,
-    cost_sink_for,
-    opencode_handle_for,
-    tier_overrides_for,
-)
+from maverick.runtime.agent_factory import runtime_for_agent
+from maverick.runtime.registry import agents_config_for, cost_sink_for
 
 if TYPE_CHECKING:
     from maverick.executor.config import StepConfig
@@ -54,6 +51,7 @@ class DecomposerActor(xo.Actor):
         role: str = "primary",
         detail_session_max_turns: int = 5,
         fix_session_max_turns: int = 1,
+        agent: DecomposerAgent | None = None,
     ) -> None:
         super().__init__()
         if not cwd:
@@ -64,6 +62,10 @@ class DecomposerActor(xo.Actor):
         self._role = role
         self._detail_session_max_turns = detail_session_max_turns
         self._fix_session_max_turns = fix_session_max_turns
+        # Pre-built agent provided by the squadron (Pattern D) or test
+        # harness. When None, ``_make_agent`` falls back to constructing
+        # one from the legacy pool registries.
+        self._injected_agent = agent
         self._agent: DecomposerAgent | None = None
 
     async def __post_create__(self) -> None:
@@ -71,22 +73,33 @@ class DecomposerActor(xo.Actor):
         await self._agent.open()
 
     def _make_agent(self) -> DecomposerAgent:
-        """Factory hook — override in tests to inject a stubbed agent."""
+        """Return the injected agent or construct one via airframe."""
+        if self._injected_agent is not None:
+            return self._injected_agent
         pool_address: str = self.address
+        agents_config = agents_config_for(pool_address)
+        if agents_config is None:
+            raise RuntimeError(
+                f"DecomposerActor at {pool_address!r}: no agent= injected "
+                "and no AgentsConfig registered on the pool. Pass either "
+                "agent= explicitly or wrap actor_pool() with agents_config=."
+            )
+        runtime, _ = runtime_for_agent("decompose", agents_config=agents_config)
         return DecomposerAgent(
-            handle=opencode_handle_for(pool_address),
+            runtime=runtime,
             cwd=self._cwd,
             role=self._role,
             detail_session_max_turns=self._detail_session_max_turns,
             fix_session_max_turns=self._fix_session_max_turns,
             step_config=self._step_config,
-            tier_overrides=tier_overrides_for(pool_address),
             cost_sink=cost_sink_for(pool_address),
             tag=f"decomposer[{self._role}:{self.uid.decode()}]",
         )
 
     async def __pre_destroy__(self) -> None:
-        if self._agent is not None:
+        # Squadron owns the lifecycle of injected agents; the actor only
+        # closes agents it constructed itself via the legacy fallback.
+        if self._agent is not None and self._injected_agent is None:
             await self._agent.close()
 
     # ------------------------------------------------------------------
@@ -115,7 +128,7 @@ class DecomposerActor(xo.Actor):
                 runway_context=request.runway_context,
                 validation_feedback=request.validation_feedback,
             )
-        except OpenCodeError as exc:
+        except AgentRuntimeError as exc:
             await self._report_failure(str(exc), phase="outline", unit_id=None)
             return
         except Exception as exc:  # noqa: BLE001
@@ -131,7 +144,7 @@ class DecomposerActor(xo.Actor):
         logger.debug("decomposer.phase_starting", phase="detail", unit_id=unit_id)
         try:
             payload = await self._agent.detail(unit_ids=request.unit_ids)
-        except OpenCodeError as exc:
+        except AgentRuntimeError as exc:
             await self._report_failure(str(exc), phase="detail", unit_id=unit_id)
             return
         except Exception as exc:  # noqa: BLE001
@@ -152,7 +165,7 @@ class DecomposerActor(xo.Actor):
                 details_json=request.details_json or None,
                 verification_properties=request.verification_properties or None,
             )
-        except OpenCodeError as exc:
+        except AgentRuntimeError as exc:
             await self._report_failure(str(exc), phase="fix", unit_id=None)
             return
         except Exception as exc:  # noqa: BLE001
@@ -170,7 +183,7 @@ class DecomposerActor(xo.Actor):
                 unit_id=request.unit_id,
                 reason=request.reason,
             )
-        except OpenCodeError as exc:
+        except AgentRuntimeError as exc:
             await self._report_failure(str(exc), phase="nudge", unit_id=request.unit_id)
             return
         except Exception as exc:  # noqa: BLE001

@@ -556,7 +556,7 @@ async def execute_python_workflow(
         checkpoint_dir = Path(".maverick/checkpoints")
         checkpoint_store = FileCheckpointStore(checkpoint_dir)
 
-        # Instantiate workflow — actors create their own OpenCode executors
+        # Instantiate workflow — actors create their own airframe runtimes
         wf = workflow_class(
             config=config,
             checkpoint_store=checkpoint_store,

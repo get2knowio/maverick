@@ -1,29 +1,21 @@
 """Configuration generation for ``maverick init``.
 
 Builds an ``InitConfig`` from project detection, git remote info, and
-OpenCode provider discovery. The generator writes:
+airframe provider discovery. The generator writes:
 
 * ``project_type``, ``github`` — from detection + git parsing.
 * ``validation`` — language defaults from the detected project type.
-* ``model`` — optional global default model id (rare; tier cascades
-  drive routing now).
-* ``agent_providers`` — one entry per provider returned by
-  ``GET /provider`` (the OpenCode runtime's ``connected[]`` list).
-  Used by ``maverick doctor`` for health checks.
-* ``provider_tiers`` — the cross-provider cascade ``DEFAULT_TIERS``
-  baked into the generated yaml, so users see the routing decisions
-  and can edit them per project.
+* ``agents`` — per-role airframe bindings (one ``(provider, model_id)``
+  per role). Baked into the generated yaml so users see the routing
+  decisions and can edit them per project.
 
-The legacy PATH-based ACP probe + ``actors:`` auto-distribution were
-deleted in the OpenCode-substrate cleanup. The runtime resolves
-``provider_tiers`` from the yaml directly; per-actor overrides go
-under ``actors.<workflow>.<actor>``, written manually when needed.
+Per-actor overrides go under ``actors.<workflow>.<actor>``, written
+manually when needed.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 from maverick.exceptions.init import ConfigExistsError, ConfigWriteError
 from maverick.init.models import (
@@ -35,35 +27,36 @@ from maverick.init.models import (
     ProjectType,
     ValidationCommands,
 )
-from maverick.init.opencode_discovery import OpenCodeDiscoveryResult
-from maverick.runtime.opencode import DEFAULT_TIERS
+from maverick.init.provider_discovery import ProviderDiscoveryResult
 
 __all__ = [
     "generate_config",
     "write_config",
 ]
 
+_AGENT_ROLE_ORDER: tuple[str, ...] = (
+    "implement",
+    "review",
+    "briefing",
+    "decompose",
+    "generate",
+)
 
-def _provider_tiers_block() -> dict[str, list[dict[str, str]]]:
-    """Serialize :data:`DEFAULT_TIERS` into yaml-shaped dicts.
-
-    Mirrors the schema ``maverick.config::ProviderTiersConfig.tiers``
-    expects: ``{tier_name: [{provider, model_id}, ...]}``. Putting the
-    cascade in the user's yaml at init time means the user sees the
-    routing decisions and can edit them per project without spelunking
-    through the runtime defaults.
-    """
-    return {
-        name: [{"provider": b.provider_id, "model_id": b.model_id} for b in tier.bindings]
-        for name, tier in DEFAULT_TIERS.items()
-    }
+_PROVIDER_FALLBACK_MODELS: dict[str, tuple[str, ...]] = {
+    "claude": ("claude-sonnet-4-6", "claude-haiku-4-5"),
+    "github-copilot": ("gpt-5.3-codex", "gpt-5-mini"),
+    "opencode": ("claude-sonnet-4-6",),
+    "opencode-go": ("minimax-m2.7",),
+}
 
 
 def generate_config(
     git_info: GitRemoteInfo,
     detection: ProjectDetectionResult | None,
     project_type: ProjectType | None = None,
-    provider_discovery: OpenCodeDiscoveryResult | None = None,
+    provider_discovery: ProviderDiscoveryResult | None = None,
+    selected_provider_ids: tuple[str, ...] | None = None,
+    model_specs: dict[str, tuple[str, ...]] | None = None,
 ) -> InitConfig:
     """Generate :class:`InitConfig` from detection + git + provider discovery.
 
@@ -73,16 +66,18 @@ def generate_config(
             was skipped (e.g. explicit ``project_type`` override).
         project_type: Explicit project type override; takes precedence
             over ``detection.primary_type``.
-        provider_discovery: Result of querying OpenCode's
-            ``/provider`` endpoint. When present, populates the
-            ``agent_providers`` block with the connected providers and
-            flags the highest-preference one as ``default: true``.
+        provider_discovery: Airframe discovery result. Used as a
+            fallback source for provider/model defaults when explicit
+            flags are not supplied.
+        selected_provider_ids: Explicit provider ids from ``--providers``.
+            When present, the generated ``agents:`` block is spread
+            across these providers.
+        model_specs: Explicit provider → model list from ``--models``.
+            Provider ids here also participate in the generated spread
+            when ``selected_provider_ids`` is absent.
 
     Returns:
-        Complete :class:`InitConfig` ready for serialization. The
-        ``model`` block is omitted (``None``) — provider tier cascades
-        drive routing now; the legacy ``model.model_id`` field would
-        break doctor when set to short aliases like ``sonnet``.
+        Complete :class:`InitConfig` ready for serialization.
     """
     # Determine effective project type
     if project_type is not None:
@@ -112,26 +107,76 @@ def generate_config(
         test_cmd=list(validation_commands.test_cmd) if validation_commands.test_cmd else None,
     )
 
-    # agent_providers from /provider connected list. The first entry in
-    # preference order (per OpenCodeDiscoveryResult sort) becomes the
-    # default. When discovery failed (None) the block stays empty —
-    # workflows still work via the runtime DEFAULT_TIERS, doctor just
-    # has nothing to validate.
-    agent_providers: dict[str, dict[str, Any]] = {}
-    if provider_discovery is not None:
-        for prov in provider_discovery.providers:
-            agent_providers[prov.provider_id] = {
-                "default": prov.provider_id == provider_discovery.default_provider_id,
-            }
+    agents = _agents_from_provider_selection(
+        provider_discovery=provider_discovery,
+        selected_provider_ids=selected_provider_ids,
+        model_specs=model_specs,
+    )
+
+    if agents is not None:
+        return InitConfig(
+            project_type=effective_type.value,
+            github=github_config,
+            validation=validation_config,
+            agents=agents,
+        )
 
     return InitConfig(
         project_type=effective_type.value,
         github=github_config,
         validation=validation_config,
-        model=None,
-        agent_providers=agent_providers,
-        provider_tiers={"tiers": _provider_tiers_block()},
     )
+
+
+def _agents_from_provider_selection(
+    *,
+    provider_discovery: ProviderDiscoveryResult | None,
+    selected_provider_ids: tuple[str, ...] | None,
+    model_specs: dict[str, tuple[str, ...]] | None,
+) -> dict[str, dict[str, str]] | None:
+    """Build the generated ``agents:`` block from Airframe selection."""
+    specs = model_specs or {}
+
+    if selected_provider_ids is not None:
+        provider_ids = selected_provider_ids
+    elif specs:
+        provider_ids = tuple(specs)
+    elif provider_discovery and provider_discovery.providers:
+        provider_ids = tuple(provider.provider_id for provider in provider_discovery.providers)
+    else:
+        return None
+
+    if not provider_ids:
+        return None
+
+    discovery_by_id = {
+        provider.provider_id: provider
+        for provider in (provider_discovery.providers if provider_discovery else ())
+    }
+    provider_models: dict[str, tuple[str, ...]] = {}
+    for provider_id in provider_ids:
+        if provider_id in specs:
+            provider_models[provider_id] = specs[provider_id]
+            continue
+        discovered = discovery_by_id.get(provider_id)
+        if discovered and discovered.default_model_id:
+            provider_models[provider_id] = (discovered.default_model_id,)
+            continue
+        provider_models[provider_id] = _PROVIDER_FALLBACK_MODELS.get(provider_id, ("default",))
+
+    assignments: dict[str, dict[str, str]] = {}
+    model_offsets: dict[str, int] = dict.fromkeys(provider_ids, 0)
+    for index, role in enumerate(_AGENT_ROLE_ORDER):
+        provider_id = provider_ids[index % len(provider_ids)]
+        models = provider_models[provider_id]
+        model_index = model_offsets[provider_id] % len(models)
+        assignments[role] = {
+            "provider": provider_id,
+            "model_id": models[model_index],
+        }
+        model_offsets[provider_id] += 1
+
+    return assignments
 
 
 def write_config(

@@ -8,7 +8,7 @@ import pytest
 import yaml
 from pydantic import ValidationError as PydanticValidationError
 
-from maverick.config import ActorConfig, ModelConfig
+from maverick.config import ActorConfig
 from maverick.exceptions import ConfigError
 from maverick.executor.config import (
     DEFAULT_EXECUTOR_CONFIG,
@@ -480,12 +480,11 @@ class TestResolveStepConfig:
     The resolver merges (highest to lowest precedence):
       1. inline_config (workflow-internal raw dict)
       2. actor_config (from ``actors.<workflow>.<actor>``)
-      3. global_model
-      4. provider_default_model
-    """
 
-    def _make_global(self, **kwargs: Any) -> ModelConfig:
-        return ModelConfig(**kwargs)
+    Routing (provider + model) is owned by ``MaverickConfig.agents.<role>``
+    and resolved at squadron-open by :func:`runtime_for_agent`; the
+    StepConfig layer only carries actor-level constructor overrides.
+    """
 
     def _make_actor(self, **kwargs: Any) -> ActorConfig:
         return ActorConfig(**kwargs)
@@ -495,51 +494,45 @@ class TestResolveStepConfig:
         result = resolve_step_config(
             inline_config={"model_id": "inline-model"},
             actor_config=self._make_actor(model_id="actor-model"),
-            global_model=self._make_global(),
             step_type=StepType.AGENT,
             step_name="test",
         )
         assert result.model_id == "inline-model"
 
-    def test_actor_wins_over_global(self) -> None:
-        """Actor config takes precedence over global model."""
+    def test_actor_provides_model_id(self) -> None:
+        """Actor config supplies model_id when no inline override."""
         result = resolve_step_config(
             inline_config=None,
             actor_config=self._make_actor(model_id="actor-model"),
-            global_model=self._make_global(model_id="global-model"),
             step_type=StepType.AGENT,
             step_name="test",
         )
         assert result.model_id == "actor-model"
 
-    def test_global_used_when_no_overrides(self) -> None:
-        """Global model config used when no layers override."""
+    def test_model_id_none_when_no_overrides(self) -> None:
+        """No layer set → model_id is None (airframe binding is the source of truth)."""
         result = resolve_step_config(
             inline_config=None,
-            global_model=self._make_global(model_id="global-model", temperature=0.5),
             step_type=StepType.AGENT,
             step_name="test",
         )
-        assert result.model_id == "global-model"
-        assert result.temperature == 0.5
+        assert result.model_id is None
 
-    def test_model_field_inheritance_unset_fields(self) -> None:
-        """Unset model fields inherited from global (SC-004)."""
+    def test_inline_temperature_overrides_actor(self) -> None:
+        """Inline temperature wins; max_tokens stays None when no layer sets it."""
         result = resolve_step_config(
             inline_config={"temperature": 0.7},
-            global_model=self._make_global(model_id="global-model", max_tokens=8000),
+            actor_config=self._make_actor(temperature=0.2, max_tokens=8000),
             step_type=StepType.AGENT,
             step_name="test",
         )
-        assert result.temperature == 0.7  # from inline
-        assert result.model_id == "global-model"  # inherited from global
-        assert result.max_tokens == 8000  # inherited from global
+        assert result.temperature == 0.7
+        assert result.max_tokens == 8000
 
     def test_provider_defaults_to_none(self) -> None:
         """Provider defaults to None when not set; executor resolves via registry."""
         result = resolve_step_config(
             inline_config=None,
-            global_model=self._make_global(),
             step_type=StepType.AGENT,
             step_name="test",
         )
@@ -549,7 +542,6 @@ class TestResolveStepConfig:
         """Mode is inferred from step type when not explicitly set."""
         result = resolve_step_config(
             inline_config=None,
-            global_model=self._make_global(),
             step_type=StepType.PYTHON,
             step_name="test",
         )
@@ -558,7 +550,6 @@ class TestResolveStepConfig:
     def test_mode_inference_agent_type(self) -> None:
         result = resolve_step_config(
             inline_config=None,
-            global_model=self._make_global(),
             step_type=StepType.AGENT,
             step_name="test",
         )
@@ -568,7 +559,6 @@ class TestResolveStepConfig:
         """Autonomy defaults to OPERATOR when not set."""
         result = resolve_step_config(
             inline_config=None,
-            global_model=self._make_global(),
             step_type=StepType.AGENT,
             step_name="test",
         )
@@ -578,7 +568,6 @@ class TestResolveStepConfig:
         """Legacy 'model' key in inline_config renamed to 'model_id'."""
         result = resolve_step_config(
             inline_config={"model": "claude-opus-4-6"},
-            global_model=self._make_global(),
             step_type=StepType.AGENT,
             step_name="test",
         )
@@ -589,7 +578,6 @@ class TestResolveStepConfig:
         with pytest.raises(ConfigError):
             resolve_step_config(
                 inline_config={"temperature": 5.0},  # out of range
-                global_model=self._make_global(),
                 step_type=StepType.AGENT,
                 step_name="test",
             )
@@ -600,7 +588,6 @@ class TestResolveStepConfig:
         """Timeout resolves from inline config."""
         result = resolve_step_config(
             inline_config={"timeout": 600},
-            global_model=self._make_global(),
             step_type=StepType.AGENT,
             step_name="test",
         )
@@ -611,7 +598,6 @@ class TestResolveStepConfig:
         result = resolve_step_config(
             inline_config=None,
             actor_config=self._make_actor(timeout=300),
-            global_model=self._make_global(),
             step_type=StepType.AGENT,
             step_name="test",
         )
@@ -621,7 +607,6 @@ class TestResolveStepConfig:
         """Timeout is None when no layer sets it."""
         result = resolve_step_config(
             inline_config=None,
-            global_model=self._make_global(),
             step_type=StepType.AGENT,
             step_name="test",
         )
@@ -631,7 +616,6 @@ class TestResolveStepConfig:
         """max_retries resolves from inline config."""
         result = resolve_step_config(
             inline_config={"max_retries": 3},
-            global_model=self._make_global(),
             step_type=StepType.AGENT,
             step_name="test",
         )
@@ -641,7 +625,6 @@ class TestResolveStepConfig:
         """max_retries is None when no layer sets it."""
         result = resolve_step_config(
             inline_config=None,
-            global_model=self._make_global(),
             step_type=StepType.AGENT,
             step_name="test",
         )
@@ -653,7 +636,6 @@ class TestResolveStepConfig:
         """allowed_tools resolves from inline config."""
         result = resolve_step_config(
             inline_config={"allowed_tools": ["Read", "Glob", "Grep"]},
-            global_model=self._make_global(),
             step_type=StepType.AGENT,
             step_name="test",
         )
@@ -663,7 +645,6 @@ class TestResolveStepConfig:
         """None means all tools allowed (default)."""
         result = resolve_step_config(
             inline_config=None,
-            global_model=self._make_global(),
             step_type=StepType.AGENT,
             step_name="test",
         )
@@ -673,7 +654,6 @@ class TestResolveStepConfig:
         """Empty list means no tools allowed."""
         result = resolve_step_config(
             inline_config={"allowed_tools": []},
-            global_model=self._make_global(),
             step_type=StepType.AGENT,
             step_name="test",
         )
@@ -684,7 +664,6 @@ class TestResolveStepConfig:
         with pytest.raises(Exception):
             resolve_step_config(
                 inline_config={"allowed_tools": ["Read"]},
-                global_model=self._make_global(),
                 step_type=StepType.PYTHON,
                 step_name="test",
             )
@@ -695,7 +674,6 @@ class TestResolveStepConfig:
         """prompt_suffix resolves from inline config."""
         result = resolve_step_config(
             inline_config={"prompt_suffix": "Focus on security"},
-            global_model=self._make_global(),
             step_type=StepType.AGENT,
             step_name="test",
         )
@@ -705,7 +683,6 @@ class TestResolveStepConfig:
         """prompt_file resolves from inline config."""
         result = resolve_step_config(
             inline_config={"prompt_file": "./prompts/review.md"},
-            global_model=self._make_global(),
             step_type=StepType.AGENT,
             step_name="test",
         )
@@ -715,41 +692,11 @@ class TestResolveStepConfig:
         """Neither prompt_suffix nor prompt_file when not set."""
         result = resolve_step_config(
             inline_config=None,
-            global_model=self._make_global(),
             step_type=StepType.AGENT,
             step_name="test",
         )
         assert result.prompt_suffix is None
         assert result.prompt_file is None
-
-    # --- Default model_id skipped for non-Claude providers ---
-
-    def test_default_model_id_not_propagated(self) -> None:
-        """Default model_id is NOT propagated when not explicitly set.
-
-        Non-Claude providers use their own model aliases, so the Pydantic
-        default (claude-sonnet-*) should not leak through to the resolved
-        config. The provider_default_model should be used instead.
-        """
-        result = resolve_step_config(
-            inline_config=None,
-            global_model=self._make_global(),  # model_id not in model_fields_set
-            step_type=StepType.AGENT,
-            step_name="test",
-            provider_default_model="sonnet",
-        )
-        assert result.model_id == "sonnet"
-
-    def test_explicit_model_id_still_propagated(self) -> None:
-        """Explicitly-set model_id IS propagated even with provider default."""
-        result = resolve_step_config(
-            inline_config=None,
-            global_model=self._make_global(model_id="claude-opus-4-6"),
-            step_type=StepType.AGENT,
-            step_name="test",
-            provider_default_model="sonnet",
-        )
-        assert result.model_id == "claude-opus-4-6"
 
     # --- actor_config (the canonical actors: surface) precedence ---
 
@@ -758,32 +705,28 @@ class TestResolveStepConfig:
         result = resolve_step_config(
             inline_config=None,
             actor_config=self._make_actor(provider="copilot", model_id="gpt-5.4"),
-            global_model=self._make_global(),
             step_type=StepType.AGENT,
             step_name="test",
         )
         assert result.provider == "copilot"
         assert result.model_id == "gpt-5.4"
 
-    def test_actor_partial_falls_through_to_global(self) -> None:
-        """Fields the actor entry leaves None fall through to global_model."""
+    def test_actor_partial_leaves_unset_fields_none(self) -> None:
+        """Fields the actor entry leaves None stay None (no global fallback)."""
         result = resolve_step_config(
             inline_config=None,
             actor_config=self._make_actor(provider="copilot"),
-            global_model=self._make_global(model_id="sonnet"),
             step_type=StepType.AGENT,
             step_name="test",
         )
         assert result.provider == "copilot"
-        assert result.model_id == "sonnet"
+        assert result.model_id is None
 
     def test_actor_config_optional_default_none(self) -> None:
         """The actor_config keyword arg is optional — callers may omit it."""
-        # Call without actor_config — must still work.
         result = resolve_step_config(
             inline_config=None,
-            global_model=self._make_global(model_id="sonnet"),
             step_type=StepType.AGENT,
             step_name="test",
         )
-        assert result.model_id == "sonnet"
+        assert result.model_id is None

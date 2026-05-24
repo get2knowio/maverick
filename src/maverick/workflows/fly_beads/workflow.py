@@ -159,13 +159,16 @@ class FlyBeadsWorkflow(PythonWorkflow):
         if checkpoint:
             completed_bead_ids = set(checkpoint.get("completed_bead_ids", []))
 
-        # The workflow's ``cwd`` is set by the CLI command — typically a
-        # hidden jj workspace under ``~/.maverick/workspaces/<project>/``
-        # that shares the user repo's backing store
-        # (``WorkspaceManager.find_or_create()``). Falls back to
-        # ``Path.cwd()`` when callers (e.g. tests) don't pass it.
+        # The workflow's ``cwd`` is required — the CLI command resolves
+        # ``Path.cwd()`` at the entry boundary and threads it through
+        # inputs. A missing ``cwd`` here would silently fall back to
+        # ``Path.cwd()`` and write per-run output (``.maverick/runs/``)
+        # into whatever directory pytest happened to run from, which
+        # has caused real repo contamination — see Guardrail 7.
         cwd_input = inputs.get("cwd")
-        cwd = Path(str(cwd_input)).resolve() if cwd_input else Path.cwd().resolve()
+        if not cwd_input:
+            raise WorkflowError("'cwd' input is required")
+        cwd = Path(str(cwd_input)).resolve()
 
         # Per-run output directory for snapshots, logs, and context.
         # Try to find an existing run for the epic (created by refuel).
@@ -529,8 +532,7 @@ class FlyBeadsWorkflow(PythonWorkflow):
                 reviewer_tiers=reviewer_tiers,
             ) as squadron,
             actor_pool(
-                opencode_handle=squadron.handle,
-                provider_tiers=squadron.tier_overrides,
+                agents_config=self._config.agents,
                 cost_sink=squadron.cost_sink,
             ) as (_pool, address),
         ):

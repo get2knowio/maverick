@@ -15,9 +15,9 @@ from maverick.init.models import (
     ProjectDetectionResult,
     ProjectType,
 )
-from maverick.init.opencode_discovery import (
-    ConnectedProvider,
-    OpenCodeDiscoveryResult,
+from maverick.init.provider_discovery import (
+    DiscoveredProvider,
+    ProviderDiscoveryResult,
 )
 
 
@@ -159,31 +159,24 @@ class TestGenerateConfig:
         assert config.validation.format_cmd == ["ruff", "format", "."]
         assert config.validation.lint_cmd == ["ruff", "check", "--fix", "."]
 
-    def test_generate_config_omits_legacy_model_block(self) -> None:
-        """Init no longer writes the legacy model.* block.
-
-        provider_tiers fully supersedes the global model.model_id field;
-        leaving it set to a short alias like "sonnet" was breaking
-        doctor under the OpenCode runtime, which expects fully-qualified
-        model IDs.
-        """
+    def test_generate_config_emits_agents_block(self) -> None:
+        """Init writes a per-role agents: block — the routing source of truth."""
         git_info = GitRemoteInfo()
 
         config = generate_config(git_info=git_info, detection=None)
 
-        assert config.model is None
-        # provider_tiers is the routing source of truth now
-        assert "tiers" in config.provider_tiers
-        assert config.provider_tiers["tiers"]
+        for role in ("implement", "review", "briefing", "decompose", "generate"):
+            assert role in config.agents
+            assert "provider" in config.agents[role]
+            assert "model_id" in config.agents[role]
 
-    def test_generate_config_with_provider_discovery(self) -> None:
-        """OpenCode provider discovery populates agent_providers in config."""
+    def test_generate_config_uses_discovery_for_agent_spread(self) -> None:
+        """Discovery can drive the generated agents: provider spread."""
         git_info = GitRemoteInfo(owner="acme", repo="project")
-        discovery = OpenCodeDiscoveryResult(
+        discovery = ProviderDiscoveryResult(
             providers=(
-                ConnectedProvider("github-copilot", "GitHub Copilot", "claude-sonnet-4.6", 17),
-                ConnectedProvider("openai", "OpenAI", "gpt-5.5", 9),
-                ConnectedProvider("openrouter", "OpenRouter", "google/gemini-3-pro-preview", 180),
+                DiscoveredProvider("github-copilot", "GitHub Copilot", "claude-sonnet-4.6", 17),
+                DiscoveredProvider("opencode-go", "OpenCode-Go", "minimax-m2.7", 3),
             ),
             default_provider_id="github-copilot",
         )
@@ -194,32 +187,36 @@ class TestGenerateConfig:
             provider_discovery=discovery,
         )
 
-        assert "github-copilot" in config.agent_providers
-        assert config.agent_providers["github-copilot"]["default"] is True
-        assert "openai" in config.agent_providers
-        assert config.agent_providers["openai"]["default"] is False
-        assert "openrouter" in config.agent_providers
-        assert config.agent_providers["openrouter"]["default"] is False
+        providers = {binding["provider"] for binding in config.agents.values()}
+        assert providers == {"github-copilot", "opencode-go"}
 
-    def test_generate_config_no_discovery(self) -> None:
-        """No discovery result means empty agent_providers."""
-        git_info = GitRemoteInfo()
-        config = generate_config(git_info=git_info, detection=None)
-        assert config.agent_providers == {}
+    def test_generate_config_explicit_providers_and_models(self) -> None:
+        """Explicit provider/model selections drive agents: bindings."""
+        git_info = GitRemoteInfo(owner="acme", repo="project")
 
-    def test_generate_config_empty_discovery(self) -> None:
-        """Discovery with no connected providers yields empty agent_providers."""
-        git_info = GitRemoteInfo()
-        discovery = OpenCodeDiscoveryResult(
-            providers=(),
-            default_provider_id=None,
-        )
         config = generate_config(
             git_info=git_info,
             detection=None,
-            provider_discovery=discovery,
+            selected_provider_ids=("claude", "opencode-go", "github-copilot", "opencode"),
+            model_specs={
+                "claude": ("claude-sonnet-4-6", "claude-haiku-4-5"),
+                "opencode-go": ("minimax-m2.7",),
+                "github-copilot": ("gpt-5-mini",),
+                "opencode": ("claude-sonnet-4-6",),
+            },
         )
-        assert config.agent_providers == {}
+
+        assert config.agents["implement"] == {
+            "provider": "claude",
+            "model_id": "claude-sonnet-4-6",
+        }
+        assert config.agents["review"]["provider"] == "opencode-go"
+        assert config.agents["briefing"]["provider"] == "github-copilot"
+        assert config.agents["decompose"]["provider"] == "opencode"
+        assert config.agents["generate"] == {
+            "provider": "claude",
+            "model_id": "claude-haiku-4-5",
+        }
 
     def test_generate_config_to_yaml(self) -> None:
         """Generated config should serialize to valid YAML."""
@@ -237,10 +234,10 @@ class TestGenerateConfig:
         assert "owner: test" in yaml_output
         assert "repo: repo" in yaml_output
         assert "validation:" in yaml_output
-        # The legacy `model:` block is no longer written; provider_tiers
-        # is the routing source of truth now.
+        # The legacy `model:` block is no longer written; the agents:
+        # block is the routing source of truth now.
         assert "model:" not in yaml_output
-        assert "provider_tiers:" in yaml_output
+        assert "agents:" in yaml_output
 
 
 class TestWriteConfig:
@@ -258,9 +255,9 @@ class TestWriteConfig:
         assert "github:" in content
         assert "validation:" in content
         # Default `model` is None (legacy block), so it's excluded from
-        # the YAML output. provider_tiers is the routing source of truth.
+        # the YAML output. The agents: block is the routing source of truth.
         assert "model:" not in content
-        assert "provider_tiers:" in content
+        assert "agents:" in content
 
     def test_write_config_raises_if_exists(self, tmp_path: Path) -> None:
         """write_config raises ConfigExistsError if file exists and force=False."""

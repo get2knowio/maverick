@@ -12,18 +12,15 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 import xoscar as xo
+from airframe.errors import AgentRuntimeError
 
 from maverick.actors.step_config import load_step_config
 from maverick.actors.xoscar.messages import BriefingRequest, PromptError
 from maverick.agents.briefing.agent import BriefingAgent
 from maverick.logging import get_logger
 from maverick.payloads import SUPERVISOR_TOOL_PAYLOAD_MODELS
-from maverick.runtime.opencode import (
-    OpenCodeError,
-    cost_sink_for,
-    opencode_handle_for,
-    tier_overrides_for,
-)
+from maverick.runtime.agent_factory import runtime_for_agent
+from maverick.runtime.registry import agents_config_for, cost_sink_for
 
 if TYPE_CHECKING:
     from maverick.executor.config import StepConfig
@@ -32,7 +29,7 @@ logger = get_logger(__name__)
 
 
 class BriefingActor(xo.Actor):
-    """One briefing agent backed by OpenCode HTTP + structured output."""
+    """One briefing agent backed by airframe structured-output."""
 
     def __init__(
         self,
@@ -43,6 +40,7 @@ class BriefingActor(xo.Actor):
         forward_method: str,
         cwd: str,
         config: StepConfig | dict[str, Any] | None = None,
+        agent: BriefingAgent | None = None,
     ) -> None:
         super().__init__()
         if not cwd:
@@ -64,6 +62,10 @@ class BriefingActor(xo.Actor):
         self._cwd = cwd
         self._step_config = load_step_config(config)
         self._schema = schema
+        # Pre-built agent provided by the squadron (Pattern D) or test
+        # harness. When None, ``_make_agent`` falls back to constructing
+        # one from the legacy pool registries.
+        self._injected_agent = agent
         self._agent: BriefingAgent | None = None
 
     async def __post_create__(self) -> None:
@@ -71,21 +73,32 @@ class BriefingActor(xo.Actor):
         await self._agent.open()
 
     def _make_agent(self) -> BriefingAgent:
-        """Factory hook — override in tests to inject a stubbed agent."""
+        """Return the injected agent or construct one via airframe."""
+        if self._injected_agent is not None:
+            return self._injected_agent
         pool_address: str = self.address
+        agents_config = agents_config_for(pool_address)
+        if agents_config is None:
+            raise RuntimeError(
+                f"BriefingActor at {pool_address!r}: no agent= injected "
+                "and no AgentsConfig registered on the pool. Pass either "
+                "agent= explicitly or wrap actor_pool() with agents_config=."
+            )
+        runtime, _ = runtime_for_agent("briefing", agents_config=agents_config)
         return BriefingAgent(
-            handle=opencode_handle_for(pool_address),
+            runtime=runtime,
             cwd=self._cwd,
             agent_name=self._agent_name,
             result_model=self._schema,
             step_config=self._step_config,
-            tier_overrides=tier_overrides_for(pool_address),
             cost_sink=cost_sink_for(pool_address),
             tag=f"briefing[{self._agent_name}:{self.uid.decode()}]",
         )
 
     async def __pre_destroy__(self) -> None:
-        if self._agent is not None:
+        # Squadron owns the lifecycle of injected agents; the actor only
+        # closes agents it constructed itself via the legacy fallback.
+        if self._agent is not None and self._injected_agent is None:
             await self._agent.close()
 
     # ------------------------------------------------------------------
@@ -103,7 +116,7 @@ class BriefingActor(xo.Actor):
         )
         try:
             payload = await self._agent.brief(request.prompt)
-        except OpenCodeError as exc:
+        except AgentRuntimeError as exc:
             await self._report_briefing_failure(str(exc))
             return
         except Exception as exc:  # noqa: BLE001 — supervisor decides retry policy

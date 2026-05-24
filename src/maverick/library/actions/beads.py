@@ -6,7 +6,7 @@ isolation (CLAUDE.md Architectural Guardrail 7). Workflows resolve
 every call. Defaulting to ``Path.cwd()`` here would silently route bd
 writes to whatever directory the maverick CLI was launched in,
 bypassing the workspace and producing the kind of duplicate-epic /
-project-id-mismatch bugs the OpenCode-substrate migration cleanup
+project-id-mismatch bugs the airframe migration cleanup
 removed.
 """
 

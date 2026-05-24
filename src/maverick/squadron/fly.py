@@ -2,7 +2,7 @@
 
 When ``actors.fly.implementer.tiers`` / ``actors.fly.reviewer.tiers`` is
 configured, one agent per defined tier is built at startup. Each per-tier
-agent owns its own persistent OpenCode session and provider/model
+agent owns its own persistent runtime scope and provider/model
 binding. Bead routing (complexity → tier) and escalation policy
 (complex-bead-failed → retry on next-higher tier) stay in the supervisor;
 this layer just builds and hands out agents.
@@ -24,12 +24,13 @@ from typing import TYPE_CHECKING, Any
 from maverick.agents.base import Agent
 from maverick.agents.coding import CodingAgent
 from maverick.agents.reviewer import ReviewerAgent
-from maverick.runtime.opencode import ProviderModel
+from maverick.config import AgentBindingConfig
+from maverick.runtime.agent_factory import runtime_for_agent
 from maverick.squadron.base import Squadron
 
 if TYPE_CHECKING:
     from maverick.config import MaverickConfig
-    from maverick.runtime.opencode import CostSink
+    from maverick.runtime.registry import CostSink
 
 #: Ordered tier names (low → high intelligence). Matches WorkUnitComplexity
 #: and ``maverick.actors.xoscar.fly_supervisor.TIER_ORDER``.
@@ -93,37 +94,67 @@ class FlySquadron(Squadron):
         self.correctness_reviewers = {}
         self.completeness_reviewers = {}
 
-    def _build_coder(self, tier_name: str, step_config: Any) -> CodingAgent:
+    def _binding_for_complexity(self, tier_name: str, override: Any) -> AgentBindingConfig | None:
+        """Convert a per-complexity ``ImplementerTierConfig`` to a factory override.
+
+        The complexity-tier config is a Maverick-only shape with extra
+        fields (timeout / max_tokens / temperature) the airframe factory
+        doesn't consume; only ``provider`` + ``model_id`` flow through.
+        Returns ``None`` for the ``DEFAULT_TIER`` sentinel (no
+        complexity override) or when neither field is set.
+        """
+        if tier_name == DEFAULT_TIER or override is None:
+            return None
+        provider = getattr(override, "provider", None)
+        model_id = getattr(override, "model_id", None)
+        if not provider or not model_id:
+            return None
+        return AgentBindingConfig(provider=provider, model_id=model_id)
+
+    def _build_coder(self, tier_name: str, step_config: Any, override: Any = None) -> CodingAgent:
         suffix = "" if tier_name == DEFAULT_TIER else f".{tier_name}"
+        runtime, _ = runtime_for_agent(
+            "implement",
+            agents_config=self._config.agents,
+            binding_override=self._binding_for_complexity(tier_name, override),
+        )
         return CodingAgent(
-            handle=self.handle,
+            runtime=runtime,
             cwd=str(self._cwd),
-            tier_overrides=self._tier_overrides,
             cost_sink=self._cost_sink,
             step_config=step_config,
             tag=f"coder{suffix}",
         )
 
-    def _build_reviewer_pair(self, tier_name: str, step_config: Any) -> None:
+    def _build_reviewer_pair(self, tier_name: str, step_config: Any, override: Any = None) -> None:
         suffix = "" if tier_name == DEFAULT_TIER else f".{tier_name}"
+        binding_override = self._binding_for_complexity(tier_name, override)
+        correctness_runtime, _ = runtime_for_agent(
+            "review",
+            agents_config=self._config.agents,
+            binding_override=binding_override,
+        )
+        completeness_runtime, _ = runtime_for_agent(
+            "review",
+            agents_config=self._config.agents,
+            binding_override=binding_override,
+        )
         self.correctness_reviewers[tier_name] = ReviewerAgent(
-            handle=self.handle,
+            runtime=correctness_runtime,
             cwd=str(self._cwd),
-            tier_overrides=self._tier_overrides,
             cost_sink=self._cost_sink,
             step_config=step_config,
             review_kind="correctness",
-            opencode_agent="maverick.correctness-reviewer",
+            persona_name="maverick.correctness-reviewer",
             tag=f"correctness-reviewer{suffix}",
         )
         self.completeness_reviewers[tier_name] = ReviewerAgent(
-            handle=self.handle,
+            runtime=completeness_runtime,
             cwd=str(self._cwd),
-            tier_overrides=self._tier_overrides,
             cost_sink=self._cost_sink,
             step_config=step_config,
             review_kind="completeness",
-            opencode_agent="maverick.completeness-reviewer",
+            persona_name="maverick.completeness-reviewer",
             tag=f"completeness-reviewer{suffix}",
         )
 
@@ -137,7 +168,7 @@ class FlySquadron(Squadron):
                 if override is None:
                     continue
                 step_config = _merge_tier_config(self._implementer_config, override)
-                self.coders[tier_name] = self._build_coder(tier_name, step_config)
+                self.coders[tier_name] = self._build_coder(tier_name, step_config, override)
             if not self.coders:
                 self.coders[DEFAULT_TIER] = self._build_coder(
                     DEFAULT_TIER, self._implementer_config
@@ -157,7 +188,7 @@ class FlySquadron(Squadron):
                 if override is None:
                     continue
                 step_config = _merge_tier_config(reviewer_base, override)
-                self._build_reviewer_pair(tier_name, step_config)
+                self._build_reviewer_pair(tier_name, step_config, override)
             if not self.correctness_reviewers:
                 self._build_reviewer_pair(DEFAULT_TIER, reviewer_base)
 
@@ -188,15 +219,6 @@ class FlySquadron(Squadron):
         yield from self.coders.values()
         yield from self.correctness_reviewers.values()
         yield from self.completeness_reviewers.values()
-
-    def _declared_bindings(self) -> Iterable[ProviderModel]:
-        # Validate the implement and review tier bindings at startup.
-        seen: set[ProviderModel] = set()
-        for agent_cls in (CodingAgent, ReviewerAgent):
-            for binding in self._resolved_bindings_for(agent_cls):
-                if binding not in seen:
-                    seen.add(binding)
-                    yield binding
 
 
 __all__ = ["DEFAULT_TIER", "TIER_ORDER", "FlySquadron"]

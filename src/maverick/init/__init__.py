@@ -31,7 +31,6 @@ from maverick.init.models import (
     GitRemoteInfo,
     InitConfig,
     InitGitHubConfig,
-    InitModelConfig,
     InitPreflightResult,
     InitResult,
     InitValidationConfig,
@@ -43,12 +42,12 @@ from maverick.init.models import (
     ValidationCommands,
     resolve_model_id,
 )
-from maverick.init.opencode_discovery import (
-    ConnectedProvider,
-    OpenCodeDiscoveryResult,
-    discover_opencode_providers,
-)
 from maverick.init.prereqs import verify_prerequisites
+from maverick.init.provider_discovery import (
+    DiscoveredProvider,
+    ProviderDiscoveryResult,
+    discover_providers,
+)
 from maverick.logging import get_logger
 
 __all__ = [
@@ -56,7 +55,7 @@ __all__ = [
     "run_init",
     "parse_git_remote",
     "resolve_model_id",
-    "discover_opencode_providers",
+    "discover_providers",
     # Enums
     "ProjectType",
     "DetectionConfidence",
@@ -73,12 +72,11 @@ __all__ = [
     "ProjectDetectionResult",
     "InitPreflightResult",
     "InitResult",
-    "ConnectedProvider",
-    "OpenCodeDiscoveryResult",
+    "DiscoveredProvider",
+    "ProviderDiscoveryResult",
     # Pydantic models
     "InitGitHubConfig",
     "InitValidationConfig",
-    "InitModelConfig",
     "InitConfig",
 ]
 
@@ -684,14 +682,15 @@ async def _untrack_bd_local_state(project_path: Path, verbose: bool) -> bool:
 
 async def _maybe_discover_providers(
     verbose: bool,
-) -> OpenCodeDiscoveryResult | None:
-    """Discover providers connected to the OpenCode runtime.
+    provider_ids: tuple[str, ...] | None = None,
+) -> ProviderDiscoveryResult | None:
+    """Discover providers reachable via installed airframe adapters.
 
-    Spawns ``opencode serve``, hits ``GET /provider``, and returns the
-    ``connected[]`` providers. Best-effort: failures are logged but
+    Walks every adapter the user has installed and probes its
+    ``list_models`` endpoint. Best-effort: failures are logged but
     never raised.
     """
-    result = await discover_opencode_providers()
+    result = await discover_providers(provider_ids=provider_ids)
     if result is not None and verbose:
         logger.info(
             "providers_discovered",
@@ -713,6 +712,8 @@ async def run_init(
     type_override: ProjectType | None = None,
     force: bool = False,
     verbose: bool = False,
+    provider_ids: tuple[str, ...] | None = None,
+    model_specs: dict[str, tuple[str, ...]] | None = None,
 ) -> InitResult:
     """Execute maverick init workflow.
 
@@ -720,7 +721,7 @@ async def run_init(
     1. Verify prerequisites (git, gh, etc.)
     2. Parse git remote information
     3. Detect project type from marker files
-    4. Discover OpenCode-connected providers via ``GET /provider``
+    4. Discover connected providers via ``GET /provider``
     5. Generate configuration
     6. Write maverick.yaml
 
@@ -849,7 +850,7 @@ async def run_init(
             detection_method="override",
         )
     else:
-        # Marker-based detection (the only path post-OpenCode-substrate)
+        # Marker-based detection (the only path airframe-era)
         if verbose:
             logger.info("detecting_with_markers")
         detection = await detect_project_type(effective_path)
@@ -861,8 +862,11 @@ async def run_init(
                 method=detection.detection_method,
             )
 
-    # Step 3.5: Discover OpenCode-connected providers (best-effort)
-    provider_discovery: OpenCodeDiscoveryResult | None = await _maybe_discover_providers(verbose)
+    # Step 3.5: Discover connected providers (best-effort)
+    provider_discovery: ProviderDiscoveryResult | None = await _maybe_discover_providers(
+        verbose,
+        provider_ids=provider_ids,
+    )
 
     # Step 4: Generate configuration
     config = generate_config(
@@ -870,6 +874,8 @@ async def run_init(
         detection=detection,
         project_type=type_override,  # Pass override if specified
         provider_discovery=provider_discovery,
+        selected_provider_ids=provider_ids,
+        model_specs=model_specs,
     )
 
     if verbose:

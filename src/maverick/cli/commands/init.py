@@ -1,17 +1,10 @@
 """``maverick init`` command — project initialization.
 
-Validates prerequisites, detects project type from marker files, queries
-OpenCode's ``GET /provider`` endpoint to discover authenticated
-providers, and writes a complete ``maverick.yaml`` (project metadata +
-``agent_providers`` + ``provider_tiers`` + ``validation`` defaults).
-
-The legacy ``--providers`` / ``--skip-providers`` / ``--models`` flags
-were deleted in the OpenCode-substrate cleanup. The flags filtered which
-ACP bridges to probe via PATH, which made sense when each "provider"
-was a stdio binary like ``claude-agent-acp``. Under the OpenCode HTTP
-runtime, providers are connected at the OpenCode layer (via
-``opencode auth login <provider>``) and discovered automatically — no
-filter is meaningful.
+Validates prerequisites, detects project type from marker files,
+discovers installed airframe adapters via
+:func:`maverick.init.provider_discovery.discover_providers`, and writes
+a complete ``maverick.yaml`` (project metadata + ``agents:`` defaults
++ ``validation`` defaults).
 """
 
 from __future__ import annotations
@@ -26,10 +19,15 @@ from maverick.cli.context import ExitCode, async_command
 from maverick.exceptions.init import PrerequisiteError
 from maverick.init import (
     InitResult,
-    OpenCodeDiscoveryResult,
     PreflightStatus,
     ProjectType,
+    ProviderDiscoveryResult,
     run_init,
+)
+from maverick.init.provider_discovery import (
+    parse_model_specs,
+    parse_provider_list,
+    validate_provider_ids,
 )
 
 
@@ -87,24 +85,24 @@ def _format_detection_output(
 
 
 def _format_provider_output(
-    discovery: OpenCodeDiscoveryResult | None,
+    discovery: ProviderDiscoveryResult | None,
 ) -> list[str]:
-    """Format OpenCode-connected provider output."""
+    """Format airframe-discovered provider output."""
     if discovery is None:
         return [
-            "[bold]OpenCode Providers[/]",
-            "  [yellow]Warning:[/yellow] OpenCode discovery failed; "
-            "agent_providers section will be empty.",
+            "[bold]Connected Providers[/]",
+            "  [yellow]Warning:[/yellow] provider discovery failed; "
+            "edit the agents: block in maverick.yaml manually.",
             "",
         ]
 
-    lines: list[str] = ["[bold]OpenCode Providers[/]"]
+    lines: list[str] = ["[bold]Connected Providers[/]"]
 
     if not discovery.providers:
         lines.append("  [yellow]Warning:[/yellow] No providers connected.")
         lines.append(
-            "  Run [bold]opencode auth login <provider>[/] (e.g. "
-            "github-copilot, openai, openrouter)."
+            "  Install an adapter with [bold]pip install airframe-agents[<extra>][/] "
+            "and authenticate per the adapter's docs."
         )
         lines.append("")
         return lines
@@ -205,6 +203,22 @@ PROJECT_TYPE_CHOICES = [
     help="Overwrite existing maverick.yaml.",
 )
 @click.option(
+    "--providers",
+    type=str,
+    default=None,
+    help=(
+        "Comma-separated Airframe provider IDs to spread across "
+        "(e.g. claude,github-copilot,opencode,opencode-go)."
+    ),
+)
+@click.option(
+    "--models",
+    "model_specs",
+    type=str,
+    multiple=True,
+    help=("Provider model specs: provider:model1,model2. May be passed multiple times."),
+)
+@click.option(
     "-v",
     "--verbose",
     is_flag=True,
@@ -217,19 +231,25 @@ async def init(
     ctx: click.Context,
     project_type: str | None,
     force: bool,
+    providers: str | None,
+    model_specs: tuple[str, ...],
     verbose: bool,
 ) -> None:
     """Initialize maverick configuration for the current project.
 
-    Detects project type from marker files, probes OpenCode's connected
-    providers, and writes a maverick.yaml with provider_tiers cascade
-    pre-populated.
+    Detects project type from marker files, probes installed airframe
+    adapters for connected providers, and writes a maverick.yaml with
+    per-role airframe bindings under the ``agents:`` block.
 
     Examples:
 
         maverick init
 
         maverick init --type python
+
+        maverick init --providers claude,github-copilot,opencode-go
+
+        maverick init --models opencode-go:minimax-m2.7 --models github-copilot:gpt-5-mini
 
         maverick init --force -v
     """
@@ -240,6 +260,27 @@ async def init(
     if project_type:
         type_override = ProjectType.from_string(project_type)
 
+    try:
+        provider_ids = parse_provider_list(providers)
+        parsed_model_specs = parse_model_specs(model_specs)
+
+        explicitly_named = set(provider_ids or ())
+        explicitly_named.update(parsed_model_specs)
+        if explicitly_named:
+            validate_provider_ids(tuple(sorted(explicitly_named)))
+
+        if provider_ids is not None:
+            model_only = sorted(set(parsed_model_specs) - set(provider_ids))
+            if model_only:
+                raise ValueError(
+                    "--models specified provider(s) not present in --providers: "
+                    + ", ".join(model_only)
+                )
+        elif parsed_model_specs:
+            provider_ids = tuple(parsed_model_specs)
+    except (RuntimeError, ValueError) as exc:
+        raise click.ClickException(str(exc)) from exc
+
     with cli_error_handler():
         try:
             result = await run_init(
@@ -247,6 +288,8 @@ async def init(
                 type_override=type_override,
                 force=force,
                 verbose=verbose,
+                provider_ids=provider_ids,
+                model_specs=parsed_model_specs,
             )
 
             lines: list[str] = []

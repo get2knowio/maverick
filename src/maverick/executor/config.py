@@ -20,7 +20,7 @@ from maverick.logging import get_logger
 from maverick.types import AutonomyLevel, StepMode, StepType
 
 if TYPE_CHECKING:
-    from maverick.config import ActorConfig, ModelConfig
+    from maverick.config import ActorConfig
 
 logger = get_logger(__name__)
 
@@ -246,10 +246,8 @@ def resolve_step_config(
     *,
     inline_config: dict[str, Any] | None,
     actor_config: ActorConfig | None = None,
-    global_model: ModelConfig,
     step_type: StepType,
     step_name: str,
-    provider_default_model: str | None = None,
 ) -> StepConfig:
     """Resolve per-step configuration from layered precedence.
 
@@ -259,14 +257,12 @@ def resolve_step_config(
     2. ``actor_config``: From
        ``MaverickConfig.actors[<workflow>][<actor>]``. The canonical
        per-step surface.
-    3. ``global_model``: From ``MaverickConfig.model`` — the
-       project-wide default model + temperature + max_tokens.
-    4. ``provider_default_model``: From the connected provider's
-       advertised default model (rarely needed).
 
-    The legacy ``steps:`` and ``agents:`` config surfaces were deleted
-    in the OpenCode-substrate cleanup. Migrate any per-actor overrides
-    to the ``actors.<workflow>.<actor>`` block.
+    Routing now lives in ``MaverickConfig.agents.<role>`` and is
+    consumed by :func:`runtime_for_agent` at squadron-open. This
+    function only resolves the StepConfig fields that flow through
+    actor-level constructor overrides (timeout, max_tokens,
+    max_retries, allowed_tools, prompt_suffix, retry_policy).
 
     Mode is inferred from ``step_type`` when not explicitly set.
     Autonomy defaults to :attr:`AutonomyLevel.OPERATOR`. Provider is
@@ -310,28 +306,19 @@ def resolve_step_config(
                 return v
         return None
 
-    # Only use global_model.model_id if explicitly set — the Pydantic
-    # default is a Claude alias, meaningless for non-Claude providers.
-    global_model_id = (
-        global_model.model_id if "model_id" in global_model.model_fields_set else None
-    )
     model_id = _first_non_none(
         parsed_inline.model_id if parsed_inline else None,
         actor_config.model_id if actor_config else None,
-        global_model_id,
-        provider_default_model,
     )
 
     temperature = _first_non_none(
         parsed_inline.temperature if parsed_inline else None,
         actor_config.temperature if actor_config else None,
-        global_model.temperature,
     )
 
     max_tokens = _first_non_none(
         parsed_inline.max_tokens if parsed_inline else None,
         actor_config.max_tokens if actor_config else None,
-        global_model.max_tokens,
     )
 
     provider = _first_non_none(

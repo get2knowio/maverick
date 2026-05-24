@@ -47,6 +47,7 @@ from maverick.events import (
 )
 from maverick.logging import get_logger
 from maverick.payloads import (
+    SUPERVISOR_TOOL_PAYLOAD_MODELS,
     SubmitAnalysisPayload,
     SubmitChallengePayload,
     SubmitCriteriaPayload,
@@ -102,6 +103,11 @@ class PlanInputs:
     # phase). Default 3 matches legacy behaviour. Setting to 1 runs them
     # sequentially.
     max_briefing_agents: int = 3
+    # The per-workflow squadron. When set, the supervisor pulls pre-built
+    # briefing + generator agents off the squadron and injects them into
+    # the matching actor via ``agent=``. Typed as ``Any`` to avoid an
+    # import cycle (squadron → workflow → here).
+    squadron: Any = None  # PlanSquadron | None
 
 
 class PlanSupervisor(xo.Actor):
@@ -140,10 +146,24 @@ class PlanSupervisor(xo.Actor):
         # gemini, codebase_analyst on opencode). When a config is missing
         # for an agent, fall back to ``inputs.config`` (the generator's
         # config) — same shape as before this field was added.
+        # When a squadron is supplied, pre-build briefing/generator
+        # agents via ``squadron.build_briefing_agent(...)`` /
+        # ``squadron.generator`` and pass them to actors via ``agent=``.
+        # The fallback path (no squadron) goes through each actor shell's
+        # legacy ``_make_agent`` fallback — kept alive for tests and
+        # not-yet-migrated callers.
+        squadron = self._inputs.squadron
+
         self._briefing_actors: dict[str, xo.ActorRef] = {}
         if not self._inputs.skip_briefing:
             for agent_name, _label, mcp_tool, forward_method in PLAN_BRIEFING_CONFIG:
                 actor_config = self._inputs.briefing_configs.get(agent_name, self._inputs.config)
+                schema = SUPERVISOR_TOOL_PAYLOAD_MODELS.get(mcp_tool)
+                briefing_agent = None
+                if squadron is not None and schema is not None:
+                    briefing_agent = squadron.build_briefing_agent(
+                        agent_name=agent_name, result_model=schema
+                    )
                 self._briefing_actors[agent_name] = await xo.create_actor(
                     BriefingActor,
                     self_ref,
@@ -152,16 +172,19 @@ class PlanSupervisor(xo.Actor):
                     forward_method=forward_method,
                     cwd=self._inputs.cwd,
                     config=actor_config,
+                    agent=briefing_agent,
                     address=self.address,
                     uid=f"{self.uid.decode()}:briefing-{agent_name}",
                 )
 
         # --- Generator, validator, writer ---
+        generator_agent = squadron.generator if squadron is not None else None
         self._generator = await xo.create_actor(
             GeneratorActor,
             self_ref,
             cwd=self._inputs.cwd,
             config=self._inputs.config,
+            agent=generator_agent,
             address=self.address,
             uid=f"{self.uid.decode()}:generator",
         )

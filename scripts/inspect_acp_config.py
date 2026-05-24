@@ -5,6 +5,7 @@ Usage:
   uv run python scripts/inspect_acp_config.py              # claude-agent-acp (default)
   uv run python scripts/inspect_acp_config.py copilot      # copilot --acp --stdio
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -27,9 +28,8 @@ class InspectorClient:
 
     async def request_permission(self, options, session_id, tool_call, **kwargs):  # noqa: ANN001, ANN003
         from acp.schema import AllowedOutcome, RequestPermissionResponse
-        return RequestPermissionResponse(
-            outcome=AllowedOutcome(option_id="", outcome="selected")
-        )
+
+        return RequestPermissionResponse(outcome=AllowedOutcome(option_id="", outcome="selected"))
 
 
 def print_config_options(config_options):
@@ -52,13 +52,19 @@ def print_config_options(config_options):
                     for sub in o.options:
                         desc = getattr(sub, "description", "")
                         desc_str = f" — {desc}" if desc else ""
-                        print(f"      - {getattr(sub, 'value', getattr(sub, 'id', '?'))}: "
-                              f"{getattr(sub, 'name', '?')}{desc_str}", flush=True)
+                        print(
+                            f"      - {getattr(sub, 'value', getattr(sub, 'id', '?'))}: "
+                            f"{getattr(sub, 'name', '?')}{desc_str}",
+                            flush=True,
+                        )
                 else:
                     desc = getattr(o, "description", "")
                     desc_str = f" — {desc}" if desc else ""
-                    print(f"    - {getattr(o, 'value', getattr(o, 'id', '?'))}: "
-                          f"{getattr(o, 'name', '?')}{desc_str}", flush=True)
+                    print(
+                        f"    - {getattr(o, 'value', getattr(o, 'id', '?'))}: "
+                        f"{getattr(o, 'name', '?')}{desc_str}",
+                        flush=True,
+                    )
 
 
 async def main() -> None:
@@ -152,8 +158,7 @@ async def main() -> None:
         for m in getattr(modes, "modes", []):
             desc = getattr(m, "description", "")
             desc_str = f" — {desc}" if desc else ""
-            print(f"  - {getattr(m, 'id', '?')}: {getattr(m, 'name', '?')}{desc_str}",
-                  flush=True)
+            print(f"  - {getattr(m, 'id', '?')}: {getattr(m, 'name', '?')}{desc_str}", flush=True)
     else:
         print("\nNo modes returned", flush=True)
 
@@ -165,8 +170,10 @@ async def main() -> None:
         for m in getattr(models, "available_models", []):
             desc = getattr(m, "description", "")
             desc_str = f" — {desc}" if desc else ""
-            print(f"  - {getattr(m, 'model_id', '?')}: {getattr(m, 'name', '?')}{desc_str}",
-                  flush=True)
+            print(
+                f"  - {getattr(m, 'model_id', '?')}: {getattr(m, 'name', '?')}{desc_str}",
+                flush=True,
+            )
     else:
         print("\nNo models returned", flush=True)
 

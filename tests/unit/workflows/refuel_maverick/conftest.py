@@ -6,17 +6,11 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
 
-from maverick.executor.result import ExecutorResult
 from maverick.library.actions.types import BeadCreationResult, DependencyWiringResult
-from maverick.workflows.refuel_maverick.constants import DETAIL_BATCH_SIZE
 from maverick.workflows.refuel_maverick.models import (
     AcceptanceCriterionSpec,
-    DecompositionOutline,
     DecompositionOutput,
-    DetailBatchOutput,
     FileScopeSpec,
-    WorkUnitDetail,
-    WorkUnitOutline,
     WorkUnitSpec,
 )
 from maverick.workflows.refuel_maverick.workflow import RefuelMaverickWorkflow
@@ -143,61 +137,6 @@ def make_simple_decomposition_output() -> DecompositionOutput:
     )
 
 
-def decomposition_to_two_pass_results(
-    decomp: DecompositionOutput,
-) -> list[ExecutorResult]:
-    """Convert a DecompositionOutput into the sequence of ExecutorResults
-    expected by the two-pass (outline → detail batches) decomposition flow.
-
-    Returns a list of ExecutorResult objects: first the outline result,
-    then one detail batch result per DETAIL_BATCH_SIZE chunk of work units.
-    """
-    # Build outline
-    outlines = [
-        WorkUnitOutline(
-            id=wu.id,
-            sequence=wu.sequence,
-            parallel_group=wu.parallel_group,
-            depends_on=wu.depends_on,
-            task=wu.task,
-            file_scope=wu.file_scope,
-        )
-        for wu in decomp.work_units
-    ]
-    outline = DecompositionOutline(
-        work_units=outlines,
-        rationale=decomp.rationale,
-    )
-
-    # Build detail batches
-    all_units = list(decomp.work_units)
-    detail_batches: list[DetailBatchOutput] = []
-    for i in range(0, len(all_units), DETAIL_BATCH_SIZE):
-        batch = all_units[i : i + DETAIL_BATCH_SIZE]
-        detail_batches.append(
-            DetailBatchOutput(
-                details=[
-                    WorkUnitDetail(
-                        id=wu.id,
-                        instructions=wu.instructions,
-                        acceptance_criteria=wu.acceptance_criteria,
-                        verification=wu.verification,
-                    )
-                    for wu in batch
-                ]
-            )
-        )
-
-    results: list[ExecutorResult] = [
-        ExecutorResult(output=outline, success=True, events=(), usage=None),
-    ]
-    for batch in detail_batches:
-        results.append(
-            ExecutorResult(output=batch, success=True, events=(), usage=None),
-        )
-    return results
-
-
 # ---------------------------------------------------------------------------
 # Result helpers
 # ---------------------------------------------------------------------------
@@ -247,7 +186,15 @@ async def collect_events(
     *,
     ignore_exception: bool = False,
 ) -> tuple[list[Any], Any]:
-    """Drain the execute() generator and return (events, workflow.result)."""
+    """Drain the execute() generator and return (events, workflow.result).
+
+    Auto-injects ``cwd`` from the test's ``Path.cwd()`` when missing.
+    The workflows-tree autouse fixture chdirs to a per-test ``tmp_path``,
+    so this keeps every refuel test isolated without each having to
+    thread ``tmp_path`` into its inputs dict.
+    """
+    if "cwd" not in inputs:
+        inputs = {**inputs, "cwd": str(Path.cwd())}
     events: list[Any] = []
     try:
         async for event in workflow.execute(inputs):

@@ -4,7 +4,7 @@ This module detects project type from marker files (pyproject.toml,
 package.json, go.mod, Cargo.toml, galaxy.yml, ansible.cfg, etc.).
 
 The earlier Claude-assisted detection path was removed when Maverick
-switched to a single OpenCode HTTP runtime substrate: detection runs
+switched to a single airframe runtime substrate: detection runs
 during ``maverick init`` before any actor pool exists, and the marker-
 only path is reliable for every project type Maverick supports — adding
 a server-spawn-shutdown to init for parity with markers added complexity

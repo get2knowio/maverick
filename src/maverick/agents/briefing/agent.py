@@ -1,14 +1,13 @@
-"""``BriefingAgent`` — generic briefing agent backed by OpenCode.
+"""``BriefingAgent`` — typed briefing agent.
 
-Used by both refuel briefings (navigator/structuralist/recon/contrarian)
-and pre-flight briefings (scopist/codebase_analyst/criteria_writer/
-preflight_contrarian). Each instance owns one result schema and one
-persona name, both passed at construction time.
+Used by both refuel briefings (navigator / structuralist / recon /
+contrarian) and pre-flight briefings (scopist / codebase_analyst /
+criteria_writer / preflight_contrarian). Each instance owns one result
+schema and one persona name, both passed at construction time.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from pydantic import BaseModel
@@ -16,19 +15,15 @@ from pydantic import BaseModel
 from maverick.agents.base import Agent
 
 if TYPE_CHECKING:
+    from airframe.protocol import AgentRuntime
+
     from maverick.executor.config import StepConfig
-    from maverick.runtime.opencode import (
-        CostSink,
-        OpenCodeClient,
-        OpenCodeServerHandle,
-        Tier,
-    )
+    from maverick.runtime.registry import CostSink
 
 BRIEFING_TIMEOUT_SECONDS = 1200
 
-# Map the in-process agent label to the bundled OpenCode persona file.
-# The .md files live at ``runtime/opencode/profile/agents/maverick.<persona>.md``.
-OPENCODE_AGENT_MAP: dict[str, str] = {
+# Map the in-process agent label to the bundled persona file.
+BRIEFING_PERSONA_MAP: dict[str, str] = {
     "navigator": "maverick.navigator",
     "structuralist": "maverick.structuralist",
     "recon": "maverick.recon",
@@ -40,47 +35,40 @@ OPENCODE_AGENT_MAP: dict[str, str] = {
 }
 
 
-def opencode_agent_for(agent_name: str) -> str | None:
+def persona_name_for_briefing(agent_name: str) -> str | None:
     """Map an agent label (``"navigator"``) to its bundled persona name.
 
-    Returns ``None`` for unmapped names so the OpenCode server falls
-    back to its default agent and surfaces the missing persona in
-    logs rather than silently routing to the wrong system prompt.
+    Returns ``None`` for unmapped names so the runtime falls back to its
+    default persona rather than silently routing to the wrong system prompt.
     """
-    return OPENCODE_AGENT_MAP.get(agent_name)
+    return BRIEFING_PERSONA_MAP.get(agent_name)
 
 
 class BriefingAgent(Agent):
     """One briefing agent: per-instance schema + per-instance persona."""
 
-    # Set per-instance via constructor; the class default is BaseModel
-    # so type checkers see a valid type.
     result_model: ClassVar[type[BaseModel]] = BaseModel
     provider_tier: ClassVar[str] = "briefing"
 
     def __init__(
         self,
         *,
-        handle: OpenCodeServerHandle,
+        runtime: AgentRuntime,
         cwd: str,
         agent_name: str,
         result_model: type[BaseModel],
         step_config: StepConfig | dict[str, Any] | None = None,
-        tier_overrides: dict[str, Tier] | None = None,
         cost_sink: CostSink | None = None,
         tag: str | None = None,
-        client_factory: Callable[[], OpenCodeClient] | None = None,
     ) -> None:
         super().__init__(
-            handle=handle,
+            runtime=runtime,
             cwd=cwd,
             step_config=step_config,
-            tier_overrides=tier_overrides,
             cost_sink=cost_sink,
             tag=tag or f"briefing.{agent_name}",
-            opencode_agent=opencode_agent_for(agent_name),
+            persona_name=persona_name_for_briefing(agent_name),
             result_model=result_model,
-            client_factory=client_factory,
         )
         self._agent_name = agent_name
 
@@ -97,12 +85,12 @@ class BriefingAgent(Agent):
             "# Briefing input\n\n"
             f"{prompt}"
         )
-        return await self._send_structured(wrapped, timeout=BRIEFING_TIMEOUT_SECONDS)
+        return await self._execute_via_runtime(wrapped, timeout=BRIEFING_TIMEOUT_SECONDS)
 
 
 __all__ = [
     "BRIEFING_TIMEOUT_SECONDS",
-    "OPENCODE_AGENT_MAP",
+    "BRIEFING_PERSONA_MAP",
     "BriefingAgent",
-    "opencode_agent_for",
+    "persona_name_for_briefing",
 ]

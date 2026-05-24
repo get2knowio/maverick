@@ -1,11 +1,11 @@
 """Pre-Flight Briefing prompt builders.
 
 The four pre-flight personas (Scopist / CodebaseAnalyst / CriteriaWriter /
-PreFlightContrarian) are markdown agent files under
-``runtime/opencode/profile/agents/maverick.<name>.md``, invoked by the
-xoscar :class:`maverick.actors.xoscar.briefing.BriefingActor` via
-OpenCode's per-message ``agent=`` selector. Only the prompt builders
-shared between the plan supervisor and the actor remain in
+PreFlightContrarian) are markdown system prompts under
+``agents/system_prompts/maverick.<name>.md``, loaded by
+:class:`maverick.agents.briefing.agent.BriefingAgent` and passed as
+``system=`` on every airframe ``execute()`` call. Only the prompt
+builders shared between the plan supervisor and the actor remain in
 :mod:`maverick.agents.preflight_briefing.prompts`.
 """
 

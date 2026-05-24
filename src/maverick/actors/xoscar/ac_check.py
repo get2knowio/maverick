@@ -30,8 +30,11 @@ class ACCheckActor(xo.Actor):
         if not verification_text:
             return ACResult(passed=True)
 
+        if not request.cwd:
+            raise ValueError("ACRequest.cwd is required")
+
         reasons: list[str] = []
-        work_cwd = Path(request.cwd) if request.cwd else Path.cwd()
+        work_cwd = Path(request.cwd)
         runner = CommandRunner(cwd=work_cwd)
 
         for cmd_str in _parse_verification_commands(verification_text):

@@ -1,0 +1,65 @@
+version: 2
+
+updates:
+  # Python dependencies (uv-managed via pyproject.toml + uv.lock)
+  - package-ecosystem: "uv"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "America/Los_Angeles"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "python"
+    groups:
+      # Bundle dev/test tooling (mypy, pytest*, ruff, type stubs) into one
+      # weekly PR — these update often and don't affect the runtime.
+      dev-tooling:
+        dependency-type: "development"
+        update-types:
+          - "minor"
+          - "patch"
+      # Bundle runtime minor + patch updates so weekly noise is bounded;
+      # majors still get their own PR so they can be reviewed individually.
+      runtime-minor-patch:
+        dependency-type: "production"
+        update-types:
+          - "minor"
+          - "patch"
+        # Keep airframe-agents separate — it's the core agent runtime and
+        # version bumps need explicit verification (see 0.6 → 0.9 churn).
+        exclude-patterns:
+          - "airframe-agents"
+
+  # GitHub Actions used by .github/workflows/*.yml
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "America/Los_Angeles"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "github-actions"
+    groups:
+      actions:
+        update-types:
+          - "minor"
+          - "patch"
+
+  # Devcontainer features pinned in .devcontainer/devcontainer.json
+  - package-ecosystem: "devcontainers"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "America/Los_Angeles"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "devcontainer"

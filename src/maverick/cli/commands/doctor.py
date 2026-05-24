@@ -1,9 +1,9 @@
 """``maverick doctor`` command — standalone environment validation.
 
-Runs the same checks as fly's preflight (OpenCode provider connectivity
-via ``GET /provider``, git / gh / bd availability) but without burning
-a real fly invocation. Useful when iterating on ``maverick.yaml``,
-swapping providers, or troubleshooting auth issues.
+Runs the same checks as fly's preflight (airframe provider connectivity
+via :meth:`AgentRuntime.list_models`, git / gh / bd availability) but
+without burning a real fly invocation. Useful when iterating on
+``maverick.yaml``, swapping providers, or troubleshooting auth issues.
 """
 
 from __future__ import annotations
@@ -30,9 +30,9 @@ async def doctor(ctx: click.Context) -> None:
     """Validate the local environment.
 
     Exit code 0 if all checks pass, 1 otherwise. Provider checks run
-    in parallel with a live progress table — every configured provider
-    is exercised against ``GET /provider`` on a one-shot OpenCode
-    server, even if an earlier one fails.
+    in parallel with a live progress table — every configured provider's
+    airframe adapter is exercised via :meth:`AgentRuntime.list_models`,
+    even if an earlier one fails.
 
     Examples:
 
@@ -118,7 +118,7 @@ async def _run_provider_checks(config: Any) -> dict[str, _ProviderResult]:
         return {}
 
     # The legacy ``test_mcp_tool_call=True`` opt-in is no-op under the
-    # OpenCode runtime (StructuredOutput tool-forcing makes a per-provider
+    # airframe runtime (StructuredOutput tool-forcing makes a per-provider
     # tool probe redundant). Kept on the call signature for source
     # compatibility but doctor no longer requests it.
     health_checks = build_provider_health_checks(config)

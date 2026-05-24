@@ -139,9 +139,9 @@ class RunwayStore:
     async def append_cost_entry(self, entry: CostEntry) -> None:
         """Append a per-send cost record to the JSONL file.
 
-        Captures one OpenCode-routed model invocation. Used by the
-        actor mixin's ``_record_cost`` hook so workflow runs can be
-        aggregated for cost / token reporting.
+        Captures one airframe-routed model invocation. Flushed by
+        :meth:`Agent._emit_cost` after every successful send so workflow
+        runs can be aggregated for cost / token reporting.
         """
         await self._append_jsonl(
             self._path / _EPISODIC_DIR / _COST_ENTRIES_FILE,
@@ -632,8 +632,8 @@ def make_cost_sink(store: RunwayStore) -> Callable[[Any], Awaitable[None]]:
 
     Workflows call this to wire :func:`actor_pool(cost_sink=...)` into
     a runway-backed JSONL of cost entries. The closure accepts a
-    :class:`CostEntry` and is async so the actor mixin's
-    fire-and-forget pattern in ``_record_cost`` works directly.
+    :class:`CostEntry` and is async so the fire-and-forget pattern in
+    :meth:`Agent._emit_cost` works directly.
     """
 
     async def _sink(entry: Any) -> None:

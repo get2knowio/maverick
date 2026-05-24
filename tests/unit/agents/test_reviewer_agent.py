@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 from typing import Any
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from airframe.cost import CostRecord
+from airframe.protocol import RuntimeResult
 
 from maverick.agents.reviewer import ReviewerAgent
 from maverick.payloads import SubmitReviewPayload
-
-from .conftest import FakeClient, fake_handle, payload_send_result
 
 
 def _approved_payload() -> dict[str, Any]:
@@ -38,38 +39,61 @@ def _payload_with_finding(reviewer: str | None = None) -> dict[str, Any]:
     }
 
 
+def _cost() -> CostRecord:
+    return CostRecord(
+        provider_id="anthropic",
+        model_id="claude-haiku-4-5",
+        cost_usd=0.02,
+        input_tokens=20,
+        output_tokens=40,
+        cache_read_tokens=0,
+        cache_write_tokens=0,
+        finish="end_turn",
+    )
+
+
+def _make_runtime(structured: dict[str, Any]) -> Any:
+    runtime = MagicMock()
+    runtime.label = "stub"
+    runtime.execute = AsyncMock(
+        return_value=RuntimeResult(text="", structured=structured, cost=_cost(), finish="end_turn")
+    )
+    runtime.reset = AsyncMock()
+    runtime.close = AsyncMock()
+    return runtime
+
+
 def _make_agent(
-    client: FakeClient,
+    runtime: Any,
     *,
     review_kind: str = "correctness",
-    opencode_agent: str = "maverick.correctness-reviewer",
+    persona_name: str = "maverick.correctness-reviewer",
 ) -> ReviewerAgent:
     return ReviewerAgent(
-        handle=fake_handle(),
+        runtime=runtime,
         cwd="/tmp",
         review_kind=review_kind,  # type: ignore[arg-type]
-        opencode_agent=opencode_agent,
-        client_factory=lambda: client,
+        persona_name=persona_name,
     )
 
 
 async def test_review_first_round_includes_full_context() -> None:
-    client = FakeClient(send_result=payload_send_result(_approved_payload()))
-    async with _make_agent(client) as agent:
+    runtime = _make_runtime(_approved_payload())
+    async with _make_agent(runtime) as agent:
         await agent.review(
             bead_description="bead text",
             work_unit_md="## work unit",
             briefing_context="briefing notes",
         )
-    assert len(client.send_calls) == 1
-    prompt = client.send_calls[0]["content"]
+    call = runtime.execute.await_args
+    prompt = call.args[0]
     assert "Work Unit Specification" in prompt
     assert "Pre-Flight Briefing" in prompt
 
 
 async def test_review_subsequent_round_sends_short_followup() -> None:
-    client = FakeClient(send_result=payload_send_result(_approved_payload()))
-    async with _make_agent(client) as agent:
+    runtime = _make_runtime(_approved_payload())
+    async with _make_agent(runtime) as agent:
         await agent.review(
             bead_description="bead",
             work_unit_md=None,
@@ -80,14 +104,14 @@ async def test_review_subsequent_round_sends_short_followup() -> None:
             work_unit_md=None,
             briefing_context=None,
         )
-    second_prompt = client.send_calls[1]["content"]
+    second_prompt = runtime.execute.await_args_list[1].args[0]
     assert "previous findings were addressed" in second_prompt
     assert "Work Unit Specification" not in second_prompt
 
 
 async def test_review_stamps_provenance_correctness() -> None:
-    client = FakeClient(send_result=payload_send_result(_payload_with_finding()))
-    async with _make_agent(client) as agent:
+    runtime = _make_runtime(_payload_with_finding())
+    async with _make_agent(runtime) as agent:
         payload = await agent.review(
             bead_description="bead",
             work_unit_md=None,
@@ -98,23 +122,19 @@ async def test_review_stamps_provenance_correctness() -> None:
 
 
 async def test_review_preserves_existing_provenance() -> None:
-    client = FakeClient(
-        send_result=payload_send_result(_payload_with_finding(reviewer="completeness"))
-    )
-    async with _make_agent(client) as agent:
+    runtime = _make_runtime(_payload_with_finding(reviewer="completeness"))
+    async with _make_agent(runtime) as agent:
         payload = await agent.review(
             bead_description="bead",
             work_unit_md=None,
             briefing_context=None,
         )
-    # Existing reviewer value not overwritten.
     assert payload.findings[0].reviewer == "completeness"
 
 
 async def test_rotate_session_resets_review_count() -> None:
-    """After rotate_session, the next review re-uses the first-round prompt."""
-    client = FakeClient(send_result=payload_send_result(_approved_payload()))
-    async with _make_agent(client) as agent:
+    runtime = _make_runtime(_approved_payload())
+    async with _make_agent(runtime) as agent:
         await agent.review(
             bead_description="bead",
             work_unit_md="md",
@@ -127,52 +147,51 @@ async def test_rotate_session_resets_review_count() -> None:
             briefing_context=None,
         )
     # First call after rotate should be a first-round prompt again.
-    assert "Work Unit Specification" in client.send_calls[1]["content"]
+    assert "Work Unit Specification" in runtime.execute.await_args_list[1].args[0]
 
 
 async def test_aggregate_rotates_session_first() -> None:
-    client = FakeClient(send_result=payload_send_result(_approved_payload()))
+    runtime = _make_runtime(_approved_payload())
     async with _make_agent(
-        client,
+        runtime,
         review_kind="completeness",
-        opencode_agent="maverick.completeness-reviewer",
+        persona_name="maverick.completeness-reviewer",
     ) as agent:
         await agent.review(
             bead_description="bead",
             work_unit_md="md",
             briefing_context=None,
         )
-        sid_before_aggregate = agent._session_id  # noqa: SLF001
         await agent.aggregate(
             objective="ship feature",
             bead_list="- bead 1",
             diff_stat="1 file changed",
         )
-    assert sid_before_aggregate in client.deleted_sessions
-    aggregate_prompt = client.send_calls[1]["content"]
+    runtime.reset.assert_awaited()
+    aggregate_prompt = runtime.execute.await_args_list[1].args[0]
     assert "AGGREGATE changes" in aggregate_prompt
 
 
 async def test_review_kind_validation() -> None:
     with pytest.raises(ValueError, match="review_kind"):
         ReviewerAgent(
-            handle=fake_handle(),
+            runtime=MagicMock(),
             cwd="/tmp",
             review_kind="bogus",  # type: ignore[arg-type]
-            opencode_agent="x",
+            persona_name="x",
         )
 
 
 async def test_persona_forwarded_in_send() -> None:
-    client = FakeClient(send_result=payload_send_result(_approved_payload()))
+    runtime = _make_runtime(_approved_payload())
     async with _make_agent(
-        client,
+        runtime,
         review_kind="completeness",
-        opencode_agent="maverick.completeness-reviewer",
+        persona_name="maverick.completeness-reviewer",
     ) as agent:
         await agent.review(
             bead_description="bead",
             work_unit_md=None,
             briefing_context=None,
         )
-    assert client.send_calls[0]["agent"] == "maverick.completeness-reviewer"
+    assert runtime.execute.await_args.kwargs["persona"] == "maverick.completeness-reviewer"

@@ -1,267 +1,200 @@
-"""Tests for OpenCode-backed provider health checks.
+"""Tests for airframe-backed provider health checks.
 
-The probe spawns an ``opencode serve`` subprocess in production; for
-unit tests we inject a fake :class:`OpenCodeServerHandle` and patch
-:func:`list_connected_providers` so the check runs synchronously
-without touching the network.
+The probe instantiates an :class:`airframe.AgentRuntime` and calls
+``list_models``; tests patch :func:`airframe.runtime_for` with a fake
+adapter class so the check runs synchronously without touching the
+network.
 """
 
 from __future__ import annotations
 
 from typing import Any
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from airframe.errors import AgentRuntimeError, RuntimeAuthError
 
-from maverick.config import AgentProviderConfig
+from maverick.config import AgentBindingConfig, AgentsConfig
 from maverick.runners.provider_health import (
-    AcpProviderHealthCheck,
-    OpenCodeProviderHealthCheck,
+    ProviderHealthCheck,
     build_provider_health_checks,
     providers_for_fly,
     run_provider_health_checks,
 )
 
 # ---------------------------------------------------------------------------
-# Fake handle (no actual subprocess)
+# Fake airframe runtime
 # ---------------------------------------------------------------------------
 
 
-class _FakeProcess:
-    pid = 0
-    returncode = 0
-
-    def terminate(self) -> None:
-        pass
-
-    def kill(self) -> None:
-        pass
-
-    async def wait(self) -> int:
-        return 0
+def _model(model_id: str) -> Any:
+    info = MagicMock()
+    info.id = model_id
+    return info
 
 
-def _fake_handle():
-    from maverick.runtime.opencode import OpenCodeServerHandle
+def _patch_airframe(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    model_ids: list[str] | None = None,
+    raise_on_list: BaseException | None = None,
+    runtime_for_error: BaseException | None = None,
+) -> MagicMock:
+    """Patch :func:`airframe.runtime_for` to return a controllable stub."""
+    runtime = MagicMock()
+    runtime.label = "stub"
+    if raise_on_list is not None:
+        runtime.list_models = AsyncMock(side_effect=raise_on_list)
+    else:
+        runtime.list_models = AsyncMock(return_value=[_model(m) for m in (model_ids or [])])
+    runtime.close = AsyncMock()
 
-    return OpenCodeServerHandle(
-        base_url="http://fake-opencode",
-        password="fake",
-        pid=0,
-        _process=_FakeProcess(),  # type: ignore[arg-type]
-    )
+    def fake_runtime_for(_pid: str) -> type[Any]:
+        if runtime_for_error is not None:
+            raise runtime_for_error
+        return lambda: runtime
 
-
-def _patch_providers(monkeypatch: pytest.MonkeyPatch, mapping: dict[str, set[str]]) -> None:
-    """Patch ``list_connected_providers`` at the module-import site.
-
-    The provider_health module imports the symbol locally, so we monkey-
-    patch THAT binding (not the runtime module's binding).
-    """
-
-    async def fake(client: Any) -> dict[str, set[str]]:
-        return {k: set(v) for k, v in mapping.items()}
-
-    monkeypatch.setattr("maverick.runners.provider_health.list_connected_providers", fake)
+    monkeypatch.setattr("airframe.runtime_for", fake_runtime_for)
+    return runtime
 
 
 # ---------------------------------------------------------------------------
-# OpenCodeProviderHealthCheck.validate
+# ProviderHealthCheck.validate
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_validate_passes_when_provider_connected_and_models_match(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _patch_providers(
-        monkeypatch,
-        {"openrouter": {"anthropic/claude-haiku-4.5", "openai/gpt-4o-mini"}},
+async def test_validate_passes_when_models_match(monkeypatch: pytest.MonkeyPatch) -> None:
+    _patch_airframe(monkeypatch, model_ids=["claude-haiku-4-5", "claude-sonnet-4-6"])
+    check = ProviderHealthCheck(
+        provider_name="claude",
+        models_to_validate=frozenset({"claude-haiku-4-5"}),
     )
-    check = OpenCodeProviderHealthCheck(
-        provider_name="openrouter",
-        provider_config=AgentProviderConfig(),
-        models_to_validate=frozenset({"anthropic/claude-haiku-4.5"}),
-    )
-    result = await check.validate(handle=_fake_handle())
+    result = await check.validate()
     assert result.success is True
-    assert result.component == "OpenCode:openrouter"
+    assert result.component == "airframe:claude"
 
 
 @pytest.mark.asyncio
-async def test_validate_fails_when_provider_not_connected(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _patch_providers(monkeypatch, {"openrouter": {"x"}})
-    check = OpenCodeProviderHealthCheck(
-        provider_name="anthropic-direct",
-        provider_config=AgentProviderConfig(),
+async def test_validate_fails_when_adapter_not_installed(monkeypatch: pytest.MonkeyPatch) -> None:
+    _patch_airframe(
+        monkeypatch,
+        runtime_for_error=ImportError("install airframe-agents[claude]"),
     )
-    result = await check.validate(handle=_fake_handle())
+    check = ProviderHealthCheck(provider_name="claude")
+    result = await check.validate()
     assert result.success is False
-    assert any("not connected" in m for m in result.errors)
-    assert any("openrouter" in m for m in result.errors)
+    assert any("not installed" in m for m in result.errors)
 
 
 @pytest.mark.asyncio
-async def test_validate_fails_when_model_missing(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _patch_providers(monkeypatch, {"openrouter": {"openai/gpt-4o-mini"}})
-    check = OpenCodeProviderHealthCheck(
-        provider_name="openrouter",
-        provider_config=AgentProviderConfig(),
-        models_to_validate=frozenset({"anthropic/claude-haiku-4.5"}),
+async def test_validate_fails_when_model_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+    _patch_airframe(monkeypatch, model_ids=["claude-haiku-4-5"])
+    check = ProviderHealthCheck(
+        provider_name="claude",
+        models_to_validate=frozenset({"claude-opus-4-5"}),
     )
-    result = await check.validate(handle=_fake_handle())
+    result = await check.validate()
     assert result.success is False
     assert any("not available" in m for m in result.errors)
 
 
 @pytest.mark.asyncio
-async def test_validate_passes_with_no_models_when_connected(
+async def test_validate_passes_with_no_models_when_listable(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _patch_providers(monkeypatch, {"openrouter": set()})
-    check = OpenCodeProviderHealthCheck(
-        provider_name="openrouter",
-        provider_config=AgentProviderConfig(),
-    )
-    result = await check.validate(handle=_fake_handle())
+    _patch_airframe(monkeypatch, model_ids=[])
+    check = ProviderHealthCheck(provider_name="claude")
+    result = await check.validate()
     assert result.success is True
 
 
 @pytest.mark.asyncio
-async def test_validate_surfaces_handle_query_failure(
+async def test_validate_surfaces_runtime_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A vendor/auth failure surfaces in the result."""
+    _patch_airframe(monkeypatch, raise_on_list=RuntimeAuthError("no credentials"))
+    check = ProviderHealthCheck(provider_name="claude")
+    result = await check.validate()
+    assert result.success is False
+    assert any("no credentials" in m for m in result.errors)
+
+
+@pytest.mark.asyncio
+async def test_validate_surfaces_generic_runtime_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """When the /provider query raises, surface it in the result."""
-
-    async def boom(client: Any) -> dict[str, set[str]]:
-        from maverick.runtime.opencode import OpenCodeError
-
-        raise OpenCodeError("HTTP 502")
-
-    monkeypatch.setattr("maverick.runners.provider_health.list_connected_providers", boom)
-    check = OpenCodeProviderHealthCheck(
-        provider_name="openrouter",
-        provider_config=AgentProviderConfig(),
-    )
-    result = await check.validate(handle=_fake_handle())
+    _patch_airframe(monkeypatch, raise_on_list=AgentRuntimeError("HTTP 502"))
+    check = ProviderHealthCheck(provider_name="claude")
+    result = await check.validate()
     assert result.success is False
     assert any("HTTP 502" in m for m in result.errors)
 
 
-def test_acp_alias_is_opencode_check() -> None:
-    """Source-compat alias for the renamed class."""
-    assert AcpProviderHealthCheck is OpenCodeProviderHealthCheck
-
-
 # ---------------------------------------------------------------------------
-# Builder
+# Builder — reads providers from ``config.agents``
 # ---------------------------------------------------------------------------
-
-
-class _ProvidersStub:
-    def __init__(self, mapping: dict[str, AgentProviderConfig]) -> None:
-        self._mapping = mapping
-
-    def items(self) -> list[tuple[str, AgentProviderConfig]]:
-        return list(self._mapping.items())
-
-    def __iter__(self):
-        return iter(self._mapping)
-
-    def __bool__(self) -> bool:
-        return bool(self._mapping)
-
-    def get(self, key: str, default=None):
-        return self._mapping.get(key, default)
-
-    def values(self):
-        return self._mapping.values()
-
-
-class _ModelStub:
-    def __init__(self, model_id: str | None = None, fields_set: set[str] | None = None) -> None:
-        self.model_id = model_id
-        self.model_fields_set = fields_set or set()
 
 
 class _ConfigStub:
     def __init__(
         self,
-        agent_providers: dict[str, AgentProviderConfig] | None = None,
+        agents: AgentsConfig | None = None,
         actors: dict | None = None,
-        model: _ModelStub | None = None,
     ) -> None:
-        self.agent_providers = _ProvidersStub(agent_providers or {})
+        self.agents = agents or AgentsConfig()
         self.actors = actors or {}
-        self.model = model or _ModelStub()
 
 
-def _provider(default: bool = False, default_model: str | None = None) -> AgentProviderConfig:
-    return AgentProviderConfig(
-        command=["/bin/true"],
-        default=default,
-        default_model=default_model,
-    )
+def _agents(**bindings: AgentBindingConfig) -> AgentsConfig:
+    return AgentsConfig(**bindings)
 
 
-def test_build_returns_one_check_per_configured_provider() -> None:
+def _binding(provider: str, model_id: str) -> AgentBindingConfig:
+    return AgentBindingConfig(provider=provider, model_id=model_id)
+
+
+def test_build_returns_one_check_per_unique_provider() -> None:
+    """Two roles on the same provider collapse into one check."""
     config = _ConfigStub(
-        agent_providers={
-            "openrouter": _provider(default=True),
-            "anthropic-direct": _provider(),
-        }
+        agents=_agents(
+            implement=_binding("claude", "claude-sonnet-4-6"),
+            review=_binding("claude", "claude-haiku-4-5"),
+            briefing=_binding("github-copilot", "gpt-5-mini"),
+        ),
     )
     checks = build_provider_health_checks(config)
-    assert {c.provider_name for c in checks} == {"openrouter", "anthropic-direct"}
+    assert {c.provider_name for c in checks} == {"claude", "github-copilot"}
+
+
+def test_build_aggregates_model_ids_per_provider() -> None:
+    """Each provider's ``models_to_validate`` is the union of its roles' model ids."""
+    config = _ConfigStub(
+        agents=_agents(
+            implement=_binding("claude", "claude-sonnet-4-6"),
+            review=_binding("claude", "claude-haiku-4-5"),
+        ),
+    )
+    checks = build_provider_health_checks(config)
+    by_name = {c.provider_name: c for c in checks}
+    assert by_name["claude"].models_to_validate == frozenset(
+        {"claude-sonnet-4-6", "claude-haiku-4-5"}
+    )
 
 
 def test_build_filters_to_provider_filter() -> None:
     config = _ConfigStub(
-        agent_providers={
-            "openrouter": _provider(default=True),
-            "anthropic-direct": _provider(),
-        }
+        agents=_agents(
+            implement=_binding("claude", "claude-sonnet-4-6"),
+            briefing=_binding("github-copilot", "gpt-5-mini"),
+        ),
     )
-    checks = build_provider_health_checks(config, provider_filter={"openrouter"})
-    assert [c.provider_name for c in checks] == ["openrouter"]
+    checks = build_provider_health_checks(config, provider_filter={"claude"})
+    assert [c.provider_name for c in checks] == ["claude"]
 
 
-def test_build_includes_provider_default_model() -> None:
-    config = _ConfigStub(
-        agent_providers={
-            "openrouter": _provider(default=True, default_model="openai/gpt-4o-mini"),
-        }
-    )
-    checks = build_provider_health_checks(config)
-    assert checks[0].models_to_validate == frozenset({"openai/gpt-4o-mini"})
-
-
-def test_build_includes_global_model_for_default_provider() -> None:
-    """Global ``model.model_id`` applies to the default provider only —
-    a global Claude alias means nothing for openrouter."""
-    config = _ConfigStub(
-        agent_providers={
-            "openrouter": _provider(default=True, default_model="x"),
-            "anthropic-direct": _provider(),
-        },
-        model=_ModelStub(model_id="qwen/qwen3-coder", fields_set={"model_id"}),
-    )
-    checks = build_provider_health_checks(config)
-    by_name = {c.provider_name: c for c in checks}
-    assert by_name["openrouter"].models_to_validate == frozenset({"x", "qwen/qwen3-coder"})
-    # Non-default provider doesn't pick up the global set.
-    assert by_name["anthropic-direct"].models_to_validate == frozenset()
-
-
-def test_build_ignores_test_mcp_tool_call_flag() -> None:
-    """Legacy doctor flag — preserved on the dataclass, no-op here."""
-    config = _ConfigStub(agent_providers={"openrouter": _provider(default=True)})
-    checks = build_provider_health_checks(config, test_mcp_tool_call=True)
-    assert len(checks) == 1
-    assert checks[0].test_mcp_tool_call is False
+def test_build_returns_empty_when_no_roles_bound() -> None:
+    config = _ConfigStub()
+    assert build_provider_health_checks(config) == []
 
 
 # ---------------------------------------------------------------------------
@@ -269,21 +202,18 @@ def test_build_ignores_test_mcp_tool_call_flag() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_providers_for_fly_includes_default_and_actor_overrides() -> None:
+def test_providers_for_fly_unions_agents_and_actor_overrides() -> None:
     config = _ConfigStub(
-        agent_providers={
-            "openrouter": _provider(default=True),
-            "anthropic-direct": _provider(),
-        },
+        agents=_agents(implement=_binding("claude", "claude-sonnet-4-6")),
         actors={
             "fly": {
-                "implementer": {"provider": "anthropic-direct"},
-                "reviewer": {"tiers": {"trivial": {"provider": "openrouter"}}},
+                "implementer": {"provider": "github-copilot"},
+                "reviewer": {"tiers": {"trivial": {"provider": "opencode-go"}}},
             }
         },
     )
     seen = providers_for_fly(config)
-    assert seen == {"openrouter", "anthropic-direct"}
+    assert seen == {"claude", "github-copilot", "opencode-go"}
 
 
 # ---------------------------------------------------------------------------
@@ -294,3 +224,18 @@ def test_providers_for_fly_includes_default_and_actor_overrides() -> None:
 @pytest.mark.asyncio
 async def test_run_provider_health_checks_empty_returns_empty() -> None:
     assert await run_provider_health_checks([]) == []
+
+
+@pytest.mark.asyncio
+async def test_run_provider_health_checks_runs_each(monkeypatch: pytest.MonkeyPatch) -> None:
+    _patch_airframe(monkeypatch, model_ids=["m-1"])
+    checks = [
+        ProviderHealthCheck(
+            provider_name=name,
+            models_to_validate=frozenset({"m-1"}),
+        )
+        for name in ("claude", "github-copilot")
+    ]
+    results = await run_provider_health_checks(checks)
+    assert len(results) == 2
+    assert all(r.success for r in results)

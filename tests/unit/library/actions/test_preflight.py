@@ -212,15 +212,12 @@ class TestRunPreflightChecks:
     @pytest.mark.asyncio
     async def test_provided_config_is_used(self) -> None:
         """config= skips load_config() and uses the provided config."""
-        from maverick.config import AgentProviderConfig, MaverickConfig
+        from maverick.config import AgentBindingConfig, AgentsConfig, MaverickConfig
 
         custom_config = MaverickConfig(
-            agent_providers={
-                "test-provider": AgentProviderConfig(
-                    command=["echo", "test"],
-                    default=True,
-                ),
-            },
+            agents=AgentsConfig(
+                implement=AgentBindingConfig(provider="claude", model_id="claude-sonnet-4-6"),
+            ),
         )
 
         with patch("maverick.library.actions.preflight.load_config") as mock_load:
@@ -242,7 +239,6 @@ class TestRunPreflightChecks:
         """Test that omitting config= falls back to load_config()."""
         with patch("maverick.library.actions.preflight.load_config") as mock_load:
             mock_load.return_value = MagicMock(
-                agent_providers={},
                 validation=MagicMock(
                     sync_cmd=None,
                     format_cmd=["ruff", "format", "."],
@@ -251,8 +247,13 @@ class TestRunPreflightChecks:
                     test_cmd=["pytest", "-x", "--tb=short"],
                 ),
                 preflight=MagicMock(custom_tools=[]),
-                agents=MagicMock(values=MagicMock(return_value=[])),
-                model=MagicMock(model_id="test", model_fields_set=set()),
+                agents=MagicMock(
+                    implement=None,
+                    review=None,
+                    briefing=None,
+                    decompose=None,
+                    generate=None,
+                ),
             )
             await run_preflight_checks(
                 check_providers=False,

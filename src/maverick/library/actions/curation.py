@@ -1,6 +1,6 @@
 """Helpers for the ``maverick land`` curation flow.
 
-The bundled OpenCode persona :file:`maverick.curator.md` is the source
+The bundled persona :file:`maverick.curator.md` is the source
 of truth for the curator's system prompt and behaviour.  This module
 hosts the deterministic Python pieces that wrap around it:
 
@@ -14,10 +14,10 @@ hosts the deterministic Python pieces that wrap around it:
   commit retains bead provenance even when the LLM forgets to follow
   the system-prompt instruction (FUTURE.md §3.9).
 
-Originally these lived on ``maverick.agents.curator.CuratorAgent``.
-That class was deleted when the OpenCode-substrate migration
-collapsed the text-mode :class:`MaverickAgent` path; the helpers
-remain because the deterministic plan execution still needs them.
+The deterministic plan-execution helpers remain even though the
+agent itself now returns a typed payload directly (no JSON parsing
+needed in the happy path); legacy callers and older recorded plans
+still depend on :func:`parse_curation_plan`.
 """
 
 from __future__ import annotations

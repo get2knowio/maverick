@@ -4,7 +4,7 @@ Mirrors the legacy ``_DecomposerPool`` (which pooled
 :class:`DecomposerActor` xoscar refs) but at the agent layer. The
 RefuelSquadron exposes one of these so the actor pool — or any other
 caller in step 3+ — can acquire a tier-specific decomposer without
-each call paying for fresh OpenCode session setup.
+each call paying for fresh runtime scope setup.
 
 Behaviour:
 
