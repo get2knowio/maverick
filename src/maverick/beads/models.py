@@ -6,12 +6,12 @@ bead definitions, created beads, dependencies, and generation results.
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field
 
 
-class BeadType(str, Enum):
+class BeadType(StrEnum):
     """Type of bead in the work hierarchy.
 
     Attributes:
@@ -23,7 +23,7 @@ class BeadType(str, Enum):
     TASK = "task"
 
 
-class BeadCategory(str, Enum):
+class BeadCategory(StrEnum):
     """Category describing a bead's role in the workflow.
 
     Attributes:
@@ -41,7 +41,7 @@ class BeadCategory(str, Enum):
     REVIEW = "review"
 
 
-class DependencyType(str, Enum):
+class DependencyType(StrEnum):
     """Relationship type between beads.
 
     Attributes:

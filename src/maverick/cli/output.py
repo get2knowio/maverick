@@ -6,7 +6,7 @@ This module defines output format options and formatting helpers for CLI command
 from __future__ import annotations
 
 import json
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 __all__ = [
@@ -37,7 +37,7 @@ def format_bytes(size: int) -> str:
         return f"{size / (1024 * 1024):.1f} MB"
 
 
-class OutputFormat(str, Enum):
+class OutputFormat(StrEnum):
     """Supported output formats for CLI commands.
 
     Values:

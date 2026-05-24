@@ -10,7 +10,7 @@ Dataclasses are frozen and use slots for immutability and memory efficiency.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -57,7 +57,7 @@ __all__ = [
 # =============================================================================
 
 
-class ProjectType(str, Enum):
+class ProjectType(StrEnum):
     """Supported project types for maverick init detection.
 
     Each project type has associated marker files and default validation
@@ -111,7 +111,7 @@ class ProjectType(str, Enum):
             return cls.UNKNOWN
 
 
-class DetectionConfidence(str, Enum):
+class DetectionConfidence(StrEnum):
     """Confidence level of project type detection.
 
     Indicates how certain the detection algorithm is about the identified
@@ -132,7 +132,7 @@ class DetectionConfidence(str, Enum):
     LOW = "low"
 
 
-class PreflightStatus(str, Enum):
+class PreflightStatus(StrEnum):
     """Status of a preflight validation check.
 
     Used to report the outcome of prerequisite checks during maverick init

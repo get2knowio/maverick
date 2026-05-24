@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
 
 # =============================================================================
@@ -18,7 +18,7 @@ from pathlib import Path
 # =============================================================================
 
 
-class TemplateType(str, Enum):
+class TemplateType(StrEnum):
     """Scaffolding template categories.
 
     Values:
@@ -32,7 +32,7 @@ class TemplateType(str, Enum):
     LOOP = "loop"
 
 
-class TemplateFormat(str, Enum):
+class TemplateFormat(StrEnum):
     """Output format for scaffolded workflows.
 
     Values:

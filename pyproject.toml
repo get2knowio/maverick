@@ -94,6 +94,17 @@ include = [
 [tool.ruff]
 line-length = 99
 target-version = "py311"
+extend-exclude = [
+    # Throwaway scratch script — kept around for reference, not part of the
+    # runtime or tested surface.
+    "prototype.py",
+    # Spec contract files: type stubs / API surface descriptions written
+    # during planning. They intentionally diverge from runtime style
+    # (forward references, abstract-method patterns, doc-style typing).
+    "specs/**",
+    # Slide-deck snippets and other documentation code samples.
+    "docs/**",
+]
 
 [tool.ruff.lint]
 select = [

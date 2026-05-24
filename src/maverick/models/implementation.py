@@ -6,7 +6,7 @@ validation results, and implementation outcomes.
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
@@ -17,7 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field
 # =============================================================================
 
 
-class TaskStatus(str, Enum):
+class TaskStatus(StrEnum):
     """Status of a task in the task file.
 
     Attributes:
@@ -41,7 +41,7 @@ class TaskStatus(str, Enum):
     SKIPPED = "skipped"
 
 
-class ChangeType(str, Enum):
+class ChangeType(StrEnum):
     """Type of file change.
 
     Attributes:
@@ -63,7 +63,7 @@ class ChangeType(str, Enum):
     RENAMED = "renamed"
 
 
-class ValidationStep(str, Enum):
+class ValidationStep(StrEnum):
     """Steps in the validation pipeline.
 
     Attributes:

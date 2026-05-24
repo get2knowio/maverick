@@ -7,13 +7,13 @@ including step types and execution modes.
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
-from enum import Enum
+from enum import StrEnum
 
 # Type alias for rollback action functions
 RollbackAction = Callable[..., None | Awaitable[None]]
 
 
-class StepType(str, Enum):
+class StepType(StrEnum):
     """Step type categorization.
 
     Defines the different types of steps that can be executed in a workflow.
@@ -30,7 +30,7 @@ class StepType(str, Enum):
     CHECKPOINT = "checkpoint"
 
 
-class StepMode(str, Enum):
+class StepMode(StrEnum):
     """Execution mode for a workflow step.
 
     Determines whether a step runs deterministically (fixed logic, no LLM
@@ -47,7 +47,7 @@ class StepMode(str, Enum):
     AGENT = "agent"
 
 
-class AutonomyLevel(str, Enum):
+class AutonomyLevel(StrEnum):
     """Agent independence level for workflow steps.
 
     Controls how much independence an agent has within a step, ordered
