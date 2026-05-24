@@ -45,7 +45,7 @@ dependencies = [
     "structlog>=24.1,<26",
     "tenacity>=8.2,<10",
     "rank-bm25>=0.2.2,<1",
-    "rich>=13.0,<14",
+    "rich>=13.0,<16",
     "tiktoken>=0.8,<1",
     "unidiff>=0.7,<1",
     "xoscar==0.9.6",
