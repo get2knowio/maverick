@@ -4,10 +4,26 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from contextlib import ExitStack, contextmanager
+from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
+
+
+@pytest.fixture(autouse=True)
+def _isolate_workflow_cwd(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Run every workflow test from a tmp dir.
+
+    Workflows (``FlyBeadsWorkflow``, ``RefuelMaverickWorkflow``, …)
+    fall back to ``Path.cwd()`` when ``inputs["cwd"]`` isn't set and
+    write per-run output under ``<cwd>/.maverick/runs/``. Without this
+    fixture, tests run from the maverick repo root pollute that
+    directory with stray metadata.json files that can be accidentally
+    committed. Belongs at conftest level so every workflow test
+    is covered without each having to opt in.
+    """
+    monkeypatch.chdir(tmp_path)
 
 
 @contextmanager
