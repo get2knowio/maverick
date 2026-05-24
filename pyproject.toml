@@ -48,7 +48,7 @@ dependencies = [
     "rich>=13.0,<14",
     "tiktoken>=0.8,<1",
     "unidiff>=0.7,<1",
-    "xoscar==0.9.5",
+    "xoscar==0.9.6",
 ]
 
 [project.urls]
