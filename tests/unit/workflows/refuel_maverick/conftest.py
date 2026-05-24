@@ -186,7 +186,15 @@ async def collect_events(
     *,
     ignore_exception: bool = False,
 ) -> tuple[list[Any], Any]:
-    """Drain the execute() generator and return (events, workflow.result)."""
+    """Drain the execute() generator and return (events, workflow.result).
+
+    Auto-injects ``cwd`` from the test's ``Path.cwd()`` when missing.
+    The workflows-tree autouse fixture chdirs to a per-test ``tmp_path``,
+    so this keeps every refuel test isolated without each having to
+    thread ``tmp_path`` into its inputs dict.
+    """
+    if "cwd" not in inputs:
+        inputs = {**inputs, "cwd": str(Path.cwd())}
     events: list[Any] = []
     try:
         async for event in workflow.execute(inputs):

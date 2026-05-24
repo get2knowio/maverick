@@ -156,7 +156,13 @@ class RefuelMaverickWorkflow(PythonWorkflow):
             write_refuel_report,
         )
 
-        ctx: dict[str, Any] = {}
+        # Validate cwd before entering _run_impl so the finally block
+        # can rely on ctx["cwd"] being populated even on early failure.
+        cwd_input = inputs.get("cwd")
+        if not cwd_input:
+            raise WorkflowError("'cwd' input is required")
+
+        ctx: dict[str, Any] = {"cwd": Path(cwd_input)}
         started_at = datetime.now(tz=UTC).isoformat()
         start_time = _time.monotonic()
         error_msg: str | None = None
@@ -167,7 +173,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
             raise
         finally:
             run_id = ctx.get("run_id", "unknown")
-            ctx_cwd: Path = ctx.get("cwd") or Path.cwd()
+            ctx_cwd: Path = ctx["cwd"]
             run_dir = ctx.get("run_dir", ctx_cwd / ".maverick" / "runs" / run_id)
             report = RefuelReport(
                 plan_name=ctx.get("plan_name", ""),
@@ -212,11 +218,9 @@ class RefuelMaverickWorkflow(PythonWorkflow):
             raise WorkflowError("'flight_plan_path' input is required")
         skip_briefing: bool = bool(inputs.get("skip_briefing", False))
         auto_commit: bool = bool(inputs.get("auto_commit", False))
-        # Architecture A workspace path. None means "fall back to process
-        # cwd" so unit tests without a workspace continue to work.
-        cwd_input: str | None = inputs.get("cwd")
-        ws_cwd: Path = Path(cwd_input) if cwd_input else Path.cwd()
-        ctx["cwd"] = ws_cwd
+        # ``ctx["cwd"]`` was validated + set by ``_run`` before this
+        # call, so we can rely on it directly.
+        ws_cwd: Path = ctx["cwd"]
 
         flight_plan_path = Path(flight_plan_path_str)
 
@@ -835,7 +839,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
         run_dir: Path | None,
         skip_briefing: bool = False,
         ctx: dict[str, Any] | None = None,
-        ws_cwd: Path | None = None,
+        ws_cwd: Path,
     ) -> Any:
         """Run briefing + decomposition via xoscar supervisor.
 
@@ -862,7 +866,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
         # Check for cached briefing from a previous run
         import json as _json
 
-        cache_root = ws_cwd or Path.cwd()
+        cache_root = ws_cwd
         plan_dir = cache_root / ".maverick" / "plans" / flight_plan.name
         briefing_cache_path = plan_dir / "refuel-briefing.json"
         outline_cache_path = plan_dir / "refuel-outline.json"
@@ -1088,10 +1092,10 @@ class RefuelMaverickWorkflow(PythonWorkflow):
         from maverick.squadron.refuel import RefuelSquadron
         from maverick.workflows.fly_beads.workflow import _cost_sink_for_cwd
 
-        cost_sink = _cost_sink_for_cwd(ws_cwd or Path.cwd())
+        cost_sink = _cost_sink_for_cwd(ws_cwd)
         async with (
             RefuelSquadron(
-                cwd=ws_cwd or Path.cwd(),
+                cwd=ws_cwd,
                 config=self._config,
                 cost_sink=cost_sink,
             ) as squadron,

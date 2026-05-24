@@ -217,6 +217,7 @@ class TestGenerateFlightPlanWorkflowHappyPath:
                     "prd_content": "Build a hello world CLI",
                     "name": "test-plan",
                     "output_dir": str(tmp_path),
+                    "cwd": str(tmp_path),
                     "skip_briefing": True,
                 },
             )
@@ -246,6 +247,7 @@ class TestGenerateFlightPlanWorkflowHappyPath:
                     "prd_content": "Some PRD",
                     "name": "test-plan",
                     "output_dir": str(tmp_path),
+                    "cwd": str(tmp_path),
                     "skip_briefing": True,
                 },
             )
@@ -274,6 +276,7 @@ class TestGenerateFlightPlanWorkflowHappyPath:
                     "prd_content": "Some PRD",
                     "name": "test-plan",
                     "output_dir": str(tmp_path),
+                    "cwd": str(tmp_path),
                     "skip_briefing": True,
                 },
             )
@@ -303,6 +306,7 @@ class TestGenerateFlightPlanWorkflowHappyPath:
                     "prd_content": "Some PRD",
                     "name": "test-plan",
                     "output_dir": str(tmp_path),
+                    "cwd": str(tmp_path),
                     "skip_briefing": True,
                 },
             )
@@ -334,6 +338,7 @@ class TestGenerateFlightPlanWorkflowHappyPath:
                     "prd_content": "Some PRD",
                     "name": "test-plan",
                     "output_dir": str(tmp_path),
+                    "cwd": str(tmp_path),
                     "skip_briefing": True,
                 },
             )
@@ -385,6 +390,7 @@ class TestGenerateFlightPlanWorkflowErrors:
                         "prd_content": "Some PRD",
                         "name": "test-plan",
                         "output_dir": str(tmp_path),
+                        "cwd": str(tmp_path),
                         "skip_briefing": True,
                     },
                 )
@@ -450,6 +456,7 @@ class TestGenerateFlightPlanWorkflowXoscarConfig:
                 name="test-plan",
                 plan_dir=tmp_path / "test-plan",
                 skip_briefing=False,
+                cwd=str(tmp_path),
             )
 
         inputs = captured_inputs.get("value")
@@ -528,6 +535,7 @@ class TestGenerateFlightPlanWorkflowXoscarConfig:
                 name="p",
                 plan_dir=tmp_path / "p",
                 skip_briefing=False,
+                cwd=str(tmp_path),
             )
 
         inputs = captured_inputs["value"]

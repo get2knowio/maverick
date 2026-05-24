@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -285,12 +286,12 @@ def fly_workflow(
 
 
 class TestFlyBeadsWorkflow:
-    async def test_happy_path(self, fly_workflow: Any) -> None:
+    async def test_happy_path(self, fly_workflow: Any, tmp_path: Path) -> None:
         """Complete workflow: preflight -> workspace -> bead -> commit -> done."""
         with _patch_all_actions():
             events = await _collect_events(
                 fly_workflow,
-                {"epic_id": "", "max_beads": 5},
+                {"epic_id": "", "max_beads": 5, "cwd": str(tmp_path)},
             )
 
         completed = [e for e in events if isinstance(e, WorkflowCompleted)]
@@ -304,10 +305,12 @@ class TestFlyBeadsWorkflow:
         assert final["beads_succeeded"] == 1
         assert final["beads_processed"] == 1
 
-    async def test_events_emitted(self, fly_workflow: Any) -> None:
+    async def test_events_emitted(self, fly_workflow: Any, tmp_path: Path) -> None:
         """WorkflowStarted, StepStarted/StepCompleted, WorkflowCompleted are emitted."""
         with _patch_all_actions():
-            events = await _collect_events(fly_workflow, {"epic_id": "", "max_beads": 5})
+            events = await _collect_events(
+                fly_workflow, {"epic_id": "", "max_beads": 5, "cwd": str(tmp_path)}
+            )
 
         event_types = {type(e).__name__ for e in events}
         assert "WorkflowStarted" in event_types
@@ -318,18 +321,20 @@ class TestFlyBeadsWorkflow:
         started = next(e for e in events if isinstance(e, WorkflowStarted))
         assert started.workflow_name == "fly-beads"
 
-    async def test_skip_review_mode(self, fly_workflow: Any) -> None:
+    async def test_skip_review_mode(self, fly_workflow: Any, tmp_path: Path) -> None:
         """When skip_review=True, review step is skipped."""
         with _patch_all_actions():
             events = await _collect_events(
                 fly_workflow,
-                {"epic_id": "", "max_beads": 5},
+                {"epic_id": "", "max_beads": 5, "cwd": str(tmp_path)},
             )
 
         completed = next(e for e in events if isinstance(e, WorkflowCompleted))
         assert completed.success is True
 
-    async def test_bead_failure_reported_in_result(self, fly_workflow: Any) -> None:
+    async def test_bead_failure_reported_in_result(
+        self, fly_workflow: Any, tmp_path: Path
+    ) -> None:
         """When Thespian reports bead failures, they appear in the result."""
         mv = _make_mock_actions()
         mv["xoscar_return"] = {
@@ -339,7 +344,9 @@ class TestFlyBeadsWorkflow:
         }
 
         with _patch_all_actions(mv) as mocks:
-            events = await _collect_events(fly_workflow, {"epic_id": "", "max_beads": 5})
+            events = await _collect_events(
+                fly_workflow, {"epic_id": "", "max_beads": 5, "cwd": str(tmp_path)}
+            )
 
         mocks["xoscar"].assert_called_once()
 
@@ -347,7 +354,9 @@ class TestFlyBeadsWorkflow:
         assert completed.success is True
         assert fly_workflow.result.final_output["beads_failed"] == 1
 
-    async def test_preflight_exception_emits_completed_failure(self, fly_workflow: Any) -> None:
+    async def test_preflight_exception_emits_completed_failure(
+        self, fly_workflow: Any, tmp_path: Path
+    ) -> None:
         """If preflight raises, WorkflowCompleted(success=False) is emitted and
         the exception is re-raised after (R-012)."""
         events: list[Any] = []
@@ -358,21 +367,27 @@ class TestFlyBeadsWorkflow:
             ),
             pytest.raises(RuntimeError, match="API key missing"),
         ):
-            async for event in fly_workflow.execute({"epic_id": "", "max_beads": 5}):
+            async for event in fly_workflow.execute(
+                {"epic_id": "", "max_beads": 5, "cwd": str(tmp_path)}
+            ):
                 events.append(event)
 
         completed = next(e for e in events if isinstance(e, WorkflowCompleted))
         assert completed.success is False
 
-    async def test_xoscar_path_invoked(self, fly_workflow: Any) -> None:
+    async def test_xoscar_path_invoked(self, fly_workflow: Any, tmp_path: Path) -> None:
         """Thespian path is invoked for execution."""
         with _patch_all_actions() as mocks:
-            await _collect_events(fly_workflow, {"epic_id": "", "max_beads": 5})
+            await _collect_events(
+                fly_workflow, {"epic_id": "", "max_beads": 5, "cwd": str(tmp_path)}
+            )
 
         mocks["xoscar"].assert_called_once()
         mocks["select"].assert_not_called()
 
-    async def test_human_review_items_come_from_xoscar_events(self, fly_workflow: Any) -> None:
+    async def test_human_review_items_come_from_xoscar_events(
+        self, fly_workflow: Any, tmp_path: Path
+    ) -> None:
         """Needs-human-review beads are derived from Thespian bead events."""
         mv = _make_mock_actions()
         mv["xoscar_return"] = {
@@ -390,7 +405,9 @@ class TestFlyBeadsWorkflow:
         }
 
         with _patch_all_actions(mv):
-            async for _ in fly_workflow.execute({"epic_id": "", "max_beads": 5}):
+            async for _ in fly_workflow.execute(
+                {"epic_id": "", "max_beads": 5, "cwd": str(tmp_path)}
+            ):
                 pass
 
         assert fly_workflow.result is not None
@@ -404,7 +421,7 @@ class TestFlyBeadsWorkflow:
             }
         ]
 
-    async def test_max_beads_limit(self, fly_workflow: Any) -> None:
+    async def test_max_beads_limit(self, fly_workflow: Any, tmp_path: Path) -> None:
         """Thespian result beads_completed used for final count."""
         select_side_effect = [
             _make_select_result(bead_id=f"b{i}", title=f"Bead {i}", done=False) for i in range(10)
@@ -419,14 +436,16 @@ class TestFlyBeadsWorkflow:
             "beads_failed": 0,
         }
         with _patch_all_actions(mv):
-            async for _ in fly_workflow.execute({"epic_id": "", "max_beads": 3}):
+            async for _ in fly_workflow.execute(
+                {"epic_id": "", "max_beads": 3, "cwd": str(tmp_path)}
+            ):
                 pass
 
         assert fly_workflow.result is not None
         final = fly_workflow.result.final_output
         assert final["beads_succeeded"] == 3
 
-    async def test_multiple_beads_processed(self, fly_workflow: Any) -> None:
+    async def test_multiple_beads_processed(self, fly_workflow: Any, tmp_path: Path) -> None:
         """Multiple beads reported by Thespian appear in result."""
         mv = _make_mock_actions()
         mv["xoscar_return"] = {
@@ -436,27 +455,35 @@ class TestFlyBeadsWorkflow:
         }
 
         with _patch_all_actions(mv):
-            async for _ in fly_workflow.execute({"epic_id": "", "max_beads": 5}):
+            async for _ in fly_workflow.execute(
+                {"epic_id": "", "max_beads": 5, "cwd": str(tmp_path)}
+            ):
                 pass
 
         assert fly_workflow.result.final_output["beads_succeeded"] == 2
 
-    async def test_epic_id_passed_to_supervisor(self, fly_workflow: Any) -> None:
+    async def test_epic_id_passed_to_supervisor(self, fly_workflow: Any, tmp_path: Path) -> None:
         """Epic ID is passed to the Thespian path for processing."""
         with _patch_all_actions() as mocks:
-            async for _ in fly_workflow.execute({"epic_id": "epic-99", "max_beads": 5}):
+            async for _ in fly_workflow.execute(
+                {"epic_id": "epic-99", "max_beads": 5, "cwd": str(tmp_path)}
+            ):
                 pass
 
         mocks["xoscar"].assert_called_once()
         call_kwargs = mocks["xoscar"].call_args[1]
         assert call_kwargs["epic_id"] == "epic-99"
 
-    async def test_epic_not_closed_when_children_still_open(self, fly_workflow: Any) -> None:
+    async def test_epic_not_closed_when_children_still_open(
+        self, fly_workflow: Any, tmp_path: Path
+    ) -> None:
         """Epic bead stays open when some children are blocked."""
         mv = _make_mock_actions()
 
         with _patch_all_actions(mv) as mocks:
-            async for _ in fly_workflow.execute({"epic_id": "epic-99", "max_beads": 5}):
+            async for _ in fly_workflow.execute(
+                {"epic_id": "epic-99", "max_beads": 5, "cwd": str(tmp_path)}
+            ):
                 pass
 
         # mark_bead_complete called only for the work bead (in steps), not the epic
@@ -464,12 +491,16 @@ class TestFlyBeadsWorkflow:
         epic_calls = [c for c in calls if c.kwargs.get("bead_id") == "epic-99"]
         assert len(epic_calls) == 0
 
-    async def test_epic_not_closed_without_epic_id(self, fly_workflow: Any) -> None:
+    async def test_epic_not_closed_without_epic_id(
+        self, fly_workflow: Any, tmp_path: Path
+    ) -> None:
         """Epic is not closed when no epic_id was provided."""
         mv = _make_mock_actions()
 
         with _patch_all_actions(mv) as mocks:
-            async for _ in fly_workflow.execute({"epic_id": "", "max_beads": 5}):
+            async for _ in fly_workflow.execute(
+                {"epic_id": "", "max_beads": 5, "cwd": str(tmp_path)}
+            ):
                 pass
 
         # mark_bead_complete called only for the work bead (empty epic_id)

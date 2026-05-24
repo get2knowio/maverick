@@ -242,6 +242,7 @@ class TestRefuelMaverickWorkflowHappyPath:
                 runway_context_text=None,
                 run_dir=None,
                 skip_briefing=True,
+                ws_cwd=tmp_path,
             )
 
         inputs = captured_inputs.get("value")
@@ -323,6 +324,7 @@ class TestRefuelMaverickWorkflowHappyPath:
                 runway_context_text=None,
                 run_dir=None,
                 skip_briefing=False,
+                ws_cwd=tmp_path,
             )
 
         inputs = captured_inputs["value"]

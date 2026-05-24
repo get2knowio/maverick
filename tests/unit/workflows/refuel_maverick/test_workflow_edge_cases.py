@@ -205,12 +205,13 @@ class TestErrorHandling:
     async def test_missing_flight_plan_path_raises_workflow_error(
         self,
         mock_config: MagicMock,
+        tmp_path: Path,
     ) -> None:
         """Missing flight_plan_path input raises WorkflowError."""
         workflow = make_workflow(mock_config)
 
         with pytest.raises(WorkflowError, match="flight_plan_path"):
-            async for _ in workflow.execute({}):
+            async for _ in workflow.execute({"cwd": str(tmp_path)}):
                 pass
 
     async def test_nonexistent_flight_plan_file_raises(
@@ -264,7 +265,11 @@ class TestErrorHandling:
             # ``BeadCreatorActor`` owns persistence, and that path never
             # runs when the supervisor itself fails.
             with pytest.raises(WorkflowError, match="[Cc]ircular|[Dd]ependency|cycle"):
-                inputs = {"flight_plan_path": str(fp), "skip_briefing": True}
+                inputs = {
+                    "flight_plan_path": str(fp),
+                    "skip_briefing": True,
+                    "cwd": str(tmp_path),
+                }
                 async for _ in workflow.execute(inputs):
                     pass
 
