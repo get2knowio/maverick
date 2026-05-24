@@ -24,6 +24,11 @@ from maverick.init import (
     ProviderDiscoveryResult,
     run_init,
 )
+from maverick.init.provider_discovery import (
+    parse_model_specs,
+    parse_provider_list,
+    validate_provider_ids,
+)
 
 
 def _format_preflight_output(
@@ -198,6 +203,22 @@ PROJECT_TYPE_CHOICES = [
     help="Overwrite existing maverick.yaml.",
 )
 @click.option(
+    "--providers",
+    type=str,
+    default=None,
+    help=(
+        "Comma-separated Airframe provider IDs to spread across "
+        "(e.g. claude,github-copilot,opencode,opencode-go)."
+    ),
+)
+@click.option(
+    "--models",
+    "model_specs",
+    type=str,
+    multiple=True,
+    help=("Provider model specs: provider:model1,model2. May be passed multiple times."),
+)
+@click.option(
     "-v",
     "--verbose",
     is_flag=True,
@@ -210,6 +231,8 @@ async def init(
     ctx: click.Context,
     project_type: str | None,
     force: bool,
+    providers: str | None,
+    model_specs: tuple[str, ...],
     verbose: bool,
 ) -> None:
     """Initialize maverick configuration for the current project.
@@ -224,6 +247,10 @@ async def init(
 
         maverick init --type python
 
+        maverick init --providers claude,github-copilot,opencode-go
+
+        maverick init --models opencode-go:minimax-m2.7 --models github-copilot:gpt-5-mini
+
         maverick init --force -v
     """
     console.print("[bold cyan]Maverick Init[/]")
@@ -233,6 +260,27 @@ async def init(
     if project_type:
         type_override = ProjectType.from_string(project_type)
 
+    try:
+        provider_ids = parse_provider_list(providers)
+        parsed_model_specs = parse_model_specs(model_specs)
+
+        explicitly_named = set(provider_ids or ())
+        explicitly_named.update(parsed_model_specs)
+        if explicitly_named:
+            validate_provider_ids(tuple(sorted(explicitly_named)))
+
+        if provider_ids is not None:
+            model_only = sorted(set(parsed_model_specs) - set(provider_ids))
+            if model_only:
+                raise ValueError(
+                    "--models specified provider(s) not present in --providers: "
+                    + ", ".join(model_only)
+                )
+        elif parsed_model_specs:
+            provider_ids = tuple(parsed_model_specs)
+    except (RuntimeError, ValueError) as exc:
+        raise click.ClickException(str(exc)) from exc
+
     with cli_error_handler():
         try:
             result = await run_init(
@@ -240,6 +288,8 @@ async def init(
                 type_override=type_override,
                 force=force,
                 verbose=verbose,
+                provider_ids=provider_ids,
+                model_specs=parsed_model_specs,
             )
 
             lines: list[str] = []

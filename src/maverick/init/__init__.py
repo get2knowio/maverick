@@ -682,6 +682,7 @@ async def _untrack_bd_local_state(project_path: Path, verbose: bool) -> bool:
 
 async def _maybe_discover_providers(
     verbose: bool,
+    provider_ids: tuple[str, ...] | None = None,
 ) -> ProviderDiscoveryResult | None:
     """Discover providers reachable via installed airframe adapters.
 
@@ -689,7 +690,7 @@ async def _maybe_discover_providers(
     ``list_models`` endpoint. Best-effort: failures are logged but
     never raised.
     """
-    result = await discover_providers()
+    result = await discover_providers(provider_ids=provider_ids)
     if result is not None and verbose:
         logger.info(
             "providers_discovered",
@@ -711,6 +712,8 @@ async def run_init(
     type_override: ProjectType | None = None,
     force: bool = False,
     verbose: bool = False,
+    provider_ids: tuple[str, ...] | None = None,
+    model_specs: dict[str, tuple[str, ...]] | None = None,
 ) -> InitResult:
     """Execute maverick init workflow.
 
@@ -860,7 +863,10 @@ async def run_init(
             )
 
     # Step 3.5: Discover connected providers (best-effort)
-    provider_discovery: ProviderDiscoveryResult | None = await _maybe_discover_providers(verbose)
+    provider_discovery: ProviderDiscoveryResult | None = await _maybe_discover_providers(
+        verbose,
+        provider_ids=provider_ids,
+    )
 
     # Step 4: Generate configuration
     config = generate_config(
@@ -868,6 +874,8 @@ async def run_init(
         detection=detection,
         project_type=type_override,  # Pass override if specified
         provider_discovery=provider_discovery,
+        selected_provider_ids=provider_ids,
+        model_specs=model_specs,
     )
 
     if verbose:

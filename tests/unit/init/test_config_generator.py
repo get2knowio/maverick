@@ -170,16 +170,13 @@ class TestGenerateConfig:
             assert "provider" in config.agents[role]
             assert "model_id" in config.agents[role]
 
-    def test_generate_config_discovery_is_surfaced_only(self) -> None:
-        """Discovery result no longer writes into the YAML.
-
-        The ``agents:`` block is the canonical routing config; discovery
-        feeds the verbose console output but doesn't drive yaml content.
-        """
+    def test_generate_config_uses_discovery_for_agent_spread(self) -> None:
+        """Discovery can drive the generated agents: provider spread."""
         git_info = GitRemoteInfo(owner="acme", repo="project")
         discovery = ProviderDiscoveryResult(
             providers=(
                 DiscoveredProvider("github-copilot", "GitHub Copilot", "claude-sonnet-4.6", 17),
+                DiscoveredProvider("opencode-go", "OpenCode-Go", "minimax-m2.7", 3),
             ),
             default_provider_id="github-copilot",
         )
@@ -190,14 +187,35 @@ class TestGenerateConfig:
             provider_discovery=discovery,
         )
 
-        # The generated config has agents: from the defaults, regardless
-        # of what discovery returned.
-        assert set(config.agents.keys()) == {
-            "implement",
-            "review",
-            "briefing",
-            "decompose",
-            "generate",
+        providers = {binding["provider"] for binding in config.agents.values()}
+        assert providers == {"github-copilot", "opencode-go"}
+
+    def test_generate_config_explicit_providers_and_models(self) -> None:
+        """Explicit provider/model selections drive agents: bindings."""
+        git_info = GitRemoteInfo(owner="acme", repo="project")
+
+        config = generate_config(
+            git_info=git_info,
+            detection=None,
+            selected_provider_ids=("claude", "opencode-go", "github-copilot", "opencode"),
+            model_specs={
+                "claude": ("claude-sonnet-4-6", "claude-haiku-4-5"),
+                "opencode-go": ("minimax-m2.7",),
+                "github-copilot": ("gpt-5-mini",),
+                "opencode": ("claude-sonnet-4-6",),
+            },
+        )
+
+        assert config.agents["implement"] == {
+            "provider": "claude",
+            "model_id": "claude-sonnet-4-6",
+        }
+        assert config.agents["review"]["provider"] == "opencode-go"
+        assert config.agents["briefing"]["provider"] == "github-copilot"
+        assert config.agents["decompose"]["provider"] == "opencode"
+        assert config.agents["generate"] == {
+            "provider": "claude",
+            "model_id": "claude-haiku-4-5",
         }
 
     def test_generate_config_to_yaml(self) -> None:

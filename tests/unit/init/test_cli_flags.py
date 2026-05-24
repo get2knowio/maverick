@@ -304,6 +304,173 @@ class TestCombinedFlags:
         assert "cargo" in config.lower()
 
 
+class TestProviderModelFlags:
+    """Tests for --providers and --models."""
+
+    def test_providers_flag_spreads_agents(
+        self,
+        cli_runner: CliRunner,
+        git_repo: Path,
+        mock_preflight_success: InitPreflightResult,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """--providers is validated and used for generated agents: bindings."""
+        os.chdir(git_repo)
+        monkeypatch.setattr(Path, "home", lambda: git_repo)
+
+        from maverick.init.provider_discovery import (
+            DiscoveredProvider,
+            ProviderDiscoveryResult,
+        )
+
+        discovery = ProviderDiscoveryResult(
+            providers=(
+                DiscoveredProvider("claude", "Claude", "claude-sonnet-4-6", 2),
+                DiscoveredProvider("opencode-go", "OpenCode-Go", "minimax-m2.7", 1),
+                DiscoveredProvider("github-copilot", "GitHub Copilot", "gpt-5-mini", 1),
+                DiscoveredProvider("opencode", "OpenCode", "claude-sonnet-4-6", 1),
+            ),
+            default_provider_id="claude",
+        )
+
+        with (
+            patch(
+                "maverick.init.provider_discovery.airframe.list_providers",
+                return_value=["claude", "opencode-go", "github-copilot", "opencode"],
+            ),
+            patch(
+                "maverick.init.verify_prerequisites",
+                new_callable=AsyncMock,
+                return_value=mock_preflight_success,
+            ),
+            patch(
+                "maverick.init._maybe_discover_providers",
+                new_callable=AsyncMock,
+                return_value=discovery,
+            ) as mock_discover,
+        ):
+            result = cli_runner.invoke(
+                cli,
+                [
+                    "init",
+                    "--type",
+                    "python",
+                    "--providers",
+                    "claude,opencode-go,github-copilot,opencode",
+                ],
+            )
+
+        assert result.exit_code == 0, f"Failed: {result.output}"
+        mock_discover.assert_awaited_once_with(
+            False,
+            provider_ids=("claude", "opencode-go", "github-copilot", "opencode"),
+        )
+        config = (git_repo / "maverick.yaml").read_text()
+        assert "provider: claude" in config
+        assert "provider: opencode-go" in config
+        assert "provider: github-copilot" in config
+        assert "provider: opencode" in config
+
+    def test_models_flag_can_select_providers(
+        self,
+        cli_runner: CliRunner,
+        git_repo: Path,
+        mock_preflight_success: InitPreflightResult,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """--models alone selects and validates its named providers."""
+        os.chdir(git_repo)
+        monkeypatch.setattr(Path, "home", lambda: git_repo)
+
+        with (
+            patch(
+                "maverick.init.provider_discovery.airframe.list_providers",
+                return_value=["claude", "opencode-go"],
+            ),
+            patch(
+                "maverick.init.verify_prerequisites",
+                new_callable=AsyncMock,
+                return_value=mock_preflight_success,
+            ),
+            patch(
+                "maverick.init._maybe_discover_providers",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+        ):
+            result = cli_runner.invoke(
+                cli,
+                [
+                    "init",
+                    "--type",
+                    "python",
+                    "--models",
+                    "claude:claude-sonnet-4-6,claude-haiku-4-5",
+                    "--models",
+                    "opencode-go:minimax-m2.7",
+                ],
+            )
+
+        assert result.exit_code == 0, f"Failed: {result.output}"
+        config = (git_repo / "maverick.yaml").read_text()
+        assert "provider: claude" in config
+        assert "model_id: claude-sonnet-4-6" in config
+        assert "model_id: claude-haiku-4-5" in config
+        assert "provider: opencode-go" in config
+        assert "model_id: minimax-m2.7" in config
+
+    def test_providers_flag_rejects_unknown_provider(
+        self,
+        cli_runner: CliRunner,
+        git_repo: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """--providers rejects ids not returned by Airframe."""
+        os.chdir(git_repo)
+        monkeypatch.setattr(Path, "home", lambda: git_repo)
+
+        with patch(
+            "maverick.init.provider_discovery.airframe.list_providers",
+            return_value=["claude", "opencode-go"],
+        ):
+            result = cli_runner.invoke(
+                cli,
+                ["init", "--providers", "claude,nope"],
+            )
+
+        assert result.exit_code != 0
+        assert "Unknown or unavailable Airframe provider" in result.output
+        assert not (git_repo / "maverick.yaml").exists()
+
+    def test_models_provider_must_be_in_providers_when_both_are_set(
+        self,
+        cli_runner: CliRunner,
+        git_repo: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A --models provider outside --providers is rejected."""
+        os.chdir(git_repo)
+        monkeypatch.setattr(Path, "home", lambda: git_repo)
+
+        with patch(
+            "maverick.init.provider_discovery.airframe.list_providers",
+            return_value=["claude", "opencode-go"],
+        ):
+            result = cli_runner.invoke(
+                cli,
+                [
+                    "init",
+                    "--providers",
+                    "claude",
+                    "--models",
+                    "opencode-go:minimax-m2.7",
+                ],
+            )
+
+        assert result.exit_code != 0
+        assert "--models specified provider" in result.output
+
+
 # =============================================================================
 # Airframe-backed provider discovery
 # =============================================================================

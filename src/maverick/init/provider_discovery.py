@@ -29,6 +29,10 @@ __all__ = [
     "DiscoveredProvider",
     "ProviderDiscoveryResult",
     "discover_providers",
+    "installed_provider_ids",
+    "parse_model_specs",
+    "parse_provider_list",
+    "validate_provider_ids",
 ]
 
 logger = get_logger(__name__)
@@ -40,8 +44,8 @@ logger = get_logger(__name__)
 _PREFERENCE_ORDER: tuple[str, ...] = (
     "github-copilot",
     "claude",
-    "codex",
     "opencode",
+    "opencode-go",
 )
 
 
@@ -90,6 +94,7 @@ class ProviderDiscoveryResult:
 
 async def discover_providers(
     *,
+    provider_ids: tuple[str, ...] | None = None,
     timeout: float = 30.0,
 ) -> ProviderDiscoveryResult | None:
     """Probe every installed airframe adapter for live model listings.
@@ -104,6 +109,10 @@ async def discover_providers(
     except Exception as exc:  # noqa: BLE001
         logger.debug("airframe_list_providers_failed", error=str(exc))
         return None
+
+    if provider_ids is not None:
+        wanted = set(provider_ids)
+        installed = [pid for pid in installed if pid in wanted]
 
     if not installed:
         return ProviderDiscoveryResult(
@@ -126,6 +135,71 @@ async def discover_providers(
         default_provider_id=default_id,
         duration_ms=int((time.monotonic() - start) * 1000),
     )
+
+
+def installed_provider_ids() -> tuple[str, ...]:
+    """Return installed Airframe provider ids in deterministic order.
+
+    Raises:
+        RuntimeError: If Airframe cannot enumerate installed adapters.
+    """
+    try:
+        installed = tuple(str(pid) for pid in airframe.list_providers(installed_only=True))
+    except Exception as exc:  # noqa: BLE001
+        raise RuntimeError(f"Could not list installed Airframe providers: {exc}") from exc
+    return tuple(sorted(installed, key=lambda pid: (_preference_index(pid), pid)))
+
+
+def parse_provider_list(value: str | None) -> tuple[str, ...] | None:
+    """Parse a comma-separated provider list from ``--providers``."""
+    if value is None:
+        return None
+    providers = tuple(part.strip() for part in value.split(",") if part.strip())
+    if not providers:
+        raise ValueError("--providers must name at least one provider")
+    duplicates = sorted({pid for pid in providers if providers.count(pid) > 1})
+    if duplicates:
+        raise ValueError(f"Duplicate provider id(s): {', '.join(duplicates)}")
+    return providers
+
+
+def parse_model_specs(specs: tuple[str, ...]) -> dict[str, tuple[str, ...]]:
+    """Parse ``--models provider:model1,model2`` values."""
+    parsed: dict[str, list[str]] = {}
+    for spec in specs:
+        if ":" not in spec:
+            raise ValueError(f"Invalid --models value {spec!r}; expected provider:model1,model2")
+        provider_id, raw_models = spec.split(":", 1)
+        provider_id = provider_id.strip()
+        models = [model.strip() for model in raw_models.split(",") if model.strip()]
+        if not provider_id or not models:
+            raise ValueError(f"Invalid --models value {spec!r}; expected provider:model1,model2")
+        parsed.setdefault(provider_id, []).extend(models)
+    return {provider_id: tuple(models) for provider_id, models in parsed.items()}
+
+
+def validate_provider_ids(provider_ids: tuple[str, ...]) -> tuple[str, ...]:
+    """Validate explicit provider ids against installed Airframe adapters.
+
+    Args:
+        provider_ids: Provider ids from CLI flags.
+
+    Returns:
+        The installed provider ids Airframe reported.
+
+    Raises:
+        ValueError: If any requested provider is not installed.
+        RuntimeError: If installed providers cannot be enumerated.
+    """
+    installed = installed_provider_ids()
+    unknown = [pid for pid in provider_ids if pid not in installed]
+    if unknown:
+        available = ", ".join(installed) if installed else "(none)"
+        raise ValueError(
+            "Unknown or unavailable Airframe provider id(s): "
+            f"{', '.join(unknown)}. Installed providers: {available}"
+        )
+    return installed
 
 
 async def _probe_provider(provider_id: str, *, timeout: float) -> DiscoveredProvider | None:
