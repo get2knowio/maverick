@@ -14,9 +14,7 @@
     "ghcr.io/devcontainers/features/github-cli:1": {},
     "ghcr.io/eitsupi/devcontainer-features/jq-likes:2": {},
     "ghcr.io/devcontainers-extra/features/starship:1": {},
-    "ghcr.io/get2knowio/devcontainer-features/ai-clis:2": {
-      "install": "claudeCode,specifyCli,beads,copilot,geminiCli"
-    },
+    "ghcr.io/get2knowio/devcontainer-features/ai-clis:2": {},
     "ghcr.io/get2knowio/devcontainer-features/modern-cli-tools:2": {},
     "ghcr.io/get2knowio/devcontainer-features/python-tools:2": {
       "omit": "poetry"
