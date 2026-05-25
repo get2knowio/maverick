@@ -350,6 +350,15 @@ wheels = [
 ]
 
 [[package]]
+name = "burr"
+version = "0.40.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/1f/9c/f978b798a82eb2592c12be7ef24eb41851be33edd68395d283201719f8bf/burr-0.40.2.tar.gz", hash = "sha256:275f3e26a3deede8126c57f78e1e6a0d9940b0c89c0b8ae78ce97a3ae1e2c2a6", size = 25533834, upload-time = "2025-05-28T05:55:30.44Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/53/93/b678ae49ff67fbb2f6fdd21ca4c0ff455857ae58dc180860cc4407c2ae5e/burr-0.40.2-py3-none-any.whl", hash = "sha256:b8e790cdba5ffc61270db2ef2324d828de1a4d56d06f732d7d496d7cb053d0c7", size = 5809991, upload-time = "2025-05-28T05:55:21.387Z" },
+]
+
+[[package]]
 name = "certifi"
 version = "2025.11.12"
 source = { registry = "https://pypi.org/simple" }
@@ -1261,6 +1270,7 @@ dependencies = [
     { name = "airframe-agents", extra = ["all"] },
     { name = "anyio" },
     { name = "atomicwrites" },
+    { name = "burr" },
     { name = "click" },
     { name = "detect-secrets" },
     { name = "gitpython" },
@@ -1314,6 +1324,7 @@ requires-dist = [
     { name = "airframe-agents", extras = ["all"], specifier = ">=0.9.0rc1,<0.10" },
     { name = "anyio", specifier = ">=4.0,<5" },
     { name = "atomicwrites", specifier = ">=1.4,<2" },
+    { name = "burr", specifier = ">=0.40,<0.41" },
     { name = "click", specifier = ">=8.1.0,<9" },
     { name = "detect-secrets", specifier = ">=1.4,<2" },
     { name = "gitpython", specifier = ">=3.1,<4" },
