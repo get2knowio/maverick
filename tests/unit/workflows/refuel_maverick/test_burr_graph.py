@@ -449,3 +449,105 @@ class TestRefuelBurrGraphValidationLoop:
         assert action_sequence.count("validate") >= 2
         _, _, state = driver.result
         assert state["fix_rounds"] >= 1
+
+    async def test_fix_round_merges_new_work_units_into_outline(self, tmp_path: Path) -> None:
+        """``SubmitFixPayload.work_units`` deltas are merged into the outline.
+
+        Models the "fixer splits an overloaded unit" path: the outline
+        starts with one unit, the fix returns a second unit + a
+        replacement detail for both. After ``request_fix``, the outline
+        should contain both units so downstream actions see the split.
+        """
+        outline = _make_outline(unit_ids=("u-1",))
+        empty_details = SubmitDetailsPayload(
+            details=(
+                WorkUnitDetailPayload(
+                    id="u-1",
+                    instructions="todo",
+                    acceptance_criteria=(AcceptanceCriterionPayload(text="todo ac"),),
+                    verification=("pytest -k todo",),
+                    test_specification="",
+                ),
+            )
+        )
+        # Fix splits u-1 → u-1-a + u-1-b (new work_units appear).
+        new_unit_a = WorkUnitOutlinePayload(
+            id="u-1-a",
+            task="half a",
+            sequence=2,
+            depends_on=(),
+            file_scope=FileScopePayload(),
+            complexity="simple",
+        )
+        new_unit_b = WorkUnitOutlinePayload(
+            id="u-1-b",
+            task="half b",
+            sequence=3,
+            depends_on=(),
+            file_scope=FileScopePayload(),
+            complexity="simple",
+        )
+        fix_payload = SubmitFixPayload(
+            work_units=(new_unit_a, new_unit_b),
+            details=(
+                WorkUnitDetailPayload(
+                    id="u-1-a",
+                    instructions="done a",
+                    acceptance_criteria=(
+                        AcceptanceCriterionPayload(text="ac-a", trace_ref="SC-1"),
+                    ),
+                    verification=("pytest",),
+                    test_specification="",
+                ),
+                WorkUnitDetailPayload(
+                    id="u-1-b",
+                    instructions="done b",
+                    acceptance_criteria=(
+                        AcceptanceCriterionPayload(text="ac-b", trace_ref="SC-1"),
+                    ),
+                    verification=("pytest",),
+                    test_specification="",
+                ),
+            ),
+        )
+
+        squadron = StubRefuelSquadron(
+            outline_payload=outline,
+            detail_payloads=[empty_details],
+            fix_payloads=[fix_payload],
+        )
+
+        queue: asyncio.Queue[ProgressEvent | None] = asyncio.Queue()
+        with (
+            patch(
+                "maverick.library.actions.beads.create_beads",
+                new=AsyncMock(return_value=_make_bead_result()),
+            ),
+            patch(
+                "maverick.library.actions.beads.wire_dependencies",
+                new=AsyncMock(return_value=_make_wire_result()),
+            ),
+        ):
+            app = build_refuel_application(
+                squadron=squadron,
+                event_queue=queue,
+                raw_content="x",
+                briefing_prompt="x",
+                codebase_context=_empty_codebase_context(),
+                open_bead_context=None,
+                runway_context_text=None,
+                plan_name="p",
+                plan_objective="o",
+                cwd=str(tmp_path),
+                skip_briefing=True,
+                success_criteria_count=1,
+                expected_sc_refs=("SC-1",),
+            )
+            driver = BurrWorkflowDriver(app, halt_after=REFUEL_TERMINAL_ACTIONS, event_queue=queue)
+            await _collect(driver)
+
+        _, _, state = driver.result
+        outline_ids = sorted(u["id"] for u in state["outline"]["work_units"])
+        assert outline_ids == ["u-1", "u-1-a", "u-1-b"], (
+            f"fix-round work_units not merged into outline: {outline_ids}"
+        )

@@ -17,10 +17,10 @@ follow-up):
   driver does not write cache files**. Re-running a Burr-mode refuel
   starts from scratch; rerun on xoscar to re-populate caches.
 * Quota error special-handling: treated like any other failure for now.
-* Fix-round merge: only merges ``details`` from the fix payload, not
-  ``work_units``. The xoscar supervisor merges both (handles the case
-  where the fixer splits an overloaded unit). Restoring outline-merge
-  on fix is queued behind the rest of Phase 2's simplifications.
+* Fix-round merge: merges both ``details`` and ``work_units`` from
+  the fix payload (handles the case where the fixer splits an
+  overloaded unit). New ``work_units`` returned by the fixer are
+  appended to the outline; existing ones are replaced by id.
 
 Default driver remains xoscar; opt in via ``MAVERICK_USE_BURR=refuel``.
 """
@@ -531,8 +531,8 @@ async def validate(
 
 
 @action(
-    reads=["specs", "validation_warnings", "fix_rounds"],
-    writes=["accumulated_details", "fix_rounds"],
+    reads=["specs", "validation_warnings", "fix_rounds", "outline", "accumulated_details"],
+    writes=["accumulated_details", "outline", "fix_rounds"],
 )
 async def request_fix(
     state: State,
@@ -540,7 +540,15 @@ async def request_fix(
     squadron: RefuelSquadron,
     events: asyncio.Queue[ProgressEvent | None],
 ) -> tuple[dict[str, Any], State]:
-    """One round of decomposer fix dispatch — merges deltas into details."""
+    """One round of decomposer fix dispatch.
+
+    Merges both ``details`` (refined acceptance criteria / verification
+    steps) and ``work_units`` (outline-level changes — e.g. when the
+    fixer splits an overloaded unit) from the returned ``SubmitFixPayload``
+    into State. Matches the pre-migration supervisor's behaviour; without
+    the outline merge, splits introduced by the fixer would be silently
+    dropped.
+    """
     new_fix_rounds = state["fix_rounds"] + 1
     await _put_output(
         events,
@@ -573,9 +581,10 @@ async def request_fix(
         )
     payload_dict = dump_supervisor_payload(payload)
     fix_details = payload_dict.get("details", []) or []
+    fix_work_units = payload_dict.get("work_units", []) or []
 
-    # Merge fix deltas into accumulated_details (replace by unit_id where
-    # the fixer sent a new version; append where it's new).
+    # Merge fix deltas into accumulated_details (replace by unit_id
+    # where the fixer sent a new version; append where it's new).
     accumulated = list(state["accumulated_details"])
     by_id = {d.get("id") or d.get("unit_id"): i for i, d in enumerate(accumulated)}
     for d in fix_details:
@@ -588,8 +597,38 @@ async def request_fix(
             accumulated.append(d)
             by_id[uid] = len(accumulated) - 1
 
-    return {"fix_rounds": new_fix_rounds}, state.update(
+    # Merge work_units deltas back into the outline. Handles the case
+    # where the fixer adds a new unit (splitting an overloaded one).
+    # Existing units with the same id are replaced; new ids are
+    # appended. Outline-only fields (id, task, sequence, depends_on,
+    # file_scope, complexity) are taken verbatim from the fix payload.
+    outline_dict = dict(state["outline"] or {})
+    outline_units = list(outline_dict.get("work_units", []))
+    outline_by_id = {u.get("id"): i for i, u in enumerate(outline_units)}
+    new_units = 0
+    for wu in fix_work_units:
+        uid = wu.get("id")
+        if uid is None:
+            continue
+        if uid in outline_by_id:
+            outline_units[outline_by_id[uid]] = wu
+        else:
+            outline_units.append(wu)
+            outline_by_id[uid] = len(outline_units) - 1
+            new_units += 1
+    outline_dict["work_units"] = outline_units
+
+    if new_units:
+        await _put_output(
+            events,
+            "decompose",
+            f"Fix introduced {new_units} new work unit(s)",
+            metadata={"new_unit_count": new_units},
+        )
+
+    return {"fix_rounds": new_fix_rounds, "new_units": new_units}, state.update(
         accumulated_details=accumulated,
+        outline=outline_dict,
         fix_rounds=new_fix_rounds,
     )
 
