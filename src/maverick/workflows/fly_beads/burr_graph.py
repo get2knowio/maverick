@@ -76,6 +76,7 @@ def build_fly_application(
     max_beads: int = 0,
     completed_bead_ids: tuple[str, ...] = (),
     validation_commands: dict[str, tuple[str, ...]] | None = None,
+    project_type: str = "rust",
 ) -> Any:
     """Build the ``Application`` for one fly run."""
     hook = ProgressEventHook(
@@ -104,7 +105,12 @@ def build_fly_application(
                 validation_commands=validation_commands,
             ),
             ac_check=fly_actions.ac_check.bind(squadron=squadron, events=event_queue, cwd=cwd),
-            spec_check=fly_actions.spec_check.bind(events=event_queue),
+            spec_check=fly_actions.spec_check.bind(
+                squadron=squadron,
+                events=event_queue,
+                cwd=cwd,
+                project_type=project_type,
+            ),
             review=fly_actions.review.bind(squadron=squadron, events=event_queue),
             commit=fly_actions.commit.bind(cwd=cwd, events=event_queue),
             abandon_bead=fly_actions.abandon_bead.bind(events=event_queue),
