@@ -52,6 +52,7 @@ FLY_ACTION_LABELS: dict[str, str] = {
     "ac_check": "AC check",
     "spec_check": "Spec check",
     "review": "Reviewing",
+    "create_human_bead": "Creating human review bead",
     "commit": "Committing",
     "abandon_bead": "Abandoning bead",
     "record_outcome": "Recording outcome",
@@ -77,6 +78,7 @@ def build_fly_application(
     completed_bead_ids: tuple[str, ...] = (),
     validation_commands: dict[str, tuple[str, ...]] | None = None,
     project_type: str = "rust",
+    flight_plan_name: str = "",
 ) -> Any:
     """Build the ``Application`` for one fly run."""
     hook = ProgressEventHook(
@@ -112,6 +114,12 @@ def build_fly_application(
                 project_type=project_type,
             ),
             review=fly_actions.review.bind(squadron=squadron, events=event_queue),
+            create_human_bead=fly_actions.create_human_bead.bind(
+                cwd=cwd,
+                epic_id=epic_id,
+                flight_plan_name=flight_plan_name,
+                events=event_queue,
+            ),
             commit=fly_actions.commit.bind(cwd=cwd, events=event_queue),
             abandon_bead=fly_actions.abandon_bead.bind(events=event_queue),
             record_outcome=fly_actions.record_outcome,
@@ -143,6 +151,8 @@ def build_fly_application(
             spec_passed=False,
             approved=False,
             commit_ok=False,
+            last_review_findings=[],
+            human_bead_id="",
         )
         .with_hooks(hook)
         .with_entrypoint("init_state")
@@ -165,10 +175,13 @@ def build_fly_application(
             ("ac_check", "spec_check"),
             ("spec_check", "abandon_bead", expr("not spec_passed")),
             ("spec_check", "review"),
-            # Review always proceeds to commit; commit may tag
-            # the bead as needs-human-review (the review_rounds-exceeded
-            # path) rather than abandoning the work-in-progress.
+            # Review either approves → commit, or escalates to
+            # create_human_bead → commit. The bead's work still lands
+            # in either case (commit applies the needs-human-review
+            # trailer when the assumption bead is created).
+            ("review", "create_human_bead", expr("needs_human_review")),
             ("review", "commit"),
+            ("create_human_bead", "commit"),
             ("commit", "record_outcome"),
             ("abandon_bead", "record_outcome"),
             # Cycle back into the loop.
