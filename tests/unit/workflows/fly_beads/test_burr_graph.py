@@ -572,6 +572,104 @@ class TestFlyBurrHumanBeadCreation:
         assert state["needs_human_review"] is True
 
 
+class TestFlyBurrWatchMode:
+    async def test_watch_polls_then_exits_on_idle_cap(self, tmp_path: Path) -> None:
+        """Watch mode polls past an empty cycle, then exits when the cap is hit."""
+        from maverick.workflows.fly_beads.graceful_stop import reset_graceful_stop
+
+        reset_graceful_stop()
+
+        # Sequence: empty (poll 1) → bead → empty (poll 1) → empty
+        # (poll 2 = cap) → empty (cap hit → exit).
+        select_calls = AsyncMock(
+            side_effect=[_NO_MORE, _bead("b-1"), _NO_MORE, _NO_MORE, _NO_MORE]
+        )
+        sleep_calls: list[float] = []
+
+        async def _instant_sleep(seconds: float) -> None:
+            sleep_calls.append(seconds)
+
+        queue: asyncio.Queue[ProgressEvent | None] = asyncio.Queue()
+        squadron = StubFlySquadron()
+
+        with (
+            patch("maverick.library.actions.beads.select_next_bead", new=select_calls),
+            patch(
+                "maverick.library.actions.validation.run_independent_gate",
+                new=AsyncMock(return_value=_gate_passed()),
+            ),
+            patch(
+                "maverick.library.actions.jj.jj_commit_bead",
+                new=AsyncMock(return_value={"change_id": "c", "success": True}),
+            ),
+            patch(
+                "maverick.library.actions.beads.mark_bead_complete",
+                new=AsyncMock(
+                    return_value=MarkBeadCompleteResult(success=True, bead_id="b-1", error=None)
+                ),
+            ),
+            patch("maverick.workflows.fly_beads.actions.asyncio.sleep", new=_instant_sleep),
+        ):
+            app = build_fly_application(
+                squadron=squadron,  # type: ignore[arg-type]
+                event_queue=queue,
+                epic_id="e-1",
+                cwd=str(tmp_path),
+                max_beads=10,
+                watch=True,
+                watch_interval=7,
+                max_idle_polls=2,
+            )
+            driver = BurrWorkflowDriver(app, halt_after=FLY_TERMINAL_ACTIONS, event_queue=queue)
+            await _collect(driver)
+
+        _, _, state = driver.result
+        # Bead processed; watch then exited after the idle cap was hit.
+        assert state["succeeded_count"] == 1
+        assert state["loop_done_reason"] == "watch_idle_exhausted"
+        # One sleep for the first empty cycle, two for the post-bead cycles.
+        assert sleep_calls == [7, 7, 7]
+        # idle_polls stops at the cap.
+        assert state["idle_polls"] == 2
+        # Pre-bead empty cycle resets idle_polls when a bead is found.
+        assert select_calls.await_count == 5
+
+    async def test_no_watch_exits_immediately_on_empty(self, tmp_path: Path) -> None:
+        """Without ``watch``, the first empty poll terminates the loop."""
+        from maverick.workflows.fly_beads.graceful_stop import reset_graceful_stop
+
+        reset_graceful_stop()
+
+        queue: asyncio.Queue[ProgressEvent | None] = asyncio.Queue()
+        squadron = StubFlySquadron()
+        sleep_calls: list[float] = []
+
+        async def _instant_sleep(seconds: float) -> None:
+            sleep_calls.append(seconds)
+
+        with (
+            patch(
+                "maverick.library.actions.beads.select_next_bead",
+                new=AsyncMock(side_effect=[_NO_MORE]),
+            ),
+            patch("maverick.workflows.fly_beads.actions.asyncio.sleep", new=_instant_sleep),
+        ):
+            app = build_fly_application(
+                squadron=squadron,  # type: ignore[arg-type]
+                event_queue=queue,
+                epic_id="e-1",
+                cwd=str(tmp_path),
+                max_beads=10,
+                watch=False,
+            )
+            driver = BurrWorkflowDriver(app, halt_after=FLY_TERMINAL_ACTIONS, event_queue=queue)
+            await _collect(driver)
+
+        _, _, state = driver.result
+        assert state["loop_done_reason"] == "no_more_beads"
+        assert sleep_calls == []  # no watch ⇒ no polling sleep
+
+
 class TestFlyBurrGracefulStop:
     async def test_graceful_stop_exits_loop(self, tmp_path: Path) -> None:
         """Setting the flag mid-run terminates after current bead."""

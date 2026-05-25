@@ -127,7 +127,7 @@ async def init_state(state: State) -> tuple[dict[str, Any], State]:
 
 
 @action(
-    reads=["completed_bead_ids", "processed_count"],
+    reads=["completed_bead_ids", "processed_count", "idle_polls"],
     writes=[
         "current_bead",
         "current_bead_id",
@@ -138,6 +138,7 @@ async def init_state(state: State) -> tuple[dict[str, Any], State]:
         "bead_failed",
         "needs_human_review",
         "review_rounds",
+        "idle_polls",
     ],
 )
 async def select_next_bead(
@@ -147,16 +148,24 @@ async def select_next_bead(
     cwd: str,
     max_beads: int,
     events: asyncio.Queue[ProgressEvent | None],
+    watch: bool = False,
+    watch_interval: int = 30,
+    max_idle_polls: int = 60,
 ) -> tuple[dict[str, Any], State]:
     """Pick the next ready bead — or signal end-of-stream.
 
-    Three conditions terminate the loop:
+    Four conditions terminate the loop:
 
     1. Graceful-stop flag has been set (Ctrl-C between beads).
     2. ``max_beads`` cap reached (``0`` means unlimited).
-    3. No ready bead is available (``select_next_bead`` returns
-       ``found=False``). The Burr driver doesn't implement
-       ``watch`` mode in Phase 3 — bead-empty terminates immediately.
+    3. No ready bead is available AND ``watch`` is false.
+    4. No ready bead is available AND ``watch`` is true but the
+       ``max_idle_polls`` cap is reached.
+
+    In watch mode (case 4), when ``bd`` reports no ready bead and the
+    idle cap hasn't been hit yet, the action sleeps ``watch_interval``
+    seconds, increments ``idle_polls``, and leaves ``current_bead=None``
+    so the graph cycles back into ``select_next_bead`` for another try.
     """
     from maverick.library.actions.beads import select_next_bead as bd_select
     from maverick.workflows.fly_beads.graceful_stop import (
@@ -188,9 +197,25 @@ async def select_next_bead(
     result = await bd_select(epic_id=epic_id, cwd=cwd)
     bead_dict = result.to_dict()
     if not bead_dict.get("found"):
-        return {"loop_done": True, "loop_done_reason": "no_more_beads"}, state.update(
+        idle_polls = int(state.get("idle_polls", 0))
+        if watch and idle_polls < max_idle_polls:
+            idle_polls += 1
+            await _put_output(
+                events,
+                "fly",
+                f"No beads ready; waiting ({idle_polls}/{max_idle_polls})",
+            )
+            await asyncio.sleep(max(0, watch_interval))
+            return {"loop_done": False, "idle_poll": idle_polls}, state.update(
+                current_bead=None,
+                current_bead_id="",
+                loop_done=False,
+                idle_polls=idle_polls,
+            )
+        reason = "watch_idle_exhausted" if watch else "no_more_beads"
+        return {"loop_done": True, "loop_done_reason": reason}, state.update(
             loop_done=True,
-            loop_done_reason="no_more_beads",
+            loop_done_reason=reason,
             current_bead=None,
             current_bead_id="",
         )
@@ -204,6 +229,7 @@ async def select_next_bead(
             current_bead_id="",
             loop_done=False,
             skipped_count=state.get("skipped_count", 0) + 1,
+            idle_polls=0,
         )
 
     return {"loop_done": False, "current_bead_id": bead_id}, state.update(
@@ -215,6 +241,7 @@ async def select_next_bead(
         bead_failed=False,
         needs_human_review=False,
         review_rounds=0,
+        idle_polls=0,
     )
 
 

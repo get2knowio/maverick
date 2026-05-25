@@ -79,6 +79,9 @@ def build_fly_application(
     validation_commands: dict[str, tuple[str, ...]] | None = None,
     project_type: str = "rust",
     flight_plan_name: str = "",
+    watch: bool = False,
+    watch_interval: int = 30,
+    max_idle_polls: int = 60,
 ) -> Any:
     """Build the ``Application`` for one fly run."""
     hook = ProgressEventHook(
@@ -97,6 +100,9 @@ def build_fly_application(
                 cwd=cwd,
                 max_beads=max_beads,
                 events=event_queue,
+                watch=watch,
+                watch_interval=watch_interval,
+                max_idle_polls=max_idle_polls,
             ),
             process_bead_start=fly_actions.process_bead_start,
             implement=fly_actions.implement.bind(squadron=squadron, events=event_queue),
@@ -153,6 +159,8 @@ def build_fly_application(
             commit_ok=False,
             last_review_findings=[],
             human_bead_id="",
+            # Watch mode: count of consecutive empty-poll cycles.
+            idle_polls=0,
         )
         .with_hooks(hook)
         .with_entrypoint("init_state")
