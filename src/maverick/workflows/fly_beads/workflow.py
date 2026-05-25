@@ -344,17 +344,18 @@ class FlyBeadsWorkflow(PythonWorkflow):
 
         # ----------------------------------------------------------------
         # Bead loop — driven by the Burr application around the
-        # FlySquadron. ``watch`` mode + ``watch_interval`` are accepted
-        # on the input contract for CLI back-compat but are not yet
-        # implemented on the Burr driver (Phase 3 simplification).
+        # FlySquadron. Watch mode keeps the loop alive after the bead
+        # queue drains, polling for newly-ready beads every
+        # ``watch_interval`` seconds up to a fixed idle cap.
         # ----------------------------------------------------------------
-        _ = (watch, watch_interval)  # noqa: F841 — accepted but unused
         burr_result = await self._run_fly_with_burr(
             epic_id=epic_id,
             cwd=cwd,
             max_beads=max_beads,
             completed_bead_ids=completed_bead_ids,
             flight_plan_name=flight_plan_name,
+            watch=watch,
+            watch_interval=watch_interval,
         )
         beads_succeeded = int(burr_result.get("beads_completed", 0))
         beads_failed = int(burr_result.get("beads_failed", 0))
@@ -404,6 +405,8 @@ class FlyBeadsWorkflow(PythonWorkflow):
         max_beads: int = MAX_BEADS,
         completed_bead_ids: set[str] | None = None,
         flight_plan_name: str = "",
+        watch: bool = False,
+        watch_interval: int = 30,
     ) -> dict[str, Any]:
         """Run the fly bead loop via the Burr-backed driver.
 
@@ -417,6 +420,8 @@ class FlyBeadsWorkflow(PythonWorkflow):
             max_beads=max_beads,
             completed_bead_ids=tuple(completed_bead_ids or ()),
             flight_plan_name=flight_plan_name,
+            watch=watch,
+            watch_interval=watch_interval,
         )
 
 
@@ -447,6 +452,8 @@ async def _run_fly_with_burr_impl(
     max_beads: int,
     completed_bead_ids: tuple[str, ...],
     flight_plan_name: str = "",
+    watch: bool = False,
+    watch_interval: int = 30,
 ) -> dict[str, Any]:
     """Drive the fly Burr application; return the same shape as xoscar.
 
@@ -476,6 +483,8 @@ async def _run_fly_with_burr_impl(
             validation_commands=None,
             project_type=getattr(workflow._config, "project_type", "rust") or "rust",
             flight_plan_name=flight_plan_name,
+            watch=watch,
+            watch_interval=watch_interval,
         )
         driver = BurrWorkflowDriver(
             app,
