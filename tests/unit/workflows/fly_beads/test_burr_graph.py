@@ -50,10 +50,9 @@ class _NullCM:
 class StubFlySquadron:
     """Minimal stand-in for :class:`FlySquadron`.
 
-    ``correctness_by_tier`` / ``completeness_by_tier`` let tests
-    return distinct reviewer instances per tier name; the bare
-    ``correctness`` / ``completeness`` slots are the default fallback
-    when a tier-specific lookup misses.
+    The ``*_by_tier`` dicts let tests return distinct stub instances
+    per tier name; the bare slots are the fallback when a tier-specific
+    lookup misses.
     """
 
     def __init__(
@@ -62,6 +61,7 @@ class StubFlySquadron:
         coder: StubCodingAgent | None = None,
         correctness: StubReviewerAgent | None = None,
         completeness: StubReviewerAgent | None = None,
+        coders_by_tier: dict[str, StubCodingAgent] | None = None,
         correctness_by_tier: dict[str, StubReviewerAgent] | None = None,
         completeness_by_tier: dict[str, StubReviewerAgent] | None = None,
     ) -> None:
@@ -77,11 +77,12 @@ class StubFlySquadron:
             review_kind="completeness",
             review_payloads=[SubmitReviewPayload(approved=True, findings=())],
         )
+        self.coders_by_tier: dict[str, StubCodingAgent] = coders_by_tier or {}
         self.correctness_by_tier: dict[str, StubReviewerAgent] = correctness_by_tier or {}
         self.completeness_by_tier: dict[str, StubReviewerAgent] = completeness_by_tier or {}
 
-    def coder_for(self, _tier: str) -> StubCodingAgent:
-        return self.coder
+    def coder_for(self, tier: str) -> StubCodingAgent:
+        return self.coders_by_tier.get(tier, self.coder)
 
     def correctness_reviewer_for(self, tier: str) -> StubReviewerAgent:
         return self.correctness_by_tier.get(tier, self.correctness)
@@ -580,6 +581,121 @@ class TestFlyBurrHumanBeadCreation:
         assert state["human_bead_id"] == ""
         assert state["commit_ok"] is True
         assert state["needs_human_review"] is True
+
+
+class TestFlyBurrImplementerTransientEscalation:
+    async def test_implement_transient_escalates_to_next_tier(self, tmp_path: Path) -> None:
+        """Implement raises transient → bump tier → next tier succeeds → bead commits."""
+        from airframe.errors import RuntimeTransientError
+
+        from maverick.workflows.fly_beads.graceful_stop import reset_graceful_stop
+
+        reset_graceful_stop()
+
+        default_coder = StubCodingAgent(
+            implement_payloads=[SubmitImplementationPayload(summary="i-default")],
+            fix_payloads=[SubmitFixResultPayload(summary="f") for _ in range(5)],
+        )
+        default_coder.raise_error = RuntimeTransientError("rate limited")
+
+        escalated_coder = StubCodingAgent(
+            implement_payloads=[SubmitImplementationPayload(summary="i-escalated")],
+            fix_payloads=[SubmitFixResultPayload(summary="f") for _ in range(5)],
+        )
+
+        squadron = StubFlySquadron(
+            coder=escalated_coder,
+            coders_by_tier={"_default": default_coder},
+        )
+
+        queue: asyncio.Queue[ProgressEvent | None] = asyncio.Queue()
+        with (
+            patch(
+                "maverick.library.actions.beads.select_next_bead",
+                new=AsyncMock(side_effect=[_bead("b-1"), _NO_MORE]),
+            ),
+            patch(
+                "maverick.library.actions.validation.run_independent_gate",
+                new=AsyncMock(return_value=_gate_passed()),
+            ),
+            patch(
+                "maverick.library.actions.jj.jj_commit_bead",
+                new=AsyncMock(return_value={"change_id": "c", "success": True}),
+            ),
+            patch(
+                "maverick.library.actions.beads.mark_bead_complete",
+                new=AsyncMock(
+                    return_value=MarkBeadCompleteResult(success=True, bead_id="b-1", error=None)
+                ),
+            ),
+        ):
+            app = build_fly_application(
+                squadron=squadron,  # type: ignore[arg-type]
+                event_queue=queue,
+                epic_id="e-1",
+                cwd=str(tmp_path),
+                max_beads=10,
+            )
+            driver = BurrWorkflowDriver(app, halt_after=FLY_TERMINAL_ACTIONS, event_queue=queue)
+            await _collect(driver)
+
+        _, _, state = driver.result
+        assert state["implementer_escalation_level"] == 1
+        assert state["implement_ok"] is True
+        assert state["succeeded_count"] == 1
+        # The escalated coder did the actual implementation.
+        assert any(c[0] == "implement" for c in escalated_coder.calls)
+
+    async def test_implement_transient_exhausts_aborts_bead(self, tmp_path: Path) -> None:
+        """Every tier raises transient → bead is abandoned, level pinned at 4."""
+        from airframe.errors import RuntimeTransientError
+
+        from maverick.workflows.fly_beads.graceful_stop import reset_graceful_stop
+
+        reset_graceful_stop()
+
+        class _AlwaysRaisingCoder:
+            def __init__(self) -> None:
+                self.implement_calls = 0
+                self.fix_calls = 0
+
+            async def implement(self, _prompt: str) -> SubmitImplementationPayload:
+                self.implement_calls += 1
+                raise RuntimeTransientError(f"upstream fault #{self.implement_calls}")
+
+            async def fix(self, _prompt: str) -> SubmitFixResultPayload:
+                self.fix_calls += 1
+                raise RuntimeTransientError(f"upstream fix fault #{self.fix_calls}")
+
+        always_raising = _AlwaysRaisingCoder()
+        squadron = StubFlySquadron()
+        squadron.coder_for = lambda _tier: always_raising  # type: ignore[assignment]
+
+        queue: asyncio.Queue[ProgressEvent | None] = asyncio.Queue()
+        with (
+            patch(
+                "maverick.library.actions.beads.select_next_bead",
+                new=AsyncMock(side_effect=[_bead("b-1"), _NO_MORE]),
+            ),
+        ):
+            app = build_fly_application(
+                squadron=squadron,  # type: ignore[arg-type]
+                event_queue=queue,
+                epic_id="e-1",
+                cwd=str(tmp_path),
+                max_beads=10,
+            )
+            driver = BurrWorkflowDriver(app, halt_after=FLY_TERMINAL_ACTIONS, event_queue=queue)
+            await _collect(driver)
+
+        _, _, state = driver.result
+        # All 5 rungs walked, bead aborted (not aggregated — only 1 bead
+        # so aggregate is below threshold and doesn't fire).
+        assert state["implementer_escalation_level"] == 4
+        assert state["implement_ok"] is False
+        assert state["bead_aborted"] is True
+        assert state["failed_count"] == 1
+        assert always_raising.implement_calls == 5
 
 
 class TestFlyBurrReviewerTransientEscalation:
