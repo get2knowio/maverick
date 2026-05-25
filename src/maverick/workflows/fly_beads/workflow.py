@@ -341,16 +341,27 @@ class FlyBeadsWorkflow(PythonWorkflow):
             await self.emit_step_completed(BASELINE_GATE, baseline_result)
 
         # ----------------------------------------------------------------
-        # Bead loop — xoscar supervisor path
+        # Bead loop — xoscar supervisor (default) or Burr driver.
+        # Opt into Burr via ``MAVERICK_USE_BURR=fly``.
         # ----------------------------------------------------------------
-        xoscar_result = await self._run_fly_with_xoscar(
-            epic_id=epic_id,
-            cwd=cwd,
-            watch=watch,
-            watch_interval=watch_interval,
-            max_beads=max_beads,
-            completed_bead_ids=completed_bead_ids,
-        )
+        from maverick.workflows.generate_flight_plan.workflow import _use_burr_for
+
+        if _use_burr_for("fly"):
+            xoscar_result = await self._run_fly_with_burr(
+                epic_id=epic_id,
+                cwd=cwd,
+                max_beads=max_beads,
+                completed_bead_ids=completed_bead_ids,
+            )
+        else:
+            xoscar_result = await self._run_fly_with_xoscar(
+                epic_id=epic_id,
+                cwd=cwd,
+                watch=watch,
+                watch_interval=watch_interval,
+                max_beads=max_beads,
+                completed_bead_ids=completed_bead_ids,
+            )
         beads_succeeded = int(xoscar_result.get("beads_completed", 0))
         beads_failed = int(xoscar_result.get("beads_failed", 0))
         beads_skipped = int(xoscar_result.get("beads_skipped", 0))
@@ -390,6 +401,29 @@ class FlyBeadsWorkflow(PythonWorkflow):
             human_review_items=human_review_items,
         )
         return result.to_dict()
+
+    async def _run_fly_with_burr(
+        self,
+        *,
+        epic_id: str,
+        cwd: Path,
+        max_beads: int = MAX_BEADS,
+        completed_bead_ids: set[str] | None = None,
+    ) -> dict[str, Any]:
+        """Run the fly bead loop via the Burr-backed driver.
+
+        Opt-in via ``MAVERICK_USE_BURR=fly``. Same return-dict contract
+        as :meth:`_run_fly_with_xoscar`. Phase 3 simplifications are
+        documented in
+        :mod:`maverick.workflows.fly_beads.actions`.
+        """
+        return await _run_fly_with_burr_impl(
+            self,
+            epic_id=epic_id,
+            cwd=cwd,
+            max_beads=max_beads,
+            completed_bead_ids=tuple(completed_bead_ids or ()),
+        )
 
     async def _run_fly_with_xoscar(
         self,
@@ -640,3 +674,68 @@ def _cost_sink_for_cwd(cwd: Path) -> Any:
     if not store.is_initialized:
         return None
     return make_cost_sink(store)
+
+
+async def _run_fly_with_burr_impl(
+    workflow: Any,
+    *,
+    epic_id: str,
+    cwd: Path,
+    max_beads: int,
+    completed_bead_ids: tuple[str, ...],
+) -> dict[str, Any]:
+    """Drive the fly Burr application; return the same shape as xoscar.
+
+    Lives outside the class so the import-cycle (squadron → workflow)
+    stays manageable: callers pass ``self`` in as ``workflow``.
+    """
+    import asyncio as _asyncio
+
+    from maverick.burr import BurrWorkflowDriver
+    from maverick.events import ProgressEvent
+    from maverick.squadron.fly import FlySquadron
+    from maverick.workflows.fly_beads.burr_graph import (
+        FLY_TERMINAL_ACTIONS,
+        build_fly_application,
+    )
+
+    cost_sink = _cost_sink_for_cwd(cwd)
+    async with FlySquadron(cwd=cwd, config=workflow._config, cost_sink=cost_sink) as squadron:
+        event_queue: _asyncio.Queue[ProgressEvent | None] = _asyncio.Queue()
+        app = build_fly_application(
+            squadron=squadron,
+            event_queue=event_queue,
+            epic_id=epic_id,
+            cwd=str(cwd),
+            max_beads=max_beads,
+            completed_bead_ids=completed_bead_ids,
+            validation_commands=None,
+        )
+        driver = BurrWorkflowDriver(
+            app,
+            halt_after=FLY_TERMINAL_ACTIONS,
+            event_queue=event_queue,
+        )
+        async for evt in driver.events():
+            await workflow._event_queue.put(evt)
+        _, _result, state = driver.result
+
+    bead_events = list(state.get("bead_events") or ())
+    return {
+        "beads_completed": int(state.get("succeeded_count", 0)),
+        "beads_failed": int(state.get("failed_count", 0)),
+        "beads_skipped": int(state.get("skipped_count", 0)),
+        "completed_bead_ids": list(state.get("completed_bead_ids") or ()),
+        "bead_events": bead_events,
+        "human_review_items": tuple(
+            {
+                "bead_id": e["bead_id"],
+                "title": e["title"],
+                "status": "needs-human-review",
+                "tag": e.get("tag"),
+                "review_rounds": e.get("review_rounds", 0),
+            }
+            for e in bead_events
+            if e.get("tag") == "needs-human-review"
+        ),
+    }
