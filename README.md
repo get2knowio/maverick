@@ -7,11 +7,12 @@ spec compliance, human escalation, and commit curation autonomously.
 ## What is Maverick?
 
 Maverick is a Python CLI that orchestrates the complete development lifecycle
-on top of the [OpenCode](https://opencode.ai) HTTP runtime. From a PRD, it generates a flight plan,
-decomposes it into work units, implements them with AI agents, validates against
-project conventions, reviews code, escalates to humans when needed, and curates
-clean commit history — all driven by a **bead-based work graph** where humans
-and agents create work for each other.
+on top of [airframe](https://github.com/get2knowio/airframe), a vendor-neutral
+agent runtime protocol. From a PRD, it generates a flight plan, decomposes it
+into work units, implements them with AI agents, validates against project
+conventions, reviews code, escalates to humans when needed, and curates clean
+commit history — all driven by a **bead-based work graph** where humans and
+agents create work for each other.
 
 **Core idea**: Everything is a bead. A bead is a unit of work managed by the
 `bd` CLI tool. Implementation beads, review findings, human escalations, and
@@ -40,23 +41,23 @@ correction tasks all live in the same dependency graph.
 - **Cross-epic dependency wiring** — New epics automatically depend on
   existing open epics, serializing execution while allowing tasks within
   each epic to parallelize
-- **Multi-provider routing** — Per-role provider tier cascades route every
-  agent to the right model for the job (qwen3-coder for cheap-and-fast,
-  claude-haiku for typical work, claude-sonnet for frontier reasoning).
-  Configurable per role in `maverick.yaml`; falls over automatically on
-  auth or model-availability failures.
+- **Multi-provider routing** — Each of the five canonical roles
+  (`implement`, `review`, `briefing`, `decompose`, `generate`) binds to one
+  airframe-supported provider + model in `maverick.yaml`. Airframe ships
+  adapters for `claude`, `github-copilot`, `opencode`, `opencode-go`,
+  `opencode-zen`, `openrouter`, and `bedrock` — each speaks its native
+  vendor SDK directly (OAuth for Claude Max, copilot CLI, API keys
+  elsewhere). Misconfigured bindings fail at squadron-open with a clear
+  `UnsupportedBindingError`, not mid-workflow.
 - **Runway knowledge store** — Episodic records of bead outcomes, review
   findings, and fix attempts build project-specific context. Agents
   progressively discover this context via the `.maverick/runway/` directory
 - **xoscar actor system** — All workflows run on a single xoscar pool
-  (`n_process=0`, in-pool coroutines) plus one OpenCode HTTP server
-  spawned per workflow run. Mailbox actors return typed payloads via
-  OpenCode's structured-output tool — no per-agent MCP gateway, no per-
-  provider ACP bridge subprocess.
+  (`n_process=0`, in-pool coroutines). The workflow's `Squadron` constructs
+  one `airframe.AgentRuntime` per role at startup, validates every binding
+  against the adapter, and shares that fleet across mailbox actors.
 - **Jujutsu (jj) VCS** — Write operations use jj for snapshot/rollback
-  safety. Curation skips immutable commits gracefully
-- **Workspace isolation** — All fly work happens in a hidden workspace;
-  your working directory stays untouched
+  safety. Curation skips immutable commits gracefully.
 
 ## Quick Start
 
@@ -67,8 +68,13 @@ correction tasks all live in the same dependency graph.
 - [GitHub CLI](https://cli.github.com/) (`gh`)
 - [Jujutsu](https://martinvonz.github.io/jj/) (`jj`)
 - [bd](https://beads.dev/) for bead/work-item management
-- [opencode](https://opencode.ai) — agent runtime (`opencode auth login <provider>` to authenticate)
-- An OpenRouter, Anthropic, or compatible API key (configured via `opencode auth`)
+- Authentication for at least one airframe-supported provider:
+  - **claude** — Claude Max subscription OAuth (`~/.claude/.credentials.json`),
+    or `ANTHROPIC_API_KEY`
+  - **github-copilot** — GitHub Copilot subscription via the `gh copilot` CLI
+  - **opencode-go** / **opencode-zen** — `opencode auth login <provider>`
+  - **openrouter** — `OPENROUTER_API_KEY`
+  - **bedrock** — AWS credentials + `AWS_REGION`
 - Git repository with remote origin
 
 ### Installation
@@ -235,10 +241,16 @@ into semantic summaries.
 
 ### `maverick init` — Project Setup
 
-Initializes `maverick.yaml`, detects available providers via OpenCode's
-`/provider` endpoint, and writes a starter config wired to the curated
-default tiers (`review`, `implement`, `briefing`, `decompose`,
-`generate`).
+Initializes `maverick.yaml`, probes installed airframe adapters via
+`runtime.list_models()` to discover which providers are authenticated,
+and writes a starter `agents:` block binding the five canonical roles
+(`implement`, `review`, `briefing`, `decompose`, `generate`).
+
+```bash
+maverick init                                        # auto-detect
+maverick init --providers claude,opencode-go         # narrow the spread
+maverick init --models claude:claude-sonnet-4-6      # pin per-provider models
+```
 
 ## Configuration
 
@@ -256,31 +268,36 @@ validation:
   test_cmd: [make, test-nextest-fast]
   timeout_seconds: 600
 
-# Provider tier cascades — one entry per role. Each binding is tried in
-# order; the runtime falls over on auth/model-not-found/transient errors.
-# Omit a role to use the curated DEFAULT_TIERS.
-provider_tiers:
-  tiers:
-    review:
-      - {provider: openrouter, model_id: anthropic/claude-haiku-4.5}
-      - {provider: openrouter, model_id: qwen/qwen3-coder}
-    implement:
-      - {provider: openrouter, model_id: anthropic/claude-haiku-4.5}
-      - {provider: openrouter, model_id: qwen/qwen3-coder}
-      - {provider: openrouter, model_id: anthropic/claude-sonnet-4.5}
-    briefing:
-      - {provider: openrouter, model_id: qwen/qwen3-coder}
-    decompose:
-      - {provider: openrouter, model_id: anthropic/claude-sonnet-4.5}
+# One airframe binding per canonical role. Provider IDs come from
+# airframe.list_providers(); model IDs are whatever that adapter's
+# list_models() returns. Bindings are validated at squadron-open —
+# misconfigurations fail fast.
+agents:
+  implement:
+    provider: claude
+    model_id: claude-sonnet-4-6
+  review:
+    provider: claude
+    model_id: claude-haiku-4-5
+  briefing:
+    provider: opencode-go
+    model_id: minimax-m2.7
+  decompose:
+    provider: claude
+    model_id: claude-sonnet-4-6
+  generate:
+    provider: github-copilot
+    model_id: gpt-5-mini
 
-# Per-actor StepConfig overrides still work — they take priority over the
-# tier cascade for a single (provider, model_id) binding.
+# Per-complexity overrides for a specific actor still work — they take
+# priority over the role binding for that (workflow, actor, tier).
 actors:
   fly:
     implementer:
-      provider: openrouter
-      model_id: anthropic/claude-haiku-4.5
-      timeout: 1800
+      tiers:
+        complex:
+          provider: claude
+          model_id: claude-opus-4-7
 ```
 
 ## Architecture
@@ -289,37 +306,42 @@ actors:
 CLI (Click)
   │
 Workflow Layer (async Python)
-  │ Opens an actor pool (xoscar, n_process=0) which spawns one OpenCode
-  │ HTTP server, registers the handle + tier overrides on the pool address.
+  │ Resolves cwd at the entry boundary and threads it down.
   │
-xoscar Actor Layer (in-pool coroutines, ephemeral 127.0.0.1:0 binding)
+Squadron (per-workflow lifecycle container)
+  │ Constructs one airframe.AgentRuntime per role via runtime_for_agent(),
+  │ runs validate_binding() at open, exposes the typed agents to actors.
+  │
+xoscar Actor Layer (in-pool coroutines, n_process=0, ephemeral 127.0.0.1:0)
   │
   ├── Supervisors (typed RPC fan-out)
   │   FlySupervisor, RefuelSupervisor, PlanSupervisor
   │
-  ├── Mailbox actors (one OpenCode session each)
+  ├── Mailbox actors (each owns an Agent instance)
   │   ImplementerActor, ReviewerActor, DecomposerActor,
   │   GeneratorActor, BriefingActor
   │
   └── Deterministic actors (pure Python, no LLM)
       Gate, SpecCheck, ACCheck, Committer, Validator
   │
-OpenCode Runtime (one HTTP server per workflow run)
-  POST /session/:id/message  +  format=json_schema  →  typed payload
-  Errors (auth/model/context) classified via /event SSE drain
-  Tier cascade: try first binding, fall over on recoverable errors
+airframe Pattern D runtime (one AgentRuntime per role)
+  ClaudeCodeRuntime, CopilotRuntime, OpenCodeRuntime,
+  OpenCodeGoRuntime, OpenCodeZenRuntime, OpenRouterRuntime,
+  BedrockRuntime — each fronts its vendor SDK directly.
 ```
 
 ### How Agents Communicate
 
-Mailbox actors invoke `_send_structured(prompt)` on their mixin, which
-pushes the prompt to OpenCode with `format=json_schema` derived from the
-actor's `result_model`. OpenCode synthesizes a `StructuredOutput` tool
-the model is forced to call; the runtime unwraps Claude's envelope shape
-(`{input: {...}}` etc.) and validates against the Pydantic model. The
-typed payload flows back through `_send_structured` → forward to the
-supervisor via xoscar RPC. Built-in tools (Read, Write, Bash) are for
-doing work; the `StructuredOutput` tool is for reporting results.
+Each mailbox actor holds an `Agent` instance built around the
+role's `AgentRuntime`. Domain methods (`coder.implement(prompt, *,
+bead_id)`) call `_send_structured(prompt)`, which invokes
+`runtime.execute()` with `format=json_schema` derived from the agent's
+`result_model`. Airframe synthesizes a `StructuredOutput` tool the model
+is forced to call, normalises any vendor-specific envelope wrapping, and
+validates the result against the Pydantic model. The typed payload
+flows back to the supervisor via xoscar RPC. Built-in tools (Read,
+Write, Bash) are for doing work; the `StructuredOutput` tool is for
+reporting results.
 
 ## Technology Stack
 
@@ -327,10 +349,9 @@ doing work; the `StructuredOutput` tool is for reporting results.
 |----------|-----------|
 | Language | Python 3.11+ |
 | Package Manager | uv |
-| Agent Runtime | [OpenCode](https://opencode.ai) HTTP (one server per workflow run) |
-| HTTP Client | httpx |
+| Agent Runtime | [airframe](https://github.com/get2knowio/airframe) Pattern D — one `AgentRuntime` per role |
 | Actor Framework | xoscar (`n_process=0`, in-pool coroutines) |
-| Structured Output | Pydantic + `format=json_schema` |
+| Structured Output | Pydantic + `format=json_schema` (via airframe `StructuredOutput`) |
 | CLI | Click + Rich |
 | VCS (writes) | Jujutsu (jj) in colocated mode |
 | VCS (reads) | GitPython |
