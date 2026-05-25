@@ -4,8 +4,11 @@
 ``ApplicationBuilder().with_hooks(hook)``. It converts every action's
 ``pre_run_step`` / ``post_run_step`` into a :class:`StepStarted` /
 :class:`StepCompleted` push onto an ``asyncio.Queue`` shared with the
-driver. After the terminal action's ``post_run_step``, the hook enqueues
-a ``None`` sentinel to signal end-of-stream.
+driver. The hook enqueues a ``None`` end-of-stream sentinel after the
+terminal action's ``post_run_step`` *or* after any action that raised
+(an uncaught exception in a non-terminal action ends the run too, and
+without the sentinel the driver's consumer loop would hang waiting on
+the queue).
 
 Async hooks are required: Burr's sync ``PreRunStepHook`` /
 ``PostRunStepHook`` base classes call hook methods synchronously, so
@@ -98,5 +101,5 @@ class ProgressEventHook(PreRunStepHookAsync, PostRunStepHookAsync):
                 error=str(exception) if exception else None,
             )
         )
-        if name in self._terminal:
+        if name in self._terminal or exception is not None:
             await self._queue.put(None)

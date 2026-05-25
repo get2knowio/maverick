@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -21,6 +22,20 @@ from maverick.workflows.generate_flight_plan.models import (
 )
 
 logger = get_logger(__name__)
+
+
+def _use_burr_for(workflow_key: str) -> bool:
+    """Return True when ``MAVERICK_USE_BURR`` opts this workflow into the Burr driver.
+
+    The env var accepts a comma-separated list of workflow keys, matching
+    the planned roll-out shape (``MAVERICK_USE_BURR=plan,refuel,fly``).
+    Whitespace + empty entries are tolerated. Unset / empty → xoscar.
+    """
+    raw = os.environ.get("MAVERICK_USE_BURR", "")
+    if not raw:
+        return False
+    parts = {p.strip().lower() for p in raw.split(",") if p.strip()}
+    return workflow_key.lower() in parts
 
 
 def _build_generate_prompt(
@@ -189,16 +204,27 @@ class GenerateFlightPlanWorkflow(PythonWorkflow):
         await self.emit_step_completed(READ_PRD, output={"prd_size": prd_size})
 
         # ------------------------------------------------------------------
-        # Steps 2-5: xoscar supervisor handles briefing, generation,
-        # validation, and writing via supervisor-driven message routing.
+        # Steps 2-5: briefing, generation, validation, and writing.
+        # xoscar is the default driver; ``MAVERICK_USE_BURR=plan`` opts
+        # this workflow into the Burr-backed driver. Both drivers expose
+        # the same return-dict contract.
         # ------------------------------------------------------------------
-        result = await self._generate_with_xoscar(
-            prd_content=prd_content,
-            name=name,
-            plan_dir=plan_dir,
-            skip_briefing=skip_briefing,
-            cwd=cwd_input,
-        )
+        if _use_burr_for("plan"):
+            result = await self._generate_with_burr(
+                prd_content=prd_content,
+                name=name,
+                plan_dir=plan_dir,
+                skip_briefing=skip_briefing,
+                cwd=cwd_input,
+            )
+        else:
+            result = await self._generate_with_xoscar(
+                prd_content=prd_content,
+                name=name,
+                plan_dir=plan_dir,
+                skip_briefing=skip_briefing,
+                cwd=cwd_input,
+            )
         return GenerateFlightPlanResult(
             flight_plan_path=result.get("flight_plan_path", str(target_file)),
             name=name,
@@ -316,3 +342,92 @@ class GenerateFlightPlanWorkflow(PythonWorkflow):
         )
 
         return result
+
+    async def _generate_with_burr(
+        self,
+        *,
+        prd_content: str,
+        name: str,
+        plan_dir: Path,
+        skip_briefing: bool,
+        cwd: str,
+    ) -> dict[str, Any]:
+        """Generate the flight plan via the Burr-backed driver.
+
+        Opt-in path behind ``MAVERICK_USE_BURR=plan``. Same return-dict
+        contract as :meth:`_generate_with_xoscar`. The squadron, agents,
+        provider labels, and step configs are sourced exactly as in the
+        xoscar path; only the orchestration substrate differs.
+        """
+        import asyncio
+
+        from maverick.burr import BurrWorkflowDriver
+        from maverick.events import ProgressEvent
+        from maverick.squadron.plan import PlanSquadron
+        from maverick.types import StepType as _StepType
+        from maverick.workflows.fly_beads.workflow import _cost_sink_for_cwd
+        from maverick.workflows.generate_flight_plan.burr_graph import (
+            PLAN_TERMINAL_ACTIONS,
+            build_plan_application,
+        )
+
+        provider_labels: dict[str, str] = {}
+        if not skip_briefing:
+            for step_name, agent_name, label in (
+                ("briefing_scopist", "scopist", "Scopist"),
+                ("briefing_codebase_analyst", "codebase_analyst", "Codebase Analyst"),
+                ("briefing_criteria_writer", "criteria_writer", "Criteria Writer"),
+                ("briefing_contrarian", "contrarian", "Contrarian"),
+            ):
+                config = self.resolve_step_config(
+                    step_name, _StepType.PYTHON, agent_name=agent_name
+                )
+                provider_labels[label] = self._resolve_display_label_for_config(config)
+
+        cost_sink = _cost_sink_for_cwd(Path(cwd))
+        async with PlanSquadron(
+            cwd=Path(cwd), config=self._config, cost_sink=cost_sink
+        ) as squadron:
+            event_queue: asyncio.Queue[ProgressEvent | None] = asyncio.Queue()
+            app = build_plan_application(
+                squadron=squadron,
+                event_queue=event_queue,
+                prd_content=prd_content,
+                plan_name=name,
+                output_dir=str(plan_dir),
+                skip_briefing=skip_briefing,
+                provider_labels=provider_labels,
+                max_briefing_agents=self._config.parallel.max_briefing_agents,
+            )
+            driver = BurrWorkflowDriver(
+                app,
+                halt_after=PLAN_TERMINAL_ACTIONS,
+                event_queue=event_queue,
+            )
+            async for evt in driver.events():
+                await self._event_queue.put(evt)
+            _, _result, state = driver.result
+
+        flight_plan_path = state.get("flight_plan_path")
+        if not flight_plan_path:
+            raise WorkflowError(
+                "Burr plan workflow exited without producing a flight plan path",
+                workflow_name="generate-flight-plan",
+            )
+
+        flight_plan_dict = state.get("flight_plan") or {}
+        sc_count = len(flight_plan_dict.get("success_criteria") or ())
+
+        await self.emit_output(
+            GENERATE,
+            f"Generated {sc_count} success criteria",
+            level="success",
+        )
+
+        return {
+            "success": True,
+            "flight_plan_path": flight_plan_path,
+            "briefing_path": state.get("briefing_path"),
+            "success_criteria_count": sc_count,
+            "validation_passed": bool(state.get("validation_passed", True)),
+        }
