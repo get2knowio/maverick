@@ -341,31 +341,22 @@ class FlyBeadsWorkflow(PythonWorkflow):
             await self.emit_step_completed(BASELINE_GATE, baseline_result)
 
         # ----------------------------------------------------------------
-        # Bead loop — xoscar supervisor (default) or Burr driver.
-        # Opt into Burr via ``MAVERICK_USE_BURR=fly``.
+        # Bead loop — driven by the Burr application around the
+        # FlySquadron. ``watch`` mode + ``watch_interval`` are accepted
+        # on the input contract for CLI back-compat but are not yet
+        # implemented on the Burr driver (Phase 3 simplification).
         # ----------------------------------------------------------------
-        from maverick.workflows.generate_flight_plan.workflow import _use_burr_for
-
-        if _use_burr_for("fly"):
-            xoscar_result = await self._run_fly_with_burr(
-                epic_id=epic_id,
-                cwd=cwd,
-                max_beads=max_beads,
-                completed_bead_ids=completed_bead_ids,
-            )
-        else:
-            xoscar_result = await self._run_fly_with_xoscar(
-                epic_id=epic_id,
-                cwd=cwd,
-                watch=watch,
-                watch_interval=watch_interval,
-                max_beads=max_beads,
-                completed_bead_ids=completed_bead_ids,
-            )
-        beads_succeeded = int(xoscar_result.get("beads_completed", 0))
-        beads_failed = int(xoscar_result.get("beads_failed", 0))
-        beads_skipped = int(xoscar_result.get("beads_skipped", 0))
-        human_review_items = xoscar_result.get("human_review_items")
+        _ = (watch, watch_interval)  # noqa: F841 — accepted but unused
+        burr_result = await self._run_fly_with_burr(
+            epic_id=epic_id,
+            cwd=cwd,
+            max_beads=max_beads,
+            completed_bead_ids=completed_bead_ids,
+        )
+        beads_succeeded = int(burr_result.get("beads_completed", 0))
+        beads_failed = int(burr_result.get("beads_failed", 0))
+        beads_skipped = int(burr_result.get("beads_skipped", 0))
+        human_review_items = burr_result.get("human_review_items")
         if human_review_items is None:
             human_review_items = [
                 {
@@ -375,7 +366,7 @@ class FlyBeadsWorkflow(PythonWorkflow):
                     "tag": event.get("tag"),
                     "review_rounds": event.get("review_rounds", 0),
                 }
-                for event in xoscar_result.get("bead_events", [])
+                for event in burr_result.get("bead_events", [])
                 if event.get("tag") == "needs-human-review"
             ]
         human_review_items = tuple(human_review_items)
@@ -412,9 +403,7 @@ class FlyBeadsWorkflow(PythonWorkflow):
     ) -> dict[str, Any]:
         """Run the fly bead loop via the Burr-backed driver.
 
-        Opt-in via ``MAVERICK_USE_BURR=fly``. Same return-dict contract
-        as :meth:`_run_fly_with_xoscar`. Phase 3 simplifications are
-        documented in
+        Post-migration gaps are documented in
         :mod:`maverick.workflows.fly_beads.actions`.
         """
         return await _run_fly_with_burr_impl(
@@ -424,237 +413,6 @@ class FlyBeadsWorkflow(PythonWorkflow):
             max_beads=max_beads,
             completed_bead_ids=tuple(completed_bead_ids or ()),
         )
-
-    async def _run_fly_with_xoscar(
-        self,
-        *,
-        epic_id: str,
-        cwd: Path,
-        watch: bool = False,
-        watch_interval: int = 30,
-        max_beads: int = MAX_BEADS,
-        completed_bead_ids: set[str] | None = None,
-    ) -> dict[str, Any]:
-        """Run the canonical fly bead loop on xoscar actors."""
-        import xoscar as xo
-
-        from maverick.actors.xoscar.fly_supervisor import FlyInputs, FlySupervisor
-        from maverick.actors.xoscar.pool import actor_pool
-        from maverick.types import StepType
-
-        cwd_str = str(cwd)
-
-        impl_config = self.resolve_step_config(
-            "implement",
-            StepType.PYTHON,
-            agent_name="implementer",
-        )
-
-        # Reviewer gets its own resolved StepConfig — without this, the
-        # ReviewerActor would inherit the implementer's provider/model.
-        review_config = self.resolve_step_config(
-            "review",
-            StepType.PYTHON,
-            agent_name="reviewer",
-        )
-
-        # Per-bead complexity tier routing (FUTURE.md §2.10 Phase 2). When
-        # ``actors.fly.implementer.tiers`` is set, the supervisor spins up
-        # one implementer actor per defined tier, each with its own
-        # provider/model. Bead routing happens in the supervisor based on
-        # the decomposer-assigned ``complexity`` field. When the section is
-        # absent, behaviour is unchanged (single actor).
-        from maverick.config import ImplementerTiersConfig, ReviewerTiersConfig
-
-        implementer_tiers: ImplementerTiersConfig | None = None
-        try:
-            tiers_raw = self._config.actors.get("fly", {}).get("implementer", {}).get("tiers")
-            if tiers_raw:
-                implementer_tiers = ImplementerTiersConfig.model_validate(tiers_raw)
-        except Exception as exc:  # noqa: BLE001 — invalid tiers is non-fatal
-            await self.emit_output(
-                "fly",
-                f"Warning: actors.fly.implementer.tiers parse failed "
-                f"({exc!s}); falling back to single implementer.",
-                level="warning",
-            )
-
-        # Same shape for the reviewer (FUTURE.md §2.10 Phase 3).
-        reviewer_tiers: ReviewerTiersConfig | None = None
-        try:
-            r_tiers_raw = self._config.actors.get("fly", {}).get("reviewer", {}).get("tiers")
-            if r_tiers_raw:
-                reviewer_tiers = ReviewerTiersConfig.model_validate(r_tiers_raw)
-        except Exception as exc:  # noqa: BLE001 — invalid tiers is non-fatal
-            await self.emit_output(
-                "fly",
-                f"Warning: actors.fly.reviewer.tiers parse failed "
-                f"({exc!s}); falling back to single reviewer.",
-                level="warning",
-            )
-
-        # Resolve validation config, matching the legacy path.
-        validation_commands: dict[str, tuple[str, ...]] | None = None
-        try:
-            from maverick.workflows.fly_beads.steps import _build_validation_commands
-
-            validation_commands = _build_validation_commands(self._config.validation)
-        except (AttributeError, TypeError):
-            pass
-
-        project_type = getattr(self._config, "project_type", "rust")
-
-        # Derive flight_plan_name by reading any existing work-unit
-        # markdown's ``flight-plan:`` frontmatter — the most robust signal
-        # since the work-units are written by refuel and live alongside
-        # the plan. Used by the supervisor's _load_bead_context to pull
-        # per-bead context (work-unit md + complexity classification).
-        # When zero or multiple plans exist, fall back to "" and let the
-        # supervisor degrade gracefully (no per-bead enrichment).
-        flight_plan_name = ""
-        plans_root = cwd / ".maverick" / "plans"
-        if plans_root.is_dir():
-            plan_dirs = [
-                p for p in plans_root.iterdir() if p.is_dir() and any(p.glob("[0-9]*.md"))
-            ]
-            if len(plan_dirs) == 1:
-                flight_plan_name = plan_dirs[0].name
-            elif len(plan_dirs) > 1:
-                # Pick by epic title match if we can; otherwise unset.
-                # The supervisor handles the empty case gracefully.
-                await self.emit_output(
-                    "fly",
-                    f"Multiple flight plans under .maverick/plans/ "
-                    f"({[p.name for p in plan_dirs]}); per-bead context "
-                    "loading may match the wrong work units.",
-                    level="warning",
-                )
-
-        supervisor_inputs = FlyInputs(
-            cwd=cwd_str,
-            epic_id=epic_id,
-            config=impl_config,
-            reviewer_config=review_config,
-            max_beads=max_beads,
-            validation_commands=validation_commands,
-            project_type=project_type,
-            completed_bead_ids=tuple(sorted(completed_bead_ids or set())),
-            flight_plan_name=flight_plan_name,
-            watch=watch,
-            watch_interval=watch_interval,
-            implementer_tiers=implementer_tiers,
-            reviewer_tiers=reviewer_tiers,
-        )
-
-        await self.emit_output(
-            "fly",
-            "Running fly with xoscar actor system",
-            level="info",
-        )
-
-        from maverick.squadron.fly import FlySquadron
-
-        cost_sink = _cost_sink_for_cwd(cwd)
-        async with (
-            FlySquadron(
-                cwd=cwd,
-                config=self._config,
-                cost_sink=cost_sink,
-                implementer_config=impl_config,
-                reviewer_config=review_config,
-                implementer_tiers=implementer_tiers,
-                reviewer_tiers=reviewer_tiers,
-            ) as squadron,
-            actor_pool(
-                agents_config=self._config.agents,
-                cost_sink=squadron.cost_sink,
-            ) as (_pool, address),
-        ):
-            # Re-create FlyInputs with the live squadron so the supervisor
-            # can pull per-tier agents off it. ``dataclasses.replace`` is
-            # the standard way to "edit" a frozen dataclass.
-            from dataclasses import replace
-
-            supervisor = await xo.create_actor(
-                FlySupervisor,
-                replace(supervisor_inputs, squadron=squadron),
-                address=address,
-                uid="fly-supervisor",
-            )
-            try:
-                result = await self._drain_xoscar_supervisor(supervisor)
-            finally:
-                try:
-                    await xo.destroy_actor(supervisor)
-                except Exception:  # noqa: BLE001 — teardown must not raise
-                    pass
-
-        if not result:
-            return {
-                "beads_completed": 0,
-                "completed_bead_ids": sorted(completed_bead_ids or set()),
-                "beads_failed": 0,
-                "beads_skipped": 0,
-                "human_review_items": [],
-            }
-
-        # Emit per-bead summary to console from structured events
-        human_review_beads = []
-        for event in result.get("bead_events", []):
-            tag = event.get("tag")
-            tag_str = f" [{tag}]" if tag else ""
-            review_info = (
-                f", {event['review_rounds']} review round(s)"
-                if event.get("review_rounds", 0) > 0
-                else ""
-            )
-
-            is_flagged = tag == "needs-human-review"
-            if is_flagged:
-                human_review_beads.append(event)
-
-            await self.emit_output(
-                "fly",
-                f"Bead {event['bead_id']}: {event['title']}{tag_str}{review_info}",
-                level="warning" if is_flagged else "success",
-            )
-
-        aggregate = result.get("aggregate_review", [])
-        if aggregate:
-            await self.emit_output(
-                "fly",
-                f"Aggregate review: {len(aggregate)} cross-bead concern(s)",
-                level="warning",
-            )
-
-        # Prominent summary for beads that need human attention
-        if human_review_beads:
-            await self.emit_output(
-                "fly",
-                f"ACTION REQUIRED: {len(human_review_beads)} bead(s) "
-                f"committed with [needs-human-review]:",
-                level="error",
-            )
-            for event in human_review_beads:
-                await self.emit_output(
-                    "fly",
-                    f"  - {event['bead_id']}: {event['title']}",
-                    level="error",
-                )
-
-        result["human_review_items"] = [
-            {
-                "bead_id": event["bead_id"],
-                "title": event["title"],
-                "status": "needs-human-review",
-                "tag": event.get("tag"),
-                "review_rounds": event.get("review_rounds", 0),
-            }
-            for event in human_review_beads
-        ]
-        result.setdefault("beads_failed", 0)
-        result.setdefault("beads_skipped", 0)
-        return result
 
 
 def _cost_sink_for_cwd(cwd: Path) -> Any:

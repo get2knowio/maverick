@@ -33,7 +33,8 @@ if TYPE_CHECKING:
     from maverick.runtime.registry import CostSink
 
 #: Ordered tier names (low → high intelligence). Matches WorkUnitComplexity
-#: and ``maverick.actors.xoscar.fly_supervisor.TIER_ORDER``.
+#: and the Burr fly graph's per-tier dispatch in
+#: ``maverick.workflows.fly_beads.actions``.
 TIER_ORDER: tuple[str, ...] = ("trivial", "simple", "moderate", "complex")
 
 #: Sentinel name for the single-agent fallback when no tiers are configured.

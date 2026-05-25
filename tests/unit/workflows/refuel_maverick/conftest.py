@@ -226,10 +226,10 @@ def patch_decompose_supervisor(
     bead_result: BeadCreationResult | None = None,
     dep_result: DependencyWiringResult | None = None,
 ) -> Any:
-    """Return a context manager that patches _run_with_xoscar.
+    """Return a context manager that patches _run_with_burr.
 
     The xoscar actor path is now the only decomposition path AND the
-    only bead-creation path. The real ``_run_with_xoscar`` populates
+    only bead-creation path. The real ``_run_with_burr`` populates
     ``ctx`` with the supervisor's bead-creation outputs (epic, work
     beads, created_map, dependencies) so the workflow's downstream
     steps can adopt them instead of re-running ``create_beads``. The
@@ -243,7 +243,7 @@ def patch_decompose_supervisor(
     if dep_result is None:
         dep_result = make_wire_result()
 
-    async def _fake_run_with_xoscar(
+    async def _fake_run_with_burr(
         self: Any,
         *args: Any,
         ctx: dict[str, Any] | None = None,
@@ -261,8 +261,8 @@ def patch_decompose_supervisor(
         return decomp
 
     return patch(
-        "maverick.workflows.refuel_maverick.workflow.RefuelMaverickWorkflow._run_with_xoscar",
-        new=_fake_run_with_xoscar,
+        "maverick.workflows.refuel_maverick.workflow.RefuelMaverickWorkflow._run_with_burr",
+        new=_fake_run_with_burr,
     )
 
 

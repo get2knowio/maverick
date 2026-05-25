@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -22,20 +21,6 @@ from maverick.workflows.generate_flight_plan.models import (
 )
 
 logger = get_logger(__name__)
-
-
-def _use_burr_for(workflow_key: str) -> bool:
-    """Return True when ``MAVERICK_USE_BURR`` opts this workflow into the Burr driver.
-
-    The env var accepts a comma-separated list of workflow keys, matching
-    the planned roll-out shape (``MAVERICK_USE_BURR=plan,refuel,fly``).
-    Whitespace + empty entries are tolerated. Unset / empty → xoscar.
-    """
-    raw = os.environ.get("MAVERICK_USE_BURR", "")
-    if not raw:
-        return False
-    parts = {p.strip().lower() for p in raw.split(",") if p.strip()}
-    return workflow_key.lower() in parts
 
 
 def _build_generate_prompt(
@@ -204,27 +189,16 @@ class GenerateFlightPlanWorkflow(PythonWorkflow):
         await self.emit_step_completed(READ_PRD, output={"prd_size": prd_size})
 
         # ------------------------------------------------------------------
-        # Steps 2-5: briefing, generation, validation, and writing.
-        # xoscar is the default driver; ``MAVERICK_USE_BURR=plan`` opts
-        # this workflow into the Burr-backed driver. Both drivers expose
-        # the same return-dict contract.
+        # Steps 2-5: briefing, generation, validation, and writing —
+        # driven by the Burr application built around the PlanSquadron.
         # ------------------------------------------------------------------
-        if _use_burr_for("plan"):
-            result = await self._generate_with_burr(
-                prd_content=prd_content,
-                name=name,
-                plan_dir=plan_dir,
-                skip_briefing=skip_briefing,
-                cwd=cwd_input,
-            )
-        else:
-            result = await self._generate_with_xoscar(
-                prd_content=prd_content,
-                name=name,
-                plan_dir=plan_dir,
-                skip_briefing=skip_briefing,
-                cwd=cwd_input,
-            )
+        result = await self._generate_with_burr(
+            prd_content=prd_content,
+            name=name,
+            plan_dir=plan_dir,
+            skip_briefing=skip_briefing,
+            cwd=cwd_input,
+        )
         return GenerateFlightPlanResult(
             flight_plan_path=result.get("flight_plan_path", str(target_file)),
             name=name,
@@ -232,116 +206,6 @@ class GenerateFlightPlanWorkflow(PythonWorkflow):
             validation_passed=result.get("validation_passed", True),
             briefing_generated=result.get("briefing_path") is not None,
         ).to_dict()
-
-    async def _generate_with_xoscar(
-        self,
-        *,
-        prd_content: str,
-        name: str,
-        plan_dir: Path,
-        skip_briefing: bool,
-        cwd: str,
-    ) -> dict[str, Any]:
-        """Generate flight plan using the xoscar actor system.
-
-        Creates a single ``PlanSupervisor`` which spawns its own
-        briefing agents, generator, validator, and writer in
-        ``__post_create__``. The workflow consumes progress events
-        via the ``@xo.generator`` ``run()`` drain helper.
-        """
-        import xoscar as xo
-
-        from maverick.actors.xoscar.plan_supervisor import PlanInputs, PlanSupervisor
-        from maverick.actors.xoscar.pool import actor_pool
-        from maverick.types import StepType as _StepType
-
-        # Resolve provider labels AND per-agent StepConfigs so each
-        # briefing actor runs on its own provider/model. The agent_name
-        # used here matches what PLAN_BRIEFING_CONFIG declares so the
-        # supervisor's ``briefing_configs.get(agent_name)`` lookup hits.
-        provider_labels: dict[str, str] = {}
-        briefing_configs: dict[str, Any] = {}
-        if not skip_briefing:
-            for step_name, agent_name, label in (
-                ("briefing_scopist", "scopist", "Scopist"),
-                (
-                    "briefing_codebase_analyst",
-                    "codebase_analyst",
-                    "Codebase Analyst",
-                ),
-                (
-                    "briefing_criteria_writer",
-                    "criteria_writer",
-                    "Criteria Writer",
-                ),
-                ("briefing_contrarian", "contrarian", "Contrarian"),
-            ):
-                config = self.resolve_step_config(
-                    step_name, _StepType.PYTHON, agent_name=agent_name
-                )
-                provider_labels[label] = self._resolve_display_label_for_config(config)
-                briefing_configs[agent_name] = config
-
-        # Generator config drives the agent session used for plan generation.
-        gen_config = self.resolve_step_config(
-            "generate",
-            _StepType.PYTHON,
-            agent_name="flight_plan_generator",
-        )
-
-        supervisor_inputs = PlanInputs(
-            cwd=cwd,
-            plan_name=name,
-            prd_content=prd_content,
-            output_dir=str(plan_dir),
-            config=gen_config,
-            skip_briefing=skip_briefing,
-            provider_labels=provider_labels,
-            briefing_configs=briefing_configs,
-            max_briefing_agents=self._config.parallel.max_briefing_agents,
-        )
-
-        from maverick.squadron.plan import PlanSquadron
-        from maverick.workflows.fly_beads.workflow import _cost_sink_for_cwd
-
-        cost_sink = _cost_sink_for_cwd(Path(cwd))
-        async with (
-            PlanSquadron(cwd=Path(cwd), config=self._config, cost_sink=cost_sink) as squadron,
-            actor_pool(
-                agents_config=self._config.agents,
-                cost_sink=squadron.cost_sink,
-            ) as (_pool, address),
-        ):
-            supervisor = await xo.create_actor(
-                PlanSupervisor,
-                supervisor_inputs,
-                address=address,
-                uid="plan-supervisor",
-            )
-            try:
-                result = await self._drain_xoscar_supervisor(supervisor)
-            finally:
-                try:
-                    await xo.destroy_actor(supervisor)
-                except Exception:  # noqa: BLE001 — teardown must not raise
-                    pass
-
-        if not result or not result.get("success"):
-            from maverick.exceptions import WorkflowError
-
-            raise WorkflowError(
-                f"Plan generation failed: "
-                f"{result.get('error', 'unknown') if result else 'no result'}",
-                workflow_name="generate-flight-plan",
-            )
-
-        await self.emit_output(
-            GENERATE,
-            f"Generated {result.get('success_criteria_count', 0)} success criteria",
-            level="success",
-        )
-
-        return result
 
     async def _generate_with_burr(
         self,
