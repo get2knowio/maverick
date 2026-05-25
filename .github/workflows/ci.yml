@@ -55,7 +55,7 @@ jobs:
         # to read-only by GitHub for security, so dorny/test-reporter's
         # check-creation call returns HTTP 403 and the action errors out
         # even though tests passed. Human PRs still get the rich report.
-        uses: dorny/test-reporter@v1
+        uses: dorny/test-reporter@v3
         if: always() && github.actor != 'dependabot[bot]'
         with:
           name: Test Results (Python ${{ matrix.python-version }})
