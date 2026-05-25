@@ -11,12 +11,11 @@ agents.
 **Known gaps relative to the pre-migration supervisor** (queued for
 follow-up; tracked in the repo as TODO items):
 
-* **Tier escalation** — single-tier dispatch only.
-* **Reviewer transient-failure escalation** — falls straight through
-  to ``needs-human-review``.
+* **Tier escalation (implementer)** — single-tier dispatch only.
 
 Graceful stop, watch mode, aggregate cross-bead review, human-bead
-creation on review exhaustion, and the Rust spec-check rules
+creation on review exhaustion, reviewer transient-failure escalation,
+and the Rust spec-check rules
 (``.unwrap()`` / ``.expect()`` / ``std::process::Command`` in async
 contexts) are all wired up.
 """
@@ -241,6 +240,7 @@ async def select_next_bead(
         needs_human_review=False,
         review_rounds=0,
         idle_polls=0,
+        reviewer_escalation_level=0,
     )
 
 
@@ -572,8 +572,14 @@ async def spec_check(
 
 
 @action(
-    reads=["current_bead", "current_bead_id"],
-    writes=["approved", "review_rounds", "needs_human_review", "last_review_findings"],
+    reads=["current_bead", "current_bead_id", "reviewer_escalation_level"],
+    writes=[
+        "approved",
+        "review_rounds",
+        "needs_human_review",
+        "last_review_findings",
+        "reviewer_escalation_level",
+    ],
 )
 async def review(
     state: State,
@@ -587,6 +593,14 @@ async def review(
     findings into ``state["last_review_findings"]`` so the downstream
     ``create_human_bead`` action can include them in the assumption
     bead's description.
+
+    On reviewer transient failures (airframe's ``RuntimeTransientError``
+    — 5xx, rate limits, network blips, runtime hangs), the action
+    escalates to the next configured tier and retries the same round.
+    The escalated tier sticks for the rest of the bead so we don't drop
+    back to a reviewer we just learned is unreliable. If every tier has
+    been tried and the failure persists, the action sets
+    ``needs_human_review=True`` and exits.
     """
     bead = state["current_bead"]
     bead_id = state["current_bead_id"]
@@ -598,14 +612,145 @@ async def review(
             last_review_findings=[],
         )
 
-    correctness = squadron.correctness_reviewer_for(DEFAULT_TIER)
-    completeness = squadron.completeness_reviewer_for(DEFAULT_TIER)
     description = bead.get("description", "")
     work_unit_md = description or None
 
     rounds_with_findings = 0
+    escalation_level = int(state.get("reviewer_escalation_level") or 0)
     for round_n in range(1, MAX_REVIEW_ROUNDS + 1):
-        # Run both reviewers in parallel (correctness + completeness).
+        # Run both reviewers in parallel (correctness + completeness),
+        # bumping the reviewer tier on transient failures until either
+        # a result lands or every tier has been tried.
+        results, escalation_level, transient_exhausted = await _review_round_with_escalation(
+            squadron=squadron,
+            events=events,
+            bead_id=bead_id,
+            description=description,
+            work_unit_md=work_unit_md,
+            initial_level=escalation_level,
+        )
+        if transient_exhausted:
+            return {"approved": False}, state.update(
+                approved=False,
+                review_rounds=rounds_with_findings,
+                needs_human_review=True,
+                last_review_findings=[
+                    f"Reviewer transient failure exhausted escalation: {transient_exhausted}"
+                ],
+                reviewer_escalation_level=escalation_level,
+            )
+        if results is None:
+            # Non-transient reviewer failure — already logged inside
+            # the helper.
+            return {"approved": False}, state.update(
+                approved=False,
+                review_rounds=rounds_with_findings,
+                needs_human_review=True,
+                last_review_findings=["Review crashed (non-transient)"],
+                reviewer_escalation_level=escalation_level,
+            )
+
+        approved = all(_payload_approved(p) for p in results)
+        if approved:
+            return {"approved": True, "rounds": rounds_with_findings}, state.update(
+                approved=True,
+                review_rounds=rounds_with_findings,
+                last_review_findings=[],
+                reviewer_escalation_level=escalation_level,
+            )
+
+        rounds_with_findings += 1
+        round_findings = _findings_list(results)
+        if round_n >= MAX_REVIEW_ROUNDS:
+            await _put_output(
+                events,
+                "review",
+                f"Review rounds exhausted after {round_n}; flagging needs-human-review",
+                level="warning",
+            )
+            return {"approved": False, "rounds": rounds_with_findings}, state.update(
+                approved=False,
+                review_rounds=rounds_with_findings,
+                needs_human_review=True,
+                last_review_findings=round_findings,
+                reviewer_escalation_level=escalation_level,
+            )
+
+        # Re-prompt the implementer to address review feedback.
+        ok = await _run_fix(
+            squadron=squadron,
+            events=events,
+            bead_id=bead_id,
+            phase="review",
+            round_n=round_n,
+            failure_message="\n".join(round_findings) or "(no specific findings)",
+        )
+        if not ok:
+            return {"approved": False, "rounds": rounds_with_findings}, state.update(
+                approved=False,
+                review_rounds=rounds_with_findings,
+                needs_human_review=True,
+                last_review_findings=round_findings,
+                reviewer_escalation_level=escalation_level,
+            )
+
+    return {"approved": False, "rounds": rounds_with_findings}, state.update(
+        approved=False,
+        review_rounds=rounds_with_findings,
+        needs_human_review=True,
+        last_review_findings=[],
+        reviewer_escalation_level=escalation_level,
+    )
+
+
+_REVIEWER_TIER_LADDER: tuple[str, ...] = (DEFAULT_TIER, "trivial", "simple", "moderate", "complex")
+
+
+def _reviewer_tier_for_level(level: int) -> str:
+    """Resolve the reviewer tier name for an escalation level.
+
+    Level ``0`` is the squadron default. Each transient failure bumps
+    one rung up :data:`_REVIEWER_TIER_LADDER`; once the top is reached
+    there are no further tiers to try.
+    """
+    if level <= 0:
+        return _REVIEWER_TIER_LADDER[0]
+    if level >= len(_REVIEWER_TIER_LADDER):
+        return _REVIEWER_TIER_LADDER[-1]
+    return _REVIEWER_TIER_LADDER[level]
+
+
+async def _review_round_with_escalation(
+    *,
+    squadron: FlySquadron,
+    events: asyncio.Queue[ProgressEvent | None],
+    bead_id: str,
+    description: str,
+    work_unit_md: str | None,
+    initial_level: int,
+) -> tuple[tuple[Any, Any] | None, int, str]:
+    """Send the correctness+completeness pair, escalating on transient failure.
+
+    Returns ``(results, new_level, transient_exhausted_msg)`` where:
+
+    * ``results`` is the ``(correctness, completeness)`` payload tuple
+      on success, or ``None`` on a non-transient crash.
+    * ``new_level`` is the escalation level the caller should persist
+      for the rest of the bead.
+    * ``transient_exhausted_msg`` is the empty string on success or a
+      non-transient crash, and the carried transient-error message
+      when every reviewer tier has been exhausted.
+    """
+    from airframe.errors import RuntimeTransientError
+
+    level = max(0, initial_level)
+    last_transient_error = ""
+    max_level = len(_REVIEWER_TIER_LADDER) - 1
+    while True:
+        tier_name = _reviewer_tier_for_level(level)
+        correctness = squadron.correctness_reviewer_for(tier_name)
+        completeness = squadron.completeness_reviewer_for(tier_name)
+
         with squadron.bead_context(bead_id=bead_id):
             t0 = time.monotonic()
             await events.put(
@@ -627,19 +772,84 @@ async def review(
                         briefing_context=None,
                     ),
                 )
-            except Exception as exc:  # noqa: BLE001
+            except RuntimeTransientError as exc:
+                last_transient_error = str(exc)
+                duration = time.monotonic() - t0
+                await events.put(
+                    AgentCompleted(
+                        step_name="review",
+                        agent_name="Correctness",
+                        duration_seconds=duration,
+                        success=False,
+                        error=last_transient_error,
+                    )
+                )
+                await events.put(
+                    AgentCompleted(
+                        step_name="review",
+                        agent_name="Completeness",
+                        duration_seconds=duration,
+                        success=False,
+                        error=last_transient_error,
+                    )
+                )
+                if level >= max_level:
+                    await _put_output(
+                        events,
+                        "review",
+                        (
+                            f"Reviewer transient failure exhausted escalation at "
+                            f"tier '{tier_name}': {last_transient_error}"
+                        ),
+                        level="error",
+                        metadata={"tier": tier_name, "transient": True, "exhausted": True},
+                    )
+                    return None, level, last_transient_error
+                next_level = level + 1
+                next_tier = _reviewer_tier_for_level(next_level)
+                await _put_output(
+                    events,
+                    "review",
+                    (
+                        f"Reviewer transient failure on tier '{tier_name}'; "
+                        f"escalating to '{next_tier}': {last_transient_error}"
+                    ),
+                    level="warning",
+                    metadata={
+                        "from_tier": tier_name,
+                        "to_tier": next_tier,
+                        "transient": True,
+                    },
+                )
+                level = next_level
+                continue
+            except Exception as exc:  # noqa: BLE001 — non-transient → bail to needs-human-review
+                duration = time.monotonic() - t0
+                await events.put(
+                    AgentCompleted(
+                        step_name="review",
+                        agent_name="Correctness",
+                        duration_seconds=duration,
+                        success=False,
+                        error=str(exc),
+                    )
+                )
+                await events.put(
+                    AgentCompleted(
+                        step_name="review",
+                        agent_name="Completeness",
+                        duration_seconds=duration,
+                        success=False,
+                        error=str(exc),
+                    )
+                )
                 await _put_output(
                     events,
                     "review",
                     f"Review failed: {exc}",
                     level="error",
                 )
-                return {"approved": False}, state.update(
-                    approved=False,
-                    review_rounds=rounds_with_findings,
-                    needs_human_review=True,
-                    last_review_findings=[f"Review crashed: {exc}"],
-                )
+                return None, level, ""
             duration = time.monotonic() - t0
         await events.put(
             AgentCompleted(
@@ -655,54 +865,7 @@ async def review(
                 duration_seconds=duration,
             )
         )
-
-        approved = all(_payload_approved(p) for p in results)
-        if approved:
-            return {"approved": True, "rounds": rounds_with_findings}, state.update(
-                approved=True,
-                review_rounds=rounds_with_findings,
-                last_review_findings=[],
-            )
-
-        rounds_with_findings += 1
-        round_findings = _findings_list(results)
-        if round_n >= MAX_REVIEW_ROUNDS:
-            await _put_output(
-                events,
-                "review",
-                f"Review rounds exhausted after {round_n}; flagging needs-human-review",
-                level="warning",
-            )
-            return {"approved": False, "rounds": rounds_with_findings}, state.update(
-                approved=False,
-                review_rounds=rounds_with_findings,
-                needs_human_review=True,
-                last_review_findings=round_findings,
-            )
-
-        # Re-prompt the implementer to address review feedback.
-        ok = await _run_fix(
-            squadron=squadron,
-            events=events,
-            bead_id=bead_id,
-            phase="review",
-            round_n=round_n,
-            failure_message="\n".join(round_findings) or "(no specific findings)",
-        )
-        if not ok:
-            return {"approved": False, "rounds": rounds_with_findings}, state.update(
-                approved=False,
-                review_rounds=rounds_with_findings,
-                needs_human_review=True,
-                last_review_findings=round_findings,
-            )
-
-    return {"approved": False, "rounds": rounds_with_findings}, state.update(
-        approved=False,
-        review_rounds=rounds_with_findings,
-        needs_human_review=True,
-        last_review_findings=[],
-    )
+        return results, level, ""
 
 
 def _payload_approved(payload: Any) -> bool:

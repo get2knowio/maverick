@@ -48,7 +48,13 @@ class _NullCM:
 
 
 class StubFlySquadron:
-    """Minimal stand-in for :class:`FlySquadron`."""
+    """Minimal stand-in for :class:`FlySquadron`.
+
+    ``correctness_by_tier`` / ``completeness_by_tier`` let tests
+    return distinct reviewer instances per tier name; the bare
+    ``correctness`` / ``completeness`` slots are the default fallback
+    when a tier-specific lookup misses.
+    """
 
     def __init__(
         self,
@@ -56,6 +62,8 @@ class StubFlySquadron:
         coder: StubCodingAgent | None = None,
         correctness: StubReviewerAgent | None = None,
         completeness: StubReviewerAgent | None = None,
+        correctness_by_tier: dict[str, StubReviewerAgent] | None = None,
+        completeness_by_tier: dict[str, StubReviewerAgent] | None = None,
     ) -> None:
         self.coder = coder or StubCodingAgent(
             implement_payloads=[SubmitImplementationPayload(summary="stub impl")],
@@ -69,15 +77,17 @@ class StubFlySquadron:
             review_kind="completeness",
             review_payloads=[SubmitReviewPayload(approved=True, findings=())],
         )
+        self.correctness_by_tier: dict[str, StubReviewerAgent] = correctness_by_tier or {}
+        self.completeness_by_tier: dict[str, StubReviewerAgent] = completeness_by_tier or {}
 
     def coder_for(self, _tier: str) -> StubCodingAgent:
         return self.coder
 
-    def correctness_reviewer_for(self, _tier: str) -> StubReviewerAgent:
-        return self.correctness
+    def correctness_reviewer_for(self, tier: str) -> StubReviewerAgent:
+        return self.correctness_by_tier.get(tier, self.correctness)
 
-    def completeness_reviewer_for(self, _tier: str) -> StubReviewerAgent:
-        return self.completeness
+    def completeness_reviewer_for(self, tier: str) -> StubReviewerAgent:
+        return self.completeness_by_tier.get(tier, self.completeness)
 
     def bead_context(self, **_kwargs: Any) -> _NullCM:
         return _NullCM()
@@ -570,6 +580,168 @@ class TestFlyBurrHumanBeadCreation:
         assert state["human_bead_id"] == ""
         assert state["commit_ok"] is True
         assert state["needs_human_review"] is True
+
+
+class TestFlyBurrReviewerTransientEscalation:
+    async def test_transient_failure_escalates_to_next_tier(self, tmp_path: Path) -> None:
+        """Transient reviewer error → bump tier → next tier approves → bead commits."""
+        from airframe.errors import RuntimeTransientError
+
+        from maverick.workflows.fly_beads.graceful_stop import reset_graceful_stop
+
+        reset_graceful_stop()
+
+        # Tier 0 (_default) correctness raises a transient. The action
+        # should escalate and re-run on the next-tier reviewer pair,
+        # which is the squadron's fallback ``correctness`` /
+        # ``completeness`` slots.
+        default_correctness = StubReviewerAgent(
+            review_kind="correctness",
+            review_payloads=[SubmitReviewPayload(approved=True, findings=())],
+        )
+        default_correctness.raise_error = RuntimeTransientError("rate limited")
+        default_completeness = StubReviewerAgent(
+            review_kind="completeness",
+            review_payloads=[SubmitReviewPayload(approved=True, findings=())],
+        )
+
+        squadron = StubFlySquadron(
+            correctness=StubReviewerAgent(
+                review_kind="correctness",
+                review_payloads=[SubmitReviewPayload(approved=True, findings=())],
+            ),
+            completeness=StubReviewerAgent(
+                review_kind="completeness",
+                review_payloads=[SubmitReviewPayload(approved=True, findings=())],
+            ),
+            correctness_by_tier={"_default": default_correctness},
+            completeness_by_tier={"_default": default_completeness},
+        )
+
+        queue: asyncio.Queue[ProgressEvent | None] = asyncio.Queue()
+        with (
+            patch(
+                "maverick.library.actions.beads.select_next_bead",
+                new=AsyncMock(side_effect=[_bead("b-1"), _NO_MORE]),
+            ),
+            patch(
+                "maverick.library.actions.validation.run_independent_gate",
+                new=AsyncMock(return_value=_gate_passed()),
+            ),
+            patch(
+                "maverick.library.actions.jj.jj_commit_bead",
+                new=AsyncMock(return_value={"change_id": "c", "success": True}),
+            ),
+            patch(
+                "maverick.library.actions.beads.mark_bead_complete",
+                new=AsyncMock(
+                    return_value=MarkBeadCompleteResult(success=True, bead_id="b-1", error=None)
+                ),
+            ),
+        ):
+            app = build_fly_application(
+                squadron=squadron,  # type: ignore[arg-type]
+                event_queue=queue,
+                epic_id="e-1",
+                cwd=str(tmp_path),
+                max_beads=10,
+            )
+            driver = BurrWorkflowDriver(app, halt_after=FLY_TERMINAL_ACTIONS, event_queue=queue)
+            await _collect(driver)
+
+        _, _, state = driver.result
+        # Escalation bumped the tier and the next tier approved.
+        assert state["reviewer_escalation_level"] == 1
+        assert state["approved"] is True
+        assert state["succeeded_count"] == 1
+        assert state["needs_human_review"] is False
+
+    async def test_transient_failure_exhausts_escalation_marks_human_review(
+        self, tmp_path: Path
+    ) -> None:
+        """Every tier raises transient → needs-human-review with error message."""
+        from airframe.errors import RuntimeTransientError
+
+        from maverick.workflows.fly_beads.graceful_stop import reset_graceful_stop
+
+        reset_graceful_stop()
+
+        # Both the per-tier dict and the bare fallback raise transients —
+        # because the action calls ``correctness_reviewer_for(tier)``
+        # for each level, we ensure every lookup hits a raising stub.
+        def _raising() -> StubReviewerAgent:
+            r = StubReviewerAgent(
+                review_kind="correctness",
+                review_payloads=[
+                    SubmitReviewPayload(approved=True, findings=()) for _ in range(2)
+                ],
+            )
+            r.raise_error = RuntimeTransientError("upstream fault")
+            return r
+
+        class _AlwaysRaising:
+            """Force every call to raise transient, regardless of how many tiers."""
+
+            def __init__(self, kind: str) -> None:
+                self.kind = kind
+                self.calls = 0
+
+            async def review(self, **_kwargs: Any) -> SubmitReviewPayload:
+                self.calls += 1
+                raise RuntimeTransientError(f"{self.kind} fault #{self.calls}")
+
+        correctness_always = _AlwaysRaising("correctness")
+        completeness_always = _AlwaysRaising("completeness")
+
+        squadron = StubFlySquadron()
+        # Override the tier-dispatch methods to always return the
+        # raising stubs.
+        squadron.correctness_reviewer_for = lambda _tier: correctness_always  # type: ignore[assignment]
+        squadron.completeness_reviewer_for = lambda _tier: completeness_always  # type: ignore[assignment]
+
+        queue: asyncio.Queue[ProgressEvent | None] = asyncio.Queue()
+        with (
+            patch(
+                "maverick.library.actions.beads.select_next_bead",
+                new=AsyncMock(side_effect=[_bead("b-1"), _NO_MORE]),
+            ),
+            patch(
+                "maverick.library.actions.validation.run_independent_gate",
+                new=AsyncMock(return_value=_gate_passed()),
+            ),
+            patch(
+                "maverick.library.actions.jj.jj_commit_bead",
+                new=AsyncMock(return_value={"change_id": "c", "success": True}),
+            ),
+            patch(
+                "maverick.library.actions.beads.mark_bead_complete",
+                new=AsyncMock(
+                    return_value=MarkBeadCompleteResult(success=True, bead_id="b-1", error=None)
+                ),
+            ),
+        ):
+            app = build_fly_application(
+                squadron=squadron,  # type: ignore[arg-type]
+                event_queue=queue,
+                epic_id="e-1",
+                cwd=str(tmp_path),
+                max_beads=10,
+            )
+            driver = BurrWorkflowDriver(app, halt_after=FLY_TERMINAL_ACTIONS, event_queue=queue)
+            await _collect(driver)
+
+        _, _, state = driver.result
+        # Climbed all 5 ladder rungs (level 0..4) and then exited.
+        assert state["reviewer_escalation_level"] == 4
+        assert state["needs_human_review"] is True
+        assert state["approved"] is False
+        # Each rung tried once → 5 correctness attempts; completeness
+        # may be cancelled mid-flight by the gather, so we only assert
+        # the lower bound for it.
+        assert correctness_always.calls == 5
+        # Finding text carries the exhaustion reason.
+        finding_text = " ".join(state["last_review_findings"])
+        assert "exhausted escalation" in finding_text
 
 
 class TestFlyBurrAggregateReview:
