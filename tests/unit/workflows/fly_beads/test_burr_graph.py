@@ -572,6 +572,149 @@ class TestFlyBurrHumanBeadCreation:
         assert state["needs_human_review"] is True
 
 
+class TestFlyBurrAggregateReview:
+    async def test_two_beads_trigger_aggregate(self, tmp_path: Path) -> None:
+        """≥2 successful beads → ``aggregate_review`` runs before ``done``."""
+        from maverick.workflows.fly_beads.graceful_stop import reset_graceful_stop
+
+        reset_graceful_stop()
+
+        agg_calls: list[dict[str, Any]] = []
+
+        async def _fake_aggregate(
+            *, objective: str, bead_list: str, diff_stat: str
+        ) -> SubmitReviewPayload:
+            agg_calls.append(
+                {"objective": objective, "bead_list": bead_list, "diff_stat": diff_stat}
+            )
+            return SubmitReviewPayload(
+                approved=False,
+                findings=(
+                    ReviewFindingPayload(severity="major", issue="cross-bead inconsistency"),
+                ),
+            )
+
+        coder = StubCodingAgent(
+            implement_payloads=[
+                SubmitImplementationPayload(summary="i1"),
+                SubmitImplementationPayload(summary="i2"),
+            ],
+            fix_payloads=[SubmitFixResultPayload(summary="f") for _ in range(5)],
+        )
+        squadron = StubFlySquadron(coder=coder)
+        # Patch the .aggregate method directly on the per-tier reviewer
+        # stub the squadron will return.
+        squadron.correctness.aggregate = _fake_aggregate  # type: ignore[attr-defined]
+
+        async def _fake_diff_stat(*_args: Any, **_kw: Any) -> Any:
+            class _R:
+                returncode = 0
+                stdout = " src/foo.py | 12 ++++++++----\n"
+
+            return _R()
+
+        queue: asyncio.Queue[ProgressEvent | None] = asyncio.Queue()
+        with (
+            patch(
+                "maverick.library.actions.beads.select_next_bead",
+                new=AsyncMock(side_effect=[_bead("b-1"), _bead("b-2"), _NO_MORE]),
+            ),
+            patch(
+                "maverick.library.actions.validation.run_independent_gate",
+                new=AsyncMock(return_value=_gate_passed()),
+            ),
+            patch(
+                "maverick.library.actions.jj.jj_commit_bead",
+                new=AsyncMock(return_value={"change_id": "c", "success": True}),
+            ),
+            patch(
+                "maverick.library.actions.beads.mark_bead_complete",
+                new=AsyncMock(
+                    return_value=MarkBeadCompleteResult(success=True, bead_id="x", error=None)
+                ),
+            ),
+            patch(
+                "maverick.runners.command.CommandRunner.run",
+                new=_fake_diff_stat,
+            ),
+        ):
+            app = build_fly_application(
+                squadron=squadron,  # type: ignore[arg-type]
+                event_queue=queue,
+                epic_id="e-1",
+                cwd=str(tmp_path),
+                max_beads=10,
+            )
+            driver = BurrWorkflowDriver(app, halt_after=FLY_TERMINAL_ACTIONS, event_queue=queue)
+            events = await _collect(driver)
+
+        sequence = _action_sequence(events)
+        assert sequence[-2] == "aggregate_review"
+        assert sequence[-1] == "done"
+
+        assert len(agg_calls) == 1
+        call = agg_calls[0]
+        assert call["objective"] == "e-1"
+        assert "b-1" in call["bead_list"]
+        assert "b-2" in call["bead_list"]
+        assert "src/foo.py" in call["diff_stat"]
+
+        _, _, state = driver.result
+        assert state["aggregate_review_payload"] is not None
+        assert state["aggregate_review_payload"]["approved"] is False
+
+    async def test_single_bead_skips_aggregate(self, tmp_path: Path) -> None:
+        """1 successful bead → aggregate is below threshold → no-op."""
+        from maverick.workflows.fly_beads.graceful_stop import reset_graceful_stop
+
+        reset_graceful_stop()
+
+        called = False
+
+        async def _fail_if_called(*_args: Any, **_kw: Any) -> SubmitReviewPayload:
+            nonlocal called
+            called = True
+            return SubmitReviewPayload(approved=True, findings=())
+
+        squadron = StubFlySquadron()
+        squadron.correctness.aggregate = _fail_if_called  # type: ignore[attr-defined]
+
+        queue: asyncio.Queue[ProgressEvent | None] = asyncio.Queue()
+        with (
+            patch(
+                "maverick.library.actions.beads.select_next_bead",
+                new=AsyncMock(side_effect=[_bead("b-1"), _NO_MORE]),
+            ),
+            patch(
+                "maverick.library.actions.validation.run_independent_gate",
+                new=AsyncMock(return_value=_gate_passed()),
+            ),
+            patch(
+                "maverick.library.actions.jj.jj_commit_bead",
+                new=AsyncMock(return_value={"change_id": "c", "success": True}),
+            ),
+            patch(
+                "maverick.library.actions.beads.mark_bead_complete",
+                new=AsyncMock(
+                    return_value=MarkBeadCompleteResult(success=True, bead_id="b-1", error=None)
+                ),
+            ),
+        ):
+            app = build_fly_application(
+                squadron=squadron,  # type: ignore[arg-type]
+                event_queue=queue,
+                epic_id="e-1",
+                cwd=str(tmp_path),
+                max_beads=10,
+            )
+            driver = BurrWorkflowDriver(app, halt_after=FLY_TERMINAL_ACTIONS, event_queue=queue)
+            await _collect(driver)
+
+        assert called is False
+        _, _, state = driver.result
+        assert state["aggregate_review_payload"] is None
+
+
 class TestFlyBurrWatchMode:
     async def test_watch_polls_then_exits_on_idle_cap(self, tmp_path: Path) -> None:
         """Watch mode polls past an empty cycle, then exits when the cap is hit."""

@@ -12,20 +12,13 @@ agents.
 follow-up; tracked in the repo as TODO items):
 
 * **Tier escalation** — single-tier dispatch only.
-* **Aggregate cross-bead review** — per-bead reviews run; the
-  post-loop ``_maybe_aggregate_review`` was not ported.
 * **Reviewer transient-failure escalation** — falls straight through
   to ``needs-human-review``.
-* **Human-bead creation** — the commit's ``Tag: needs-human-review``
-  trailer still lands, but no companion assumption bead is created
-  on ``bd``.
-* **Watch mode** — the loop terminates on bead-empty rather than
-  polling.
 
-Graceful stop is preserved. The Rust spec-check rules
+Graceful stop, watch mode, aggregate cross-bead review, human-bead
+creation on review exhaustion, and the Rust spec-check rules
 (``.unwrap()`` / ``.expect()`` / ``std::process::Command`` in async
-contexts) are now active again via
-:mod:`maverick.workflows.fly_beads._spec_check`.
+contexts) are all wired up.
 """
 
 from __future__ import annotations
@@ -50,12 +43,14 @@ if TYPE_CHECKING:
 
 
 __all__ = [
+    "AGGREGATE_REVIEW_THRESHOLD",
     "DEFAULT_TIER",
     "MAX_GATE_FIX_ATTEMPTS",
     "MAX_REVIEW_ROUNDS",
     "MAX_SPEC_FIX_ATTEMPTS",
     "abandon_bead",
     "ac_check",
+    "aggregate_review",
     "commit",
     "create_human_bead",
     "gate",
@@ -72,6 +67,10 @@ __all__ = [
 MAX_REVIEW_ROUNDS: int = 3
 MAX_GATE_FIX_ATTEMPTS: int = 2
 MAX_SPEC_FIX_ATTEMPTS: int = 2
+
+# Aggregate review runs once after the bead loop when at least this
+# many beads have completed in the current run.
+AGGREGATE_REVIEW_THRESHOLD: int = 2
 
 DEFAULT_TIER: str = "_default"
 
@@ -960,3 +959,110 @@ async def record_outcome(state: State) -> tuple[dict[str, Any], State]:
         succeeded_count=state["succeeded_count"] + (1 if succeeded else 0),
         failed_count=state["failed_count"] + (0 if succeeded else 1),
     )
+
+
+# ---------------------------------------------------------------------------
+# Aggregate (cross-bead) review
+# ---------------------------------------------------------------------------
+
+
+@action(
+    reads=["completed_bead_ids", "bead_events", "succeeded_count"],
+    writes=["aggregate_review_payload"],
+)
+async def aggregate_review(
+    state: State,
+    *,
+    squadron: FlySquadron,
+    events: asyncio.Queue[ProgressEvent | None],
+    cwd: str,
+    epic_id: str,
+) -> tuple[dict[str, Any], State]:
+    """Run the epic-level cross-bead review after the bead loop ends.
+
+    Mirrors the pre-migration ``FlySupervisor._maybe_aggregate_review``:
+    gated on ``AGGREGATE_REVIEW_THRESHOLD`` successful beads, this asks
+    the correctness reviewer to look across the entire epic for
+    cross-bead consistency issues. The findings surface as a single
+    warning row when the aggregate review is not approved; they don't
+    block the run.
+    """
+    completed_ids: list[str] = list(state.get("completed_bead_ids") or ())
+    if len(completed_ids) < AGGREGATE_REVIEW_THRESHOLD:
+        return {"ran": False, "reason": "below_threshold"}, state.update(
+            aggregate_review_payload=None,
+        )
+
+    # Build "<id>: <title>" lines from the per-bead event ledger so the
+    # prompt mirrors the xoscar shape (titles are not on the
+    # completed_bead_ids list itself).
+    bead_events: list[dict[str, Any]] = list(state.get("bead_events") or ())
+    title_by_id: dict[str, str] = {e["bead_id"]: e.get("title", "") for e in bead_events}
+    bead_list = "\n".join(f"- {bid}: {title_by_id.get(bid, '')}" for bid in completed_ids)
+
+    diff_stat = await _safe_diff_stat(cwd)
+
+    reviewer = squadron.correctness_reviewer_for(DEFAULT_TIER)
+    label = "Aggregate review"
+    await events.put(AgentStarted(step_name="aggregate_review", agent_name=label, provider=""))
+    t0 = time.monotonic()
+    try:
+        payload = await reviewer.aggregate(
+            objective=epic_id or "epic",
+            bead_list=bead_list,
+            diff_stat=diff_stat,
+        )
+    except Exception as exc:  # noqa: BLE001 — non-fatal advisory step
+        await _put_output(
+            events,
+            "fly",
+            f"Aggregate review failed: {exc}",
+            level="warning",
+        )
+        await events.put(
+            AgentCompleted(
+                step_name="aggregate_review",
+                agent_name=label,
+                duration_seconds=time.monotonic() - t0,
+                success=False,
+                error=str(exc),
+            )
+        )
+        return {"ran": False, "error": str(exc)}, state.update(
+            aggregate_review_payload=None,
+        )
+
+    await events.put(
+        AgentCompleted(
+            step_name="aggregate_review",
+            agent_name=label,
+            duration_seconds=time.monotonic() - t0,
+        )
+    )
+
+    summary = dump_supervisor_payload(payload)
+    if not payload.approved:
+        finding_count = len(payload.findings)
+        await _put_output(
+            events,
+            "fly",
+            f"Aggregate review flagged {finding_count} cross-bead issue(s)",
+            level="warning",
+            metadata={"finding_count": finding_count},
+        )
+
+    return {"ran": True, "approved": payload.approved}, state.update(
+        aggregate_review_payload=summary,
+    )
+
+
+async def _safe_diff_stat(cwd: str) -> str:
+    """Return ``git diff --stat HEAD~1..HEAD`` or empty on any failure."""
+    from maverick.runners.command import CommandRunner
+
+    try:
+        runner = CommandRunner(cwd=Path(cwd))
+        result = await runner.run(["git", "diff", "--stat", "HEAD~1..HEAD"])
+        return result.stdout if result.returncode == 0 else ""
+    except Exception:  # noqa: BLE001 — advisory; empty diff stat is fine
+        return ""
