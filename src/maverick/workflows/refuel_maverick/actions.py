@@ -1,8 +1,10 @@
 """Burr actions for the ``refuel_maverick`` workflow.
 
-State-machine port of :class:`maverick.actors.xoscar.refuel_supervisor.RefuelSupervisor`.
+The ``maverick refuel`` workflow runs through these actions exclusively
+as of Phase 4 of the xoscar → Burr migration.
 
-Phase 2 scope (intentional simplifications, documented):
+Known gaps relative to the pre-migration supervisor (queued for
+follow-up):
 
 * Briefing + outline + bead-creation: full parity with the xoscar
   supervisor.
@@ -70,8 +72,7 @@ __all__ = [
 
 _SOURCE = "refuel-burr"
 
-# Mirrors maverick.actors.xoscar.refuel_supervisor.MAX_FIX_ROUNDS /
-# MAX_DETAIL_RETRIES — same retry budget the xoscar driver uses.
+# Retry budgets — preserved from the pre-Burr supervisor.
 MAX_FIX_ROUNDS: int = 3
 MAX_DETAIL_RETRIES: int = 1
 
@@ -622,7 +623,8 @@ async def create_beads(
     """Persist work-unit specs as a beads epic with task children.
 
     Ports the body of
-    :class:`maverick.actors.xoscar.bead_creator.BeadCreatorActor.create_beads`.
+    the legacy ``BeadCreatorActor.create_beads`` deleted during the
+    Burr migration.
     """
     from maverick.library.actions.beads import create_beads as create_beads_action
     from maverick.library.actions.beads import wire_dependencies

@@ -25,17 +25,13 @@ from maverick.library.actions.open_bead_analysis import (
     analyze_open_beads,
 )
 from maverick.logging import get_logger
-from maverick.types import StepType
 from maverick.workflows.base import PythonWorkflow
 from maverick.workflows.refuel_maverick.constants import (
     ANALYZE_OPEN_BEADS,
-    BRIEFING,
     COMMIT_OUTPUT,
     CREATE_BEADS,
     DECOMPOSE,
     DERIVE_VERIFICATION,
-    DETAIL_SESSION_MAX_TURNS,
-    FIX_SESSION_MAX_TURNS,
     GATHER_CONTEXT,
     PARSE_FLIGHT_PLAN,
     WIRE_CROSS_PLAN_DEPS,
@@ -465,36 +461,19 @@ class RefuelMaverickWorkflow(PythonWorkflow):
             logger.warning("refuel_runway_context_failed", error=str(exc))
 
         # ------------------------------------------------------------------
-        # Steps 2b-4: Briefing + Decompose + Validate.
-        # xoscar is the default driver; ``MAVERICK_USE_BURR=refuel`` opts
-        # this workflow into the Burr-backed driver. Both drivers expose
-        # the same return-dict contract.
+        # Steps 2b-4: Briefing + Decompose + Validate — driven by the
+        # Burr application built around the RefuelSquadron.
         # ------------------------------------------------------------------
-        from maverick.workflows.generate_flight_plan.workflow import _use_burr_for
-
-        if _use_burr_for("refuel"):
-            decomposition = await self._run_with_burr(
-                flight_plan=flight_plan,
-                raw_content=raw_content,
-                codebase_context=codebase_context,
-                open_bead_result=open_bead_result,
-                runway_context_text=runway_context_text,
-                skip_briefing=skip_briefing,
-                ctx=ctx,
-                ws_cwd=ws_cwd,
-            )
-        else:
-            decomposition = await self._run_with_xoscar(
-                flight_plan=flight_plan,
-                raw_content=raw_content,
-                codebase_context=codebase_context,
-                open_bead_result=open_bead_result,
-                runway_context_text=runway_context_text,
-                run_dir=run_dir,
-                skip_briefing=skip_briefing,
-                ctx=ctx,
-                ws_cwd=ws_cwd,
-            )
+        decomposition = await self._run_with_burr(
+            flight_plan=flight_plan,
+            raw_content=raw_content,
+            codebase_context=codebase_context,
+            open_bead_result=open_bead_result,
+            runway_context_text=runway_context_text,
+            skip_briefing=skip_briefing,
+            ctx=ctx,
+            ws_cwd=ws_cwd,
+        )
         briefing_path_str: str | None = None
         suggested_deps: tuple[str, ...] = ()
         if decomposition is not None:
@@ -585,7 +564,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
         # ``create_beads`` here would fabricate a duplicate epic with
         # identical children — that was the historical bug. Instead, we
         # adopt the supervisor's outputs from ``ctx`` (stashed in
-        # ``_run_with_xoscar``) and only run the post-creation
+        # ``_run_with_burr``) and only run the post-creation
         # bookkeeping the supervisor doesn't own (run-meta update,
         # ``flight_plan_name`` state attachment, cross-epic dep wiring).
         # ------------------------------------------------------------------
@@ -845,343 +824,6 @@ class RefuelMaverickWorkflow(PythonWorkflow):
         )
         return result.to_dict()
 
-    async def _run_with_xoscar(
-        self,
-        *,
-        flight_plan: Any,
-        raw_content: str,
-        codebase_context: Any,
-        open_bead_result: Any,
-        runway_context_text: str | None,
-        run_dir: Path | None,
-        skip_briefing: bool = False,
-        ctx: dict[str, Any] | None = None,
-        ws_cwd: Path,
-    ) -> Any:
-        """Run briefing + decomposition via xoscar supervisor.
-
-        Creates briefing actors (Navigator, Structuralist, Recon, Contrarian)
-        and decomposer actors in the same ActorSystem. The supervisor
-        orchestrates: briefing → decompose → validate.
-
-        Returns a DecompositionOutput.
-        """
-
-        from maverick.agents.briefing.prompts import build_briefing_prompt
-        from maverick.workflows.refuel_maverick.models import (
-            DecompositionOutput,
-            WorkUnitSpec,
-        )
-
-        # Build briefing prompt (needed by supervisor for agent dispatch)
-        briefing_prompt = build_briefing_prompt(
-            raw_content,
-            codebase_context,
-            open_bead_context=open_bead_result,
-        )
-
-        # Check for cached briefing from a previous run
-        import json as _json
-
-        cache_root = ws_cwd
-        plan_dir = cache_root / ".maverick" / "plans" / flight_plan.name
-        briefing_cache_path = plan_dir / "refuel-briefing.json"
-        outline_cache_path = plan_dir / "refuel-outline.json"
-        detail_cache_dir = plan_dir / "refuel-details"
-        cached_briefing: dict[str, Any] | None = None
-        cached_outline: dict[str, Any] | None = None
-        cached_details: dict[str, dict[str, Any]] = {}
-
-        verification_properties = getattr(flight_plan, "verification_properties", "")
-        briefing_key = _briefing_cache_key(raw_content, codebase_context, briefing_prompt)
-
-        if not skip_briefing and briefing_cache_path.is_file():
-            try:
-                raw_cache = _json.loads(briefing_cache_path.read_text(encoding="utf-8"))
-                # Support legacy caches written before the keyed-envelope
-                # format: those are a flat {agent: payload} dict. Treat
-                # them as absent so the hash gets written next time.
-                if (
-                    isinstance(raw_cache, dict)
-                    and raw_cache.get("schema_version") == BRIEFING_CACHE_SCHEMA_VERSION
-                    and isinstance(raw_cache.get("payloads"), dict)
-                ):
-                    if raw_cache.get("cache_key") == briefing_key:
-                        cached_briefing = raw_cache["payloads"]
-                        skip_briefing = True
-                        logger.info(
-                            "refuel.briefing_cache_hit",
-                            path=str(briefing_cache_path),
-                            agents=list(cached_briefing.keys()),
-                            cache_key=briefing_key,
-                        )
-                        await self.emit_output(
-                            "refuel",
-                            "Using cached briefing from previous run",
-                            level="info",
-                        )
-                    else:
-                        logger.info(
-                            "refuel.briefing_cache_invalidated",
-                            path=str(briefing_cache_path),
-                            reason="key_mismatch",
-                            expected=briefing_key,
-                            actual=raw_cache.get("cache_key"),
-                        )
-                else:
-                    logger.info(
-                        "refuel.briefing_cache_invalidated",
-                        path=str(briefing_cache_path),
-                        reason="legacy_or_malformed_envelope",
-                    )
-            except (OSError, _json.JSONDecodeError, ValueError) as exc:
-                logger.warning(
-                    "refuel.briefing_cache_invalid",
-                    path=str(briefing_cache_path),
-                    error=str(exc),
-                )
-                cached_briefing = None
-
-        # The outline key depends on the briefing that produced it, so
-        # compute it from whatever briefing we'll actually run with
-        # (cached or the about-to-be-produced None placeholder).
-        outline_key = _outline_cache_key(raw_content, verification_properties, cached_briefing)
-
-        if outline_cache_path.is_file():
-            try:
-                raw_outline = _json.loads(outline_cache_path.read_text(encoding="utf-8"))
-                if (
-                    isinstance(raw_outline, dict)
-                    and raw_outline.get("schema_version") == OUTLINE_CACHE_SCHEMA_VERSION
-                    and isinstance(raw_outline.get("payload"), dict)
-                ):
-                    if raw_outline.get("cache_key") == outline_key:
-                        cached_outline = raw_outline["payload"]
-                        unit_count = len(cached_outline.get("work_units", []))
-                        logger.info(
-                            "refuel.outline_cache_hit",
-                            path=str(outline_cache_path),
-                            unit_count=unit_count,
-                            cache_key=outline_key,
-                        )
-                        await self.emit_output(
-                            "refuel",
-                            f"Using cached outline from previous run ({unit_count} work units)",
-                            level="info",
-                        )
-                    else:
-                        logger.info(
-                            "refuel.outline_cache_invalidated",
-                            path=str(outline_cache_path),
-                            reason="key_mismatch",
-                            expected=outline_key,
-                            actual=raw_outline.get("cache_key"),
-                        )
-                else:
-                    logger.info(
-                        "refuel.outline_cache_invalidated",
-                        path=str(outline_cache_path),
-                        reason="legacy_or_malformed_envelope",
-                    )
-            except (OSError, _json.JSONDecodeError, ValueError) as exc:
-                logger.warning(
-                    "refuel.outline_cache_invalid",
-                    path=str(outline_cache_path),
-                    error=str(exc),
-                )
-                cached_outline = None
-
-        # Per-unit detail cache — one JSON file per unit. A resumed run
-        # picks up where it left off instead of re-generating details
-        # that already succeeded.
-        if detail_cache_dir.is_dir():
-            for detail_file in detail_cache_dir.glob("*.json"):
-                try:
-                    detail = _json.loads(detail_file.read_text(encoding="utf-8"))
-                    if isinstance(detail, dict) and detail.get("id"):
-                        cached_details[detail["id"]] = detail
-                except (OSError, _json.JSONDecodeError, ValueError) as exc:
-                    logger.warning(
-                        "refuel.detail_cache_invalid",
-                        path=str(detail_file),
-                        error=str(exc),
-                    )
-            if cached_details:
-                await self.emit_output(
-                    "refuel",
-                    f"Loaded {len(cached_details)} cached detail(s) from previous run",
-                    level="info",
-                )
-
-        initial_payload = {
-            "flight_plan_content": raw_content,
-            "codebase_context": codebase_context,
-            "briefing": cached_briefing,  # pre-populated if cached, else filled by supervisor
-            "briefing_prompt": briefing_prompt,
-            "runway_context": runway_context_text or None,
-            "verification_properties": getattr(flight_plan, "verification_properties", ""),
-            "outline": cached_outline,  # pre-populated if cached, else produced by decomposer
-            "cached_details": cached_details,  # keyed by unit_id; empty dict if none
-        }
-
-        # Resolve provider labels AND per-agent StepConfigs so each
-        # briefing actor runs on its own provider/model rather than
-        # sharing the decomposer's config. agent_name matches what
-        # REFUEL_BRIEFING_CONFIG declares so the supervisor's
-        # ``briefing_configs.get(agent_name)`` lookup hits.
-        provider_labels: dict[str, str] = {}
-        briefing_configs: dict[str, Any] = {}
-        if not skip_briefing:
-            for agent_name in ("navigator", "structuralist", "recon", "contrarian"):
-                config = self.resolve_step_config(
-                    BRIEFING,
-                    StepType.PYTHON,
-                    agent_name=agent_name,
-                )
-                label = agent_name.replace("_", " ").title()
-                provider_labels[label] = self._resolve_display_label_for_config(config)
-                briefing_configs[agent_name] = config
-
-        decompose_config = self.resolve_step_config(
-            DECOMPOSE,
-            StepType.PYTHON,
-            agent_name="decomposer",
-        )
-
-        import xoscar as xo
-
-        from maverick.actors.xoscar.pool import actor_pool
-        from maverick.actors.xoscar.refuel_supervisor import (
-            RefuelInputs,
-            RefuelSupervisor,
-        )
-
-        # parallel.decomposer_pool_size is the number of pool workers
-        # (the primary decomposer is always present in addition). Default
-        # of 3 in ParallelConfig matches the historical hardcoded value
-        # (legacy DECOMPOSER_POOL_SIZE = 4 minus the one primary).
-        decomposer_pool_size = self._config.parallel.decomposer_pool_size
-        max_briefing_agents = self._config.parallel.max_briefing_agents
-
-        # Per-unit complexity tier routing for detail generation
-        # (FUTURE.md §2.10 Phase 3). When ``actors.refuel.decomposer.tiers``
-        # is set, replaces the round-robin pool with one decomposer
-        # per defined tier; per-unit complexity from the outline drives
-        # dispatch.
-        from maverick.config import DecomposerTiersConfig
-
-        decomposer_tiers: DecomposerTiersConfig | None = None
-        try:
-            d_tiers_raw = self._config.actors.get("refuel", {}).get("decomposer", {}).get("tiers")
-            if d_tiers_raw:
-                decomposer_tiers = DecomposerTiersConfig.model_validate(d_tiers_raw)
-        except Exception as exc:  # noqa: BLE001 — invalid tiers is non-fatal
-            logger.warning(
-                "refuel.decomposer_tiers_parse_failed",
-                error=str(exc),
-            )
-
-        supervisor_inputs = RefuelInputs(
-            cwd=str(cache_root),
-            flight_plan=flight_plan,
-            initial_payload=initial_payload,
-            config=decompose_config,
-            decomposer_pool_size=decomposer_pool_size,
-            skip_briefing=skip_briefing,
-            provider_labels=provider_labels,
-            briefing_configs=briefing_configs,
-            detail_session_max_turns=DETAIL_SESSION_MAX_TURNS,
-            fix_session_max_turns=FIX_SESSION_MAX_TURNS,
-            max_briefing_agents=max_briefing_agents,
-            decomposer_tiers=decomposer_tiers,
-            briefing_cache_path=str(briefing_cache_path),
-            outline_cache_path=str(outline_cache_path),
-            detail_cache_dir=str(detail_cache_dir),
-            briefing_cache_key=briefing_key,
-            briefing_cache_schema_version=BRIEFING_CACHE_SCHEMA_VERSION,
-            outline_cache_key_inputs={
-                "flight_plan_content": raw_content,
-                "verification_properties": verification_properties,
-            },
-            outline_cache_schema_version=OUTLINE_CACHE_SCHEMA_VERSION,
-        )
-
-        from maverick.squadron.refuel import RefuelSquadron
-        from maverick.workflows.fly_beads.workflow import _cost_sink_for_cwd
-
-        cost_sink = _cost_sink_for_cwd(ws_cwd)
-        async with (
-            RefuelSquadron(
-                cwd=ws_cwd,
-                config=self._config,
-                cost_sink=cost_sink,
-            ) as squadron,
-            actor_pool(
-                agents_config=self._config.agents,
-                cost_sink=squadron.cost_sink,
-            ) as (_pool, address),
-        ):
-            supervisor = await xo.create_actor(
-                RefuelSupervisor,
-                supervisor_inputs,
-                address=address,
-                uid="refuel-supervisor",
-            )
-            try:
-                result = await self._drain_xoscar_supervisor(supervisor)
-            finally:
-                try:
-                    await xo.destroy_actor(supervisor)
-                except Exception:  # noqa: BLE001 — teardown must not raise
-                    pass
-
-        if not result or not result.get("success"):
-            from maverick.exceptions import WorkflowError
-
-            raise WorkflowError(
-                f"Decomposition failed: {result.get('error', 'unknown') if result else 'no result'}",  # noqa: E501
-                workflow_name="refuel-maverick",
-            )
-
-        # Convert specs to DecompositionOutput
-        work_units = []
-        for spec in result.get("specs", []):
-            if isinstance(spec, WorkUnitSpec):
-                work_units.append(spec)
-            elif isinstance(spec, dict):
-                work_units.append(WorkUnitSpec.model_validate(spec))
-
-        fix_rounds = result.get("fix_rounds", 0)
-        if ctx is not None:
-            ctx["fix_rounds"] = fix_rounds
-            # Stash the supervisor's bead-creation outputs so the
-            # workflow's post-decompose steps consume them instead of
-            # re-running ``create_beads`` (which would fabricate a
-            # duplicate epic with identical children).
-            ctx["supervisor_epic"] = result.get("epic")
-            ctx["supervisor_epic_id"] = result.get("epic_id", "")
-            ctx["supervisor_work_beads"] = list(result.get("work_beads") or ())
-            ctx["supervisor_created_map"] = dict(result.get("created_map") or {})
-            ctx["supervisor_dependencies"] = list(result.get("dependencies") or ())
-            ctx["supervisor_deps_wired"] = result.get("deps_wired", 0)
-
-        decomposition = DecompositionOutput(
-            work_units=work_units,
-            rationale=f"{len(work_units)} work units via supervisor ({fix_rounds} fix rounds)",
-        )
-
-        await self.emit_output(
-            DECOMPOSE,
-            f"Decomposed into {len(work_units)} work units ({fix_rounds} fix rounds)",
-            level="success",
-        )
-        await self.emit_step_completed(
-            DECOMPOSE,
-            {"work_unit_count": len(work_units)},
-        )
-
-        return decomposition
-
     async def _run_with_burr(
         self,
         *,
@@ -1196,10 +838,10 @@ class RefuelMaverickWorkflow(PythonWorkflow):
     ) -> Any:
         """Run briefing + decomposition via the Burr-backed driver.
 
-        Opt-in via ``MAVERICK_USE_BURR=refuel``. Same return shape as
-        :meth:`_run_with_xoscar`. Phase 2 simplifications: single-tier
-        decomposer dispatch, no escalation, no cache write-back; cache
-        reads pass through xoscar's path when the flag is off.
+        Post-Burr-migration: single-tier decomposer dispatch, no
+        escalation, no cache write-back. Cache reads still pass through
+        when prior runs left a cache on disk; restoring cache writes is
+        queued behind the rest of the post-migration gaps.
         """
         from maverick.agents.briefing.prompts import build_briefing_prompt
         from maverick.burr import BurrWorkflowDriver
@@ -1222,7 +864,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
         )
 
         # Extract success-criteria refs from the FlightPlan so the
-        # validator can check coverage. Mirrors the xoscar setup.
+        # validator can check coverage.
         sc_refs: tuple[str, ...] = tuple(
             (getattr(sc, "id", None) or getattr(sc, "description", "") or "")
             for sc in (getattr(flight_plan, "success_criteria", ()) or ())

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import shutil
 from pathlib import Path
-from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -18,18 +17,14 @@ from maverick.events import (
 from maverick.library.actions.decompose import CodebaseContext
 from maverick.workflows.refuel_maverick.constants import (
     CREATE_BEADS,
-    DETAIL_SESSION_MAX_TURNS,
-    FIX_SESSION_MAX_TURNS,
     GATHER_CONTEXT,
     PARSE_FLIGHT_PLAN,
     WORKFLOW_NAME,
     WRITE_WORK_UNITS,
 )
-from tests.unit.workflows.conftest import stub_squadron_io
 from tests.unit.workflows.refuel_maverick.conftest import (
     collect_events,
     make_bead_result,
-    make_simple_decomposition_output,
     make_simple_flight_plan,
     make_wire_result,
     make_workflow,
@@ -132,211 +127,6 @@ class TestRefuelMaverickWorkflowHappyPath:
         assert final["epic"] == {"bd_id": "epic-1", "title": "add-user-auth"}
         assert len(final["work_beads"]) == 4
         assert isinstance(final["errors"], list)
-
-    async def test_decompose_supervisor_called(
-        self,
-        mock_config: MagicMock,
-        tmp_path: Path,
-    ) -> None:
-        """_run_with_xoscar is called during the workflow."""
-        fp = make_simple_flight_plan(tmp_path)
-        workflow = make_workflow(mock_config)
-        bead_result = make_bead_result()
-        wire_result = make_wire_result()
-
-        decomp = make_simple_decomposition_output()
-        call_record: dict[str, int] = {"calls": 0}
-
-        async def mock_decompose(
-            *args: Any,
-            ctx: dict[str, Any] | None = None,
-            **kwargs: Any,
-        ) -> Any:
-            call_record["calls"] += 1
-            if ctx is not None:
-                ctx["fix_rounds"] = 0
-                ctx["supervisor_epic"] = bead_result.epic
-                ctx["supervisor_epic_id"] = bead_result.epic["bd_id"] if bead_result.epic else ""
-                ctx["supervisor_work_beads"] = list(bead_result.work_beads)
-                ctx["supervisor_created_map"] = dict(bead_result.created_map)
-                ctx["supervisor_dependencies"] = list(wire_result.dependencies)
-                ctx["supervisor_deps_wired"] = len(wire_result.dependencies)
-            return decomp
-
-        with (
-            patch_cwd(tmp_path),
-            patch(
-                f"{_MODULE}.gather_codebase_context",
-                new=AsyncMock(return_value=_EMPTY_CONTEXT),
-            ),
-            patch.object(workflow, "_run_with_xoscar", new=mock_decompose),
-        ):
-            await collect_events(
-                workflow,
-                {"flight_plan_path": str(fp), "skip_briefing": True},
-            )
-
-        assert call_record["calls"] == 1
-
-    @_REQUIRES_OPENCODE
-    async def test_xoscar_supervisor_receives_typed_inputs(
-        self,
-        mock_config: MagicMock,
-        tmp_path: Path,
-    ) -> None:
-        """The xoscar supervisor receives a ``RefuelInputs`` carrying the
-        resolved ``StepConfig`` and the internal detail/fix session
-        thresholds. Replaces the two Thespian-specific init-dict tests."""
-        mock_config.actors = {
-            "refuel": {
-                "decomposer": {"provider": "claude", "model_id": "opus"},
-            }
-        }
-
-        fp = make_simple_flight_plan(tmp_path)
-        workflow = make_workflow(mock_config)
-        flight_plan = await __import__(
-            "maverick.flight.loader",
-            fromlist=["FlightPlanFile"],
-        ).FlightPlanFile.aload(fp)
-
-        captured_inputs: dict[str, Any] = {}
-
-        async def _fake_create_actor(_cls, *args: Any, **kwargs: Any) -> AsyncMock:
-            # First positional arg is the RefuelInputs dataclass.
-            if args and not captured_inputs:
-                captured_inputs["value"] = args[0]
-            ref = AsyncMock()
-            return ref
-
-        async def _fake_destroy_actor(_ref: Any) -> None:
-            return None
-
-        with (
-            patch_cwd(tmp_path),
-            patch(
-                "maverick.agents.briefing.prompts.build_briefing_prompt",
-                return_value="briefing prompt",
-            ),
-            patch("xoscar.create_actor", new=_fake_create_actor),
-            stub_squadron_io(),
-            patch("xoscar.destroy_actor", new=_fake_destroy_actor),
-            patch.object(workflow, "emit_output", new=AsyncMock()),
-            patch.object(workflow, "emit_step_completed", new=AsyncMock()),
-            patch.object(
-                workflow,
-                "_drain_xoscar_supervisor",
-                new=AsyncMock(
-                    return_value={
-                        "success": True,
-                        "specs": make_simple_decomposition_output().work_units,
-                    }
-                ),
-            ),
-        ):
-            await workflow._run_with_xoscar(
-                flight_plan=flight_plan,
-                raw_content=fp.read_text(encoding="utf-8"),
-                codebase_context=_EMPTY_CONTEXT,
-                open_bead_result=None,
-                runway_context_text=None,
-                run_dir=None,
-                skip_briefing=True,
-                ws_cwd=tmp_path,
-            )
-
-        inputs = captured_inputs.get("value")
-        assert inputs is not None, "RefuelSupervisor was never created"
-        assert inputs.detail_session_max_turns == DETAIL_SESSION_MAX_TURNS
-        assert inputs.fix_session_max_turns == FIX_SESSION_MAX_TURNS
-        assert inputs.skip_briefing is True
-        # Resolved StepConfig carries the provider/model.
-        assert inputs.config is not None
-        assert inputs.config.provider == "claude"
-        assert inputs.config.model_id == "opus"
-
-    @_REQUIRES_OPENCODE
-    async def test_refuel_briefing_configs_resolve_per_agent_from_actors_block(
-        self,
-        mock_config: MagicMock,
-        tmp_path: Path,
-    ) -> None:
-        """Each refuel briefing agent (navigator/structuralist/recon/contrarian)
-        gets its own StepConfig — fixes the symptom of all briefings sharing
-        the decomposer's config."""
-        mock_config.actors = {
-            "refuel": {
-                "navigator": {"provider": "gemini", "model_id": "gemini-3.1-pro-preview"},
-                "structuralist": {
-                    "provider": "opencode",
-                    "model_id": "opencode/nemotron-3-super-free",
-                },
-                "recon": {"provider": "copilot", "model_id": "gpt-5.4"},
-                "contrarian": {"provider": "claude", "model_id": "opus"},
-                "decomposer": {"provider": "claude", "model_id": "sonnet"},
-            }
-        }
-
-        fp = make_simple_flight_plan(tmp_path)
-        workflow = make_workflow(mock_config)
-        flight_plan = await __import__(
-            "maverick.flight.loader",
-            fromlist=["FlightPlanFile"],
-        ).FlightPlanFile.aload(fp)
-
-        captured_inputs: dict[str, Any] = {}
-
-        async def _fake_create_actor(_cls, *args: Any, **kwargs: Any) -> AsyncMock:
-            if args and not captured_inputs:
-                captured_inputs["value"] = args[0]
-            return AsyncMock()
-
-        async def _fake_destroy_actor(_ref: Any) -> None:
-            return None
-
-        with (
-            patch_cwd(tmp_path),
-            patch(
-                "maverick.agents.briefing.prompts.build_briefing_prompt",
-                return_value="briefing prompt",
-            ),
-            patch("xoscar.create_actor", new=_fake_create_actor),
-            stub_squadron_io(),
-            patch("xoscar.destroy_actor", new=_fake_destroy_actor),
-            patch.object(workflow, "emit_output", new=AsyncMock()),
-            patch.object(workflow, "emit_step_completed", new=AsyncMock()),
-            patch.object(
-                workflow,
-                "_drain_xoscar_supervisor",
-                new=AsyncMock(
-                    return_value={
-                        "success": True,
-                        "specs": make_simple_decomposition_output().work_units,
-                    }
-                ),
-            ),
-        ):
-            await workflow._run_with_xoscar(
-                flight_plan=flight_plan,
-                raw_content=fp.read_text(encoding="utf-8"),
-                codebase_context=_EMPTY_CONTEXT,
-                open_bead_result=None,
-                runway_context_text=None,
-                run_dir=None,
-                skip_briefing=False,
-                ws_cwd=tmp_path,
-            )
-
-        inputs = captured_inputs["value"]
-        bc = inputs.briefing_configs
-        assert bc["navigator"].provider == "gemini"
-        assert bc["navigator"].model_id == "gemini-3.1-pro-preview"
-        assert bc["structuralist"].provider == "opencode"
-        assert bc["structuralist"].model_id == "opencode/nemotron-3-super-free"
-        assert bc["recon"].provider == "copilot"
-        assert bc["recon"].model_id == "gpt-5.4"
-        assert bc["contrarian"].provider == "claude"
-        assert bc["contrarian"].model_id == "opus"
 
     async def test_work_unit_files_written_with_correct_naming(
         self,

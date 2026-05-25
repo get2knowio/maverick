@@ -272,7 +272,7 @@ async def validate_plan(
     Renders the plan to markdown into a tmp file, runs the existing
     :func:`maverick.flight.validator.validate_flight_plan_file` over it,
     surfaces any issues as warnings. Same shape as
-    :class:`maverick.actors.xoscar.plan_validator.PlanValidatorActor`,
+    the legacy ``PlanValidatorActor`` deleted during the Burr migration,
     just inlined here so we don't depend on a deterministic actor.
     """
     import tempfile

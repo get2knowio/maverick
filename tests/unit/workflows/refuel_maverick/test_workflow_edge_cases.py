@@ -253,7 +253,7 @@ class TestErrorHandling:
             ),
             patch.object(
                 workflow,
-                "_run_with_xoscar",
+                "_run_with_burr",
                 new=AsyncMock(
                     side_effect=WorkflowError("Circular dependency detected in decomposition")
                 ),
@@ -406,7 +406,7 @@ Test objective.
             # the agent would successfully decompose and the workflow
             # would not fail — defeating the test's intent.
             patch(
-                f"{_MODULE}.RefuelMaverickWorkflow._run_with_xoscar",
+                f"{_MODULE}.RefuelMaverickWorkflow._run_with_burr",
                 new=AsyncMock(side_effect=RuntimeError("ACP prompt failed after retries")),
             ),
         ):
@@ -462,7 +462,7 @@ Test objective.
                 ),
             ),
             patch(
-                f"{_MODULE}.RefuelMaverickWorkflow._run_with_xoscar",
+                f"{_MODULE}.RefuelMaverickWorkflow._run_with_burr",
                 new=_fake_supervisor,
             ),
         ):
@@ -554,7 +554,7 @@ class TestParallelGroups:
         tmp_path: Path,
     ) -> None:
         """Parallel decomposition has named parallel groups in work units."""
-        # Validation now runs inside _run_with_xoscar (Thespian).
+        # Validation now runs inside _run_with_burr (Thespian).
         # Verify that the decomposition output itself contains parallel groups.
         parallel_decomp = _make_parallel_decomp()
         group_units = [wu for wu in parallel_decomp.work_units if wu.parallel_group]

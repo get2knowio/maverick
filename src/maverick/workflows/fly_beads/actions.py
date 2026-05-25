@@ -1,33 +1,30 @@
 """Burr actions for the ``fly_beads`` workflow.
 
-State-machine port of
-:class:`maverick.actors.xoscar.fly_supervisor.FlySupervisor`.
+The ``maverick fly`` bead loop runs through these actions exclusively as
+of Phase 4 of the xoscar → Burr migration. The shape of each stage
+mirrors the legacy ``FlySupervisor`` for parity with prior behaviour;
+the action layer holds the same fix-loop budgets (``MAX_GATE_FIX_ATTEMPTS``,
+``MAX_REVIEW_ROUNDS``) and routes through the same
+``squadron.coder_for(tier)`` / ``squadron.correctness_reviewer_for(tier)``
+agents.
 
-Phase 3 scope (intentional simplifications, documented):
+**Known gaps relative to the pre-migration supervisor** (queued for
+follow-up; tracked in the repo as TODO items):
 
-* Outer bead loop + per-bead pipeline (implement → gate → ac → spec
-  → review → commit) with fix loops at each stage.
-* **Single-tier dispatch only**: ``squadron.coder_for("_default")`` and
-  the matching reviewer pair. Tier escalation is queued for follow-up.
-* **No aggregate-review pass**: per-bead loops match the xoscar
-  supervisor, but the cross-bead post-loop ``_maybe_aggregate_review``
-  is skipped.
-* **No reviewer transient-failure escalation**: review failures fall
-  straight through to ``needs-human-review`` instead of retrying on a
-  higher-tier reviewer.
-* **No human-bead creation**: review failure / fix-budget exhaustion
-  still commits with ``tag="needs-human-review"`` so manual triage
-  can find it via the trailer, but no companion assumption bead is
-  created on bd. (Defaults to xoscar if humans need the bead-side
-  audit trail.)
-* **Spec-check no-op**: ``spec_check`` always returns ``passed=True``
-  in Phase 3. The xoscar :class:`SpecCheckActor` runs Rust-specific
-  grep checks (``.unwrap()``, ``std::process::Command`` in async) that
-  weren't worth porting inline. Restoring the check is a follow-up.
-* **Graceful stop**: preserved. The router action checks the
-  module-level flag before picking the next bead.
+* **Tier escalation** — single-tier dispatch only.
+* **Aggregate cross-bead review** — per-bead reviews run; the
+  post-loop ``_maybe_aggregate_review`` was not ported.
+* **Reviewer transient-failure escalation** — falls straight through
+  to ``needs-human-review``.
+* **Human-bead creation** — the commit's ``Tag: needs-human-review``
+  trailer still lands, but no companion assumption bead is created
+  on ``bd``.
+* **Spec check** — currently a no-op (Rust-specific grep rules not
+  ported).
+* **Watch mode** — the loop terminates on bead-empty rather than
+  polling.
 
-Default driver remains xoscar; opt in via ``MAVERICK_USE_BURR=fly``.
+Graceful stop is preserved.
 """
 
 from __future__ import annotations
@@ -69,7 +66,7 @@ __all__ = [
     "spec_check",
 ]
 
-# Mirror the xoscar supervisor's fix budgets (fly_supervisor.py:61-64).
+# Fix budgets — preserved from the pre-Burr supervisor.
 MAX_REVIEW_ROUNDS: int = 3
 MAX_GATE_FIX_ATTEMPTS: int = 2
 MAX_SPEC_FIX_ATTEMPTS: int = 2
@@ -257,7 +254,7 @@ async def implement(
     try:
         with squadron.bead_context(bead_id=state["current_bead_id"]):
             payload = await coder.implement(prompt)
-    except Exception as exc:  # noqa: BLE001 — match xoscar's lenient behaviour
+    except Exception as exc:  # noqa: BLE001 — lenient: surface as a bead abandon
         await _put_output(
             events,
             "implement",
@@ -420,7 +417,6 @@ async def ac_check(
     cwd: str,
 ) -> tuple[dict[str, Any], State]:
     """Run the AC (verification commands) check. One fix retry."""
-    from maverick.actors.xoscar.ac_check import ACCheckActor  # noqa: F401 — type ref
     from maverick.runners.command import CommandRunner
     from maverick.workflows.fly_beads.steps import (
         _parse_verification_commands,
@@ -486,11 +482,11 @@ async def spec_check(
 ) -> tuple[dict[str, Any], State]:
     """Spec-compliance check — Phase 3 no-op.
 
-    The xoscar :class:`SpecCheckActor` runs Rust-specific grep checks
-    against changed files. Porting the rule engine + the changed-files
-    discovery inline is non-trivial; for Phase 3 we route through as
-    "passed" and surface the gap via an info-level StepOutput so it's
-    obvious in the logs. Restoring the real check is a follow-up.
+    The pre-migration spec checker ran Rust-specific grep rules
+    against changed files. Porting the rule engine + changed-files
+    discovery is queued behind the rest of the post-migration gaps;
+    for now this action emits a noop StepOutput so the gap is obvious
+    in the logs.
     """
     await _put_output(
         events,
@@ -529,7 +525,7 @@ async def review(
 
     rounds_with_findings = 0
     for round_n in range(1, MAX_REVIEW_ROUNDS + 1):
-        # Both reviewers in parallel — same pattern as xoscar.
+        # Run both reviewers in parallel (correctness + completeness).
         with squadron.bead_context(bead_id=bead_id):
             t0 = time.monotonic()
             await events.put(

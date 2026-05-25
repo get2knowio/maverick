@@ -185,7 +185,7 @@ _PATCH_SPECS: list[tuple[str, str, str | None, str]] = [
     ),
     (
         "xoscar",
-        f"{_WF_MOD}.FlyBeadsWorkflow._run_fly_with_xoscar",
+        f"{_WF_MOD}.FlyBeadsWorkflow._run_fly_with_burr",
         "xoscar_return",
         _RV,
     ),

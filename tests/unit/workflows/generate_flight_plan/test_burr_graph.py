@@ -283,37 +283,6 @@ class TestBurrPlanGraphSkipBriefing:
         assert state["flight_plan_path"] is not None
 
 
-class TestBurrDispatch:
-    """Verify ``MAVERICK_USE_BURR`` env var routes ``_run`` correctly."""
-
-    @pytest.mark.parametrize(
-        "raw, expected",
-        [
-            ("", False),
-            ("   ", False),
-            ("plan", True),
-            ("PLAN", True),
-            ("refuel,fly", False),
-            ("refuel,plan,fly", True),
-            ("plan ,refuel", True),
-            ("other", False),
-        ],
-    )
-    def test_use_burr_for_parses_env_var(
-        self, raw: str, expected: bool, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        from maverick.workflows.generate_flight_plan.workflow import _use_burr_for
-
-        monkeypatch.setenv("MAVERICK_USE_BURR", raw)
-        assert _use_burr_for("plan") is expected
-
-    def test_use_burr_for_no_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        from maverick.workflows.generate_flight_plan.workflow import _use_burr_for
-
-        monkeypatch.delenv("MAVERICK_USE_BURR", raising=False)
-        assert _use_burr_for("plan") is False
-
-
 class TestBurrPlanGraphErrors:
     async def test_generator_failure_propagates(self, tmp_path: Path) -> None:
         """A failure in the generator agent surfaces via driver.result."""
