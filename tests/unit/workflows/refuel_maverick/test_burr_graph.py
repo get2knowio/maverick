@@ -370,6 +370,152 @@ class TestRefuelBurrGraphHappyPath:
         assert squadron.built_briefings == []
 
 
+class TestRefuelBurrDetailEscalation:
+    async def test_transient_on_default_tier_escalates_and_succeeds(self, tmp_path: Path) -> None:
+        """Detail call raises transient → next tier acquired → unit succeeds."""
+        from airframe.errors import RuntimeTransientError
+
+        outline = _make_outline(unit_ids=("u-1",))
+        # The first ``detail()`` call raises transient; the retry on
+        # the escalated tier succeeds. ``outline()`` must still work.
+        squadron = StubRefuelSquadron(
+            outline_payload=outline,
+            detail_payloads=[_make_details(("u-1",))],
+        )
+        original_detail = squadron._decomposer.detail
+        detail_calls = {"n": 0}
+
+        async def _first_detail_raises(**kwargs: Any) -> SubmitDetailsPayload:
+            detail_calls["n"] += 1
+            if detail_calls["n"] == 1:
+                raise RuntimeTransientError("rate limited")
+            return await original_detail(**kwargs)
+
+        squadron._decomposer.detail = _first_detail_raises  # type: ignore[assignment]
+
+        queue: asyncio.Queue[ProgressEvent | None] = asyncio.Queue()
+        with (
+            patch(
+                "maverick.library.actions.beads.create_beads",
+                new=AsyncMock(return_value=_make_bead_result()),
+            ),
+            patch(
+                "maverick.library.actions.beads.wire_dependencies",
+                new=AsyncMock(return_value=_make_wire_result()),
+            ),
+        ):
+            app = build_refuel_application(
+                squadron=squadron,
+                event_queue=queue,
+                raw_content="x",
+                briefing_prompt="x",
+                codebase_context=_empty_codebase_context(),
+                open_bead_context=None,
+                runway_context_text=None,
+                plan_name="p",
+                plan_objective="o",
+                cwd=str(tmp_path),
+                skip_briefing=True,
+            )
+            driver = BurrWorkflowDriver(app, halt_after=REFUEL_TERMINAL_ACTIONS, event_queue=queue)
+            await _collect(driver)
+
+        _, _, state = driver.result
+        # Detail eventually landed and the unit was not abandoned.
+        assert state["abandoned_unit_ids"] == []
+        assert any(d.get("id") == "u-1" for d in state["accumulated_details"])
+        # The pool was acquired for the outline + the failed default
+        # tier + the escalated trivial tier. Release count matches.
+        acquired = squadron.decomposer_pool.acquire_calls
+        assert acquired == ["default", "default", "trivial"]
+        assert squadron.decomposer_pool.release_calls == acquired
+        # The escalation actually re-ran ``detail``.
+        assert detail_calls["n"] == 2
+
+    async def test_transient_exhausts_ladder_abandons_unit(self, tmp_path: Path) -> None:
+        """Every tier raises transient → unit is abandoned, no detail recorded."""
+        from airframe.errors import RuntimeTransientError
+
+        outline = _make_outline(unit_ids=("u-1",))
+
+        class _AlwaysRaisingDecomposer:
+            def __init__(self) -> None:
+                self.detail_calls = 0
+
+            async def outline(self, **_kw: Any) -> SubmitOutlinePayload:
+                return outline
+
+            async def detail(self, **_kw: Any) -> SubmitDetailsPayload:
+                self.detail_calls += 1
+                raise RuntimeTransientError(f"upstream fault #{self.detail_calls}")
+
+            async def fix(self, **_kw: Any) -> Any:
+                raise AssertionError("fix should not be called when all details fail")
+
+        always_raising = _AlwaysRaisingDecomposer()
+        squadron = StubRefuelSquadron(outline_payload=outline)
+        # Outline still uses the stub agent; only swap the agent the
+        # pool hands out *after* the outline action has run. Easiest:
+        # leave outline alone and route subsequent acquires to the
+        # raising stub.
+        original_acquire = squadron.decomposer_pool.acquire
+
+        async def _acquire_route(tier: str) -> Any:
+            await original_acquire(tier)  # records the call
+            if (
+                always_raising.detail_calls == 0
+                and tier == "default"
+                and (outline_acquired["n"] == 0)
+            ):
+                outline_acquired["n"] = 1
+                return squadron._decomposer  # outline uses original
+            return always_raising
+
+        outline_acquired = {"n": 0}
+        squadron.decomposer_pool.acquire = _acquire_route  # type: ignore[assignment]
+
+        queue: asyncio.Queue[ProgressEvent | None] = asyncio.Queue()
+        with (
+            patch(
+                "maverick.library.actions.beads.create_beads",
+                new=AsyncMock(return_value=_make_bead_result()),
+            ),
+            patch(
+                "maverick.library.actions.beads.wire_dependencies",
+                new=AsyncMock(return_value=_make_wire_result()),
+            ),
+        ):
+            app = build_refuel_application(
+                squadron=squadron,
+                event_queue=queue,
+                raw_content="x",
+                briefing_prompt="x",
+                codebase_context=_empty_codebase_context(),
+                open_bead_context=None,
+                runway_context_text=None,
+                plan_name="p",
+                plan_objective="o",
+                cwd=str(tmp_path),
+                skip_briefing=True,
+            )
+            driver = BurrWorkflowDriver(app, halt_after=REFUEL_TERMINAL_ACTIONS, event_queue=queue)
+            await _collect(driver)
+
+        _, _, state = driver.result
+        # All 5 rungs of the ladder tried (transients escalate
+        # immediately, so each tier sees exactly one call).
+        assert always_raising.detail_calls == 5
+        assert "u-1" in state["abandoned_unit_ids"]
+        assert all(d.get("id") != "u-1" for d in state["accumulated_details"])
+        # Outline acquired once on "default" + each of the 5 detail
+        # tiers acquired once = 6 total.
+        assert len(squadron.decomposer_pool.acquire_calls) == 6
+        assert len(squadron.decomposer_pool.release_calls) == 6
+        # The detail-side calls cycled through the full tier ladder.
+        detail_tiers = squadron.decomposer_pool.acquire_calls[1:]
+        assert detail_tiers == ["default", "trivial", "simple", "moderate", "complex"]
+
+
 class TestRefuelBurrGraphValidationLoop:
     async def test_fix_loop_runs_when_validation_fails_then_passes(self, tmp_path: Path) -> None:
         """First validate produces gaps → request_fix → validate (passes)."""

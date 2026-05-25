@@ -6,12 +6,15 @@ as of Phase 4 of the xoscar → Burr migration.
 Known gaps relative to the pre-migration supervisor (queued for
 follow-up):
 
-* Briefing + outline + bead-creation: full parity with the xoscar
-  supervisor.
-* Detail fan-out: single-tier dispatch only. Per-unit retry-on-timeout
-  budget (``MAX_DETAIL_RETRIES = 1``) preserved; **tier escalation is
-  not implemented** in this PR — if a unit fails after retries we
-  abandon it. Implementing tier escalation is queued as a follow-up.
+* Detail fan-out: per-unit retry budget is ``MAX_DETAIL_RETRIES = 1``
+  at the current tier. On ``airframe.errors.RuntimeTransientError``
+  the unit escalates one rung on the decomposer tier ladder and
+  retries; timeouts and persistent no-payload outcomes stay
+  abandoned at the current tier (matching the pre-migration
+  ``_try_one_tier`` policy). True per-tier runtime bindings — so
+  the escalated tier maps to a *different* model — are wired
+  through ``runtime_for_agent("decompose")`` today and will
+  benefit from later substrate work to support per-tier overrides.
 * Cache integration: ``initial_payload`` cache reads pass through
   (resume from a previously-cached run still works), but **the Burr
   driver does not write cache files**. Re-running a Burr-mode refuel
@@ -339,41 +342,71 @@ async def outline(
     return {"work_unit_count": unit_count}, state.update(outline=outline_dict)
 
 
+_REFUEL_TIER_LADDER: tuple[str, ...] = (
+    _DEFAULT_TIER,
+    "trivial",
+    "simple",
+    "moderate",
+    "complex",
+)
+
+
+def _refuel_tier_for_level(level: int) -> str:
+    """Pick the decomposer tier name for an escalation level."""
+    if level <= 0:
+        return _REFUEL_TIER_LADDER[0]
+    if level >= len(_REFUEL_TIER_LADDER):
+        return _REFUEL_TIER_LADDER[-1]
+    return _REFUEL_TIER_LADDER[level]
+
+
 async def _run_one_detail(
     *,
     unit_id: str,
     decomposer: DecomposerAgent,
     retries_remaining: int,
     events: asyncio.Queue[ProgressEvent | None],
-) -> dict[str, Any] | None:
+) -> tuple[dict[str, Any] | None, str]:
     """Run detail for a single unit with retry-on-timeout budget.
 
-    Returns the typed details dict on success, or ``None`` if the
-    unit was abandoned (no payload after retries).
+    Returns ``(detail_or_None, failure_kind)`` where ``failure_kind`` is
+    one of ``""`` (success), ``"timeout"``, ``"transient"``, or
+    ``"no_payload"``. ``transient`` lets the caller escalate to the
+    next tier; the others propagate up as abandon.
     """
+    from airframe.errors import RuntimeTransientError
+
     label = unit_id
     await events.put(AgentStarted(step_name="decompose", agent_name=label, provider=""))
     t0 = time.monotonic()
     attempts = retries_remaining + 1
     last_payload: dict[str, Any] | None = None
+    failure_kind = "no_payload"
+    last_error: str | None = None
     for attempt in range(attempts):
         try:
             payload = await decomposer.detail(unit_ids=(unit_id,))
         except TimeoutError:
             if attempt + 1 >= attempts:
+                failure_kind = "timeout"
+                last_error = "timed out"
                 break
             continue
+        except RuntimeTransientError as exc:
+            failure_kind = "transient"
+            last_error = str(exc)
+            break
         if not isinstance(payload, SubmitDetailsPayload):
             raise TypeError(
                 f"decomposer.detail returned {type(payload).__name__}, "
                 f"expected SubmitDetailsPayload"
             )
         payload_dict = dump_supervisor_payload(payload)
-        # Only accept the payload if it contains an entry for this unit.
         details = payload_dict.get("details", []) or []
         matching = [d for d in details if (d.get("id") or d.get("unit_id")) == unit_id]
         if matching:
             last_payload = matching[0]
+            failure_kind = ""
             break
         if attempt + 1 >= attempts:
             break
@@ -384,10 +417,56 @@ async def _run_one_detail(
             agent_name=label,
             duration_seconds=time.monotonic() - t0,
             success=last_payload is not None,
-            error=None if last_payload is not None else "no payload after retries",
+            error=last_error if last_payload is None else None,
         )
     )
-    return last_payload
+    return last_payload, failure_kind
+
+
+async def _run_detail_with_escalation(
+    *,
+    unit_id: str,
+    squadron: RefuelSquadron,
+    retries_remaining: int,
+    events: asyncio.Queue[ProgressEvent | None],
+) -> dict[str, Any] | None:
+    """Run one unit's detail pass with per-unit tier escalation.
+
+    On ``RuntimeTransientError``, bumps to the next tier on
+    :data:`_REFUEL_TIER_LADDER` and re-acquires a decomposer from the
+    pool for that tier. Returns the unit's detail payload on success
+    or ``None`` once the ladder is exhausted (or a non-transient
+    failure terminates the loop). Timeouts and persistent
+    no-payload outcomes are treated as final at the current tier —
+    they don't escalate.
+    """
+    level = 0
+    max_level = len(_REFUEL_TIER_LADDER) - 1
+    while True:
+        tier = _refuel_tier_for_level(level)
+        decomposer = await squadron.decomposer_pool.acquire(tier)
+        try:
+            detail, failure = await _run_one_detail(
+                unit_id=unit_id,
+                decomposer=decomposer,
+                retries_remaining=retries_remaining,
+                events=events,
+            )
+        finally:
+            await squadron.decomposer_pool.release(decomposer, tier)
+        if detail is not None:
+            return detail
+        if failure != "transient" or level >= max_level:
+            return None
+        next_tier = _refuel_tier_for_level(level + 1)
+        await _put_output(
+            events,
+            "decompose",
+            f"Unit {unit_id}: transient failure on tier '{tier}'; escalating to '{next_tier}'",
+            level="warning",
+            metadata={"unit_id": unit_id, "from_tier": tier, "to_tier": next_tier},
+        )
+        level += 1
 
 
 @action(
@@ -423,16 +502,12 @@ async def detail_fan_out(
 
     async def _one(unit_id: str) -> None:
         async with sem:
-            decomposer = await squadron.decomposer_pool.acquire(_DEFAULT_TIER)
-            try:
-                detail = await _run_one_detail(
-                    unit_id=unit_id,
-                    decomposer=decomposer,
-                    retries_remaining=MAX_DETAIL_RETRIES,
-                    events=events,
-                )
-            finally:
-                await squadron.decomposer_pool.release(decomposer, _DEFAULT_TIER)
+            detail = await _run_detail_with_escalation(
+                unit_id=unit_id,
+                squadron=squadron,
+                retries_remaining=MAX_DETAIL_RETRIES,
+                events=events,
+            )
         async with lock:
             if detail is None:
                 abandoned.append(unit_id)
