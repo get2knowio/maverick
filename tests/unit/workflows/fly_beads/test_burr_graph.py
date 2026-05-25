@@ -372,6 +372,206 @@ class TestFlyBurrReviewLoop:
         assert state["succeeded_count"] == 1
 
 
+class TestFlyBurrHumanBeadCreation:
+    async def test_review_exhaustion_creates_human_bead(self, tmp_path: Path) -> None:
+        """3 review rounds with findings → create_human_bead → commit (with tag)."""
+        from maverick.beads.models import BeadCategory, BeadDefinition, BeadType
+        from maverick.workflows.fly_beads.graceful_stop import reset_graceful_stop
+
+        reset_graceful_stop()
+
+        # All 3 review rounds return findings (correctness is unhappy).
+        correctness = StubReviewerAgent(
+            review_kind="correctness",
+            review_payloads=[
+                SubmitReviewPayload(
+                    approved=False,
+                    findings=(ReviewFindingPayload(severity="major", issue=f"finding round {n}"),),
+                )
+                for n in range(1, 4)
+            ],
+        )
+        completeness = StubReviewerAgent(
+            review_kind="completeness",
+            review_payloads=[SubmitReviewPayload(approved=True, findings=()) for _ in range(3)],
+        )
+        squadron = StubFlySquadron(
+            correctness=correctness,
+            completeness=completeness,
+            coder=StubCodingAgent(
+                implement_payloads=[SubmitImplementationPayload(summary="i1")],
+                fix_payloads=[SubmitFixResultPayload(summary="f") for _ in range(5)],
+            ),
+        )
+
+        captured_create_args: dict[str, Any] = {}
+        captured_set_state_args: dict[str, Any] = {}
+
+        async def _fake_create_bead(
+            self: Any, definition: Any, parent_id: str | None = None
+        ) -> Any:
+            captured_create_args["definition"] = definition
+            captured_create_args["parent_id"] = parent_id
+            assert isinstance(definition, BeadDefinition)
+            return type(
+                "CreatedBead",
+                (),
+                {"bd_id": "human-bead-1", "definition": definition},
+            )()
+
+        async def _fake_set_state(
+            self: Any,
+            bd_id: str,
+            state_dict: dict[str, Any],
+            *,
+            reason: str = "",
+        ) -> None:
+            captured_set_state_args["bd_id"] = bd_id
+            captured_set_state_args["state"] = dict(state_dict)
+            captured_set_state_args["reason"] = reason
+
+        queue: asyncio.Queue[ProgressEvent | None] = asyncio.Queue()
+        with (
+            patch(
+                "maverick.library.actions.beads.select_next_bead",
+                new=AsyncMock(side_effect=[_bead("b-1"), _NO_MORE]),
+            ),
+            patch(
+                "maverick.library.actions.validation.run_independent_gate",
+                new=AsyncMock(return_value=_gate_passed()),
+            ),
+            patch(
+                "maverick.library.actions.jj.jj_commit_bead",
+                new=AsyncMock(return_value={"change_id": "c", "success": True}),
+            ),
+            patch(
+                "maverick.library.actions.beads.mark_bead_complete",
+                new=AsyncMock(
+                    return_value=MarkBeadCompleteResult(success=True, bead_id="b-1", error=None)
+                ),
+            ),
+            patch(
+                "maverick.beads.client.BeadClient.create_bead",
+                new=_fake_create_bead,
+            ),
+            patch(
+                "maverick.beads.client.BeadClient.set_state",
+                new=_fake_set_state,
+            ),
+        ):
+            app = build_fly_application(
+                squadron=squadron,  # type: ignore[arg-type]
+                event_queue=queue,
+                epic_id="e-1",
+                cwd=str(tmp_path),
+                max_beads=10,
+                flight_plan_name="my-plan",
+            )
+            driver = BurrWorkflowDriver(app, halt_after=FLY_TERMINAL_ACTIONS, event_queue=queue)
+            events = await _collect(driver)
+
+        action_sequence = _action_sequence(events)
+        # The escalation transition fires after review.
+        assert "create_human_bead" in action_sequence
+        assert action_sequence.index("create_human_bead") < action_sequence.index("commit")
+
+        _, _, state = driver.result
+        assert state["needs_human_review"] is True
+        assert state["human_bead_id"] == "human-bead-1"
+        # The bead-events row carries the tag for the CLI summary.
+        bead_event = state["bead_events"][0]
+        assert bead_event["tag"] == "needs-human-review"
+
+        # Created with the right shape.
+        defn: BeadDefinition = captured_create_args["definition"]
+        assert defn.bead_type == BeadType.TASK
+        assert defn.category == BeadCategory.REVIEW
+        assert defn.assignee == "human"
+        assert "assumption-review" in defn.labels
+        assert "needs-human-review" in defn.labels
+        assert captured_create_args["parent_id"] == "e-1"
+
+        # Findings get inlined into the description, and the state-set
+        # call ties the new bead back to the source.
+        assert "finding round 3" in defn.description
+        assert captured_set_state_args["bd_id"] == "human-bead-1"
+        assert captured_set_state_args["state"]["source_bead"] == "b-1"
+        assert captured_set_state_args["state"]["flight_plan"] == "my-plan"
+
+    async def test_create_human_bead_failure_does_not_block_commit(self, tmp_path: Path) -> None:
+        """If ``bd create`` raises, we still commit (with the tag)."""
+        from maverick.workflows.fly_beads.graceful_stop import reset_graceful_stop
+
+        reset_graceful_stop()
+
+        correctness = StubReviewerAgent(
+            review_kind="correctness",
+            review_payloads=[
+                SubmitReviewPayload(
+                    approved=False,
+                    findings=(ReviewFindingPayload(severity="minor", issue="x"),),
+                )
+                for _ in range(3)
+            ],
+        )
+        completeness = StubReviewerAgent(
+            review_kind="completeness",
+            review_payloads=[SubmitReviewPayload(approved=True, findings=()) for _ in range(3)],
+        )
+        squadron = StubFlySquadron(
+            correctness=correctness,
+            completeness=completeness,
+            coder=StubCodingAgent(
+                implement_payloads=[SubmitImplementationPayload(summary="i1")],
+                fix_payloads=[SubmitFixResultPayload(summary="f") for _ in range(5)],
+            ),
+        )
+
+        async def _create_bead_fails(*_args: Any, **_kw: Any) -> Any:
+            raise RuntimeError("bd create exploded")
+
+        queue: asyncio.Queue[ProgressEvent | None] = asyncio.Queue()
+        with (
+            patch(
+                "maverick.library.actions.beads.select_next_bead",
+                new=AsyncMock(side_effect=[_bead("b-1"), _NO_MORE]),
+            ),
+            patch(
+                "maverick.library.actions.validation.run_independent_gate",
+                new=AsyncMock(return_value=_gate_passed()),
+            ),
+            patch(
+                "maverick.library.actions.jj.jj_commit_bead",
+                new=AsyncMock(return_value={"change_id": "c", "success": True}),
+            ),
+            patch(
+                "maverick.library.actions.beads.mark_bead_complete",
+                new=AsyncMock(
+                    return_value=MarkBeadCompleteResult(success=True, bead_id="b-1", error=None)
+                ),
+            ),
+            patch(
+                "maverick.beads.client.BeadClient.create_bead",
+                new=_create_bead_fails,
+            ),
+        ):
+            app = build_fly_application(
+                squadron=squadron,  # type: ignore[arg-type]
+                event_queue=queue,
+                epic_id="e-1",
+                cwd=str(tmp_path),
+                max_beads=10,
+            )
+            driver = BurrWorkflowDriver(app, halt_after=FLY_TERMINAL_ACTIONS, event_queue=queue)
+            await _collect(driver)
+
+        _, _, state = driver.result
+        # human bead creation failed → empty id but the commit still ran.
+        assert state["human_bead_id"] == ""
+        assert state["commit_ok"] is True
+        assert state["needs_human_review"] is True
+
+
 class TestFlyBurrGracefulStop:
     async def test_graceful_stop_exits_loop(self, tmp_path: Path) -> None:
         """Setting the flag mid-run terminates after current bead."""

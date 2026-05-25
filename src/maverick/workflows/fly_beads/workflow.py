@@ -184,6 +184,7 @@ class FlyBeadsWorkflow(PythonWorkflow):
 
         run_id = ""
         run_dir: Path | None = None
+        flight_plan_name: str = ""
         if epic_id:
             run_meta = find_run_for_epic(epic_id, base=cwd)
             if run_meta:
@@ -191,6 +192,7 @@ class FlyBeadsWorkflow(PythonWorkflow):
                 run_dir = cwd / ".maverick" / "runs" / run_id
                 run_meta.status = "flying"
                 write_metadata(run_dir, run_meta)
+                flight_plan_name = run_meta.plan_name or ""
 
         if not run_id:
             run_id = uuid.uuid4().hex[:8]
@@ -352,6 +354,7 @@ class FlyBeadsWorkflow(PythonWorkflow):
             cwd=cwd,
             max_beads=max_beads,
             completed_bead_ids=completed_bead_ids,
+            flight_plan_name=flight_plan_name,
         )
         beads_succeeded = int(burr_result.get("beads_completed", 0))
         beads_failed = int(burr_result.get("beads_failed", 0))
@@ -400,6 +403,7 @@ class FlyBeadsWorkflow(PythonWorkflow):
         cwd: Path,
         max_beads: int = MAX_BEADS,
         completed_bead_ids: set[str] | None = None,
+        flight_plan_name: str = "",
     ) -> dict[str, Any]:
         """Run the fly bead loop via the Burr-backed driver.
 
@@ -412,6 +416,7 @@ class FlyBeadsWorkflow(PythonWorkflow):
             cwd=cwd,
             max_beads=max_beads,
             completed_bead_ids=tuple(completed_bead_ids or ()),
+            flight_plan_name=flight_plan_name,
         )
 
 
@@ -441,6 +446,7 @@ async def _run_fly_with_burr_impl(
     cwd: Path,
     max_beads: int,
     completed_bead_ids: tuple[str, ...],
+    flight_plan_name: str = "",
 ) -> dict[str, Any]:
     """Drive the fly Burr application; return the same shape as xoscar.
 
@@ -469,6 +475,7 @@ async def _run_fly_with_burr_impl(
             completed_bead_ids=completed_bead_ids,
             validation_commands=None,
             project_type=getattr(workflow._config, "project_type", "rust") or "rust",
+            flight_plan_name=flight_plan_name,
         )
         driver = BurrWorkflowDriver(
             app,

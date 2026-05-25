@@ -57,6 +57,7 @@ __all__ = [
     "abandon_bead",
     "ac_check",
     "commit",
+    "create_human_bead",
     "gate",
     "implement",
     "init_state",
@@ -546,7 +547,7 @@ async def spec_check(
 
 @action(
     reads=["current_bead", "current_bead_id"],
-    writes=["approved", "review_rounds", "needs_human_review"],
+    writes=["approved", "review_rounds", "needs_human_review", "last_review_findings"],
 )
 async def review(
     state: State,
@@ -556,13 +557,19 @@ async def review(
 ) -> tuple[dict[str, Any], State]:
     """Per-bead review: correctness + completeness reviewers in parallel.
 
-    Fix-loop up to ``MAX_REVIEW_ROUNDS``.
+    Fix-loop up to ``MAX_REVIEW_ROUNDS``. Persists the last cycle's
+    findings into ``state["last_review_findings"]`` so the downstream
+    ``create_human_bead`` action can include them in the assumption
+    bead's description.
     """
     bead = state["current_bead"]
     bead_id = state["current_bead_id"]
     if bead is None:
         return {"approved": False}, state.update(
-            approved=False, review_rounds=0, needs_human_review=True
+            approved=False,
+            review_rounds=0,
+            needs_human_review=True,
+            last_review_findings=[],
         )
 
     correctness = squadron.correctness_reviewer_for(DEFAULT_TIER)
@@ -605,6 +612,7 @@ async def review(
                     approved=False,
                     review_rounds=rounds_with_findings,
                     needs_human_review=True,
+                    last_review_findings=[f"Review crashed: {exc}"],
                 )
             duration = time.monotonic() - t0
         await events.put(
@@ -625,10 +633,13 @@ async def review(
         approved = all(_payload_approved(p) for p in results)
         if approved:
             return {"approved": True, "rounds": rounds_with_findings}, state.update(
-                approved=True, review_rounds=rounds_with_findings
+                approved=True,
+                review_rounds=rounds_with_findings,
+                last_review_findings=[],
             )
 
         rounds_with_findings += 1
+        round_findings = _findings_list(results)
         if round_n >= MAX_REVIEW_ROUNDS:
             await _put_output(
                 events,
@@ -640,27 +651,31 @@ async def review(
                 approved=False,
                 review_rounds=rounds_with_findings,
                 needs_human_review=True,
+                last_review_findings=round_findings,
             )
 
         # Re-prompt the implementer to address review feedback.
-        findings_text = _format_findings(results)
         ok = await _run_fix(
             squadron=squadron,
             events=events,
             bead_id=bead_id,
             phase="review",
             round_n=round_n,
-            failure_message=findings_text,
+            failure_message="\n".join(round_findings) or "(no specific findings)",
         )
         if not ok:
             return {"approved": False, "rounds": rounds_with_findings}, state.update(
                 approved=False,
                 review_rounds=rounds_with_findings,
                 needs_human_review=True,
+                last_review_findings=round_findings,
             )
 
     return {"approved": False, "rounds": rounds_with_findings}, state.update(
-        approved=False, review_rounds=rounds_with_findings, needs_human_review=True
+        approved=False,
+        review_rounds=rounds_with_findings,
+        needs_human_review=True,
+        last_review_findings=[],
     )
 
 
@@ -681,19 +696,123 @@ def _payload_approved(payload: Any) -> bool:
     return not findings
 
 
-def _format_findings(payloads: list[Any] | tuple[Any, ...]) -> str:
+def _findings_list(payloads: list[Any] | tuple[Any, ...]) -> list[str]:
+    """Flatten reviewer findings into ``"<severity>: <issue>"`` lines.
+
+    The current ``ReviewFindingPayload`` schema uses ``issue`` (not the
+    legacy ``description``); both are checked for forward/back-compat
+    with stubs that still ship the older shape.
+    """
     parts: list[str] = []
     for p in payloads:
         findings = getattr(p, "findings", None) or (
             p.get("findings", []) if isinstance(p, dict) else []
         )
         for f in findings:
-            text = getattr(f, "description", None) or (
-                f.get("description") if isinstance(f, dict) else None
+            severity = getattr(f, "severity", None) or (
+                f.get("severity") if isinstance(f, dict) else None
             )
-            if text:
-                parts.append(text)
-    return "\n".join(parts) if parts else "(no specific findings provided)"
+            issue = (
+                getattr(f, "issue", None)
+                or getattr(f, "description", None)
+                or (f.get("issue") if isinstance(f, dict) else None)
+                or (f.get("description") if isinstance(f, dict) else None)
+            )
+            if not issue:
+                continue
+            parts.append(f"{severity}: {issue}" if severity else issue)
+    return parts
+
+
+@action(
+    reads=["current_bead", "current_bead_id", "review_rounds", "last_review_findings"],
+    writes=["human_bead_id"],
+)
+async def create_human_bead(
+    state: State,
+    *,
+    cwd: str,
+    epic_id: str,
+    flight_plan_name: str,
+    events: asyncio.Queue[ProgressEvent | None],
+) -> tuple[dict[str, Any], State]:
+    """Create an assumption-review bead on ``bd`` for human triage.
+
+    Runs when ``needs_human_review`` is true (review rounds exhausted
+    or a fix request failed). Mirrors the pre-migration
+    ``FlySupervisor._create_human_bead``: ``TASK``/``REVIEW``
+    bead assigned to ``human`` with labels
+    ``["assumption-review", "needs-human-review"]`` and a metadata
+    state payload tying it back to the source bead. Failure here is
+    non-fatal — we emit a warning and continue to commit so the
+    commit's ``Tag: needs-human-review`` trailer still lands.
+    """
+    from maverick.beads.client import BeadClient
+    from maverick.beads.models import BeadCategory, BeadDefinition, BeadType
+
+    bead = state["current_bead"] or {}
+    bead_id = state["current_bead_id"]
+    bead_title = bead.get("title", bead_id) or bead_id
+    findings: list[str] = list(state.get("last_review_findings") or ())
+    findings_text = "\n".join(f"- {f}" for f in findings) if findings else "None"
+    reason = (
+        f"Review rounds exhausted ({state.get('review_rounds', 0)} of "
+        f"{MAX_REVIEW_ROUNDS}) without approval."
+    )
+
+    review_def = BeadDefinition(
+        title=f"Review: {bead_title[:150]}",
+        bead_type=BeadType.TASK,
+        priority=1,
+        category=BeadCategory.REVIEW,
+        description=f"## Escalation Reason\n\n{reason}\n\n## Findings\n\n{findings_text}",
+        assignee="human",
+        labels=["assumption-review", "needs-human-review"],
+    )
+
+    client = BeadClient(cwd=Path(cwd))
+    try:
+        created = await client.create_bead(
+            review_def,
+            parent_id=epic_id or None,
+        )
+    except Exception as exc:  # noqa: BLE001 — non-fatal; commit still tags the trailer
+        await _put_output(
+            events,
+            "fly",
+            f"Failed to create assumption bead for {bead_id}: {exc}",
+            level="warning",
+        )
+        return {"created": False, "error": str(exc)}, state.update(human_bead_id="")
+
+    try:
+        await client.set_state(
+            created.bd_id,
+            {
+                "source_bead": bead_id,
+                "escalation_type": "fix_exhaustion",
+                "flight_plan": flight_plan_name,
+            },
+            reason=f"Escalated from {bead_id}",
+        )
+    except Exception as exc:  # noqa: BLE001 — non-fatal
+        await _put_output(
+            events,
+            "fly",
+            f"Failed to set state on assumption bead {created.bd_id}: {exc}",
+            level="warning",
+        )
+
+    await _put_output(
+        events,
+        "fly",
+        f"Created human review bead {created.bd_id} for {bead_id}",
+        level="warning",
+        metadata={"human_bead_id": created.bd_id, "source_bead": bead_id},
+    )
+    return {"created": True, "human_bead_id": created.bd_id}, state.update(
+        human_bead_id=created.bd_id
+    )
 
 
 @action(
