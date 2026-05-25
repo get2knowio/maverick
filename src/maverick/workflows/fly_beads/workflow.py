@@ -468,6 +468,7 @@ async def _run_fly_with_burr_impl(
             max_beads=max_beads,
             completed_bead_ids=completed_bead_ids,
             validation_commands=None,
+            project_type=getattr(workflow._config, "project_type", "rust") or "rust",
         )
         driver = BurrWorkflowDriver(
             app,

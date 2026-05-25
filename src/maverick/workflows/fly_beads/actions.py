@@ -19,12 +19,13 @@ follow-up; tracked in the repo as TODO items):
 * **Human-bead creation** — the commit's ``Tag: needs-human-review``
   trailer still lands, but no companion assumption bead is created
   on ``bd``.
-* **Spec check** — currently a no-op (Rust-specific grep rules not
-  ported).
 * **Watch mode** — the loop terminates on bead-empty rather than
   polling.
 
-Graceful stop is preserved.
+Graceful stop is preserved. The Rust spec-check rules
+(``.unwrap()`` / ``.expect()`` / ``std::process::Command`` in async
+contexts) are now active again via
+:mod:`maverick.workflows.fly_beads._spec_check`.
 """
 
 from __future__ import annotations
@@ -474,27 +475,73 @@ async def ac_check(
     return {"passed": True}, state.update(ac_passed=True)
 
 
-@action(reads=["current_bead_id"], writes=["spec_passed"])
+@action(reads=["current_bead_id"], writes=["spec_passed", "bead_aborted"])
 async def spec_check(
     state: State,
     *,
+    squadron: FlySquadron,
     events: asyncio.Queue[ProgressEvent | None],
+    cwd: str,
+    project_type: str = "rust",
 ) -> tuple[dict[str, Any], State]:
-    """Spec-compliance check — Phase 3 no-op.
+    """Run the grep-based spec-compliance checks.
 
-    The pre-migration spec checker ran Rust-specific grep rules
-    against changed files. Porting the rule engine + changed-files
-    discovery is queued behind the rest of the post-migration gaps;
-    for now this action emits a noop StepOutput so the gap is obvious
-    in the logs.
+    Rust-specific rules: ``.unwrap()`` / ``.expect()`` in runtime code,
+    ``std::process::Command`` in async paths. Other project types are
+    a no-op pass.
+
+    Mirrors the legacy ``SpecCheckActor`` fix-loop: on findings, ask
+    the implementer to fix them and re-run, up to
+    ``MAX_SPEC_FIX_ATTEMPTS`` rounds. Abandon the bead on exhaustion.
     """
-    await _put_output(
-        events,
-        "spec",
-        "Spec check skipped (Phase 3 no-op)",
-        level="info",
-    )
-    return {"passed": True, "phase_3_noop": True}, state.update(spec_passed=True)
+    from maverick.workflows.fly_beads._spec_check import run_spec_check
+
+    bead_id = state["current_bead_id"]
+
+    for attempt in range(MAX_SPEC_FIX_ATTEMPTS + 1):
+        result = run_spec_check(cwd=cwd, project_type=project_type)
+        if result.passed:
+            if attempt > 0 or result.findings:
+                # Surface the recovery for the live progress feed.
+                await _put_output(
+                    events,
+                    "spec",
+                    f"Spec check passed: {result.details}",
+                    level="success",
+                )
+            return {"passed": True, "attempts": attempt + 1}, state.update(spec_passed=True)
+
+        summary = "; ".join(result.findings) or result.details
+        if attempt >= MAX_SPEC_FIX_ATTEMPTS:
+            await _put_output(
+                events,
+                "spec",
+                f"Spec fix attempts exhausted: {summary}",
+                level="error",
+                metadata={"findings_count": len(result.findings)},
+            )
+            return {"passed": False}, state.update(spec_passed=False, bead_aborted=True)
+
+        await _put_output(
+            events,
+            "spec",
+            f"Spec failed ({attempt + 1}/{MAX_SPEC_FIX_ATTEMPTS}); requesting fix",
+            level="warning",
+            metadata={"findings_count": len(result.findings)},
+        )
+        ok = await _run_fix(
+            squadron=squadron,
+            events=events,
+            bead_id=bead_id,
+            phase="spec",
+            round_n=attempt + 1,
+            failure_message=summary,
+        )
+        if not ok:
+            return {"passed": False, "fix_failed": True}, state.update(
+                spec_passed=False, bead_aborted=True
+            )
+    return {"passed": False}, state.update(spec_passed=False, bead_aborted=True)
 
 
 @action(
