@@ -465,19 +465,36 @@ class RefuelMaverickWorkflow(PythonWorkflow):
             logger.warning("refuel_runway_context_failed", error=str(exc))
 
         # ------------------------------------------------------------------
-        # Steps 2b-4: Briefing + Decompose + Validate via xoscar supervisor
+        # Steps 2b-4: Briefing + Decompose + Validate.
+        # xoscar is the default driver; ``MAVERICK_USE_BURR=refuel`` opts
+        # this workflow into the Burr-backed driver. Both drivers expose
+        # the same return-dict contract.
         # ------------------------------------------------------------------
-        decomposition = await self._run_with_xoscar(
-            flight_plan=flight_plan,
-            raw_content=raw_content,
-            codebase_context=codebase_context,
-            open_bead_result=open_bead_result,
-            runway_context_text=runway_context_text,
-            run_dir=run_dir,
-            skip_briefing=skip_briefing,
-            ctx=ctx,
-            ws_cwd=ws_cwd,
-        )
+        from maverick.workflows.generate_flight_plan.workflow import _use_burr_for
+
+        if _use_burr_for("refuel"):
+            decomposition = await self._run_with_burr(
+                flight_plan=flight_plan,
+                raw_content=raw_content,
+                codebase_context=codebase_context,
+                open_bead_result=open_bead_result,
+                runway_context_text=runway_context_text,
+                skip_briefing=skip_briefing,
+                ctx=ctx,
+                ws_cwd=ws_cwd,
+            )
+        else:
+            decomposition = await self._run_with_xoscar(
+                flight_plan=flight_plan,
+                raw_content=raw_content,
+                codebase_context=codebase_context,
+                open_bead_result=open_bead_result,
+                runway_context_text=runway_context_text,
+                run_dir=run_dir,
+                skip_briefing=skip_briefing,
+                ctx=ctx,
+                ws_cwd=ws_cwd,
+            )
         briefing_path_str: str | None = None
         suggested_deps: tuple[str, ...] = ()
         if decomposition is not None:
@@ -1151,6 +1168,126 @@ class RefuelMaverickWorkflow(PythonWorkflow):
         decomposition = DecompositionOutput(
             work_units=work_units,
             rationale=f"{len(work_units)} work units via supervisor ({fix_rounds} fix rounds)",
+        )
+
+        await self.emit_output(
+            DECOMPOSE,
+            f"Decomposed into {len(work_units)} work units ({fix_rounds} fix rounds)",
+            level="success",
+        )
+        await self.emit_step_completed(
+            DECOMPOSE,
+            {"work_unit_count": len(work_units)},
+        )
+
+        return decomposition
+
+    async def _run_with_burr(
+        self,
+        *,
+        flight_plan: Any,
+        raw_content: str,
+        codebase_context: Any,
+        open_bead_result: Any,
+        runway_context_text: str | None,
+        skip_briefing: bool = False,
+        ctx: dict[str, Any] | None = None,
+        ws_cwd: Path,
+    ) -> Any:
+        """Run briefing + decomposition via the Burr-backed driver.
+
+        Opt-in via ``MAVERICK_USE_BURR=refuel``. Same return shape as
+        :meth:`_run_with_xoscar`. Phase 2 simplifications: single-tier
+        decomposer dispatch, no escalation, no cache write-back; cache
+        reads pass through xoscar's path when the flag is off.
+        """
+        from maverick.agents.briefing.prompts import build_briefing_prompt
+        from maverick.burr import BurrWorkflowDriver
+        from maverick.events import ProgressEvent
+        from maverick.squadron.refuel import RefuelSquadron
+        from maverick.workflows.fly_beads.workflow import _cost_sink_for_cwd
+        from maverick.workflows.refuel_maverick.burr_graph import (
+            REFUEL_TERMINAL_ACTIONS,
+            build_refuel_application,
+        )
+        from maverick.workflows.refuel_maverick.models import (
+            DecompositionOutput,
+            WorkUnitSpec,
+        )
+
+        briefing_prompt = build_briefing_prompt(
+            raw_content,
+            codebase_context,
+            open_bead_context=open_bead_result,
+        )
+
+        # Extract success-criteria refs from the FlightPlan so the
+        # validator can check coverage. Mirrors the xoscar setup.
+        sc_refs: tuple[str, ...] = tuple(
+            (getattr(sc, "id", None) or getattr(sc, "description", "") or "")
+            for sc in (getattr(flight_plan, "success_criteria", ()) or ())
+        )
+        sc_count = len(sc_refs)
+        plan_name = str(getattr(flight_plan, "name", "") or "")
+        plan_objective = str(getattr(flight_plan, "objective", "") or "")
+
+        cost_sink = _cost_sink_for_cwd(ws_cwd)
+        async with RefuelSquadron(
+            cwd=ws_cwd,
+            config=self._config,
+            cost_sink=cost_sink,
+            decomposer_pool_cap=self._config.parallel.decomposer_pool_size,
+        ) as squadron:
+            event_queue: asyncio.Queue[ProgressEvent | None] = asyncio.Queue()
+            app = build_refuel_application(
+                squadron=squadron,
+                event_queue=event_queue,
+                raw_content=raw_content,
+                briefing_prompt=briefing_prompt,
+                codebase_context=codebase_context,
+                open_bead_context=open_bead_result,
+                runway_context_text=runway_context_text,
+                plan_name=plan_name,
+                plan_objective=plan_objective,
+                cwd=str(ws_cwd),
+                skip_briefing=skip_briefing,
+                provider_labels={},
+                max_briefing_agents=self._config.parallel.max_briefing_agents,
+                decomposer_pool_size=self._config.parallel.decomposer_pool_size,
+                success_criteria_count=sc_count,
+                expected_sc_refs=sc_refs,
+            )
+            driver = BurrWorkflowDriver(
+                app,
+                halt_after=REFUEL_TERMINAL_ACTIONS,
+                event_queue=event_queue,
+            )
+            async for evt in driver.events():
+                await self._event_queue.put(evt)
+            _, _result, state = driver.result
+
+        # Materialize WorkUnitSpec objects + assemble the
+        # DecompositionOutput the caller expects.
+        work_units: list[WorkUnitSpec] = []
+        for spec in state.get("specs") or ():
+            if isinstance(spec, WorkUnitSpec):
+                work_units.append(spec)
+            elif isinstance(spec, dict):
+                work_units.append(WorkUnitSpec.model_validate(spec))
+
+        fix_rounds = state.get("fix_rounds", 0)
+        if ctx is not None:
+            ctx["fix_rounds"] = fix_rounds
+            ctx["supervisor_epic"] = state.get("epic")
+            ctx["supervisor_epic_id"] = state.get("epic_id", "")
+            ctx["supervisor_work_beads"] = list(state.get("work_beads") or ())
+            ctx["supervisor_created_map"] = dict(state.get("created_map") or {})
+            ctx["supervisor_dependencies"] = list(state.get("dependencies") or ())
+            ctx["supervisor_deps_wired"] = state.get("deps_wired", 0)
+
+        decomposition = DecompositionOutput(
+            work_units=work_units,
+            rationale=(f"{len(work_units)} work units via burr ({fix_rounds} fix rounds)"),
         )
 
         await self.emit_output(
