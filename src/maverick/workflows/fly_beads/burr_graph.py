@@ -171,9 +171,11 @@ def build_fly_application(
             # Aggregate (cross-bead) review summary — None until the
             # post-loop ``aggregate_review`` action runs.
             aggregate_review_payload=None,
-            # Reviewer transient-failure escalation: per-bead step
-            # count up the tier ladder. Reset to 0 on each new bead.
+            # Reviewer / implementer transient-failure escalation:
+            # per-bead step counts up the tier ladder. Reset to 0 on
+            # each new bead.
             reviewer_escalation_level=0,
+            implementer_escalation_level=0,
         )
         .with_hooks(hook)
         .with_entrypoint("init_state")

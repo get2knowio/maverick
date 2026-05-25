@@ -8,16 +8,13 @@ the action layer holds the same fix-loop budgets (``MAX_GATE_FIX_ATTEMPTS``,
 ``squadron.coder_for(tier)`` / ``squadron.correctness_reviewer_for(tier)``
 agents.
 
-**Known gaps relative to the pre-migration supervisor** (queued for
-follow-up; tracked in the repo as TODO items):
-
-* **Tier escalation (implementer)** — single-tier dispatch only.
-
-Graceful stop, watch mode, aggregate cross-bead review, human-bead
-creation on review exhaustion, reviewer transient-failure escalation,
-and the Rust spec-check rules
+All previously-tracked behavioural gaps relative to the pre-migration
+``FlySupervisor`` are now wired up: graceful stop, watch mode,
+aggregate cross-bead review, human-bead creation on review
+exhaustion, reviewer transient-failure escalation, implementer
+transient-failure escalation, and the Rust spec-check rules
 (``.unwrap()`` / ``.expect()`` / ``std::process::Command`` in async
-contexts) are all wired up.
+contexts).
 """
 
 from __future__ import annotations
@@ -25,7 +22,7 @@ from __future__ import annotations
 import asyncio
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from burr.core import State, action
 
@@ -241,6 +238,7 @@ async def select_next_bead(
         review_rounds=0,
         idle_polls=0,
         reviewer_escalation_level=0,
+        implementer_escalation_level=0,
     )
 
 
@@ -260,8 +258,13 @@ async def process_bead_start(state: State) -> tuple[dict[str, Any], State]:
 
 
 @action(
-    reads=["current_bead", "current_bead_id"],
-    writes=["implement_ok", "implement_summary", "bead_aborted"],
+    reads=["current_bead", "current_bead_id", "implementer_escalation_level"],
+    writes=[
+        "implement_ok",
+        "implement_summary",
+        "bead_aborted",
+        "implementer_escalation_level",
+    ],
 )
 async def implement(
     state: State,
@@ -269,49 +272,37 @@ async def implement(
     squadron: FlySquadron,
     events: asyncio.Queue[ProgressEvent | None],
 ) -> tuple[dict[str, Any], State]:
-    """Run the implementer on the current bead."""
+    """Run the implementer on the current bead, escalating on transient failures."""
     bead = state["current_bead"]
     if bead is None:
         return {"ok": False}, state.update(implement_ok=False, bead_aborted=True)
 
-    coder = squadron.coder_for(DEFAULT_TIER)
     prompt = _build_implement_prompt(bead)
-    label = "Implementer"
-    await events.put(AgentStarted(step_name="implement", agent_name=label, provider=""))
-    t0 = time.monotonic()
-    try:
-        with squadron.bead_context(bead_id=state["current_bead_id"]):
-            payload = await coder.implement(prompt)
-    except Exception as exc:  # noqa: BLE001 — lenient: surface as a bead abandon
-        await _put_output(
-            events,
-            "implement",
-            f"Implementer failed: {exc}",
-            level="error",
-        )
-        await events.put(
-            AgentCompleted(
-                step_name="implement",
-                agent_name=label,
-                duration_seconds=time.monotonic() - t0,
-                success=False,
-                error=str(exc),
-            )
-        )
-        return {"ok": False, "error": str(exc)}, state.update(
+    initial_level = int(state.get("implementer_escalation_level") or 0)
+    payload, new_level, exhausted_err = await _call_implementer_with_escalation(
+        squadron=squadron,
+        events=events,
+        bead_id=state["current_bead_id"],
+        prompt=prompt,
+        op="implement",
+        label="Implementer",
+        initial_level=initial_level,
+    )
+    if payload is None:
+        # Exhausted escalation (transient) or hit a non-transient
+        # error — both already logged inside the helper.
+        return {"ok": False, "error": exhausted_err or "implement_failed"}, state.update(
             implement_ok=False,
             bead_aborted=True,
+            implementer_escalation_level=new_level,
         )
 
-    await events.put(
-        AgentCompleted(
-            step_name="implement",
-            agent_name=label,
-            duration_seconds=time.monotonic() - t0,
-        )
-    )
     summary = dump_supervisor_payload(payload)
-    return {"ok": True}, state.update(implement_ok=True, implement_summary=summary)
+    return {"ok": True}, state.update(
+        implement_ok=True,
+        implement_summary=summary,
+        implementer_escalation_level=new_level,
+    )
 
 
 def _build_implement_prompt(bead: dict[str, Any]) -> str:
@@ -335,13 +326,16 @@ async def _run_fix(
     phase: str,
     round_n: int,
     failure_message: str,
-) -> bool:
+    initial_level: int = 0,
+) -> tuple[bool, int]:
     """Re-prompt the implementer on validation failure.
 
-    Returns ``True`` if the agent landed a fix payload; ``False`` if
-    the call raised (bead should abandon).
+    Returns ``(ok, new_level)`` where ``ok`` is true when the agent
+    landed a fix payload and ``new_level`` is the implementer
+    escalation level the caller should persist on state. Transient
+    failures bump the tier and retry; non-transient failures (or
+    exhausted escalation) return ``(False, current_level)``.
     """
-    coder = squadron.coder_for(DEFAULT_TIER)
     prompt = (
         f"## Fix request — phase: {phase}, round {round_n}\n\n"
         f"The {phase} check failed with:\n\n{failure_message}\n\n"
@@ -349,36 +343,21 @@ async def _run_fix(
         "StructuredOutput tool."
     )
     label = f"Fix ({phase} r{round_n})"
-    await events.put(AgentStarted(step_name="fix", agent_name=label, provider=""))
-    t0 = time.monotonic()
-    try:
-        with squadron.bead_context(bead_id=bead_id):
-            await coder.fix(prompt)
-    except Exception as exc:  # noqa: BLE001
-        await _put_output(events, "fix", f"Fix failed: {exc}", level="error")
-        await events.put(
-            AgentCompleted(
-                step_name="fix",
-                agent_name=label,
-                duration_seconds=time.monotonic() - t0,
-                success=False,
-                error=str(exc),
-            )
-        )
-        return False
-    await events.put(
-        AgentCompleted(
-            step_name="fix",
-            agent_name=label,
-            duration_seconds=time.monotonic() - t0,
-        )
+    payload, new_level, _ = await _call_implementer_with_escalation(
+        squadron=squadron,
+        events=events,
+        bead_id=bead_id,
+        prompt=prompt,
+        op="fix",
+        label=label,
+        initial_level=initial_level,
     )
-    return True
+    return payload is not None, new_level
 
 
 @action(
-    reads=["current_bead_id"],
-    writes=["gate_passed", "bead_aborted"],
+    reads=["current_bead_id", "implementer_escalation_level"],
+    writes=["gate_passed", "bead_aborted", "implementer_escalation_level"],
 )
 async def gate(
     state: State,
@@ -392,6 +371,7 @@ async def gate(
     from maverick.library.actions.validation import run_independent_gate
 
     bead_id = state["current_bead_id"]
+    escalation_level = int(state.get("implementer_escalation_level") or 0)
     for attempt in range(MAX_GATE_FIX_ATTEMPTS + 1):
         result = await run_independent_gate(
             stages=["format", "lint", "test"],
@@ -399,7 +379,10 @@ async def gate(
             validation_commands=validation_commands,
         )
         if result.get("passed"):
-            return {"passed": True, "attempts": attempt + 1}, state.update(gate_passed=True)
+            return {"passed": True, "attempts": attempt + 1}, state.update(
+                gate_passed=True,
+                implementer_escalation_level=escalation_level,
+            )
         if attempt >= MAX_GATE_FIX_ATTEMPTS:
             summary = result.get("summary") or "gate failed"
             await _put_output(
@@ -408,7 +391,11 @@ async def gate(
                 f"Gate fix attempts exhausted: {summary}",
                 level="error",
             )
-            return {"passed": False}, state.update(gate_passed=False, bead_aborted=True)
+            return {"passed": False}, state.update(
+                gate_passed=False,
+                bead_aborted=True,
+                implementer_escalation_level=escalation_level,
+            )
         summary = result.get("summary") or "gate failed"
         await _put_output(
             events,
@@ -417,25 +404,32 @@ async def gate(
             level="warning",
             metadata={"attempt": attempt + 1},
         )
-        ok = await _run_fix(
+        ok, escalation_level = await _run_fix(
             squadron=squadron,
             events=events,
             bead_id=bead_id,
             phase="gate",
             round_n=attempt + 1,
             failure_message=summary,
+            initial_level=escalation_level,
         )
         if not ok:
             return {"passed": False, "fix_failed": True}, state.update(
-                gate_passed=False, bead_aborted=True
+                gate_passed=False,
+                bead_aborted=True,
+                implementer_escalation_level=escalation_level,
             )
     # unreachable but satisfies type checker
-    return {"passed": False}, state.update(gate_passed=False, bead_aborted=True)
+    return {"passed": False}, state.update(
+        gate_passed=False,
+        bead_aborted=True,
+        implementer_escalation_level=escalation_level,
+    )
 
 
 @action(
-    reads=["current_bead", "current_bead_id"],
-    writes=["ac_passed", "bead_aborted"],
+    reads=["current_bead", "current_bead_id", "implementer_escalation_level"],
+    writes=["ac_passed", "bead_aborted", "implementer_escalation_level"],
 )
 async def ac_check(
     state: State,
@@ -454,6 +448,7 @@ async def ac_check(
     bead = state["current_bead"]
     bead_id = state["current_bead_id"]
     description = bead.get("description", "") if bead else ""
+    escalation_level = int(state.get("implementer_escalation_level") or 0)
 
     async def _run_once() -> tuple[bool, str]:
         sections = _parse_work_unit_sections(description)
@@ -476,7 +471,10 @@ async def ac_check(
 
     passed, reasons = await _run_once()
     if passed:
-        return {"passed": True}, state.update(ac_passed=True)
+        return {"passed": True}, state.update(
+            ac_passed=True,
+            implementer_escalation_level=escalation_level,
+        )
 
     await _put_output(
         events,
@@ -484,25 +482,40 @@ async def ac_check(
         f"AC check failed; requesting fix: {reasons}",
         level="warning",
     )
-    ok = await _run_fix(
+    ok, escalation_level = await _run_fix(
         squadron=squadron,
         events=events,
         bead_id=bead_id,
         phase="ac",
         round_n=1,
         failure_message=reasons,
+        initial_level=escalation_level,
     )
     if not ok:
-        return {"passed": False}, state.update(ac_passed=False, bead_aborted=True)
+        return {"passed": False}, state.update(
+            ac_passed=False,
+            bead_aborted=True,
+            implementer_escalation_level=escalation_level,
+        )
 
     passed, reasons = await _run_once()
     if not passed:
         await _put_output(events, "ac", f"AC check failed after fix: {reasons}", level="error")
-        return {"passed": False}, state.update(ac_passed=False, bead_aborted=True)
-    return {"passed": True}, state.update(ac_passed=True)
+        return {"passed": False}, state.update(
+            ac_passed=False,
+            bead_aborted=True,
+            implementer_escalation_level=escalation_level,
+        )
+    return {"passed": True}, state.update(
+        ac_passed=True,
+        implementer_escalation_level=escalation_level,
+    )
 
 
-@action(reads=["current_bead_id"], writes=["spec_passed", "bead_aborted"])
+@action(
+    reads=["current_bead_id", "implementer_escalation_level"],
+    writes=["spec_passed", "bead_aborted", "implementer_escalation_level"],
+)
 async def spec_check(
     state: State,
     *,
@@ -524,19 +537,22 @@ async def spec_check(
     from maverick.workflows.fly_beads._spec_check import run_spec_check
 
     bead_id = state["current_bead_id"]
+    escalation_level = int(state.get("implementer_escalation_level") or 0)
 
     for attempt in range(MAX_SPEC_FIX_ATTEMPTS + 1):
         result = run_spec_check(cwd=cwd, project_type=project_type)
         if result.passed:
             if attempt > 0 or result.findings:
-                # Surface the recovery for the live progress feed.
                 await _put_output(
                     events,
                     "spec",
                     f"Spec check passed: {result.details}",
                     level="success",
                 )
-            return {"passed": True, "attempts": attempt + 1}, state.update(spec_passed=True)
+            return {"passed": True, "attempts": attempt + 1}, state.update(
+                spec_passed=True,
+                implementer_escalation_level=escalation_level,
+            )
 
         summary = "; ".join(result.findings) or result.details
         if attempt >= MAX_SPEC_FIX_ATTEMPTS:
@@ -547,7 +563,11 @@ async def spec_check(
                 level="error",
                 metadata={"findings_count": len(result.findings)},
             )
-            return {"passed": False}, state.update(spec_passed=False, bead_aborted=True)
+            return {"passed": False}, state.update(
+                spec_passed=False,
+                bead_aborted=True,
+                implementer_escalation_level=escalation_level,
+            )
 
         await _put_output(
             events,
@@ -556,29 +576,42 @@ async def spec_check(
             level="warning",
             metadata={"findings_count": len(result.findings)},
         )
-        ok = await _run_fix(
+        ok, escalation_level = await _run_fix(
             squadron=squadron,
             events=events,
             bead_id=bead_id,
             phase="spec",
             round_n=attempt + 1,
             failure_message=summary,
+            initial_level=escalation_level,
         )
         if not ok:
             return {"passed": False, "fix_failed": True}, state.update(
-                spec_passed=False, bead_aborted=True
+                spec_passed=False,
+                bead_aborted=True,
+                implementer_escalation_level=escalation_level,
             )
-    return {"passed": False}, state.update(spec_passed=False, bead_aborted=True)
+    return {"passed": False}, state.update(
+        spec_passed=False,
+        bead_aborted=True,
+        implementer_escalation_level=escalation_level,
+    )
 
 
 @action(
-    reads=["current_bead", "current_bead_id", "reviewer_escalation_level"],
+    reads=[
+        "current_bead",
+        "current_bead_id",
+        "reviewer_escalation_level",
+        "implementer_escalation_level",
+    ],
     writes=[
         "approved",
         "review_rounds",
         "needs_human_review",
         "last_review_findings",
         "reviewer_escalation_level",
+        "implementer_escalation_level",
     ],
 )
 async def review(
@@ -617,6 +650,7 @@ async def review(
 
     rounds_with_findings = 0
     escalation_level = int(state.get("reviewer_escalation_level") or 0)
+    implementer_level = int(state.get("implementer_escalation_level") or 0)
     for round_n in range(1, MAX_REVIEW_ROUNDS + 1):
         # Run both reviewers in parallel (correctness + completeness),
         # bumping the reviewer tier on transient failures until either
@@ -638,6 +672,7 @@ async def review(
                     f"Reviewer transient failure exhausted escalation: {transient_exhausted}"
                 ],
                 reviewer_escalation_level=escalation_level,
+                implementer_escalation_level=implementer_level,
             )
         if results is None:
             # Non-transient reviewer failure — already logged inside
@@ -648,6 +683,7 @@ async def review(
                 needs_human_review=True,
                 last_review_findings=["Review crashed (non-transient)"],
                 reviewer_escalation_level=escalation_level,
+                implementer_escalation_level=implementer_level,
             )
 
         approved = all(_payload_approved(p) for p in results)
@@ -657,6 +693,7 @@ async def review(
                 review_rounds=rounds_with_findings,
                 last_review_findings=[],
                 reviewer_escalation_level=escalation_level,
+                implementer_escalation_level=implementer_level,
             )
 
         rounds_with_findings += 1
@@ -674,16 +711,18 @@ async def review(
                 needs_human_review=True,
                 last_review_findings=round_findings,
                 reviewer_escalation_level=escalation_level,
+                implementer_escalation_level=implementer_level,
             )
 
         # Re-prompt the implementer to address review feedback.
-        ok = await _run_fix(
+        ok, implementer_level = await _run_fix(
             squadron=squadron,
             events=events,
             bead_id=bead_id,
             phase="review",
             round_n=round_n,
             failure_message="\n".join(round_findings) or "(no specific findings)",
+            initial_level=implementer_level,
         )
         if not ok:
             return {"approved": False, "rounds": rounds_with_findings}, state.update(
@@ -692,6 +731,7 @@ async def review(
                 needs_human_review=True,
                 last_review_findings=round_findings,
                 reviewer_escalation_level=escalation_level,
+                implementer_escalation_level=implementer_level,
             )
 
     return {"approved": False, "rounds": rounds_with_findings}, state.update(
@@ -700,10 +740,122 @@ async def review(
         needs_human_review=True,
         last_review_findings=[],
         reviewer_escalation_level=escalation_level,
+        implementer_escalation_level=implementer_level,
     )
 
 
-_REVIEWER_TIER_LADDER: tuple[str, ...] = (DEFAULT_TIER, "trivial", "simple", "moderate", "complex")
+_TIER_LADDER: tuple[str, ...] = (DEFAULT_TIER, "trivial", "simple", "moderate", "complex")
+_REVIEWER_TIER_LADDER: tuple[str, ...] = _TIER_LADDER
+
+
+def _tier_for_level(level: int) -> str:
+    """Resolve a tier name on :data:`_TIER_LADDER` for an escalation level."""
+    if level <= 0:
+        return _TIER_LADDER[0]
+    if level >= len(_TIER_LADDER):
+        return _TIER_LADDER[-1]
+    return _TIER_LADDER[level]
+
+
+async def _call_implementer_with_escalation(
+    *,
+    squadron: FlySquadron,
+    events: asyncio.Queue[ProgressEvent | None],
+    bead_id: str,
+    prompt: str,
+    op: Literal["implement", "fix"],
+    label: str,
+    initial_level: int,
+) -> tuple[Any | None, int, str]:
+    """Run ``coder.implement`` or ``coder.fix`` with tier escalation.
+
+    Returns ``(payload, new_level, exhausted_msg)`` — ``payload`` is
+    the returned ``Submit*Payload`` on success or ``None`` on
+    non-transient failure or exhausted escalation. ``exhausted_msg``
+    is non-empty only when escalation walked the full ladder and
+    transients still won.
+    """
+    from airframe.errors import RuntimeTransientError
+
+    step_name = op
+    level = max(0, initial_level)
+    max_level = len(_TIER_LADDER) - 1
+    last_transient = ""
+    while True:
+        tier_name = _tier_for_level(level)
+        coder = squadron.coder_for(tier_name)
+        await events.put(AgentStarted(step_name=step_name, agent_name=label, provider=""))
+        t0 = time.monotonic()
+        try:
+            with squadron.bead_context(bead_id=bead_id):
+                method = coder.implement if op == "implement" else coder.fix
+                payload = await method(prompt)
+        except RuntimeTransientError as exc:
+            last_transient = str(exc)
+            await events.put(
+                AgentCompleted(
+                    step_name=step_name,
+                    agent_name=label,
+                    duration_seconds=time.monotonic() - t0,
+                    success=False,
+                    error=last_transient,
+                )
+            )
+            if level >= max_level:
+                await _put_output(
+                    events,
+                    step_name,
+                    (
+                        f"Implementer transient failure exhausted escalation "
+                        f"at tier '{tier_name}': {last_transient}"
+                    ),
+                    level="error",
+                    metadata={"tier": tier_name, "transient": True, "exhausted": True},
+                )
+                return None, level, last_transient
+            next_level = level + 1
+            next_tier = _tier_for_level(next_level)
+            await _put_output(
+                events,
+                step_name,
+                (
+                    f"Implementer transient failure on tier '{tier_name}'; "
+                    f"escalating to '{next_tier}': {last_transient}"
+                ),
+                level="warning",
+                metadata={
+                    "from_tier": tier_name,
+                    "to_tier": next_tier,
+                    "transient": True,
+                },
+            )
+            level = next_level
+            continue
+        except Exception as exc:  # noqa: BLE001 — non-transient → caller aborts the bead
+            await _put_output(
+                events,
+                step_name,
+                f"Implementer failed: {exc}" if op == "implement" else f"Fix failed: {exc}",
+                level="error",
+            )
+            await events.put(
+                AgentCompleted(
+                    step_name=step_name,
+                    agent_name=label,
+                    duration_seconds=time.monotonic() - t0,
+                    success=False,
+                    error=str(exc),
+                )
+            )
+            return None, level, ""
+        await events.put(
+            AgentCompleted(
+                step_name=step_name,
+                agent_name=label,
+                duration_seconds=time.monotonic() - t0,
+            )
+        )
+        return payload, level, ""
 
 
 def _reviewer_tier_for_level(level: int) -> str:
