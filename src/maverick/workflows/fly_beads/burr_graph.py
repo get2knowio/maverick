@@ -56,6 +56,7 @@ FLY_ACTION_LABELS: dict[str, str] = {
     "commit": "Committing",
     "abandon_bead": "Abandoning bead",
     "record_outcome": "Recording outcome",
+    "aggregate_review": "Aggregate review",
     "done": "Done",
 }
 
@@ -129,6 +130,12 @@ def build_fly_application(
             commit=fly_actions.commit.bind(cwd=cwd, events=event_queue),
             abandon_bead=fly_actions.abandon_bead.bind(events=event_queue),
             record_outcome=fly_actions.record_outcome,
+            aggregate_review=fly_actions.aggregate_review.bind(
+                squadron=squadron,
+                events=event_queue,
+                cwd=cwd,
+                epic_id=epic_id,
+            ),
             done=_done,
         )
         .with_state(
@@ -161,13 +168,18 @@ def build_fly_application(
             human_bead_id="",
             # Watch mode: count of consecutive empty-poll cycles.
             idle_polls=0,
+            # Aggregate (cross-bead) review summary — None until the
+            # post-loop ``aggregate_review`` action runs.
+            aggregate_review_payload=None,
         )
         .with_hooks(hook)
         .with_entrypoint("init_state")
         .with_transitions(
             ("init_state", "select_next_bead"),
-            # Loop exit
-            ("select_next_bead", "done", expr("loop_done")),
+            # Loop exit funnels through the aggregate (cross-bead)
+            # review so a finished epic gets a single end-of-run pass.
+            ("select_next_bead", "aggregate_review", expr("loop_done")),
+            ("aggregate_review", "done"),
             # Resumed-from-checkpoint bead → cycle without process
             ("select_next_bead", "select_next_bead", expr("current_bead is None")),
             ("select_next_bead", "process_bead_start"),
