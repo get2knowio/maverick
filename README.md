@@ -52,10 +52,12 @@ correction tasks all live in the same dependency graph.
 - **Runway knowledge store** — Episodic records of bead outcomes, review
   findings, and fix attempts build project-specific context. Agents
   progressively discover this context via the `.maverick/runway/` directory
-- **xoscar actor system** — All workflows run on a single xoscar pool
-  (`n_process=0`, in-pool coroutines). The workflow's `Squadron` constructs
-  one `airframe.AgentRuntime` per role at startup, validates every binding
-  against the adapter, and shares that fleet across mailbox actors.
+- **Apache Burr workflows** — Each command (`plan`, `refuel`, `fly`) is an
+  Apache Burr `Application`: a state machine of `@action`-decorated async
+  functions over a per-workflow `Squadron` that owns the airframe runtimes.
+  Single-process, all coroutines on one loop. Transitions encode the control
+  flow (per-bead pipeline, fix loops, tier escalation, watch-mode polling,
+  post-loop aggregate review); progress events stream out via a hook.
 - **Jujutsu (jj) VCS** — Write operations use jj for snapshot/rollback
   safety. Curation skips immutable commits gracefully.
 
@@ -104,7 +106,7 @@ maverick plan generate my-feature --from-prd spec.md
 # 4. Decompose into work units and create beads
 maverick refuel my-feature
 
-# 5. Implement beads (in isolated workspace)
+# 5. Implement beads
 maverick fly --epic <epic-id> --auto-commit
 
 # 6. Review any human-escalated beads
@@ -310,19 +312,28 @@ Workflow Layer (async Python)
   │
 Squadron (per-workflow lifecycle container)
   │ Constructs one airframe.AgentRuntime per role via runtime_for_agent(),
-  │ runs validate_binding() at open, exposes the typed agents to actors.
+  │ runs validate_binding() at open, exposes the typed agents the actions
+  │ call directly (coder.implement, reviewer.review, decomposer.outline, ...).
   │
-xoscar Actor Layer (in-pool coroutines, n_process=0, ephemeral 127.0.0.1:0)
+Apache Burr Application (one per workflow run)
+  │ A state machine of @action-decorated async functions over a shared
+  │ State dict. Transitions encode the control flow. A ProgressEventHook
+  │ streams StepStarted / StepCompleted / AgentStarted / StepOutput
+  │ events into a queue the CLI drains for the live Rich tables.
   │
-  ├── Supervisors (typed RPC fan-out)
-  │   FlySupervisor, RefuelSupervisor, PlanSupervisor
+  ├── fly_beads graph:
+  │   select_next_bead → implement → gate → ac_check → spec_check
+  │     → review → (create_human_bead?) → commit → record_outcome
+  │     → ... cycle ... → aggregate_review → done
   │
-  ├── Mailbox actors (each owns an Agent instance)
-  │   ImplementerActor, ReviewerActor, DecomposerActor,
-  │   GeneratorActor, BriefingActor
+  ├── refuel_maverick graph:
+  │   parallel_briefings + contrarian_briefing → synthesize_briefing
+  │     → outline → detail_fan_out → validate → request_fix?
+  │     → create_beads → done
   │
-  └── Deterministic actors (pure Python, no LLM)
-      Gate, SpecCheck, ACCheck, Committer, Validator
+  └── generate_flight_plan graph:
+      parallel_briefings + contrarian_briefing → synthesize_briefing
+        → generate → done
   │
 airframe Pattern D runtime (one AgentRuntime per role)
   ClaudeCodeRuntime, CopilotRuntime, OpenCodeRuntime,
@@ -332,16 +343,16 @@ airframe Pattern D runtime (one AgentRuntime per role)
 
 ### How Agents Communicate
 
-Each mailbox actor holds an `Agent` instance built around the
-role's `AgentRuntime`. Domain methods (`coder.implement(prompt, *,
-bead_id)`) call `_send_structured(prompt)`, which invokes
-`runtime.execute()` with `format=json_schema` derived from the agent's
-`result_model`. Airframe synthesizes a `StructuredOutput` tool the model
-is forced to call, normalises any vendor-specific envelope wrapping, and
-validates the result against the Pydantic model. The typed payload
-flows back to the supervisor via xoscar RPC. Built-in tools (Read,
-Write, Bash) are for doing work; the `StructuredOutput` tool is for
-reporting results.
+Each Burr action calls the role's typed `Agent` directly (`coder =
+squadron.coder_for(tier); await coder.implement(prompt)`). Domain methods
+invoke `_send_structured(prompt)`, which calls `runtime.execute()` with
+`format=json_schema` derived from the agent's `result_model`. Airframe
+synthesizes a `StructuredOutput` tool the model is forced to call,
+normalises any vendor-specific envelope wrapping, and validates the
+result against the Pydantic model. The typed payload flows back into
+Burr `State` via the action's `state.update(...)` return; downstream
+actions read it from there. Built-in tools (Read, Write, Bash) are for
+doing work; the `StructuredOutput` tool is for reporting results.
 
 ## Technology Stack
 
@@ -350,7 +361,7 @@ reporting results.
 | Language | Python 3.11+ |
 | Package Manager | uv |
 | Agent Runtime | [airframe](https://github.com/get2knowio/airframe) Pattern D — one `AgentRuntime` per role |
-| Actor Framework | xoscar (`n_process=0`, in-pool coroutines) |
+| Workflow Engine | [Apache Burr](https://github.com/apache/burr) — state machines of `@action`-decorated async functions |
 | Structured Output | Pydantic + `format=json_schema` (via airframe `StructuredOutput`) |
 | CLI | Click + Rich |
 | VCS (writes) | Jujutsu (jj) in colocated mode |
