@@ -516,6 +516,147 @@ class TestRefuelBurrDetailEscalation:
         assert detail_tiers == ["default", "trivial", "simple", "moderate", "complex"]
 
 
+class TestRefuelBurrCacheWriteBack:
+    async def test_outline_and_details_written_to_cache_dir(self, tmp_path: Path) -> None:
+        """Outline + per-unit details land at the expected cache paths."""
+        outline = _make_outline(unit_ids=("u-1", "u-2"))
+        squadron = StubRefuelSquadron(outline_payload=outline)
+        cache_dir = tmp_path / "refuel-cache"
+
+        queue: asyncio.Queue[ProgressEvent | None] = asyncio.Queue()
+        with (
+            patch(
+                "maverick.library.actions.beads.create_beads",
+                new=AsyncMock(return_value=_make_bead_result()),
+            ),
+            patch(
+                "maverick.library.actions.beads.wire_dependencies",
+                new=AsyncMock(return_value=_make_wire_result()),
+            ),
+        ):
+            app = build_refuel_application(
+                squadron=squadron,
+                event_queue=queue,
+                raw_content="x",
+                briefing_prompt="x",
+                codebase_context=_empty_codebase_context(),
+                open_bead_context=None,
+                runway_context_text=None,
+                plan_name="my-plan",
+                plan_objective="o",
+                cwd=str(tmp_path),
+                skip_briefing=True,
+                cache_dir=str(cache_dir),
+            )
+            driver = BurrWorkflowDriver(app, halt_after=REFUEL_TERMINAL_ACTIONS, event_queue=queue)
+            await _collect(driver)
+
+        import json as _json
+
+        outline_path = cache_dir / "outline.json"
+        u1_path = cache_dir / "details" / "u-1.json"
+        u2_path = cache_dir / "details" / "u-2.json"
+        assert outline_path.exists()
+        assert u1_path.exists()
+        assert u2_path.exists()
+
+        outline_doc = _json.loads(outline_path.read_text())
+        assert "payload" in outline_doc
+        unit_ids = {u["id"] for u in outline_doc["payload"].get("work_units") or ()}
+        assert unit_ids == {"u-1", "u-2"}
+
+        u1_doc = _json.loads(u1_path.read_text())
+        assert u1_doc.get("id") == "u-1"
+
+    async def test_briefings_written_to_cache_dir(self, tmp_path: Path) -> None:
+        """``briefings.json`` lands alongside the outline/details files."""
+        squadron = StubRefuelSquadron()
+        cache_dir = tmp_path / "refuel-cache"
+
+        queue: asyncio.Queue[ProgressEvent | None] = asyncio.Queue()
+        with (
+            patch(
+                "maverick.workflows.refuel_maverick.actions.SUPERVISOR_TOOL_PAYLOAD_MODELS",
+                {
+                    "submit_navigator_brief": SubmitNavigatorBriefPayload,
+                    "submit_structuralist_brief": SubmitStructuralistBriefPayload,
+                    "submit_recon_brief": SubmitReconBriefPayload,
+                    "submit_contrarian_brief": SubmitContrarianBriefPayload,
+                },
+            ),
+            patch(
+                "maverick.library.actions.beads.create_beads",
+                new=AsyncMock(return_value=_make_bead_result()),
+            ),
+            patch(
+                "maverick.library.actions.beads.wire_dependencies",
+                new=AsyncMock(return_value=_make_wire_result()),
+            ),
+        ):
+            app = build_refuel_application(
+                squadron=squadron,
+                event_queue=queue,
+                raw_content="x",
+                briefing_prompt="x",
+                codebase_context=_empty_codebase_context(),
+                open_bead_context=None,
+                runway_context_text=None,
+                plan_name="my-plan",
+                plan_objective="o",
+                cwd=str(tmp_path),
+                skip_briefing=False,
+                cache_dir=str(cache_dir),
+            )
+            driver = BurrWorkflowDriver(app, halt_after=REFUEL_TERMINAL_ACTIONS, event_queue=queue)
+            await _collect(driver)
+
+        import json as _json
+
+        briefings_path = cache_dir / "briefings.json"
+        assert briefings_path.exists()
+        doc = _json.loads(briefings_path.read_text())
+        assert set(doc.get("payloads", {}).keys()) == {
+            "navigator",
+            "structuralist",
+            "recon",
+            "contrarian",
+        }
+
+    async def test_empty_cache_dir_is_a_noop(self, tmp_path: Path) -> None:
+        """Default ``cache_dir=''`` writes nothing — preserves prior behaviour."""
+        squadron = StubRefuelSquadron()
+        cache_dir = tmp_path / "refuel-cache"
+
+        queue: asyncio.Queue[ProgressEvent | None] = asyncio.Queue()
+        with (
+            patch(
+                "maverick.library.actions.beads.create_beads",
+                new=AsyncMock(return_value=_make_bead_result()),
+            ),
+            patch(
+                "maverick.library.actions.beads.wire_dependencies",
+                new=AsyncMock(return_value=_make_wire_result()),
+            ),
+        ):
+            app = build_refuel_application(
+                squadron=squadron,
+                event_queue=queue,
+                raw_content="x",
+                briefing_prompt="x",
+                codebase_context=_empty_codebase_context(),
+                open_bead_context=None,
+                runway_context_text=None,
+                plan_name="p",
+                plan_objective="o",
+                cwd=str(tmp_path),
+                skip_briefing=True,
+            )
+            driver = BurrWorkflowDriver(app, halt_after=REFUEL_TERMINAL_ACTIONS, event_queue=queue)
+            await _collect(driver)
+
+        assert not cache_dir.exists()
+
+
 class TestRefuelBurrGraphValidationLoop:
     async def test_fix_loop_runs_when_validation_fails_then_passes(self, tmp_path: Path) -> None:
         """First validate produces gaps → request_fix → validate (passes)."""

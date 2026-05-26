@@ -15,10 +15,14 @@ follow-up):
   the escalated tier maps to a *different* model — are wired
   through ``runtime_for_agent("decompose")`` today and will
   benefit from later substrate work to support per-tier overrides.
-* Cache integration: ``initial_payload`` cache reads pass through
-  (resume from a previously-cached run still works), but **the Burr
-  driver does not write cache files**. Re-running a Burr-mode refuel
-  starts from scratch; rerun on xoscar to re-populate caches.
+* Cache write-back: the workflow now passes a per-plan
+  ``cache_dir = <cwd>/.maverick/plans/<plan>/refuel-cache/``; the
+  ``synthesize_briefing``, ``outline``, and ``detail_fan_out``
+  actions persist their results there (``briefings.json``,
+  ``outline.json``, ``details/<unit_id>.json``). The read side —
+  loading these on a subsequent run to short-circuit re-generation
+  — is a separate follow-up; today the cache is write-only and
+  exists for manual inspection / future resume.
 * Quota error special-handling: treated like any other failure for now.
 * Fix-round merge: merges both ``details`` and ``work_units`` from
   the fix payload (handles the case where the fixer splits an
@@ -33,6 +37,7 @@ from __future__ import annotations
 import asyncio
 import json
 import time
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from burr.core import State, action
@@ -164,6 +169,36 @@ async def _put_output(
     )
 
 
+async def _write_cache_json(
+    path: Path,
+    payload: Any,
+    *,
+    events: asyncio.Queue[ProgressEvent | None] | None,
+    label: str,
+) -> None:
+    """Write ``payload`` to ``path`` as pretty-printed JSON.
+
+    Best-effort: any ``OSError`` (or other filesystem hiccup) is
+    logged as a warning via ``events`` and swallowed so the refuel
+    run still completes. Creates parent directories on demand.
+    """
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps(payload, indent=2, default=str, sort_keys=True),
+            encoding="utf-8",
+        )
+    except OSError as exc:
+        if events is not None:
+            await _put_output(
+                events,
+                "decompose",
+                f"Refuel cache write failed ({label}): {exc}",
+                level="warning",
+                metadata={"path": str(path), "label": label},
+            )
+
+
 # ---------------------------------------------------------------------------
 # Actions
 # ---------------------------------------------------------------------------
@@ -272,8 +307,19 @@ async def contrarian_briefing(
 
 
 @action(reads=["briefs"], writes=["briefing_markdown"])
-async def synthesize_briefing(state: State) -> tuple[dict[str, Any], State]:
-    """Render the four briefs into a single markdown block."""
+async def synthesize_briefing(
+    state: State,
+    *,
+    cache_dir: str = "",
+    events: asyncio.Queue[ProgressEvent | None] | None = None,
+) -> tuple[dict[str, Any], State]:
+    """Render the four briefs into a single markdown block.
+
+    When ``cache_dir`` is set, persists the raw brief payloads to
+    ``<cache_dir>/briefings.json`` so a subsequent run (manual or
+    automated resume) can rebuild from the same evidence without
+    spending agent budget. Cache failures are non-fatal.
+    """
     from maverick.preflight_briefing.serializer import serialize_briefs_to_markdown
 
     briefs = state["briefs"]
@@ -284,6 +330,13 @@ async def synthesize_briefing(state: State) -> tuple[dict[str, Any], State]:
         criteria=briefs.get("recon"),
         challenge=briefs.get("contrarian"),
     )
+    if cache_dir and briefs:
+        await _write_cache_json(
+            Path(cache_dir) / "briefings.json",
+            {"payloads": briefs},
+            events=events,
+            label="briefings",
+        )
     return {"briefing_markdown_length": len(md)}, state.update(briefing_markdown=md)
 
 
@@ -304,8 +357,14 @@ async def outline(
     *,
     squadron: RefuelSquadron,
     events: asyncio.Queue[ProgressEvent | None],
+    cache_dir: str = "",
 ) -> tuple[dict[str, Any], State]:
-    """Acquire a decomposer from the pool and run the outline pass."""
+    """Acquire a decomposer from the pool and run the outline pass.
+
+    When ``cache_dir`` is set, persists the outline payload to
+    ``<cache_dir>/outline.json`` after the agent returns. Cache
+    failures are non-fatal.
+    """
     await _put_output(events, "decompose", "Requesting outline")
     decomposer: DecomposerAgent = await squadron.decomposer_pool.acquire(_DEFAULT_TIER)
     await events.put(AgentStarted(step_name="decompose", agent_name="outline", provider=""))
@@ -339,6 +398,13 @@ async def outline(
         f"Outline produced {unit_count} work units",
         metadata={"work_unit_count": unit_count},
     )
+    if cache_dir:
+        await _write_cache_json(
+            Path(cache_dir) / "outline.json",
+            {"payload": outline_dict},
+            events=events,
+            label="outline",
+        )
     return {"work_unit_count": unit_count}, state.update(outline=outline_dict)
 
 
@@ -479,12 +545,16 @@ async def detail_fan_out(
     squadron: RefuelSquadron,
     events: asyncio.Queue[ProgressEvent | None],
     pool_size: int,
+    cache_dir: str = "",
 ) -> tuple[dict[str, Any], State]:
     """Fan out per-unit detail requests across the decomposer pool.
 
-    Phase 2 simplifications (see module docstring): single-tier
-    dispatch, no escalation, no cache write. Per-unit retry budget
-    matches the legacy ``MAX_DETAIL_RETRIES``.
+    Per-unit retry budget is ``MAX_DETAIL_RETRIES`` at the current
+    tier; transient failures escalate via
+    :func:`_run_detail_with_escalation`. When ``cache_dir`` is set,
+    each successful unit detail is persisted to
+    ``<cache_dir>/details/<unit_id>.json`` immediately so a
+    partially-successful fan-out is recoverable.
     """
     outline_dict = state["outline"]
     if outline_dict is None:
@@ -499,6 +569,7 @@ async def detail_fan_out(
     accumulated: list[dict[str, Any]] = []
     abandoned: list[str] = []
     lock = asyncio.Lock()
+    details_dir = Path(cache_dir) / "details" if cache_dir else None
 
     async def _one(unit_id: str) -> None:
         async with sem:
@@ -513,6 +584,13 @@ async def detail_fan_out(
                 abandoned.append(unit_id)
             else:
                 accumulated.append(detail)
+        if detail is not None and details_dir is not None:
+            await _write_cache_json(
+                details_dir / f"{unit_id}.json",
+                detail,
+                events=events,
+                label=f"detail/{unit_id}",
+            )
 
     await asyncio.gather(*(_one(u) for u in unit_ids))
 

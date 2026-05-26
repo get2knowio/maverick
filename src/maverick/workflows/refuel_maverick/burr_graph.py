@@ -81,6 +81,7 @@ def build_refuel_application(
     decomposer_pool_size: int = 3,
     success_criteria_count: int = 0,
     expected_sc_refs: tuple[str, ...] = (),
+    cache_dir: str = "",
 ) -> Any:
     """Build the ``Application`` for one refuel run.
 
@@ -106,15 +107,20 @@ def build_refuel_application(
                 squadron=squadron,
                 events=event_queue,
             ),
-            synthesize_briefing=refuel_actions.synthesize_briefing,
+            synthesize_briefing=refuel_actions.synthesize_briefing.bind(
+                cache_dir=cache_dir,
+                events=event_queue,
+            ),
             outline=refuel_actions.outline.bind(
                 squadron=squadron,
                 events=event_queue,
+                cache_dir=cache_dir,
             ),
             detail_fan_out=refuel_actions.detail_fan_out.bind(
                 squadron=squadron,
                 events=event_queue,
                 pool_size=decomposer_pool_size,
+                cache_dir=cache_dir,
             ),
             validate=refuel_actions.validate.bind(
                 events=event_queue,
