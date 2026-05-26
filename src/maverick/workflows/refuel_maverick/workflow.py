@@ -881,6 +881,16 @@ class RefuelMaverickWorkflow(PythonWorkflow):
             decomposer_pool_cap=self._config.parallel.decomposer_pool_size,
         ) as squadron:
             event_queue: asyncio.Queue[ProgressEvent | None] = asyncio.Queue()
+            # Per-plan refuel cache under
+            # ``<cwd>/.maverick/plans/<plan>/refuel-cache/`` so a
+            # later resume can read the raw artifacts. The actions
+            # treat ``cache_dir`` as advisory — empty disables writes
+            # and any OSError is swallowed with a warning.
+            cache_dir = (
+                str(ws_cwd / ".maverick" / "plans" / plan_name / "refuel-cache")
+                if plan_name
+                else ""
+            )
             app = build_refuel_application(
                 squadron=squadron,
                 event_queue=event_queue,
@@ -898,6 +908,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
                 decomposer_pool_size=self._config.parallel.decomposer_pool_size,
                 success_criteria_count=sc_count,
                 expected_sc_refs=sc_refs,
+                cache_dir=cache_dir,
             )
             driver = BurrWorkflowDriver(
                 app,
