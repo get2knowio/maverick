@@ -335,10 +335,11 @@ Apache Burr Application (one per workflow run)
       parallel_briefings + contrarian_briefing → synthesize_briefing
         → generate → done
   │
-airframe Pattern D runtime (one AgentRuntime per role)
+airframe runtime (one AgentRuntime per role)
   ClaudeCodeRuntime, CopilotRuntime, OpenCodeRuntime,
   OpenCodeGoRuntime, OpenCodeZenRuntime, OpenRouterRuntime,
-  BedrockRuntime — each fronts its vendor SDK directly.
+  BedrockRuntime — each fronts its vendor SDK directly behind a
+  uniform Runtime protocol (execute / reset / validate_binding).
 ```
 
 ### How Agents Communicate
@@ -360,7 +361,7 @@ doing work; the `StructuredOutput` tool is for reporting results.
 |----------|-----------|
 | Language | Python 3.11+ |
 | Package Manager | uv |
-| Agent Runtime | [airframe](https://github.com/get2knowio/airframe) Pattern D — one `AgentRuntime` per role |
+| Agent Runtime | [airframe](https://github.com/get2knowio/airframe) — one `AgentRuntime` per role, vendor SDKs behind a uniform protocol |
 | Workflow Engine | [Apache Burr](https://github.com/apache/burr) — state machines of `@action`-decorated async functions |
 | Structured Output | Pydantic + `format=json_schema` (via airframe `StructuredOutput`) |
 | CLI | Click + Rich |
