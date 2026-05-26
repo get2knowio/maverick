@@ -1,15 +1,16 @@
 # OpenCode replacement — recommendation memo
 
-**Audience:** Maverick maintainers, anyone evaluating the BURR migration.
+**Audience:** Maverick maintainers; reference for *why* Pattern D + per-binding routing.
+**Status:** Historical decision memo. Pattern D was adopted and is now the substrate (see `src/maverick/runtime/`). The xoscar → Burr piece was also completed (PRs #117–134).
 **Date:** 2026-05-15.
-**Author:** spike work captured in this branch and on `047-phase-0-spike` /
-`spike/runtime-protocol-v0`.
+**Author:** spike work captured on `047-phase-0-spike` and `spike/runtime-protocol-v0`.
 
 ## TL;DR
 
 We ran five spikes over two days probing whether to replace OpenCode
-with the substrate proposed in `docs/BURR.md` (OpenAI Agents SDK +
-LiteLLM + Burr). Four findings drive the recommendation:
+with an earlier research proposal — OpenAI Agents SDK on top, LiteLLM
+underneath for provider routing, with Apache Burr replacing xoscar for
+workflow orchestration. Four findings drive the recommendation:
 
 1. **The original BURR plan doesn't survive contact with Claude on
    GitHub Copilot.** Both candidate substrates (OpenAI Agents SDK +
@@ -47,12 +48,12 @@ The concrete shape of the path forward is in §6.
 
 ## 1. Why we ran spikes
 
-`docs/BURR.md` proposes a substantial migration: replace OpenCode's
-HTTP runtime (~2400 LOC + four documented landmines) with an
-in-process Python stack — OpenAI Agents SDK on top, LiteLLM
-underneath for provider routing, Apache Burr replacing xoscar for
-workflow orchestration. The plan estimated 6-8 weeks of work across
-three phases.
+An earlier research proposal (since retired) suggested a substantial
+migration: replace OpenCode's HTTP runtime (~2400 LOC + four
+documented landmines) with an in-process Python stack — OpenAI Agents
+SDK on top, LiteLLM underneath for provider routing, Apache Burr
+replacing xoscar for workflow orchestration. The plan estimated 6-8
+weeks of work across three phases.
 
 The decision gate was a Phase 0 spike: prove the bottom of the stack
 works on Maverick's hardest case (one implementer bead, typed payload
