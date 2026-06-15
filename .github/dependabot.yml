@@ -10,6 +10,13 @@ updates:
       time: "06:00"
       timezone: "America/Los_Angeles"
     open-pull-requests-limit: 10
+    # Supply-chain cooldown: hold newly published versions for 7 days so a
+    # compromised release can be detected/yanked before it's proposed. The
+    # first-party airframe-agents package is exempt.
+    cooldown:
+      default-days: 7
+      exclude:
+        - "airframe-agents"
     labels:
       - "dependencies"
       - "python"
@@ -42,6 +49,8 @@ updates:
       time: "06:00"
       timezone: "America/Los_Angeles"
     open-pull-requests-limit: 5
+    cooldown:
+      default-days: 7
     labels:
       - "dependencies"
       - "github-actions"
@@ -60,6 +69,8 @@ updates:
       time: "06:00"
       timezone: "America/Los_Angeles"
     open-pull-requests-limit: 5
+    cooldown:
+      default-days: 7
     labels:
       - "dependencies"
       - "devcontainer"
