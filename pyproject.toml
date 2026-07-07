@@ -191,3 +191,12 @@ exclude_lines = [
     "if TYPE_CHECKING:",
     "@abstractmethod",
 ]
+
+[tool.uv]
+# Supply-chain cooldown: ignore distributions uploaded in the last 7 days so a
+# malicious release has time to be detected/yanked before it can be resolved.
+# Relative (rolling) window; relies on PyPI's PEP 700 upload-time metadata.
+exclude-newer = "7 days"
+# First-party package is exempt (false = no cooldown) so our own releases are
+# installable immediately.
+exclude-newer-package = { airframe-agents = false }
