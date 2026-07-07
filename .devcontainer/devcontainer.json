@@ -1,20 +1,21 @@
 {
   "name": "Maverick Development",
-  "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu-24.04",
   "features": {
     "ghcr.io/devcontainers/features/python:1": {},
     "ghcr.io/devcontainers/features/node:2": {
       "version": "22"
     },
-    "ghcr.io/devcontainers/features/docker-in-docker:3": {
+    "ghcr.io/devcontainers/features/docker-in-docker:4": {
       "version": "latest",
       "enableNonRootDocker": "true"
     },
     "ghcr.io/devcontainers/features/aws-cli:1": {},
     "ghcr.io/devcontainers/features/github-cli:1": {},
     "ghcr.io/eitsupi/devcontainer-features/jq-likes:2": {},
-    "ghcr.io/devcontainers-extra/features/starship:1": {},
-    "ghcr.io/get2knowio/devcontainer-features/ai-clis:2": {},
+    "ghcr.io/get2knowio/devcontainer-features/ai-clis:2": {
+	"install": "claudeCode,codex,copilot"
+    },
     "ghcr.io/get2knowio/devcontainer-features/modern-cli-tools:2": {},
     "ghcr.io/get2knowio/devcontainer-features/python-tools:2": {
       "omit": "poetry"

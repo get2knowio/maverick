@@ -25,7 +25,7 @@ jobs:
       matrix:
         python-version: ["3.11", "3.12"]
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v7
@@ -44,7 +44,7 @@ jobs:
 
       - name: Upload coverage to Codecov
         if: matrix.python-version == '3.11' && always()
-        uses: codecov/codecov-action@v6
+        uses: codecov/codecov-action@v7
         with:
           files: ./coverage.xml
           fail_ci_if_error: false
@@ -55,7 +55,7 @@ jobs:
         # to read-only by GitHub for security, so dorny/test-reporter's
         # check-creation call returns HTTP 403 and the action errors out
         # even though tests passed. Human PRs still get the rich report.
-        uses: dorny/test-reporter@v1
+        uses: dorny/test-reporter@v3
         if: always() && github.actor != 'dependabot[bot]'
         with:
           name: Test Results (Python ${{ matrix.python-version }})
