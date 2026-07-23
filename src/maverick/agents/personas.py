@@ -24,6 +24,7 @@ FIXER_TIMEOUT_SECONDS = 1800
 SEED_TIMEOUT_SECONDS = 1800
 CURATOR_TIMEOUT_SECONDS = 600
 VERIFICATION_TIMEOUT_SECONDS = 600
+SPECKIT_ENRICHMENT_TIMEOUT_SECONDS = 600
 
 
 class ConsolidatorAgent(Agent):
@@ -129,15 +130,46 @@ class VerificationPropertiesAgent(Agent):
         return await self._execute_text_via_runtime(prompt, timeout=VERIFICATION_TIMEOUT_SECONDS)
 
 
+class SpeckitEnrichmentAgent(Agent):
+    """Runs one batched pass suggesting verification commands for Spec Kit tasks.
+
+    Opt-in via ``maverick refuel --speckit --enrich``. Returns free text
+    in the fixed ``### T###`` + bullet-list format that
+    ``maverick.speckit.enrichment.parse_enrichment_response`` expects —
+    following the same lightweight persona pattern as
+    :class:`VerificationPropertiesAgent` rather than a structured payload.
+    """
+
+    provider_tier: ClassVar[str] = "generate"
+    persona_name: ClassVar[str | None] = "maverick.flight-plan-generator"
+
+    def __init__(
+        self,
+        *,
+        runtime: AgentRuntime,
+        cwd: str,
+        cost_sink: CostSink | None = None,
+        tag: str | None = None,
+    ) -> None:
+        super().__init__(runtime=runtime, cwd=cwd, cost_sink=cost_sink, tag=tag)
+
+    async def enrich(self, prompt: str) -> str:
+        return await self._execute_text_via_runtime(
+            prompt, timeout=SPECKIT_ENRICHMENT_TIMEOUT_SECONDS
+        )
+
+
 __all__ = [
     "CONSOLIDATOR_TIMEOUT_SECONDS",
     "CURATOR_TIMEOUT_SECONDS",
     "FIXER_TIMEOUT_SECONDS",
     "SEED_TIMEOUT_SECONDS",
+    "SPECKIT_ENRICHMENT_TIMEOUT_SECONDS",
     "VERIFICATION_TIMEOUT_SECONDS",
     "ConsolidatorAgent",
     "CuratorAgent",
     "RunwaySeedAgent",
+    "SpeckitEnrichmentAgent",
     "ValidationFixerAgent",
     "VerificationPropertiesAgent",
 ]
