@@ -522,12 +522,30 @@ Beads-only workflow model. All development is driven by beads (`bd` CLI).
 | ---------------------------------------------------- | ------------------------------------ |
 | `maverick plan generate <name> --from-prd <file>`    | Flight plan from PRD                 |
 | `maverick refuel <plan-name>`                        | Decompose plan into beads            |
+| `maverick refuel <feature> --speckit [--dry-run\|--enrich]` | Deterministic Spec Kit ingestion |
 | `maverick fly --epic <id>`                           | Implement beads (actor-mailbox)      |
 | `maverick land [--eject\|--finalize]`                | Curate history and merge             |
 | `maverick workspace status\|clean`                   | Manage hidden workspace              |
 | `maverick init`                                      | Initialize a Maverick project        |
 | `maverick brief [--watch]`                           | Bead status                          |
 | `maverick runway seed\|consolidate`                  | Manage knowledge store               |
+
+### refuel (Spec Kit ingestion mode)
+
+For Spec Kit-managed repositories (`specs/NNN-name/{spec.md,tasks.md}`),
+`maverick refuel` can deterministically ingest a feature's task list
+into beads instead of AI-decomposing a flight plan — zero model calls,
+one epic + one task bead per open task, with IDs/phases/`[P]`
+markers/file scope preserved and dependencies wired as a phase barrier.
+Mode is auto-detected from repository shape or forced with `--speckit`;
+`NAME` resolves via exact directory name, `NNN` prefix, or exact name
+suffix. `--dry-run` previews the full plan with zero writes; `--enrich`
+opts into one batched model call that attaches verification commands to
+new task beads (the only step that may touch a model on this path). Delta
+re-runs (e.g. after `tasks.md` grows) append only new tasks under the
+existing epic — no duplicate epics. See
+`src/maverick/speckit/` (parsing/detection/plan-building) and
+`src/maverick/workflows/refuel_speckit/` (the workflow).
 
 ### fly
 

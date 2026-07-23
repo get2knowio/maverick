@@ -54,6 +54,23 @@ class TestRefuelFromPlan:
         ):
             yield
 
+    @pytest.fixture(autouse=True)
+    def _stub_flight_plan(self, refuel_env: Path) -> None:
+        """Create ``.maverick/plans/my-feature/flight-plan.md``.
+
+        Mode auto-detection (048-speckit-refuel-ingestion) resolves NAME
+        against both classic and Spec Kit shapes before dispatching —
+        the classic path now requires the flight plan to actually exist
+        on disk to resolve as "classic" (previously the CLI dispatched
+        unconditionally and only the mocked-out workflow would have
+        noticed a missing file).
+        """
+        plan_dir = refuel_env / ".maverick" / "plans" / "my-feature"
+        plan_dir.mkdir(parents=True, exist_ok=True)
+        (plan_dir / "flight-plan.md").write_text(
+            "---\nname: my-feature\n---\n\n## Objective\n\nTest.\n", encoding="utf-8"
+        )
+
     def test_list_steps_prints_step_names_and_exits(
         self,
         cli_runner: CliRunner,
