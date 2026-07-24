@@ -13,13 +13,20 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import shutil
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from tenacity import AsyncRetrying, stop_after_attempt, wait_exponential
+from airframe.errors import RuntimeTransientError
+from tenacity import (
+    AsyncRetrying,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+)
 
 from maverick.assumptions.ledger import record_standalone_assumption
 from maverick.beads.client import BeadClient
@@ -49,6 +56,7 @@ from maverick.workflows.spec_chain.models import (
     StepRecord,
     StepReport,
     StepStatus,
+    is_valid_feature_slug,
 )
 from maverick.workflows.spec_chain.state import load_chain_state, save_chain_state
 from maverick.workflows.spec_chain.steps import build_step_prompt
@@ -64,6 +72,16 @@ WORKFLOW_NAME = "spec-chain"
 #: Step-run retry policy for transient runtime errors (constitution
 #: Principle IV: default 3 attempts, exponential backoff).
 _STEP_RETRY_ATTEMPTS = 3
+
+
+def _normalize_question(question: str) -> str:
+    """Casefold + collapse-whitespace normalization for dedup matching.
+
+    Mirrors ``maverick.assumptions.ledger._normalize_question`` so the
+    in-state clarify-decision dedup key aligns with the ledger's own
+    bead-dedup key — kept local to avoid importing a private helper.
+    """
+    return " ".join(question.split()).casefold()
 
 
 def _utcnow() -> datetime:
@@ -181,6 +199,17 @@ class SpecChainWorkflow(PythonWorkflow):
             :meth:`SpecChainReport.to_dict`.
         """
         feature: str = inputs["feature"]
+        # Validate the slug BEFORE any path is built from it: the hidden
+        # workspace dir is derived from `feature` (prepare_workspace) well
+        # before ChainState's model-level validator runs, so a value like
+        # "../../x" would otherwise traverse outside the workspace root and
+        # create a stray jj workspace before validation ever fires.
+        if not is_valid_feature_slug(feature):
+            raise WorkflowError(
+                f"invalid feature name {feature!r}: must be a non-empty, "
+                "filesystem-safe slug (letters, digits, hyphen, underscore; "
+                "no path separators or leading dots)"
+            )
         cwd = Path(inputs["cwd"])
         run_id_input: str | None = inputs.get("run_id") or None
         prd_path_str: str = inputs.get("prd_path", "")
@@ -350,6 +379,7 @@ class SpecChainWorkflow(PythonWorkflow):
             }
         )
         state = await self._verify_landed_or_reset(state, checkout=cwd)
+        self._reseed_workspace_from_checkout(state, workspace=workspace_path, checkout=cwd)
         await save_chain_state(state, cwd)
         return state, run_id, prd_content, workspace_path
 
@@ -384,6 +414,49 @@ class SpecChainWorkflow(PythonWorkflow):
             return state
         return state.model_copy(update={"steps": new_steps, "updated_at": _utcnow()})
 
+    def _reseed_workspace_from_checkout(
+        self, state: ChainState, *, workspace: Path, checkout: Path
+    ) -> None:
+        """Restore landed upstream artifacts into a freshly-recreated
+        workspace on resume.
+
+        Landed artifacts live only in the checkout's working copy (landing
+        copies workspace -> checkout after each step; nothing is committed
+        into the workspace). If the on-disk hidden workspace vanished
+        between runs (e.g. the user cleared ``~/.maverick/workspaces``),
+        ``prepare_workspace(reuse=True)`` rebuilds it from the *committed*
+        tree — which lacks those un-committed spec files — so the next step
+        would run against a workspace missing everything upstream. Copy the
+        checkout's landed feature dir back in to close that gap. Idempotent:
+        a no-op when the workspace already has all landed artifacts (the
+        normal reuse case).
+        """
+        if state.feature_dir is None:
+            return
+        feature_dir_name = Path(state.feature_dir).name
+        checkout_feature = checkout / "specs" / feature_dir_name
+        workspace_feature = workspace / "specs" / feature_dir_name
+        if not checkout_feature.is_dir():
+            return
+
+        landed_artifacts = {
+            artifact
+            for record in state.steps.values()
+            if record.status == "succeeded" and record.landed
+            for artifact in record.artifacts
+        }
+        if landed_artifacts and all(
+            (workspace_feature / artifact).is_file() for artifact in landed_artifacts
+        ):
+            return  # workspace already holds every landed artifact — reuse path.
+
+        shutil.copytree(checkout_feature, workspace_feature, dirs_exist_ok=True)
+        logger.info(
+            "spec_chain_workspace_reseeded_from_checkout",
+            feature_dir=feature_dir_name,
+            artifacts=sorted(landed_artifacts),
+        )
+
     async def _run_one_step(
         self,
         step: ChainStep,
@@ -413,6 +486,15 @@ class SpecChainWorkflow(PythonWorkflow):
             async for attempt in AsyncRetrying(
                 stop=stop_after_attempt(_STEP_RETRY_ATTEMPTS),
                 wait=wait_exponential(multiplier=1, min=2, max=20),
+                # Only transient runtime errors are worth retrying. Auth,
+                # model-not-found, context-overflow, budget-exceeded, etc.
+                # are deterministic — retrying just burns model calls and
+                # backoff before the same failure. Matches how the fly /
+                # refuel actions treat airframe errors (only
+                # RuntimeTransientError bumps a tier); everything else
+                # falls straight through to `_fail_step` below. CLAUDE.md:
+                # context-overflow is intentionally never retried.
+                retry=retry_if_exception_type(RuntimeTransientError),
                 reraise=True,
             ):
                 with attempt:
@@ -579,7 +661,19 @@ class SpecChainWorkflow(PythonWorkflow):
             count=len(filed),
             ledger_entries=sum(1 for d in filed if d.ledger_bead_id),
         )
-        return state.model_copy(update={"clarify_decisions": [*state.clarify_decisions, *filed]})
+        # Merge by normalized question rather than blindly appending: on a
+        # resume that re-runs clarify (e.g. it halted after filing but
+        # before the next step landed), `state.clarify_decisions` already
+        # holds the prior run's decisions and re-parsing spec.md yields the
+        # same questions. Blind append would double the list and inflate
+        # `ledger_entry_count` / the CLI's "Clarify questions answered"
+        # count, even though ledger dedup already prevented duplicate beads.
+        merged: dict[str, ClarifyDecision] = {
+            _normalize_question(d.question): d for d in state.clarify_decisions
+        }
+        for decision in filed:
+            merged[_normalize_question(decision.question)] = decision
+        return state.model_copy(update={"clarify_decisions": list(merged.values())})
 
     async def _create_remediation_beads(
         self,

@@ -137,6 +137,52 @@ class TestLandedArtifactVerification:
         assert plan_path.is_file()
 
 
+class TestWorkspaceReseedOnResume:
+    async def test_deleted_workspace_is_reseeded_from_checkout(
+        self,
+        speckit_repo: Path,
+        fake_home: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        bd_stubs: list[str],
+    ) -> None:
+        """If the hidden workspace vanishes between runs (user cleared
+        ~/.maverick/workspaces), resume recreates it from the *committed*
+        tree — which lacks the un-committed landed spec files. The reseed
+        restores those landed upstream artifacts so the next step doesn't
+        run against an empty workspace."""
+        import shutil
+
+        run_id = "resume-workspace-deleted"
+
+        # Run 1: halt at tasks, so specify/clarify/plan are succeeded+landed.
+        stub_runtime_factory(monkeypatch, step_handlers={ChainStep.TASKS: _failing_handler})
+        await _run_once(speckit_repo, fake_home, run_id=run_id)
+
+        state = await load_chain_state(run_id, speckit_repo)
+        assert state is not None
+        assert state.status == "halted"
+        assert state.steps[ChainStep.PLAN].landed is True
+
+        # The entire hidden workspace is wiped between runs.
+        workspace_root = fake_home / ".maverick" / "workspaces" / "repo" / "spec-chain" / FEATURE
+        assert workspace_root.exists()
+        shutil.rmtree(workspace_root)
+
+        # Run 2 (resume): workspace is recreated fresh, then reseeded with
+        # the landed upstream artifacts before tasks re-runs.
+        stub_runtime_factory(monkeypatch)
+        await _run_once(speckit_repo, fake_home, run_id=run_id)
+
+        # The reseed restored upstream artifacts into the fresh workspace.
+        ws_feature = workspace_root / "specs" / FEATURE_DIR
+        assert (ws_feature / "spec.md").is_file()
+        assert (ws_feature / "plan.md").is_file()
+
+        final_state = await load_chain_state(run_id, speckit_repo)
+        assert final_state is not None
+        assert final_state.status == "completed"
+
+
 class TestPrdDigestMismatchWarns:
     async def test_changed_prd_warns_without_rerunning_specify(
         self,

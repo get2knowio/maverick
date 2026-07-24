@@ -126,7 +126,15 @@ async def spec(
     """
     cwd = Path.cwd().resolve()
 
+    from maverick.workflows.spec_chain.models import is_valid_feature_slug
+
     with cli_error_handler():
+        if not is_valid_feature_slug(feature):
+            _exit_partial(
+                f"invalid feature name '{feature}' — must be a filesystem-safe "
+                "slug (letters, digits, hyphen, underscore; no path separators "
+                "or leading dots)"
+            )
         verify_bd_ready(cwd)
         _check_speckit_or_exit(cwd)
 

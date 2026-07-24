@@ -9,15 +9,19 @@ Contract under test (`maverick.workspace.spec_chain.prepare_workspace`):
 - ``reuse=True`` (an active, resumable chain) reuses an existing on-disk
   workspace directory as-is: no ``workspace_add``, no ``workspace_forget``, no
   wipe.
-- ``reuse=False`` (a completed or freshly-started chain) starts clean: if a
-  stale directory is already on disk, it is forgotten (``workspace_forget``)
-  and removed before a fresh ``workspace_add`` recreates it. If nothing is on
-  disk yet, only ``workspace_add`` runs.
+- ``reuse=False`` (a completed or freshly-started chain) starts clean:
+  ``workspace_forget`` is always attempted first (best-effort — jj may still
+  track a workspace of this name even after its on-disk directory was cleared,
+  and ``workspace_add`` would fail on that lingering name collision), any
+  on-disk directory is then removed, and a fresh ``workspace_add`` recreates
+  it. A ``forget`` failure is tolerated (a never-registered name is not an
+  error); a real collision surfaces on ``workspace_add`` instead.
 - The PRD file (which may be untracked in the user's checkout) is always
   copied into the workspace, under ``<workspace>/inputs/<prd_path.name>``,
   before the function returns — regardless of which branch above ran.
-- ``JjError`` raised by the injected client surfaces as
-  ``SpecChainWorkspaceError``.
+- ``JjError`` raised by ``workspace_add`` surfaces as
+  ``SpecChainWorkspaceError``; a ``JjError`` from the best-effort
+  ``workspace_forget`` is swallowed.
 """
 
 from __future__ import annotations
@@ -110,9 +114,15 @@ class TestFreshRunCreation:
         assert result == expected
         mock_jj_client.workspace_add.assert_awaited_once_with(expected)
 
-    async def test_no_forget_or_rmtree_when_nothing_stale(
+    async def test_forget_is_attempted_best_effort_no_rmtree_when_nothing_stale(
         self, home: Path, checkout: Path, prd_path: Path, mock_jj_client: AsyncMock
     ) -> None:
+        """Even with nothing on disk, ``workspace_forget`` is attempted
+        best-effort to clear any jj-tracked name whose directory was
+        externally removed. No ``rmtree`` runs (there is nothing to wipe)."""
+        stale = _workspace_dir(home, checkout, "050-headless-spec-chain")
+        assert not stale.exists()
+
         await prepare_workspace(
             cwd=checkout,
             feature="050-headless-spec-chain",
@@ -122,7 +132,8 @@ class TestFreshRunCreation:
             home=home,
         )
 
-        mock_jj_client.workspace_forget.assert_not_awaited()
+        mock_jj_client.workspace_forget.assert_awaited_once_with("050-headless-spec-chain")
+        mock_jj_client.workspace_add.assert_awaited_once()
 
     async def test_workspace_path_is_outside_the_checkout(
         self, home: Path, checkout: Path, prd_path: Path, mock_jj_client: AsyncMock
@@ -175,7 +186,9 @@ class TestResumeReuseActiveChain:
     ) -> None:
         """reuse=True but nothing on disk (e.g. state says active but the
         directory vanished) — must still succeed by creating a workspace,
-        not raise or silently no-op."""
+        not raise or silently no-op. ``workspace_forget`` is attempted
+        best-effort first, because jj may still track the workspace name
+        even though its directory is gone."""
         expected = _workspace_dir(home, checkout, "050-headless-spec-chain")
         assert not expected.exists()
 
@@ -190,7 +203,7 @@ class TestResumeReuseActiveChain:
 
         assert result == expected
         mock_jj_client.workspace_add.assert_awaited_once_with(expected)
-        mock_jj_client.workspace_forget.assert_not_awaited()
+        mock_jj_client.workspace_forget.assert_awaited_once_with("050-headless-spec-chain")
 
 
 # ---------------------------------------------------------------------------
@@ -282,11 +295,12 @@ class TestForgetAndRecreateCompletedChain:
         assert observed_exists_at_add_time == [False]
         mock_jj_client.workspace_forget.assert_awaited_once_with("050-headless-spec-chain")
 
-    async def test_no_forget_when_nothing_stale_on_fresh_start(
+    async def test_forget_best_effort_then_add_on_fresh_start(
         self, home: Path, checkout: Path, prd_path: Path, mock_jj_client: AsyncMock
     ) -> None:
         """A freshly-started chain (never run before) has no stale directory
-        to forget — only workspace_add should run."""
+        to wipe, but ``workspace_forget`` is still attempted best-effort
+        before ``workspace_add`` to clear any lingering jj-tracked name."""
         await prepare_workspace(
             cwd=checkout,
             feature="050-headless-spec-chain",
@@ -296,7 +310,7 @@ class TestForgetAndRecreateCompletedChain:
             home=home,
         )
 
-        mock_jj_client.workspace_forget.assert_not_awaited()
+        mock_jj_client.workspace_forget.assert_awaited_once_with("050-headless-spec-chain")
         mock_jj_client.workspace_add.assert_awaited_once()
 
 
@@ -479,25 +493,33 @@ class TestWorkspaceCreationFailurePropagation:
                 home=home,
             )
 
-    async def test_jj_error_on_workspace_forget_becomes_spec_chain_workspace_error(
+    async def test_jj_error_on_workspace_forget_is_tolerated(
         self, home: Path, checkout: Path, prd_path: Path, mock_jj_client: AsyncMock
     ) -> None:
+        """``workspace_forget`` is best-effort: a failure (e.g. the name was
+        never registered) must NOT abort recreation — the workspace is still
+        wiped and recreated via ``workspace_add``."""
         stale = _workspace_dir(home, checkout, "050-headless-spec-chain")
         stale.mkdir(parents=True)
+        (stale / "leftover.txt").write_text("stale", encoding="utf-8")
 
         mock_jj_client.workspace_forget.side_effect = JjError(
             "jj workspace forget failed: unknown workspace"
         )
 
-        with pytest.raises(SpecChainWorkspaceError):
-            await prepare_workspace(
-                cwd=checkout,
-                feature="050-headless-spec-chain",
-                prd_path=prd_path,
-                reuse=False,
-                jj_client=mock_jj_client,
-                home=home,
-            )
+        result = await prepare_workspace(
+            cwd=checkout,
+            feature="050-headless-spec-chain",
+            prd_path=prd_path,
+            reuse=False,
+            jj_client=mock_jj_client,
+            home=home,
+        )
+
+        assert result == stale
+        mock_jj_client.workspace_add.assert_awaited_once_with(stale)
+        # The stale content was wiped despite the forget failure.
+        assert not (stale / "leftover.txt").exists()
 
     async def test_original_jj_error_is_chained(
         self, home: Path, checkout: Path, prd_path: Path, mock_jj_client: AsyncMock

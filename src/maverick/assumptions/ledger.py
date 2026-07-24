@@ -547,15 +547,21 @@ async def _find_existing_standalone_entry(
     """Search open, unparented ``assumption`` beads sharing *owner_spec*.
 
     Standalone entries have no epic to search via ``children()`` (R5), so
-    dedup instead scans open task beads for the label + matching
-    ``assumption_owner_spec`` + normalized-question triple.
+    dedup instead scans non-closed task beads for the label + matching
+    ``assumption_owner_spec`` + normalized-question triple. Queries all
+    tasks and skips only ``_CLOSED_STATUSES`` — matching
+    :func:`_find_existing_open_entry`'s semantics — so a low-severity
+    entry that was ``bd defer``\\ ed out of the ready queue (its status is
+    no longer ``open``) is still found and deduped, not duplicated.
     """
     try:
-        candidates = await client.query("type=task AND status=open")
+        candidates = await client.query("type=task")
     except BeadError as exc:
-        raise AssumptionLedgerError(f"Failed to query open task beads: {exc}") from exc
+        raise AssumptionLedgerError(f"Failed to query task beads: {exc}") from exc
 
     for candidate in candidates:
+        if candidate.status in _CLOSED_STATUSES:
+            continue
         try:
             details = await client.show(candidate.id)
         except BeadError as exc:

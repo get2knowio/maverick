@@ -63,13 +63,23 @@ async def prepare_workspace(
     workspace_dir = _workspace_dir(home=home, cwd=cwd, feature=feature)
 
     if not (reuse and workspace_dir.exists()):
+        # Forget any jj-registered workspace of this name BEFORE recreating.
+        # Do this even when the on-disk dir is gone: the user may have
+        # cleared ``~/.maverick/workspaces`` while jj still tracks the
+        # workspace, and ``jj workspace add`` fails on that lingering
+        # name collision. Best-effort — a name that was never registered
+        # (a genuinely fresh feature) makes ``forget`` error, which is not
+        # a problem; a real collision instead surfaces on ``workspace_add``
+        # below.
+        try:
+            await jj_client.workspace_forget(workspace_dir.name)
+        except JjError as exc:
+            logger.debug(
+                "spec_chain_workspace_forget_skipped",
+                workspace=str(workspace_dir),
+                error=str(exc),
+            )
         if workspace_dir.exists():
-            try:
-                await jj_client.workspace_forget(workspace_dir.name)
-            except JjError as exc:
-                raise SpecChainWorkspaceError(
-                    f"failed to forget stale workspace {workspace_dir}: {exc}"
-                ) from exc
             shutil.rmtree(workspace_dir)
 
         try:

@@ -35,6 +35,7 @@ __all__ = [
     "StepRecord",
     "StepReport",
     "StepStatus",
+    "is_valid_feature_slug",
     "next_step",
 ]
 
@@ -43,6 +44,19 @@ __all__ = [
 #: feature name can never traverse outside `specs/` or the hidden
 #: workspace root.
 _FEATURE_SLUG_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
+
+
+def is_valid_feature_slug(feature: str) -> bool:
+    """Whether *feature* is a non-empty, filesystem-safe slug.
+
+    Rejects empty strings, path separators, and leading dots — the same
+    rule :class:`ChainState` enforces. Callers must apply this *before*
+    any path is built from ``feature`` (e.g. the hidden workspace dir),
+    since the model-level validator only fires once ``ChainState`` is
+    constructed, which is too late to stop a traversal.
+    """
+    return bool(feature) and _FEATURE_SLUG_RE.match(feature) is not None
+
 
 StepStatus = Literal["pending", "in_progress", "succeeded", "failed", "skipped"]
 ChainStatus = Literal["running", "halted", "completed", "failed"]
