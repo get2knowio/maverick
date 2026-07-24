@@ -19,12 +19,14 @@ from maverick.squadron.base import Squadron
 from maverick.squadron.decomposer_pool import DecomposerAgentPool
 from maverick.squadron.fly import FlySquadron
 from maverick.squadron.plan import PlanSquadron
+from maverick.squadron.reconcile import ReconcileSquadron
 from maverick.squadron.refuel import RefuelSquadron
 
 __all__ = [
     "DecomposerAgentPool",
     "FlySquadron",
     "PlanSquadron",
+    "ReconcileSquadron",
     "RefuelSquadron",
     "Squadron",
 ]

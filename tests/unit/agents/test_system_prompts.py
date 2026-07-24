@@ -45,8 +45,12 @@ def test_load_returns_body_for_known_persona() -> None:
     assert "knowledge consolidator" in prompt
 
 
-def test_available_personas_lists_all_nineteen() -> None:
-    """The 19 personas we shipped under runtime/opencode/profile/agents/."""
+def test_available_personas_lists_all_twenty_one() -> None:
+    """The 21 personas we shipped under runtime/opencode/profile/agents/.
+
+    19 original + 2 added by the reconcile feature (specs/051-reconcile-
+    changed-answers): ``maverick.reconciler``, ``maverick.semantic-reviewer``.
+    """
     expected = {
         "maverick.codebase-analyst",
         "maverick.completeness-reviewer",
@@ -61,9 +65,11 @@ def test_available_personas_lists_all_nineteen() -> None:
         "maverick.implementer",
         "maverick.navigator",
         "maverick.preflight-contrarian",
+        "maverick.reconciler",
         "maverick.recon",
         "maverick.runway-seed",
         "maverick.scopist",
+        "maverick.semantic-reviewer",
         "maverick.spec-chain",
         "maverick.structuralist",
         "maverick.validation-fixer",

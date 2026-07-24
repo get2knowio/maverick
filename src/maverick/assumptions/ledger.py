@@ -11,7 +11,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import replace
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from maverick.assumptions.errors import AssumptionLedgerError
 from maverick.assumptions.models import (
@@ -23,6 +23,11 @@ from maverick.assumptions.models import (
     KEY_ANSWER,
     KEY_CHANGE_IDS,
     KEY_OWNER_SPEC,
+    KEY_RECONCILE_CHANGE_ID,
+    KEY_RECONCILE_REASON,
+    KEY_RECONCILE_STATUS,
+    KEY_RECONCILED_ANSWER,
+    KEY_RECONCILED_AT,
     KEY_SEVERITY,
     KEY_SEVERITY_DEFAULTED,
     KEY_SOURCE_BEAD,
@@ -31,6 +36,8 @@ from maverick.assumptions.models import (
     KEY_WAIVE_REASON,
     KEY_WAIVED_AT,
     KEY_WAIVED_BY,
+    RECONCILE_STATUS_NEEDS_REVIEW,
+    RECONCILE_STATUS_RECONCILED,
     STATUS_ANSWERED,
     STATUS_OPEN,
     STATUS_WAIVED,
@@ -39,6 +46,7 @@ from maverick.assumptions.models import (
     StampResult,
     coerce_severity,
     nnn_prefix,
+    normalize_answer,
 )
 from maverick.exceptions.beads import BeadError
 from maverick.logging import get_logger
@@ -51,6 +59,10 @@ logger = get_logger(__name__)
 
 __all__ = [
     "answer",
+    "answered_unreconciled_entries",
+    "create_reconcile_escalation",
+    "mark_needs_interactive_review",
+    "mark_reconciled",
     "next_chained_epic",
     "open_blocking_entries",
     "open_high_entries_before",
@@ -758,7 +770,14 @@ async def answer(
     try:
         await client.set_state(
             bead_id,
-            {KEY_ANSWER: answer_text, KEY_STATUS: STATUS_ANSWERED},
+            {
+                KEY_ANSWER: answer_text,
+                KEY_STATUS: STATUS_ANSWERED,
+                # FR-017 re-arm: a fresh answer must re-enter reconcile
+                # detection even if a prior reconcile run terminal-marked
+                # this entry (reconciled or needs-interactive-review).
+                KEY_RECONCILE_STATUS: "",
+            },
             reason="assumption answered",
         )
         await client.close(bead_id, reason="assumption answered")
@@ -878,3 +897,260 @@ async def open_high_entries_before(
         if owner_prefix is not None and owner_prefix < target_prefix:
             records.append(record)
     return tuple(records)
+
+
+async def answered_unreconciled_entries(client: BeadClient) -> tuple[AssumptionRecord, ...]:
+    """Answered entries whose human answer has drifted from the ledger record.
+
+    Detection predicate (contracts/ledger-state.md; research R1) — all must
+    hold:
+
+    1. Bead carries ``ASSUMPTION_LABEL`` (legacy ``assumption-review``-only
+       escalation beads are excluded — they have no adopted-answer structure).
+    2. ``assumption_status`` state is ``STATUS_ANSWERED``.
+    3. ``assumption_reconcile_status`` is unset/empty (entries already
+       terminal-marked ``needs-interactive-review`` are excluded until
+       re-armed by :func:`answer`).
+    4. ``normalize_answer(assumption_answer) != normalize_answer(adopted_answer)``
+       — the adopted answer is parsed from the bead description.
+    5. ``normalize_answer(assumption_answer) != normalize_answer(assumption_reconciled_answer)``
+       — idempotence guard so a previously-applied answer never re-triggers
+       (SC-008).
+
+    Must query beads regardless of bd status: :func:`answer` closes the
+    bead, so an open-only query (as used by :func:`open_blocking_entries`)
+    would return nothing. Returns records ordered by bead id; stack
+    ordering (jj position) is the reconcile workflow's job, not the
+    ledger's.
+
+    Raises:
+        AssumptionLedgerError: On any bd-layer failure.
+    """
+    try:
+        candidates = await client.query("type=task")
+    except BeadError as exc:
+        raise AssumptionLedgerError(f"Failed to query task beads: {exc}") from exc
+
+    records: list[AssumptionRecord] = []
+    for candidate in candidates:
+        try:
+            details = await client.show(candidate.id)
+        except BeadError as exc:
+            raise AssumptionLedgerError(f"Failed to load bead {candidate.id}: {exc}") from exc
+
+        labels = details.labels or []
+        if ASSUMPTION_LABEL not in labels:
+            continue
+
+        state = details.state or {}
+        if state.get(KEY_STATUS) != STATUS_ANSWERED:
+            continue
+        if state.get(KEY_RECONCILE_STATUS):
+            continue
+
+        normalized_human_answer = normalize_answer(state.get(KEY_ANSWER, ""))
+        _, adopted_answer, _ = parse_description(details.description)
+        if normalized_human_answer == normalize_answer(adopted_answer):
+            continue
+        if normalized_human_answer == normalize_answer(state.get(KEY_RECONCILED_ANSWER, "")):
+            continue
+
+        records.append(_record_from_details(details))
+
+    return tuple(sorted(records, key=lambda record: record.bead_id))
+
+
+async def mark_reconciled(
+    client: BeadClient,
+    *,
+    entry_id: str,
+    applied_answer: str,
+    change_id: str,
+) -> bool:
+    """Terminal-mark *entry_id* reconciled after its correction has landed.
+
+    Sets ``assumption_reconcile_status=reconciled``, the UTC-ISO
+    reconciliation timestamp, the normalized applied answer (idempotence
+    check, SC-008), and the post-fold jj change id.
+
+    Never raises — the repo outcome is already settled (post-fold, research
+    R8) by the time this runs; per-entry bd failures are logged and reported
+    via the return value only, matching :func:`stamp_change_id`'s semantics.
+
+    Returns:
+        ``True`` on success, ``False`` on any bd-layer failure.
+    """
+    try:
+        await client.set_state(
+            entry_id,
+            {
+                KEY_RECONCILE_STATUS: RECONCILE_STATUS_RECONCILED,
+                KEY_RECONCILED_AT: datetime.now(UTC).isoformat(),
+                KEY_RECONCILED_ANSWER: normalize_answer(applied_answer),
+                KEY_RECONCILE_CHANGE_ID: change_id,
+            },
+            reason="assumption reconciled",
+        )
+    except Exception as exc:  # noqa: BLE001 — never raises (contract)
+        logger.warning("assumption_reconcile_mark_failed", bead_id=entry_id, error=str(exc))
+        return False
+
+    logger.info("assumption_reconciled", bead_id=entry_id, change_id=change_id)
+    return True
+
+
+async def mark_needs_interactive_review(
+    client: BeadClient,
+    *,
+    entry_id: str,
+    reason: str,
+) -> bool:
+    """Terminal-mark *entry_id* ``needs-interactive-review`` with *reason*.
+
+    Covers both reconcile outcome flavours that share this ledger state
+    (data-model §2): ``skipped`` (no mutation attempted — immutable or
+    unlocatable target) and ``needs_interactive_review`` (application
+    attempted and rolled back). Never raises — matches
+    :func:`mark_reconciled`'s post-settlement semantics.
+
+    Returns:
+        ``True`` on success, ``False`` on any bd-layer failure.
+    """
+    try:
+        await client.set_state(
+            entry_id,
+            {
+                KEY_RECONCILE_STATUS: RECONCILE_STATUS_NEEDS_REVIEW,
+                KEY_RECONCILE_REASON: reason,
+            },
+            reason="assumption reconcile needs interactive review",
+        )
+    except Exception as exc:  # noqa: BLE001 — never raises (contract)
+        logger.warning(
+            "assumption_reconcile_needs_review_failed", bead_id=entry_id, error=str(exc)
+        )
+        return False
+
+    logger.info("assumption_reconcile_needs_review", bead_id=entry_id, reason=reason)
+    return True
+
+
+async def create_reconcile_escalation(
+    client: BeadClient,
+    *,
+    entry: AssumptionRecord,
+    remaining: Sequence[str],
+    kind: Literal["conflicts", "semantic"],
+) -> str | None:
+    """Create a human-triage bead when reconcile exhausts its round budget.
+
+    Runs only after the jj rollback for the failed answer completes
+    (research R8) — the repo state is already settled, so a failure in
+    this function must never itself raise and crash the workflow.
+    Description sections: ``## Question`` / ``## Old Adopted Answer`` /
+    ``## New Human Answer`` (the current ``assumption_answer`` state,
+    re-read here since :class:`AssumptionRecord` doesn't carry it) /
+    ``## Remaining Conflicts`` (*kind* ``"conflicts"``) or
+    ``## Unresolved Dependents`` (*kind* ``"semantic"``), listing
+    *remaining*. State: ``source_bead=entry.bead_id``,
+    ``escalation_type="reconcile_exhaustion"``. Wires a ``discovered-from``
+    edge (*entry* blocks the new bead) matching :func:`record_assumption`'s
+    edge shape, so the escalation bead is shaped exactly like fly's
+    ``create_human_bead`` output — ``maverick review`` and
+    ``brief --human`` handle it unchanged (data-model §6).
+
+    Returns:
+        The new bead id, or ``None`` on any failure.
+    """
+    from maverick.beads.models import (
+        BeadCategory,
+        BeadDefinition,
+        BeadDependency,
+        BeadType,
+        DependencyType,
+    )
+
+    try:
+        details = await client.show(entry.bead_id)
+        human_answer = (details.state or {}).get(KEY_ANSWER, "")
+    except Exception as exc:  # noqa: BLE001 — never raises (post-rollback, R8)
+        logger.warning(
+            "assumption_reconcile_escalation_lookup_failed",
+            bead_id=entry.bead_id,
+            error=str(exc),
+        )
+        human_answer = ""
+
+    remaining_heading = (
+        "## Remaining Conflicts" if kind == "conflicts" else "## Unresolved Dependents"
+    )
+    remaining_body = "\n".join(f"- {item}" for item in remaining) if remaining else "(none)"
+    description = (
+        "## Question\n\n"
+        f"{entry.question}\n\n"
+        "## Old Adopted Answer\n\n"
+        f"{entry.adopted_answer}\n\n"
+        "## New Human Answer\n\n"
+        f"{human_answer}\n\n"
+        f"{remaining_heading}\n\n"
+        f"{remaining_body}\n"
+    )
+
+    definition = BeadDefinition(
+        title=f"Reconcile: {entry.question[:_TITLE_MAX_LEN]}",
+        bead_type=BeadType.TASK,
+        priority=_SEVERITY_PRIORITY[entry.severity],
+        category=BeadCategory.REVIEW,
+        description=description,
+        assignee="human",
+        labels=["assumption-review", "needs-human-review"],
+    )
+
+    try:
+        created = await client.create_bead(definition, parent_id=None)
+    except Exception as exc:  # noqa: BLE001 — never raises (contract)
+        logger.warning(
+            "assumption_reconcile_escalation_create_failed",
+            bead_id=entry.bead_id,
+            error=str(exc),
+        )
+        return None
+
+    try:
+        await client.set_state(
+            created.bd_id,
+            {
+                KEY_SOURCE_BEAD: entry.bead_id,
+                "escalation_type": "reconcile_exhaustion",
+            },
+            reason=f"reconcile escalation from {entry.bead_id}",
+        )
+    except Exception as exc:  # noqa: BLE001 — never raises (contract)
+        logger.warning(
+            "assumption_reconcile_escalation_state_failed",
+            bead_id=created.bd_id,
+            error=str(exc),
+        )
+
+    try:
+        await client.add_dependency(
+            BeadDependency(
+                blocker_id=entry.bead_id,
+                blocked_id=created.bd_id,
+                dep_type=DependencyType.DISCOVERED_FROM,
+            )
+        )
+    except Exception as exc:  # noqa: BLE001 — never raises (contract)
+        logger.warning(
+            "assumption_reconcile_escalation_edge_failed",
+            bead_id=created.bd_id,
+            error=str(exc),
+        )
+
+    logger.info(
+        "assumption_reconcile_escalation_created",
+        bead_id=created.bd_id,
+        source_bead=entry.bead_id,
+        kind=kind,
+    )
+    return created.bd_id

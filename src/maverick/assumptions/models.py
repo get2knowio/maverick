@@ -78,6 +78,13 @@ KEY_SOURCE_BEAD = "source_bead"
 #: clarify step, recorded before its epic is created by ``refuel --speckit``).
 KEY_SOURCE_REF = "source_ref"
 
+# Reconcile state keys (data-model.md "1. Ledger extension"; research R12).
+KEY_RECONCILE_STATUS = "assumption_reconcile_status"
+KEY_RECONCILED_AT = "assumption_reconciled_at"
+KEY_RECONCILED_ANSWER = "assumption_reconciled_answer"
+KEY_RECONCILE_CHANGE_ID = "assumption_reconcile_change_id"
+KEY_RECONCILE_REASON = "assumption_reconcile_reason"
+
 # Epic-level state keys read to derive ``assumption_owner_spec``
 # (research R3 — first match wins).
 EPIC_KEY_SPECKIT_FEATURE = "speckit_feature"
@@ -87,6 +94,22 @@ EPIC_KEY_FLIGHT_PLAN_NAME = "flight_plan_name"
 STATUS_OPEN = "open"
 STATUS_ANSWERED = "answered"
 STATUS_WAIVED = "waived"
+
+# assumption_reconcile_status values (data-model.md "1. Ledger extension").
+RECONCILE_STATUS_RECONCILED = "reconciled"
+RECONCILE_STATUS_NEEDS_REVIEW = "needs-interactive-review"
+
+
+def normalize_answer(text: str) -> str:
+    """Normalize answer text for changed-answer comparison.
+
+    Collapses all whitespace runs to single spaces and casefolds, so
+    formatting-only differences (extra newlines/spaces, case) never count as
+    a changed answer. Shared by ``ledger.answered_unreconciled_entries``
+    (detection), ``ledger.mark_reconciled`` (idempotence check, SC-008), and
+    reconcile detection generally (FR-017).
+    """
+    return " ".join(text.split()).casefold()
 
 
 def nnn_prefix(feature_name: str) -> int | None:

@@ -33,9 +33,17 @@ ACTION_INTENTS: dict[str, str] = {
         "Restore the jj repository state to a previously captured operation snapshot."
     ),
     "jj_squash": ("Squash jj revisions together to consolidate history."),
+    "jj_squash_into": ("Squash a revision into a specific target revision."),
     "jj_absorb": ("Absorb outstanding changes into the appropriate jj revisions."),
     "jj_log": ("Retrieve the jj revision log for inspection or display."),
     "jj_diff": ("Compute the diff of changes in the current jj revision."),
+    "jj_new_child": ("Create a new empty jj change as a child of a given revision."),
+    "jj_list_conflicts": (
+        "List conflicted changes within a revset scope for the resolution loop."
+    ),
+    "jj_check_mutability": (
+        "Verify that a correction target and its descendants are mutable before rebasing."
+    ),
     "curate_history": ("Reorganize jj commit history into a clean, logical sequence for landing."),
     "gather_curation_context": (
         "Collect revision log and diff context needed for history curation."

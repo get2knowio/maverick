@@ -531,6 +531,88 @@ class SubmitCurationPlanPayload(SupervisorInboxPayload):
     steps: tuple[CurationStepPayload, ...] = Field(default_factory=tuple)
 
 
+# ---------------------------------------------------------------------------
+# Reconcile payloads (spec 051-reconcile-changed-answers). Deliberately carry
+# no ``assumptions`` field: a reconcile agent that cannot proceed without
+# adopting a new assumption must say so in prose and leave the delta empty;
+# the workflow escalates rather than recording a new assumption mid-reconcile.
+# ---------------------------------------------------------------------------
+
+
+class SubmitCorrectionPayload(SupervisorInboxPayload):
+    """Typed payload for ``submit_correction``.
+
+    Returned by ``ReconcilerAgent.correct(...)`` after editing the
+    working-copy child of the target change.
+    """
+
+    summary: str = Field(min_length=1, description="What the correction changes and why.")
+    files_touched: tuple[str, ...] = Field(
+        default_factory=tuple, description="Repo-relative paths the agent edited."
+    )
+    no_change_required: bool = Field(
+        default=False,
+        description="True when the target already reflects the new answer (paraphrase case).",
+    )
+
+    @model_validator(mode="after")
+    def _check_no_change_required_consistency(self) -> SubmitCorrectionPayload:
+        if self.no_change_required and self.files_touched != ():
+            raise ValueError(
+                "no_change_required=True requires files_touched to be empty, "
+                f"got {self.files_touched!r}"
+            )
+        return self
+
+
+class SubmitConflictResolutionPayload(SupervisorInboxPayload):
+    """Typed payload for ``submit_conflict_resolution``.
+
+    Returned by ``ReconcilerAgent.resolve_conflicts(...)`` per conflicted
+    change per round.
+    """
+
+    resolved_files: tuple[str, ...] = Field(
+        default_factory=tuple,
+        description="Files whose conflict markers were fully removed.",
+    )
+    unresolvable: tuple[str, ...] = Field(
+        default_factory=tuple,
+        description="Files the agent declines to resolve.",
+    )
+    notes: str = Field(default="", description="Optional free-form notes on the resolution.")
+
+
+class SemanticFinding(SupervisorInboxPayload):
+    """One descendant analysis result within ``submit_semantic_dependents``."""
+
+    change_id: str = Field(description="jj change id of the analyzed descendant.")
+    dependent: bool = Field(description="Whether this descendant depends on the old assumption.")
+    reason: str = Field(default="", description="Why this code depends on the old assumption.")
+    fix_instructions: str = Field(
+        default="",
+        description="Imperative instructions for the fix (empty when dependent=False).",
+    )
+
+    @model_validator(mode="after")
+    def _check_fix_instructions_when_dependent(self) -> SemanticFinding:
+        if self.dependent and not self.fix_instructions.strip():
+            raise ValueError("dependent=True requires non-empty fix_instructions")
+        return self
+
+
+class SubmitSemanticDependentsPayload(SupervisorInboxPayload):
+    """Typed payload for ``submit_semantic_dependents``.
+
+    Returned by ``SemanticDependentsAgent.analyze(...)`` for a batch of
+    descendant diffs.
+    """
+
+    findings: tuple[SemanticFinding, ...] = Field(
+        default_factory=tuple, description="One finding per analyzed descendant."
+    )
+
+
 SUPERVISOR_TOOL_PAYLOAD_MODELS: dict[str, type[SupervisorInboxPayload]] = {
     "submit_outline": SubmitOutlinePayload,
     "submit_details": SubmitDetailsPayload,
@@ -547,6 +629,9 @@ SUPERVISOR_TOOL_PAYLOAD_MODELS: dict[str, type[SupervisorInboxPayload]] = {
     "submit_structuralist_brief": SubmitStructuralistBriefPayload,
     "submit_recon_brief": SubmitReconBriefPayload,
     "submit_contrarian_brief": SubmitContrarianBriefPayload,
+    "submit_correction": SubmitCorrectionPayload,
+    "submit_conflict_resolution": SubmitConflictResolutionPayload,
+    "submit_semantic_dependents": SubmitSemanticDependentsPayload,
 }
 
 
@@ -582,11 +667,14 @@ __all__ = [
     "ReconAmbiguityPayload",
     "ReconRiskPayload",
     "ReviewFindingPayload",
+    "SemanticFinding",
     "StructuralEntityPayload",
     "StructuralInterfacePayload",
     "SubmitAnalysisPayload",
     "SubmitChallengePayload",
+    "SubmitConflictResolutionPayload",
     "SubmitContrarianBriefPayload",
+    "SubmitCorrectionPayload",
     "SubmitCriteriaPayload",
     "SubmitCurationPlanPayload",
     "SubmitDetailsPayload",
@@ -599,6 +687,7 @@ __all__ = [
     "SubmitReconBriefPayload",
     "SubmitReviewPayload",
     "SubmitScopePayload",
+    "SubmitSemanticDependentsPayload",
     "SubmitStructuralistBriefPayload",
     "SupervisorInboxPayload",
     "SupervisorToolPayloadError",

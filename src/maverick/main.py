@@ -65,6 +65,10 @@ _LAZY_COMMANDS: dict[str, tuple[str, str]] = {
         "maverick.cli.commands.flight_plan:flight_plan",
         "Create and validate flight plan files.",
     ),
+    "reconcile": (
+        "maverick.cli.commands.reconcile:reconcile",
+        "Reconcile changed assumption-ledger answers against the current stack.",
+    ),
     "refuel": (
         "maverick.cli.commands.refuel:refuel",
         "Decompose a flight plan into beads.",
@@ -177,7 +181,7 @@ def cli(
     # Only validate when a command is being invoked (not for --help/--version)
     if ctx.invoked_subcommand is not None:
         # Define which commands need which dependencies
-        commands_needing_git_gh = {"fly", "refuel", "brief", "land"}
+        commands_needing_git_gh = {"fly", "refuel", "brief", "land", "reconcile"}
         commands_needing_config = {"fly"}
 
         if ctx.invoked_subcommand in commands_needing_git_gh:
