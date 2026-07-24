@@ -544,6 +544,7 @@ Beads-only workflow model. All development is driven by beads (`bd` CLI).
 | `maverick refuel <feature> --speckit [--dry-run\|--enrich]` | Deterministic Spec Kit ingestion |
 | `maverick fly --epic <id>`                           | Implement beads (actor-mailbox)      |
 | `maverick land [--eject\|--finalize]`                | Curate history and merge             |
+| `maverick reconcile [--dry-run]`                     | Reapply changed human answers into jj history |
 | `maverick workspace status\|clean`                   | Manage hidden workspace              |
 | `maverick init`                                      | Initialize a Maverick project        |
 | `maverick brief [--watch\|--human]`                  | Bead status + assumption counts      |
@@ -620,6 +621,48 @@ treated as `medium`) blocks the command with a per-spec table and a
 still evaluates and prints the table but only exits non-zero at the end,
 after the rest of the preview runs.
 
+### reconcile
+
+`maverick reconcile [--dry-run]` retroactively reapplies human answers to
+assumption-ledger entries whose answer changed after it was first
+adopted, folding an updated correction back into jj history. Detection
+is deterministic (research R1,
+`assumptions.ledger.answered_unreconciled_entries`): entry
+`assumption_status=answered`, normalized `assumption_answer` differs
+from both the normalized adopted answer and the normalized
+`assumption_reconciled_answer` idempotence guard (SC-008), and no
+terminal `assumption_reconcile_status` is already set. Detected answers
+are ordered earliest-in-stack-first and processed one at a time; a
+mutability guard (`library.actions.jj.jj_check_mutability`) skips any
+answer whose target or a descendant it would rebase is immutable,
+terminal-marking it `skipped` before any mutation is attempted.
+
+Correction (research R3, `workflows/reconcile/correction.py`) positions
+an empty child on the resolved target change, hands it to
+`ReconcilerAgent.correct(...)` to edit in place, then folds the delta
+back via `jj squash --into` (single stamped change) or `jj absorb`
+(multi-stamp entries) — the same child → agent → verify →
+squash-into/absorb mechanism reused by the round-budgeted
+conflict-resolution pass (`conflicts.py`) and the semantic-dependents
+pass (`semantic.py`, judged by `SemanticDependentsAgent`), each capped
+at `ReconcileConfig.resolution_rounds`/`semantic_rounds` (default 3)
+before escalating.
+
+Transaction model (research R8, `workflows/reconcile/workflow.py`): each
+answer captures a `jj_snapshot_operation` restore point before any
+mutation; any failure — correction, conflicts, semantic pass, or the
+independent gate — restores that jj operation *before* any bd terminal
+write, so a rolled-back repo state never leaves a stray ledger write
+behind. Exhausting the conflict or semantic round budget creates a
+human-triage bead via `assumptions.ledger.create_reconcile_escalation`
+(same label/state shape as fly's `create_human_bead`), then
+terminal-marks the entry `needs-interactive-review`. `--dry-run` runs
+detection, ordering, target resolution, and the mutability guard only —
+zero jj/bd/filesystem mutations. Re-answering a terminal-marked entry
+via `maverick review` re-arms it for the next reconcile run (FR-017).
+See `src/maverick/workflows/reconcile/` and
+`specs/051-reconcile-changed-answers/` for the full contract.
+
 ### Assumption ledger
 
 Agents report adopted assumptions (question / adopted answer /
@@ -640,6 +683,15 @@ the entry is answered or waived via `maverick review <id>`.
 waived × severity, plus a legacy bucket) as a spec-quality signal. All
 ledger logic lives in `src/maverick/assumptions/` — see
 `specs/049-assumption-ledger/` for the full contract.
+
+The ledger's lifecycle extends per-entry with reconcile state
+(`assumption_reconcile_status`/`assumption_reconciled_at`/
+`assumption_reconciled_answer`/`assumption_reconcile_change_id`/
+`assumption_reconcile_reason`) via `ledger.mark_reconciled`/
+`ledger.mark_needs_interactive_review`; per FR-017, `ledger.answer()`
+clears any prior reconcile status on re-answer so a corrected human
+answer re-enters reconcile detection without special-casing elsewhere.
+See `### reconcile` above and `specs/051-reconcile-changed-answers/`.
 
 ## Dependencies
 

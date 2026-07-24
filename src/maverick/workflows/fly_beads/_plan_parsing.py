@@ -9,6 +9,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from maverick.library.actions.validation import validation_commands_from_config
 from maverick.logging import get_logger
 
 if TYPE_CHECKING:
@@ -20,17 +21,14 @@ logger = get_logger(__name__)
 def _build_validation_commands(
     vc: ValidationConfig,
 ) -> dict[str, tuple[str, ...]]:
-    """Convert ValidationConfig to the dict for run_independent_gate."""
-    commands: dict[str, tuple[str, ...]] = {}
-    if vc.format_cmd:
-        commands["format"] = tuple(vc.format_cmd)
-    if vc.lint_cmd:
-        commands["lint"] = tuple(vc.lint_cmd)
-    if vc.typecheck_cmd:
-        commands["typecheck"] = tuple(vc.typecheck_cmd)
-    if vc.test_cmd:
-        commands["test"] = tuple(vc.test_cmd)
-    return commands
+    """Convert ValidationConfig to the dict for run_independent_gate.
+
+    Thin re-export of the canonical
+    :func:`~maverick.library.actions.validation.validation_commands_from_config`
+    (single source of truth, shared with the reconcile workflow), kept under
+    this package-local name because ``steps.py``/``workflow.py`` import it here.
+    """
+    return validation_commands_from_config(vc)
 
 
 def _parse_work_unit_sections(

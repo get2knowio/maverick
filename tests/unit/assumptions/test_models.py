@@ -8,6 +8,11 @@ from maverick.assumptions.models import (
     KEY_ANSWER,
     KEY_CHANGE_IDS,
     KEY_OWNER_SPEC,
+    KEY_RECONCILE_CHANGE_ID,
+    KEY_RECONCILE_REASON,
+    KEY_RECONCILE_STATUS,
+    KEY_RECONCILED_ANSWER,
+    KEY_RECONCILED_AT,
     KEY_SEVERITY,
     KEY_SEVERITY_DEFAULTED,
     KEY_SOURCE_BEAD,
@@ -15,14 +20,19 @@ from maverick.assumptions.models import (
     KEY_WAIVE_REASON,
     KEY_WAIVED_AT,
     KEY_WAIVED_BY,
+    RECONCILE_STATUS_NEEDS_REVIEW,
+    RECONCILE_STATUS_PENDING,
+    RECONCILE_STATUS_RECONCILED,
     STATUS_ANSWERED,
     STATUS_OPEN,
     STATUS_WAIVED,
+    TERMINAL_RECONCILE_STATUSES,
     AssumptionRecord,
     PerSpecAssumptionCounts,
     Severity,
     coerce_severity,
     nnn_prefix,
+    normalize_answer,
 )
 
 
@@ -122,3 +132,69 @@ class TestConstants:
         assert ASSUMPTION_LABEL in ASSUMPTION_LABELS
         assert "assumption-review" in ASSUMPTION_LABELS
         assert "needs-human-review" in ASSUMPTION_LABELS
+
+
+class TestReconcileConstants:
+    """New bd state keys and status values for reconcile (data-model.md §1)."""
+
+    def test_reconcile_state_key_values(self) -> None:
+        assert KEY_RECONCILE_STATUS == "assumption_reconcile_status"
+        assert KEY_RECONCILED_AT == "assumption_reconciled_at"
+        assert KEY_RECONCILED_ANSWER == "assumption_reconciled_answer"
+        assert KEY_RECONCILE_CHANGE_ID == "assumption_reconcile_change_id"
+        assert KEY_RECONCILE_REASON == "assumption_reconcile_reason"
+
+    def test_reconcile_state_keys_are_distinct_from_existing_keys(self) -> None:
+        existing = {
+            KEY_SEVERITY,
+            KEY_SEVERITY_DEFAULTED,
+            KEY_STATUS,
+            KEY_OWNER_SPEC,
+            KEY_CHANGE_IDS,
+            KEY_ANSWER,
+            KEY_WAIVED_BY,
+            KEY_WAIVED_AT,
+            KEY_WAIVE_REASON,
+            KEY_SOURCE_BEAD,
+        }
+        new_keys = {
+            KEY_RECONCILE_STATUS,
+            KEY_RECONCILED_AT,
+            KEY_RECONCILED_ANSWER,
+            KEY_RECONCILE_CHANGE_ID,
+            KEY_RECONCILE_REASON,
+        }
+        assert len(new_keys) == 5
+        assert existing.isdisjoint(new_keys)
+
+    def test_reconcile_status_values(self) -> None:
+        assert RECONCILE_STATUS_RECONCILED == "reconciled"
+        assert RECONCILE_STATUS_NEEDS_REVIEW == "needs-interactive-review"
+        assert RECONCILE_STATUS_PENDING == "pending"
+
+    def test_pending_sentinel_is_non_terminal(self) -> None:
+        # bd rejects empty state values, so re-arm writes ``pending``; it
+        # must NOT be treated as terminal or re-answered entries would never
+        # be re-detected.
+        assert RECONCILE_STATUS_PENDING not in TERMINAL_RECONCILE_STATUSES
+        assert {
+            RECONCILE_STATUS_RECONCILED,
+            RECONCILE_STATUS_NEEDS_REVIEW,
+        } == TERMINAL_RECONCILE_STATUSES
+
+
+class TestNormalizeAnswer:
+    def test_collapses_internal_whitespace(self) -> None:
+        assert normalize_answer("Foo   Bar\n") == "foo bar"
+
+    def test_casefolds(self) -> None:
+        assert normalize_answer("FOO") == "foo"
+
+    def test_matches_across_whitespace_and_case_variants(self) -> None:
+        assert normalize_answer("Foo   Bar\n") == normalize_answer("foo bar")
+
+    def test_strips_leading_and_trailing_whitespace(self) -> None:
+        assert normalize_answer("  foo bar  ") == "foo bar"
+
+    def test_empty_string(self) -> None:
+        assert normalize_answer("") == ""

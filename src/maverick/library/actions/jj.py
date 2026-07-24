@@ -179,6 +179,149 @@ async def jj_absorb(cwd: Path | None = None) -> dict[str, Any]:
         return {"success": False, "error": str(e)}
 
 
+async def jj_new_child(
+    parent: str,
+    cwd: Path | str | None = None,
+) -> dict[str, Any]:
+    """Create a new empty change as a child of ``parent``.
+
+    Args:
+        parent: Revision to create the new empty change on top of.
+        cwd: Working directory. Defaults to ``Path.cwd()``.
+
+    Returns:
+        Dict with:
+        - success: True if the new change was created
+        - change_id: Stable change ID of the new (working-copy) change
+        - error: Error message if failed, None otherwise
+    """
+    try:
+        client = _make_client(cwd)
+        result = await client.new(parents=[parent])
+        return {
+            "success": True,
+            "change_id": result.change_id or None,
+            "error": None,
+        }
+    except (JjError, OSError) as e:
+        logger.debug("jj_new_child_failed", parent=parent, error=str(e))
+        return {"success": False, "change_id": None, "error": str(e)}
+
+
+async def jj_squash_into(
+    revision: str,
+    into: str,
+    cwd: Path | str | None = None,
+) -> dict[str, Any]:
+    """Squash ``revision`` into a specific target revision.
+
+    Args:
+        revision: Revision whose contents should be folded.
+        into: Target revision to squash into.
+        cwd: Working directory. Defaults to ``Path.cwd()``.
+
+    Returns:
+        Dict with:
+        - success: True if the squash succeeded
+        - error: Error message if failed, None otherwise
+    """
+    try:
+        client = _make_client(cwd)
+        await client.squash(revision=revision, into=into)
+        return {"success": True, "error": None}
+    except (JjError, OSError) as e:
+        logger.debug(
+            "jj_squash_into_failed",
+            revision=revision,
+            into=into,
+            error=str(e),
+        )
+        return {"success": False, "error": str(e)}
+
+
+async def jj_list_conflicts(
+    revset_scope: str,
+    cwd: Path | str | None = None,
+) -> dict[str, Any]:
+    """List conflicted changes within a revset scope.
+
+    Args:
+        revset_scope: Revset expression bounding the search (e.g.
+            ``f"descendants({target})"``). ``& conflicts()`` is appended
+            by this function.
+        cwd: Working directory. Defaults to ``Path.cwd()``.
+
+    Returns:
+        Dict with:
+        - success: True if the query succeeded
+        - change_ids: Tuple of conflicted change IDs, in the order jj
+          returned them (topological)
+        - error: Error message if failed, None otherwise
+    """
+    try:
+        client = _make_client(cwd)
+        result = await client.log(
+            revset=f"{revset_scope} & conflicts()",
+            limit=1000,
+        )
+        change_ids = tuple(change.change_id for change in result.changes)
+        return {"success": True, "change_ids": change_ids, "error": None}
+    except (JjError, OSError) as e:
+        logger.debug(
+            "jj_list_conflicts_failed",
+            revset_scope=revset_scope,
+            error=str(e),
+        )
+        return {"success": False, "change_ids": (), "error": str(e)}
+
+
+async def jj_check_mutability(
+    target: str,
+    cwd: Path | str | None = None,
+) -> dict[str, Any]:
+    """Check that ``target`` and everything its rebase would rewrite is mutable.
+
+    Implements the mutability guard from research R4: neither the target
+    itself nor any descendant that a squash-into-target rebase would
+    rewrite may be immutable.
+
+    Args:
+        target: Revision to check (the correction target).
+        cwd: Working directory. Defaults to ``Path.cwd()``.
+
+    Returns:
+        Dict with:
+        - success: True if the query succeeded
+        - mutable: True iff neither the target nor any descendant is
+          immutable (i.e. the revset query returned zero changes)
+        - immutable_change_ids: Tuple of change IDs violating mutability
+        - error: Error message if failed, None otherwise
+    """
+    # ``descendants(x)`` is inclusive of ``x`` in jj (verified against jj
+    # 0.43), so ``descendants(target) & immutable()`` already covers the
+    # target-immutability case — no separate ``::target & target`` clause
+    # is needed.
+    revset = f"descendants({target}) & immutable()"
+    try:
+        client = _make_client(cwd)
+        result = await client.log(revset=revset, limit=1000)
+        immutable_change_ids = tuple(change.change_id for change in result.changes)
+        return {
+            "success": True,
+            "mutable": len(immutable_change_ids) == 0,
+            "immutable_change_ids": immutable_change_ids,
+            "error": None,
+        }
+    except (JjError, OSError) as e:
+        logger.debug("jj_check_mutability_failed", target=target, error=str(e))
+        return {
+            "success": False,
+            "mutable": False,
+            "immutable_change_ids": (),
+            "error": str(e),
+        }
+
+
 async def jj_log(
     revset: str = "@",
     limit: int = 10,

@@ -27,6 +27,7 @@ __all__ = [
     "NotificationConfig",
     "ParallelConfig",
     "PreflightValidationConfig",
+    "ReconcileConfig",
     "RunwayConfig",
     "RunwayConsolidationConfig",
     "RunwayRetrievalConfig",
@@ -380,6 +381,32 @@ class RunwayConfig(BaseModel):
     retrieval: RunwayRetrievalConfig = Field(default_factory=RunwayRetrievalConfig)
 
 
+class ReconcileConfig(BaseModel):
+    """Settings for the reconcile-changed-answers workflow.
+
+    Reconciling a changed human answer to an assumption-ledger entry runs
+    two bounded agent loops per answer: a conflict-resolution loop (fixing
+    up merge conflicts left by folding the correction into the target
+    change) and a semantic-dependents loop (checking whether descendant
+    changes still make sense given the new answer). Both loops must
+    terminate — an agent that can't converge escalates to a human-review
+    bead rather than looping forever. These fields set the per-answer
+    round budget for each loop. See data-model.md section 5 in
+    ``specs/051-reconcile-changed-answers/`` for the full contract.
+
+    Attributes:
+        resolution_rounds: Conflict-resolution round budget per answer.
+        semantic_rounds: Semantic-dependents round budget per answer.
+    """
+
+    resolution_rounds: int = Field(
+        default=3, ge=1, description="Conflict-resolution round budget per answer"
+    )
+    semantic_rounds: int = Field(
+        default=3, ge=1, description="Semantic-dependents round budget per answer"
+    )
+
+
 class AgentBindingConfig(BaseModel, frozen=True):
     """One ``(provider, model_id)`` binding for a single agent role.
 
@@ -583,6 +610,10 @@ class MaverickConfig(BaseSettings):
     session_log: SessionLogConfig = Field(default_factory=SessionLogConfig)
     workspace: WorkspaceConfig = Field(default_factory=WorkspaceConfig)
     runway: RunwayConfig = Field(default_factory=RunwayConfig)
+    reconcile: ReconcileConfig = Field(
+        default_factory=ReconcileConfig,
+        description="Round budgets for the reconcile-changed-answers workflow.",
+    )
     actors: dict[str, dict[str, Any]] = Field(
         default_factory=dict,
         description="Actor configurations grouped by workflow (plan/refuel/fly/land).",
