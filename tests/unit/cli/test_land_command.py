@@ -13,6 +13,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from click.testing import CliRunner
 
+from maverick.assumptions.models import AssumptionRecord, Severity
 from maverick.cli.commands.land import (
     _display_plan,
     land,
@@ -223,6 +224,88 @@ class TestModeHints:
             result = runner.invoke(land, ["--no-curate", "--eject", "--branch", "wip/foo"])
         assert result.exit_code == 0
         assert "wip/foo" in result.output
+
+
+# ── Assumption ledger gate ──────────────────────────────────────────
+
+
+def _blocking_entry(
+    bead_id: str = "dea-1", severity: Severity = Severity.MEDIUM
+) -> AssumptionRecord:
+    return AssumptionRecord(
+        bead_id=bead_id,
+        question="Should retries be per bead?",
+        adopted_answer="Per bead.",
+        alternatives=(),
+        severity=severity,
+        severity_defaulted=False,
+        status="open",
+        owner_spec="049-assumption-ledger",
+        source_bead="src-1",
+        change_ids=(),
+        is_legacy=False,
+    )
+
+
+def _patch_gate(*, entries: list[AssumptionRecord] | None = None, bd_available: bool = True):
+    return (
+        patch(
+            "maverick.beads.client.BeadClient.verify_available",
+            new=AsyncMock(return_value=bd_available),
+        ),
+        patch(
+            "maverick.assumptions.ledger.open_blocking_entries",
+            new=AsyncMock(return_value=entries or []),
+        ),
+    )
+
+
+class TestAssumptionGate:
+    def test_blocks_with_table_and_hint_nonzero_exit(self) -> None:
+        runner = CliRunner()
+        gather, curate, consolidate = _patch_curation()
+        verify, blocking = _patch_gate(entries=[_blocking_entry()])
+        with gather, curate, consolidate, verify, blocking:
+            result = runner.invoke(land, ["--no-curate", "--yes"])
+        assert result.exit_code != 0
+        assert "dea-1" in result.output
+        assert "049-assumption-ledger" in result.output
+        assert "maverick review" in result.output
+
+    def test_passes_when_no_blocking_entries(self) -> None:
+        runner = CliRunner()
+        gather, curate, consolidate = _patch_curation()
+        verify, blocking = _patch_gate(entries=[])
+        with gather, curate, consolidate, verify, blocking:
+            result = runner.invoke(land, ["--no-curate"])
+        assert result.exit_code == 0
+
+    def test_dry_run_still_evaluates_and_exits_nonzero_at_end(self) -> None:
+        runner = CliRunner()
+        gather, curate, consolidate = _patch_curation()
+        verify, blocking = _patch_gate(entries=[_blocking_entry()])
+        with gather, curate, consolidate, verify, blocking:
+            result = runner.invoke(land, ["--no-curate", "--dry-run"])
+        # The rest of the (no-op) preview still runs...
+        assert "Dry run" in result.output
+        assert "dea-1" in result.output
+        # ...but the command exits non-zero because a real land would block.
+        assert result.exit_code != 0
+
+    def test_no_bd_available_gate_passes(self) -> None:
+        runner = CliRunner()
+        gather, curate, consolidate = _patch_curation()
+        verify, blocking = _patch_gate(bd_available=False)
+        with gather, curate, consolidate, verify, blocking:
+            result = runner.invoke(land, ["--no-curate"])
+        assert result.exit_code == 0
+
+    def test_help_exposes_no_bypass_flag(self) -> None:
+        runner = CliRunner()
+        result = runner.invoke(land, ["--help"])
+        assert result.exit_code == 0
+        for flag in ("--force", "--skip-gate", "--bypass", "--no-gate"):
+            assert flag not in result.output
 
 
 # ── Display plan ────────────────────────────────────────────────────

@@ -150,6 +150,15 @@ async def land(
     # ── 1b. Display human review manifest if present ─────────────
     _display_human_review_manifest(cwd)
 
+    # ── 1c. Assumption ledger gate — blocks unless open medium/high
+    # entries have been answered or waived via `maverick review`. No
+    # bypass flag exists. `--dry-run` still evaluates and prints the
+    # table, but only exits non-zero at the end (after the rest of the
+    # preview runs) rather than short-circuiting immediately.
+    gate_blocks = await _check_assumption_gate(cwd)
+    if gate_blocks and not dry_run:
+        raise SystemExit(ExitCode.FAILURE)
+
     # ── 2. Curation ────────────────────────────────────────────────
     if no_curate:
         console.print("Skipping curation (--no-curate).")
@@ -178,6 +187,8 @@ async def land(
 
     if dry_run:
         console.print("Dry run — skipping next-step hint.")
+        if gate_blocks:
+            raise SystemExit(ExitCode.FAILURE)
         return
 
     # ── 3. Runway consolidation (best-effort) ─────────────────────
@@ -373,6 +384,63 @@ def _display_plan(plan: list[dict[str, Any]]) -> None:
         border_style="cyan",
     )
     console.print(panel)
+
+
+# =====================================================================
+# Assumption ledger gate
+# =====================================================================
+
+
+async def _check_assumption_gate(cwd: Path) -> bool:
+    """Return True when open medium/high assumption entries block land.
+
+    Prints the blocking table (grouped by owning spec) as a side effect
+    when the gate blocks. bd-layer failures are non-fatal — the gate
+    passes rather than crashing land (mirrors the "nothing to land"
+    degradation elsewhere in this command).
+    """
+    from maverick.assumptions.ledger import open_blocking_entries
+    from maverick.beads.client import BeadClient
+
+    client = BeadClient(cwd=cwd)
+    if not await client.verify_available():
+        return False
+
+    try:
+        entries = await open_blocking_entries(client)
+    except Exception as exc:  # noqa: BLE001 — non-fatal; gate passes on query failure
+        console.print(format_warning(f"Assumption gate check failed: {exc}"))
+        return False
+
+    if not entries:
+        return False
+
+    _display_assumption_gate_table(entries)
+    return True
+
+
+def _display_assumption_gate_table(entries: Any) -> None:
+    """Render blocking assumption entries grouped by owning spec."""
+    table = Table(show_header=True, header_style="bold red")
+    table.add_column("ID", width=20)
+    table.add_column("Severity", width=10)
+    table.add_column("Spec", width=25)
+    table.add_column("Question")
+
+    for entry in sorted(entries, key=lambda e: (e.owner_spec, e.bead_id)):
+        question = entry.question[:80] + "..." if len(entry.question) > 80 else entry.question
+        table.add_row(entry.bead_id, entry.severity.value, entry.owner_spec, question)
+
+    console.print()
+    panel = Panel(
+        table,
+        title=f"Blocking Assumptions ({len(entries)})",
+        border_style="red",
+    )
+    console.print(panel)
+    console.print()
+    console.print("Resolve with: [bold]maverick review <id>[/bold]")
+    console.print()
 
 
 def _display_human_review_manifest(cwd: Path) -> None:

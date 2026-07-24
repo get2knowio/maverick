@@ -75,6 +75,11 @@ class BeadClient:
         self._cwd = cwd
         self._runner = runner or CommandRunner(cwd=cwd, timeout=BD_TIMEOUT)
 
+    @property
+    def cwd(self) -> Path:
+        """Working directory this client operates against."""
+        return self._cwd
+
     async def _run_bd(
         self,
         cmd: list[str],

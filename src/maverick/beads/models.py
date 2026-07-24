@@ -46,9 +46,12 @@ class DependencyType(StrEnum):
 
     Attributes:
         BLOCKS: The source bead blocks the target bead.
+        DISCOVERED_FROM: The source bead was discovered from the target bead
+            (provenance only — does not affect readiness).
     """
 
     BLOCKS = "blocks"
+    DISCOVERED_FROM = "discovered-from"
 
 
 class BeadDefinition(BaseModel):

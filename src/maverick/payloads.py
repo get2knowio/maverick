@@ -68,6 +68,42 @@ def _first_present(payload: Mapping[str, Any], *keys: str, default: Any = None) 
     return default
 
 
+def _prune_assumptions(data: Any) -> Any:
+    """Drop malformed assumption entries before validating a submit payload.
+
+    ``assumptions`` is additive context on a load-bearing payload
+    (``submit_implementation`` / ``submit_review`` / ``submit_fix_result``).
+    A single entry missing its ``question`` or ``adopted_answer`` must not
+    fail validation of the whole implementation/review result — it is
+    dropped instead. Well-formed entries (and already-parsed
+    :class:`AssumptionPayload` instances from a state round-trip) pass
+    through untouched.
+    """
+    payload = _copy_mapping(data)
+    if not isinstance(payload, dict):
+        return payload
+    raw = payload.get("assumptions")
+    if not isinstance(raw, (list, tuple)):
+        return payload
+    kept: list[Any] = []
+    for item in raw:
+        if isinstance(item, AssumptionPayload):
+            kept.append(item)
+            continue
+        if isinstance(item, Mapping):
+            question = item.get("question")
+            answer = item.get("adopted_answer")
+            if (
+                isinstance(question, str)
+                and question.strip()
+                and isinstance(answer, str)
+                and answer.strip()
+            ):
+                kept.append(item)
+    payload["assumptions"] = kept
+    return payload
+
+
 class FileScopePayload(SupervisorInboxPayload):
     """Mailbox payload for file-scope declarations."""
 
@@ -144,11 +180,47 @@ class SubmitFixPayload(SupervisorInboxPayload):
     details: tuple[WorkUnitDetailPayload, ...]
 
 
+class AssumptionPayload(SupervisorInboxPayload):
+    """An assumption an agent adopted to keep working.
+
+    ``severity`` outside ``{low, medium, high}`` (or absent) is coerced to
+    ``"medium"`` rather than rejected (FR-011); ``severity_defaulted`` records
+    whether that coercion happened so ``record_assumption`` can persist
+    ``assumption_severity_defaulted=true``. It's a derived flag, not
+    something the agent is expected to report — but it's a normal field
+    (not dump-excluded) so it survives the round trip through
+    ``pending_assumptions`` state (dump → burr ``State`` → re-validate).
+    """
+
+    question: str = Field(min_length=1)
+    adopted_answer: str = Field(min_length=1)
+    alternatives: tuple[str, ...] = Field(default_factory=tuple)
+    severity: str = "medium"
+    severity_defaulted: bool = False
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_severity(cls, data: Any) -> Any:
+        payload = _copy_mapping(data)
+        if isinstance(payload, dict):
+            raw = payload.get("severity")
+            if raw not in ("low", "medium", "high"):
+                payload["severity"] = "medium"
+                payload["severity_defaulted"] = True
+        return payload
+
+
 class SubmitImplementationPayload(SupervisorInboxPayload):
     """Typed payload for ``submit_implementation``."""
 
     summary: str
     files_changed: tuple[str, ...] = Field(default_factory=tuple)
+    assumptions: tuple[AssumptionPayload, ...] = Field(default_factory=tuple)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _drop_malformed_assumptions(cls, data: Any) -> Any:
+        return _prune_assumptions(data)
 
 
 class SubmitFixResultPayload(SupervisorInboxPayload):
@@ -157,6 +229,12 @@ class SubmitFixResultPayload(SupervisorInboxPayload):
     summary: str
     addressed: tuple[str, ...] = Field(default_factory=tuple)
     contested: dict[str, str] = Field(default_factory=dict)
+    assumptions: tuple[AssumptionPayload, ...] = Field(default_factory=tuple)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _drop_malformed_assumptions(cls, data: Any) -> Any:
+        return _prune_assumptions(data)
 
 
 class ReviewFindingPayload(SupervisorInboxPayload):
@@ -190,6 +268,12 @@ class SubmitReviewPayload(SupervisorInboxPayload):
     approved: bool
     findings: tuple[ReviewFindingPayload, ...] = Field(default_factory=tuple)
     findings_count: int | None = None
+    assumptions: tuple[AssumptionPayload, ...] = Field(default_factory=tuple)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _drop_malformed_assumptions(cls, data: Any) -> Any:
+        return _prune_assumptions(data)
 
     @property
     def effective_findings_count(self) -> int:
@@ -489,6 +573,7 @@ def dump_supervisor_payload(payload: SupervisorInboxPayload) -> dict[str, Any]:
 __all__ = [
     "AcceptanceCriterionPayload",
     "ArchitectureDecisionPayload",
+    "AssumptionPayload",
     "ContrarianChallengePayload",
     "ContrarianSimplificationPayload",
     "CurationStepPayload",

@@ -213,6 +213,40 @@ class TestBeadClientAddDependency:
         ]
 
     @pytest.mark.asyncio
+    async def test_add_dependency_discovered_from(
+        self, mock_runner: AsyncMock, temp_dir: Path
+    ) -> None:
+        from maverick.beads.models import DependencyType
+
+        mock_runner.run.return_value = CommandResult(
+            returncode=0,
+            stdout="",
+            stderr="",
+            duration_ms=50,
+            timed_out=False,
+        )
+        client = BeadClient(cwd=temp_dir, runner=mock_runner)
+        dep = BeadDependency(
+            blocker_id="source-bead",
+            blocked_id="assumption-bead",
+            dep_type=DependencyType.DISCOVERED_FROM,
+        )
+        await client.add_dependency(dep)
+
+        call_args = mock_runner.run.call_args
+        cmd = call_args[0][0]
+        assert cmd == [
+            "bd",
+            "dep",
+            "add",
+            "assumption-bead",
+            "--blocked-by",
+            "source-bead",
+            "--type",
+            "discovered-from",
+        ]
+
+    @pytest.mark.asyncio
     async def test_add_dependency_failure_raises(
         self, mock_runner: AsyncMock, temp_dir: Path
     ) -> None:

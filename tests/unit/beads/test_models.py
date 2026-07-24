@@ -58,6 +58,15 @@ class TestDependencyType:
     def test_blocks_value(self) -> None:
         assert DependencyType.BLOCKS.value == "blocks"
 
+    def test_discovered_from_value(self) -> None:
+        assert DependencyType.DISCOVERED_FROM.value == "discovered-from"
+
+    def test_discovered_from_accepted_by_bead_dependency(self) -> None:
+        dep = BeadDependency(
+            blocker_id="a", blocked_id="b", dep_type=DependencyType.DISCOVERED_FROM
+        )
+        assert dep.dep_type == DependencyType.DISCOVERED_FROM
+
 
 class TestBeadDefinition:
     """Tests for BeadDefinition model."""

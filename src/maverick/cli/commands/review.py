@@ -1,21 +1,32 @@
 """``maverick review`` command — lightweight human review of assumption beads.
 
-Displays the escalation context for a human-assigned bead and captures
-a structured decision: approve, reject (with guidance), or defer.
+Two flavors of "human-assigned bead" share this command:
 
-Rejected beads spawn a correction bead back into the agent pipeline.
+* **Ledger entries** (labeled ``assumption``, from the assumption ledger
+  feature) — full-context display (question / adopted answer /
+  alternatives / severity / owning spec / change stamps / discovered-from
+  source) with an answer/waive resolution flow.
+* **Legacy escalation beads** (``needs-human-review`` / ``assumption-review``
+  without ``assumption``) — the original approve/reject/defer flow.
+  Rejected beads spawn a correction bead back into the agent pipeline.
+
 The human provides judgment and direction, not code.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import click
 
 from maverick.cli.console import console
 from maverick.cli.context import ExitCode, async_command
 from maverick.logging import get_logger
+
+if TYPE_CHECKING:
+    from maverick.beads.client import BeadClient
+    from maverick.beads.models import BeadDetails
 
 logger = get_logger(__name__)
 
@@ -26,19 +37,31 @@ logger = get_logger(__name__)
     "--approve",
     is_flag=True,
     default=False,
-    help="Approve without interactive prompt.",
+    help="Approve without interactive prompt (legacy escalation beads).",
 )
 @click.option(
     "--reject",
     "reject_guidance",
     default=None,
-    help="Reject with guidance text (non-interactive).",
+    help="Reject with guidance text (non-interactive, legacy escalation beads).",
 )
 @click.option(
     "--defer",
     is_flag=True,
     default=False,
-    help="Defer without interactive prompt.",
+    help="Defer without interactive prompt (legacy escalation beads).",
+)
+@click.option(
+    "--answer",
+    "answer_text",
+    default=None,
+    help="Answer a ledger entry (non-interactive).",
+)
+@click.option(
+    "--waive",
+    "waive_reason",
+    default=None,
+    help="Waive a ledger entry with a reason (non-interactive).",
 )
 @click.pass_context
 @async_command
@@ -48,15 +71,23 @@ async def review(
     approve: bool,
     reject_guidance: str | None,
     defer: bool,
+    answer_text: str | None,
+    waive_reason: str | None,
 ) -> None:
-    """Review a human-assigned assumption bead.
+    """Review a human-assigned bead.
 
-    Displays the escalation context and captures your decision:
-    approve, reject (with guidance for the correction agent), or defer.
+    For assumption-ledger entries: displays full context and captures
+    answer or waive. For legacy escalation beads: displays the escalation
+    context and captures approve, reject (with guidance for the
+    correction agent), or defer.
 
     Examples:
 
         maverick review dea-ykp.7
+
+        maverick review dea-ykp.7 --answer "Per bead, matches existing scoping."
+
+        maverick review dea-ykp.7 --waive "No longer applicable"
 
         maverick review dea-ykp.7 --approve
 
@@ -64,7 +95,12 @@ async def review(
 
         maverick review dea-ykp.7 --defer
     """
+    from maverick.assumptions.models import ASSUMPTION_LABEL
     from maverick.beads.client import BeadClient
+
+    if answer_text is not None and waive_reason is not None:
+        console.print("[red]Error:[/] --answer and --waive are mutually exclusive")
+        raise SystemExit(ExitCode.FAILURE)
     from maverick.beads.models import (
         BeadCategory,
         BeadDefinition,
@@ -86,6 +122,12 @@ async def review(
 
     state = details.state or {}
     labels = details.labels or []
+
+    if ASSUMPTION_LABEL in labels:
+        await _review_ledger_entry(
+            client, bead_id, details, answer_text=answer_text, waive_reason=waive_reason
+        )
+        return
 
     # Verify this is a human-assigned review bead
     is_human = "needs-human-review" in labels or "assumption-review" in labels
@@ -204,3 +246,101 @@ async def review(
     elif decision == "defer":
         console.print(f"\n[yellow]⏸[/] Bead {bead_id} deferred — no action taken.")
         console.print("Run `maverick review` again when ready.")
+
+
+def _resolve_git_user_name(cwd: Path) -> str:
+    """Resolve the git user name via GitPython config (Guardrail 8)."""
+    try:
+        from git import Repo
+
+        repo = Repo(cwd, search_parent_directories=True)
+        with repo.config_reader() as cfg:
+            name = cfg.get_value("user", "name", default="unknown")
+            return str(name)
+    except Exception:  # noqa: BLE001 — best-effort attribution
+        return "unknown"
+
+
+async def _review_ledger_entry(
+    client: BeadClient,
+    bead_id: str,
+    details: BeadDetails,
+    *,
+    answer_text: str | None,
+    waive_reason: str | None,
+) -> None:
+    """Full-context display + answer/waive flow for an assumption ledger entry."""
+    from maverick.assumptions.errors import AssumptionLedgerError
+    from maverick.assumptions.ledger import answer as ledger_answer
+    from maverick.assumptions.ledger import parse_description
+    from maverick.assumptions.ledger import waive as ledger_waive
+    from maverick.assumptions.models import (
+        KEY_CHANGE_IDS,
+        KEY_OWNER_SPEC,
+        KEY_SEVERITY,
+        KEY_SEVERITY_DEFAULTED,
+        KEY_SOURCE_BEAD,
+    )
+
+    state = details.state or {}
+    question, adopted_answer, alternatives = parse_description(details.description or "")
+    severity = state.get(KEY_SEVERITY, "medium")
+    defaulted = state.get(KEY_SEVERITY_DEFAULTED) == "true"
+    owner_spec = state.get(KEY_OWNER_SPEC, "")
+    source_bead = state.get(KEY_SOURCE_BEAD, "")
+    stamps = state.get(KEY_CHANGE_IDS) or "unstamped"
+
+    console.print()
+    console.print("[bold]━" * 60)
+    console.print(f"[bold] Assumption: {question or details.title}")
+    console.print("[bold]━" * 60)
+    console.print()
+    console.print(f"[dim]Question:[/]        {question}")
+    console.print(f"[dim]Adopted answer:[/]   {adopted_answer}")
+    if alternatives:
+        console.print("[dim]Alternatives:[/]")
+        for alt in alternatives:
+            console.print(f"  - {alt}")
+    severity_display = f"{severity}{' (defaulted)' if defaulted else ''}"
+    console.print(f"[dim]Severity:[/]         {severity_display}")
+    console.print(f"[dim]Owning spec:[/]      {owner_spec}")
+    console.print(f"[dim]Change stamps:[/]    {stamps}")
+    console.print(f"[dim]Discovered from:[/]  {source_bead}")
+    console.print()
+    console.print("[bold]━" * 60)
+    console.print()
+
+    if answer_text is None and waive_reason is None:
+        console.print("[bold]Decision:[/]")
+        console.print()
+        console.print("  [green]1.[/] Answer — record the resolution and close")
+        console.print("  [yellow]2.[/] Waive — record a reason and close")
+        console.print()
+        choice = click.prompt("Choice", type=click.Choice(["1", "2"]))
+        console.print()
+        if choice == "1":
+            answer_text = click.prompt("Answer")
+        else:
+            waive_reason = click.prompt("Waive reason")
+
+    if answer_text is not None:
+        if not answer_text.strip():
+            console.print("[red]Error:[/] Answer text must not be empty")
+            raise SystemExit(ExitCode.FAILURE)
+        try:
+            await ledger_answer(client, bead_id=bead_id, answer_text=answer_text)
+        except AssumptionLedgerError as exc:
+            console.print(f"[red]Error:[/] {exc}")
+            raise SystemExit(ExitCode.FAILURE) from exc
+        console.print(f"\n[green]✓[/] Bead {bead_id} answered and closed.")
+    else:
+        if not waive_reason or not waive_reason.strip():
+            console.print("[red]Error:[/] Waive reason must not be empty")
+            raise SystemExit(ExitCode.FAILURE)
+        waived_by = _resolve_git_user_name(Path.cwd())
+        try:
+            await ledger_waive(client, bead_id=bead_id, reason=waive_reason, waived_by=waived_by)
+        except AssumptionLedgerError as exc:
+            console.print(f"[red]Error:[/] {exc}")
+            raise SystemExit(ExitCode.FAILURE) from exc
+        console.print(f"\n[yellow]⚠[/] Bead {bead_id} waived by {waived_by} and closed.")

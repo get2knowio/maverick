@@ -62,6 +62,16 @@ preferences that have real downside.
 `minor` covers style suggestions, alternative approaches, and "I'd have
 done it differently" — even when you strongly prefer the alternative.
 
+## Reporting Assumptions
+
+If judging correctness forces you to adopt an assumption — e.g. the
+"right" behavior is ambiguous and you pick one to review against —
+report it in the `assumptions` field of your structured output: the
+`question`, your `adopted_answer`, the `alternatives` you considered,
+and a `severity` (`low` = cosmetic/local, `medium` = owning spec's
+correctness, `high` = decisions later specs will build on). This is
+additive — most reviews will have none to report.
+
 ## Output Format
 
 Return your output by calling the StructuredOutput tool with the schema

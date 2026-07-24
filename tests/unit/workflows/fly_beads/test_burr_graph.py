@@ -302,6 +302,57 @@ class TestFlyBurrAbandonPath:
         assert state["succeeded_count"] == 0
         assert state["failed_count"] == 1
 
+    async def test_abort_path_records_assumptions_from_implementer(self, tmp_path: Path) -> None:
+        """Assumptions the implementer reported before a gate abort must still
+        reach the ledger — the abort path funnels through record_assumptions."""
+        from maverick.payloads import AssumptionPayload
+        from maverick.workflows.fly_beads.graceful_stop import reset_graceful_stop
+
+        reset_graceful_stop()
+
+        queue: asyncio.Queue[ProgressEvent | None] = asyncio.Queue()
+        squadron = StubFlySquadron(
+            coder=StubCodingAgent(
+                implement_payloads=[
+                    SubmitImplementationPayload(
+                        summary="stub impl",
+                        assumptions=(AssumptionPayload(question="Q?", adopted_answer="A."),),
+                    )
+                ],
+                fix_payloads=[SubmitFixResultPayload(summary="stub fix") for _ in range(5)],
+            )
+        )
+
+        record_mock = AsyncMock(return_value=type("Rec", (), {"bead_id": "dea-1"})())
+
+        with (
+            patch(
+                "maverick.library.actions.beads.select_next_bead",
+                new=AsyncMock(side_effect=[_bead("b-1"), _NO_MORE]),
+            ),
+            patch(
+                "maverick.library.actions.validation.run_independent_gate",
+                new=AsyncMock(return_value=_gate_failed()),
+            ),
+            patch("maverick.assumptions.ledger.record_assumption", new=record_mock),
+        ):
+            app = build_fly_application(
+                squadron=squadron,  # type: ignore[arg-type]
+                event_queue=queue,
+                epic_id="e-1",
+                cwd=str(tmp_path),
+                max_beads=10,
+            )
+            driver = BurrWorkflowDriver(app, halt_after=FLY_TERMINAL_ACTIONS, event_queue=queue)
+            events = await _collect(driver)
+
+        sequence = _action_sequence(events)
+        assert "abandon_bead" in sequence
+        assert "record_assumptions" in sequence
+        assert "commit" not in sequence
+        # The implementer's assumption was recorded despite the abort.
+        record_mock.assert_awaited_once()
+
 
 class TestFlyBurrReviewLoop:
     async def test_review_fix_then_approve(self, tmp_path: Path) -> None:
