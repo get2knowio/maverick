@@ -53,6 +53,7 @@ __all__ = [
     "implement",
     "init_state",
     "process_bead_start",
+    "record_assumptions",
     "record_outcome",
     "review",
     "select_next_bead",
@@ -71,6 +72,14 @@ AGGREGATE_REVIEW_THRESHOLD: int = 2
 DEFAULT_TIER: str = "_default"
 
 _SOURCE = "fly-burr"
+
+
+def _payload_assumptions(payload: Any) -> list[dict[str, Any]]:
+    """Extract a dumped ``assumptions`` list from a Submit*Payload or its dumped dict."""
+    if payload is None:
+        return []
+    dumped = payload if isinstance(payload, dict) else dump_supervisor_payload(payload)
+    return list(dumped.get("assumptions") or [])
 
 
 async def _put_output(
@@ -242,13 +251,34 @@ async def select_next_bead(
     )
 
 
-@action(reads=["current_bead"], writes=["bead_aborted", "bead_failed", "needs_human_review"])
+@action(
+    reads=["current_bead"],
+    writes=[
+        "bead_aborted",
+        "bead_failed",
+        "needs_human_review",
+        "pending_assumptions",
+        "recorded_assumption_ids",
+        "commit_change_id",
+    ],
+)
 async def process_bead_start(state: State) -> tuple[dict[str, Any], State]:
-    """Reset per-bead state slots before the per-stage pipeline runs."""
+    """Reset per-bead state slots before the per-stage pipeline runs.
+
+    ``pending_assumptions``/``recorded_assumption_ids`` are reset here so a
+    bead can never re-record or re-stamp the previous bead's ledger
+    entries. ``commit_change_id`` is reset alongside them purely as
+    observability — it exposes the landed jj change ID for this bead in the
+    final burr state and feeds nothing downstream (stamping uses the local
+    change ID captured inside ``commit``).
+    """
     return {"bead_id": state["current_bead_id"]}, state.update(
         bead_aborted=False,
         bead_failed=False,
         needs_human_review=False,
+        pending_assumptions=[],
+        recorded_assumption_ids=[],
+        commit_change_id="",
     )
 
 
@@ -258,12 +288,18 @@ async def process_bead_start(state: State) -> tuple[dict[str, Any], State]:
 
 
 @action(
-    reads=["current_bead", "current_bead_id", "implementer_escalation_level"],
+    reads=[
+        "current_bead",
+        "current_bead_id",
+        "implementer_escalation_level",
+        "pending_assumptions",
+    ],
     writes=[
         "implement_ok",
         "implement_summary",
         "bead_aborted",
         "implementer_escalation_level",
+        "pending_assumptions",
     ],
 )
 async def implement(
@@ -298,10 +334,12 @@ async def implement(
         )
 
     summary = dump_supervisor_payload(payload)
+    pending = [*(state.get("pending_assumptions") or ()), *_payload_assumptions(summary)]
     return {"ok": True}, state.update(
         implement_ok=True,
         implement_summary=summary,
         implementer_escalation_level=new_level,
+        pending_assumptions=pending,
     )
 
 
@@ -327,14 +365,15 @@ async def _run_fix(
     round_n: int,
     failure_message: str,
     initial_level: int = 0,
-) -> tuple[bool, int]:
+) -> tuple[bool, int, list[dict[str, Any]]]:
     """Re-prompt the implementer on validation failure.
 
-    Returns ``(ok, new_level)`` where ``ok`` is true when the agent
-    landed a fix payload and ``new_level`` is the implementer
-    escalation level the caller should persist on state. Transient
-    failures bump the tier and retry; non-transient failures (or
-    exhausted escalation) return ``(False, current_level)``.
+    Returns ``(ok, new_level, assumptions)`` where ``ok`` is true when the
+    agent landed a fix payload, ``new_level`` is the implementer escalation
+    level the caller should persist on state, and ``assumptions`` is the
+    dumped ``assumptions`` list from the fix-result payload (empty on
+    failure). Transient failures bump the tier and retry; non-transient
+    failures (or exhausted escalation) return ``(False, current_level, [])``.
     """
     prompt = (
         f"## Fix request — phase: {phase}, round {round_n}\n\n"
@@ -352,12 +391,17 @@ async def _run_fix(
         label=label,
         initial_level=initial_level,
     )
-    return payload is not None, new_level
+    return payload is not None, new_level, _payload_assumptions(payload)
 
 
 @action(
-    reads=["current_bead_id", "implementer_escalation_level"],
-    writes=["gate_passed", "bead_aborted", "implementer_escalation_level"],
+    reads=["current_bead_id", "implementer_escalation_level", "pending_assumptions"],
+    writes=[
+        "gate_passed",
+        "bead_aborted",
+        "implementer_escalation_level",
+        "pending_assumptions",
+    ],
 )
 async def gate(
     state: State,
@@ -372,6 +416,7 @@ async def gate(
 
     bead_id = state["current_bead_id"]
     escalation_level = int(state.get("implementer_escalation_level") or 0)
+    pending = list(state.get("pending_assumptions") or ())
     for attempt in range(MAX_GATE_FIX_ATTEMPTS + 1):
         result = await run_independent_gate(
             stages=["format", "lint", "test"],
@@ -382,6 +427,7 @@ async def gate(
             return {"passed": True, "attempts": attempt + 1}, state.update(
                 gate_passed=True,
                 implementer_escalation_level=escalation_level,
+                pending_assumptions=pending,
             )
         if attempt >= MAX_GATE_FIX_ATTEMPTS:
             summary = result.get("summary") or "gate failed"
@@ -395,6 +441,7 @@ async def gate(
                 gate_passed=False,
                 bead_aborted=True,
                 implementer_escalation_level=escalation_level,
+                pending_assumptions=pending,
             )
         summary = result.get("summary") or "gate failed"
         await _put_output(
@@ -404,7 +451,7 @@ async def gate(
             level="warning",
             metadata={"attempt": attempt + 1},
         )
-        ok, escalation_level = await _run_fix(
+        ok, escalation_level, fix_assumptions = await _run_fix(
             squadron=squadron,
             events=events,
             bead_id=bead_id,
@@ -413,23 +460,31 @@ async def gate(
             failure_message=summary,
             initial_level=escalation_level,
         )
+        pending.extend(fix_assumptions)
         if not ok:
             return {"passed": False, "fix_failed": True}, state.update(
                 gate_passed=False,
                 bead_aborted=True,
                 implementer_escalation_level=escalation_level,
+                pending_assumptions=pending,
             )
     # unreachable but satisfies type checker
     return {"passed": False}, state.update(
         gate_passed=False,
         bead_aborted=True,
         implementer_escalation_level=escalation_level,
+        pending_assumptions=pending,
     )
 
 
 @action(
-    reads=["current_bead", "current_bead_id", "implementer_escalation_level"],
-    writes=["ac_passed", "bead_aborted", "implementer_escalation_level"],
+    reads=[
+        "current_bead",
+        "current_bead_id",
+        "implementer_escalation_level",
+        "pending_assumptions",
+    ],
+    writes=["ac_passed", "bead_aborted", "implementer_escalation_level", "pending_assumptions"],
 )
 async def ac_check(
     state: State,
@@ -449,6 +504,7 @@ async def ac_check(
     bead_id = state["current_bead_id"]
     description = bead.get("description", "") if bead else ""
     escalation_level = int(state.get("implementer_escalation_level") or 0)
+    pending = list(state.get("pending_assumptions") or ())
 
     async def _run_once() -> tuple[bool, str]:
         sections = _parse_work_unit_sections(description)
@@ -474,6 +530,7 @@ async def ac_check(
         return {"passed": True}, state.update(
             ac_passed=True,
             implementer_escalation_level=escalation_level,
+            pending_assumptions=pending,
         )
 
     await _put_output(
@@ -482,7 +539,7 @@ async def ac_check(
         f"AC check failed; requesting fix: {reasons}",
         level="warning",
     )
-    ok, escalation_level = await _run_fix(
+    ok, escalation_level, fix_assumptions = await _run_fix(
         squadron=squadron,
         events=events,
         bead_id=bead_id,
@@ -491,11 +548,13 @@ async def ac_check(
         failure_message=reasons,
         initial_level=escalation_level,
     )
+    pending.extend(fix_assumptions)
     if not ok:
         return {"passed": False}, state.update(
             ac_passed=False,
             bead_aborted=True,
             implementer_escalation_level=escalation_level,
+            pending_assumptions=pending,
         )
 
     passed, reasons = await _run_once()
@@ -505,16 +564,23 @@ async def ac_check(
             ac_passed=False,
             bead_aborted=True,
             implementer_escalation_level=escalation_level,
+            pending_assumptions=pending,
         )
     return {"passed": True}, state.update(
         ac_passed=True,
         implementer_escalation_level=escalation_level,
+        pending_assumptions=pending,
     )
 
 
 @action(
-    reads=["current_bead_id", "implementer_escalation_level"],
-    writes=["spec_passed", "bead_aborted", "implementer_escalation_level"],
+    reads=["current_bead_id", "implementer_escalation_level", "pending_assumptions"],
+    writes=[
+        "spec_passed",
+        "bead_aborted",
+        "implementer_escalation_level",
+        "pending_assumptions",
+    ],
 )
 async def spec_check(
     state: State,
@@ -538,6 +604,7 @@ async def spec_check(
 
     bead_id = state["current_bead_id"]
     escalation_level = int(state.get("implementer_escalation_level") or 0)
+    pending = list(state.get("pending_assumptions") or ())
 
     for attempt in range(MAX_SPEC_FIX_ATTEMPTS + 1):
         result = run_spec_check(cwd=cwd, project_type=project_type)
@@ -552,6 +619,7 @@ async def spec_check(
             return {"passed": True, "attempts": attempt + 1}, state.update(
                 spec_passed=True,
                 implementer_escalation_level=escalation_level,
+                pending_assumptions=pending,
             )
 
         summary = "; ".join(result.findings) or result.details
@@ -567,6 +635,7 @@ async def spec_check(
                 spec_passed=False,
                 bead_aborted=True,
                 implementer_escalation_level=escalation_level,
+                pending_assumptions=pending,
             )
 
         await _put_output(
@@ -576,7 +645,7 @@ async def spec_check(
             level="warning",
             metadata={"findings_count": len(result.findings)},
         )
-        ok, escalation_level = await _run_fix(
+        ok, escalation_level, fix_assumptions = await _run_fix(
             squadron=squadron,
             events=events,
             bead_id=bead_id,
@@ -585,16 +654,19 @@ async def spec_check(
             failure_message=summary,
             initial_level=escalation_level,
         )
+        pending.extend(fix_assumptions)
         if not ok:
             return {"passed": False, "fix_failed": True}, state.update(
                 spec_passed=False,
                 bead_aborted=True,
                 implementer_escalation_level=escalation_level,
+                pending_assumptions=pending,
             )
     return {"passed": False}, state.update(
         spec_passed=False,
         bead_aborted=True,
         implementer_escalation_level=escalation_level,
+        pending_assumptions=pending,
     )
 
 
@@ -604,6 +676,7 @@ async def spec_check(
         "current_bead_id",
         "reviewer_escalation_level",
         "implementer_escalation_level",
+        "pending_assumptions",
     ],
     writes=[
         "approved",
@@ -612,6 +685,7 @@ async def spec_check(
         "last_review_findings",
         "reviewer_escalation_level",
         "implementer_escalation_level",
+        "pending_assumptions",
     ],
 )
 async def review(
@@ -637,12 +711,14 @@ async def review(
     """
     bead = state["current_bead"]
     bead_id = state["current_bead_id"]
+    pending = list(state.get("pending_assumptions") or ())
     if bead is None:
         return {"approved": False}, state.update(
             approved=False,
             review_rounds=0,
             needs_human_review=True,
             last_review_findings=[],
+            pending_assumptions=pending,
         )
 
     description = bead.get("description", "")
@@ -673,6 +749,7 @@ async def review(
                 ],
                 reviewer_escalation_level=escalation_level,
                 implementer_escalation_level=implementer_level,
+                pending_assumptions=pending,
             )
         if results is None:
             # Non-transient reviewer failure — already logged inside
@@ -684,7 +761,11 @@ async def review(
                 last_review_findings=["Review crashed (non-transient)"],
                 reviewer_escalation_level=escalation_level,
                 implementer_escalation_level=implementer_level,
+                pending_assumptions=pending,
             )
+
+        for p in results:
+            pending.extend(_payload_assumptions(p))
 
         approved = all(_payload_approved(p) for p in results)
         if approved:
@@ -694,6 +775,7 @@ async def review(
                 last_review_findings=[],
                 reviewer_escalation_level=escalation_level,
                 implementer_escalation_level=implementer_level,
+                pending_assumptions=pending,
             )
 
         rounds_with_findings += 1
@@ -712,10 +794,11 @@ async def review(
                 last_review_findings=round_findings,
                 reviewer_escalation_level=escalation_level,
                 implementer_escalation_level=implementer_level,
+                pending_assumptions=pending,
             )
 
         # Re-prompt the implementer to address review feedback.
-        ok, implementer_level = await _run_fix(
+        ok, implementer_level, fix_assumptions = await _run_fix(
             squadron=squadron,
             events=events,
             bead_id=bead_id,
@@ -724,6 +807,7 @@ async def review(
             failure_message="\n".join(round_findings) or "(no specific findings)",
             initial_level=implementer_level,
         )
+        pending.extend(fix_assumptions)
         if not ok:
             return {"approved": False, "rounds": rounds_with_findings}, state.update(
                 approved=False,
@@ -732,6 +816,7 @@ async def review(
                 last_review_findings=round_findings,
                 reviewer_escalation_level=escalation_level,
                 implementer_escalation_level=implementer_level,
+                pending_assumptions=pending,
             )
 
     return {"approved": False, "rounds": rounds_with_findings}, state.update(
@@ -741,6 +826,7 @@ async def review(
         last_review_findings=[],
         reviewer_escalation_level=escalation_level,
         implementer_escalation_level=implementer_level,
+        pending_assumptions=pending,
     )
 
 
@@ -1157,8 +1243,82 @@ async def create_human_bead(
 
 
 @action(
-    reads=["current_bead", "current_bead_id", "approved", "needs_human_review", "review_rounds"],
-    writes=["commit_ok"],
+    reads=["current_bead_id", "pending_assumptions"],
+    writes=["recorded_assumption_ids"],
+)
+async def record_assumptions(
+    state: State,
+    *,
+    cwd: str,
+    epic_id: str,
+    events: asyncio.Queue[ProgressEvent | None],
+) -> tuple[dict[str, Any], State]:
+    """Create ledger entries for assumptions accumulated during this bead.
+
+    Non-fatal — mirrors :func:`create_human_bead`'s warn-and-continue
+    pattern (FR-012 / research R4): a ledger write failure never blocks
+    commit. Runs between review/create_human_bead and commit so the
+    same bead's commit can stamp the entries moments later.
+    """
+    from maverick.assumptions.errors import AssumptionLedgerError
+    from maverick.assumptions.ledger import record_assumption
+    from maverick.beads.client import BeadClient
+    from maverick.payloads import AssumptionPayload
+
+    bead_id = state["current_bead_id"]
+    pending: list[dict[str, Any]] = list(state.get("pending_assumptions") or ())
+    if not pending:
+        return {"recorded": 0}, state.update(recorded_assumption_ids=[])
+
+    client = BeadClient(cwd=Path(cwd))
+    recorded_ids: list[str] = []
+    for raw in pending:
+        try:
+            payload = AssumptionPayload.model_validate(raw)
+        except Exception as exc:  # noqa: BLE001 — malformed accumulated entry, skip
+            await _put_output(
+                events,
+                "fly",
+                f"Skipping malformed assumption payload: {exc}",
+                level="warning",
+            )
+            continue
+        try:
+            record = await record_assumption(
+                client, payload=payload, source_bead_id=bead_id, epic_id=epic_id
+            )
+        except AssumptionLedgerError as exc:
+            await _put_output(
+                events,
+                "fly",
+                f"Failed to record assumption for {bead_id}: {exc}",
+                level="warning",
+            )
+            continue
+        if record is not None:
+            recorded_ids.append(record.bead_id)
+
+    if recorded_ids:
+        await _put_output(
+            events,
+            "fly",
+            f"Recorded {len(recorded_ids)} assumption(s) for {bead_id}",
+            metadata={"recorded_assumption_ids": recorded_ids},
+        )
+
+    return {"recorded": len(recorded_ids)}, state.update(recorded_assumption_ids=recorded_ids)
+
+
+@action(
+    reads=[
+        "current_bead",
+        "current_bead_id",
+        "approved",
+        "needs_human_review",
+        "review_rounds",
+        "recorded_assumption_ids",
+    ],
+    writes=["commit_ok", "commit_change_id"],
 )
 async def commit(
     state: State,
@@ -1166,7 +1326,7 @@ async def commit(
     cwd: str,
     events: asyncio.Queue[ProgressEvent | None],
 ) -> tuple[dict[str, Any], State]:
-    """Commit the bead's changes and mark the bead complete."""
+    """Commit the bead's changes, mark it complete, and stamp any ledger entries."""
     from maverick.library.actions.beads import mark_bead_complete
     from maverick.library.actions.jj import jj_commit_bead
 
@@ -1184,10 +1344,12 @@ async def commit(
     message = "\n".join(message_parts)
 
     try:
-        await jj_commit_bead(message, cwd=cwd)
+        commit_result = await jj_commit_bead(message, cwd=cwd)
     except Exception as exc:  # noqa: BLE001
         await _put_output(events, "commit", f"Commit failed: {exc}", level="error")
         return {"committed": False, "error": str(exc)}, state.update(commit_ok=False)
+
+    change_id = commit_result.get("change_id") or ""
 
     try:
         await mark_bead_complete(bead_id, cwd=cwd)
@@ -1199,8 +1361,25 @@ async def commit(
             level="warning",
         )
 
+    recorded_ids = list(state.get("recorded_assumption_ids") or ())
+    if recorded_ids and change_id:
+        from maverick.assumptions.ledger import stamp_change_id
+        from maverick.beads.client import BeadClient
+
+        stamp_result = await stamp_change_id(
+            BeadClient(cwd=Path(cwd)), entry_ids=recorded_ids, change_id=change_id
+        )
+        if stamp_result.failed:
+            await _put_output(
+                events,
+                "commit",
+                f"Failed to stamp {len(stamp_result.failed)} assumption entry(s): "
+                f"{stamp_result.failed}",
+                level="warning",
+            )
+
     await _put_output(events, "commit", f"Committed bead {bead_id}", level="success")
-    return {"committed": True}, state.update(commit_ok=True)
+    return {"committed": True}, state.update(commit_ok=True, commit_change_id=change_id)
 
 
 @action(reads=["current_bead_id"], writes=["bead_aborted", "bead_failed"])

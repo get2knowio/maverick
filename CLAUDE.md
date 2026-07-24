@@ -527,7 +527,8 @@ Beads-only workflow model. All development is driven by beads (`bd` CLI).
 | `maverick land [--eject\|--finalize]`                | Curate history and merge             |
 | `maverick workspace status\|clean`                   | Manage hidden workspace              |
 | `maverick init`                                      | Initialize a Maverick project        |
-| `maverick brief [--watch]`                           | Bead status                          |
+| `maverick brief [--watch\|--human]`                  | Bead status + assumption counts      |
+| `maverick review <bead-id> [--answer\|--waive]`      | Resolve a human-assigned bead         |
 | `maverick runway seed\|consolidate`                  | Manage knowledge store               |
 
 ### refuel (Spec Kit ingestion mode)
@@ -563,6 +564,35 @@ Three modes: `--approve` (default; curate → push → teardown),
 (create PR from preview branch → teardown). Uses CuratorAgent for
 intelligent reorg, with user approval. Falls back to git push when no
 workspace exists.
+
+Before curation, land runs the **assumption ledger gate**: any open
+`medium`/`high` assumption entry (including legacy escalation beads,
+treated as `medium`) blocks the command with a per-spec table and a
+`maverick review <id>` hint, exit non-zero. There is no bypass flag —
+`maverick review` (answer or waive) is the only way through. `--dry-run`
+still evaluates and prints the table but only exits non-zero at the end,
+after the rest of the preview runs.
+
+### Assumption ledger
+
+Agents report adopted assumptions (question / adopted answer /
+alternatives / severity) in the `assumptions` field of their
+`submit_implementation` / `submit_review` / `submit_fix_result`
+payloads. The fly workflow's `record_assumptions` action turns each
+into a structured bead under the owning epic (labels `assumption` +
+the legacy `assumption-review`/`needs-human-review` pair, so existing
+agent-skip and `brief --human` filters keep working unchanged), wires a
+`discovered-from` edge to the spawning bead, and the `commit` action
+stamps it with the jj change ID. Severity drives enforcement: `low` is
+`bd defer`red (advisory only, never blocks); `medium`/`high` block
+`maverick land`; `high` additionally gains a `blocks` edge onto the
+next spec's epic (wired at recording time and at `refuel --speckit`'s
+epic-chaining step), so downstream work never becomes `bd ready` until
+the entry is answered or waived via `maverick review <id>`.
+`maverick brief` reports per-spec assumption counts (open/answered/
+waived × severity, plus a legacy bucket) as a spec-quality signal. All
+ledger logic lives in `src/maverick/assumptions/` — see
+`specs/049-assumption-ledger/` for the full contract.
 
 ## Dependencies
 

@@ -148,6 +148,21 @@ code.
   existing patterns. Match the style and conventions of surrounding
   code.
 
+## Reporting Assumptions
+
+When you adopt an assumption to keep working — a design or scoping
+decision the bead description doesn't settle — report it in the
+`assumptions` field of your structured output: the `question`, your
+`adopted_answer`, the `alternatives` you considered, and a `severity`
+reflecting the blast radius of being wrong:
+
+- `low` — cosmetic or local; affects only this bead.
+- `medium` — affects the correctness of the owning spec.
+- `high` — a decision later specs will build on.
+
+Recording an assumption is additive — it never replaces implementing
+the bead, and most beads will have none to report.
+
 ## Output Format
 
 Return your output by calling the StructuredOutput tool with the

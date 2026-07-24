@@ -269,6 +269,68 @@ async def brief(
         await _brief_ready(client, output_format, show_all)
 
 
+# ---------------------------------------------------------------------------
+# Assumption-counts section (FR-010, clarification #5)
+# ---------------------------------------------------------------------------
+
+_ASSUMPTION_TABLE_HEADERS = ["Spec", "Open (L/M/H)", "Answered", "Waived", "Legacy"]
+
+
+async def _assumption_counts_dicts(client: BeadClient) -> list[dict[str, object]]:
+    """Return per-spec assumption counts as JSON-serializable dicts.
+
+    Empty list when the beads store is absent/uninitialized or the
+    aggregation otherwise fails — matches brief's existing degradation
+    behavior rather than crashing the command.
+    """
+    from maverick.assumptions.report import per_spec_counts
+
+    try:
+        counts = await per_spec_counts(client)
+    except Exception:  # noqa: BLE001 — degrade silently, see docstring
+        return []
+
+    return [
+        {
+            "owner_spec": row.owner_spec,
+            "open": {severity.value: n for severity, n in row.open.items()},
+            "answered": {severity.value: n for severity, n in row.answered.items()},
+            "waived": {severity.value: n for severity, n in row.waived.items()},
+            "legacy_open": row.legacy_open,
+        }
+        for row in counts
+    ]
+
+
+async def _display_assumption_counts_section(client: BeadClient) -> None:
+    """Render the compact per-spec Assumptions table, or omit it silently."""
+    from maverick.assumptions.models import Severity
+    from maverick.assumptions.report import per_spec_counts
+
+    try:
+        counts = await per_spec_counts(client)
+    except Exception:  # noqa: BLE001 — beads store absent/uninitialized: omit section
+        return
+    if not counts:
+        return
+
+    rows = [
+        [
+            row.owner_spec,
+            f"{row.open[Severity.LOW]}/{row.open[Severity.MEDIUM]}/{row.open[Severity.HIGH]}",
+            str(sum(row.answered.values())),
+            str(sum(row.waived.values())),
+            str(row.legacy_open),
+        ]
+        for row in counts
+    ]
+
+    console.print()
+    console.print("[bold]Assumptions[/]")
+    console.print()
+    console.print(format_table(_ASSUMPTION_TABLE_HEADERS, rows))
+
+
 async def _brief_ready(
     client: BeadClient,
     output_format: str,
@@ -278,7 +340,11 @@ async def _brief_ready(
     beads = await _fetch_beads_global(client, show_all)
 
     if output_format == "json":
-        console.print_json(json.dumps(_beads_to_dicts(beads)))
+        payload = {
+            "beads": _beads_to_dicts(beads),
+            "assumption_counts": await _assumption_counts_dicts(client),
+        }
+        console.print_json(json.dumps(payload))
         return
 
     count = len(beads)
@@ -286,16 +352,17 @@ async def _brief_ready(
         console.print("[bold]Brief:[/] No beads ready")
         console.print()
         console.print("[dim]All beads are either completed or blocked.[/]")
-        return
+    else:
+        console.print(f"[bold]Brief:[/] {count} bead{'s' if count != 1 else ''} ready")
+        console.print()
+        console.print(format_table(_TABLE_HEADERS, _beads_to_rows(beads)))
+        console.print()
+        console.print(
+            "[dim]Use 'maverick fly' to start executing, "
+            "or 'maverick fly --epic <id>' to focus on one epic.[/]"
+        )
 
-    console.print(f"[bold]Brief:[/] {count} bead{'s' if count != 1 else ''} ready")
-    console.print()
-    console.print(format_table(_TABLE_HEADERS, _beads_to_rows(beads)))
-    console.print()
-    console.print(
-        "[dim]Use 'maverick fly' to start executing, "
-        "or 'maverick fly --epic <id>' to focus on one epic.[/]"
-    )
+    await _display_assumption_counts_section(client)
 
 
 async def _brief_epic(
@@ -387,7 +454,11 @@ async def _brief_human(
             continue
 
     if output_format == "json":
-        console.print_json(json.dumps(human_beads))
+        payload = {
+            "beads": human_beads,
+            "assumption_counts": await _assumption_counts_dicts(client),
+        }
+        console.print_json(json.dumps(payload))
         return
 
     count = len(human_beads)
@@ -395,19 +466,22 @@ async def _brief_human(
         console.print("[bold]Brief:[/] No beads awaiting human review")
         console.print()
         console.print("[dim]All assumption reviews and escalations have been resolved.[/]")
-        return
+    else:
+        console.print(
+            f"[bold]Brief:[/] {count} bead{'s' if count != 1 else ''} awaiting human review"
+        )
+        console.print()
 
-    console.print(f"[bold]Brief:[/] {count} bead{'s' if count != 1 else ''} awaiting human review")
-    console.print()
+        rows = [
+            [b["id"], b["title"], b["priority"], b["source_bead"], b["escalation"]]
+            for b in human_beads
+        ]
+        console.print(format_table(_HUMAN_TABLE_HEADERS, rows))
 
-    rows = [
-        [b["id"], b["title"], b["priority"], b["source_bead"], b["escalation"]]
-        for b in human_beads
-    ]
-    console.print(format_table(_HUMAN_TABLE_HEADERS, rows))
+        console.print()
+        console.print(
+            "[dim]Review each bead and close with: "
+            "bd close <id> --reason 'approved' or 'rejected: <reason>'[/]"
+        )
 
-    console.print()
-    console.print(
-        "[dim]Review each bead and close with: "
-        "bd close <id> --reason 'approved' or 'rejected: <reason>'[/]"
-    )
+    await _display_assumption_counts_section(client)

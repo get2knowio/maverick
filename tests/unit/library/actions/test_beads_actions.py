@@ -403,6 +403,60 @@ class TestSelectNextBead:
         assert result.flight_plan_name == "my-plan"
 
     @pytest.mark.asyncio
+    async def test_skips_ledger_beads_and_selects_next_ready(self) -> None:
+        """Assumption-ledger beads (assumption + legacy labels) are skipped
+        by the same filter that already skips legacy escalation beads —
+        no code change needed, this locks the behavior in (T033)."""
+        from maverick.beads.models import BeadDetails, ReadyBead
+        from maverick.library.actions.beads import select_next_bead
+
+        mock_client = AsyncMock()
+        mock_client.ready.return_value = [
+            ReadyBead(id="dea-1", title="Assumption: Q?", priority=2, parent_id="epic-1"),
+            ReadyBead(id="b-1", title="Fix lint", priority=5, parent_id="epic-1"),
+        ]
+
+        async def _show_side_effect(bead_id: str) -> BeadDetails:
+            if bead_id == "dea-1":
+                return BeadDetails(
+                    id="dea-1",
+                    title="Assumption: Q?",
+                    labels=["assumption", "assumption-review", "needs-human-review"],
+                )
+            return BeadDetails(id=bead_id, title="Fix lint", labels=[])
+
+        mock_client.show.side_effect = _show_side_effect
+
+        with patch("maverick.beads.client.BeadClient", return_value=mock_client):
+            result = await select_next_bead("epic-1", cwd=Path("/tmp"))
+
+        assert result.found is True
+        assert result.bead_id == "b-1"
+
+    @pytest.mark.asyncio
+    async def test_only_ledger_beads_ready_returns_not_found(self) -> None:
+        """When every ready bead is a ledger entry, select_next_bead reports
+        not-found (agent skips them; the human queue is the only path)."""
+        from maverick.beads.models import BeadDetails, ReadyBead
+        from maverick.library.actions.beads import select_next_bead
+
+        mock_client = AsyncMock()
+        mock_client.ready.return_value = [
+            ReadyBead(id="dea-1", title="Assumption: Q?", priority=2, parent_id="epic-1"),
+        ]
+        mock_client.show.return_value = BeadDetails(
+            id="dea-1",
+            title="Assumption: Q?",
+            labels=["assumption", "assumption-review", "needs-human-review"],
+        )
+
+        with patch("maverick.beads.client.BeadClient", return_value=mock_client):
+            result = await select_next_bead("epic-1", cwd=Path("/tmp"))
+
+        assert result.found is False
+        assert result.done is False
+
+    @pytest.mark.asyncio
     async def test_empty_epic_no_beads_returns_done(self) -> None:
         """When epic_id is empty and no beads found, result is done."""
         from maverick.library.actions.beads import select_next_bead

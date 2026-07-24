@@ -226,12 +226,15 @@ async def _create_followup_bead(
     """Tier 1: Create a follow-up task bead for unresolved review findings."""
     import json as _json
 
+    from maverick.beads.client import BeadClient
+    from maverick.beads.models import BeadDependency, DependencyType
     from maverick.runners.command import CommandRunner
 
     followup_description = _build_followup_description(ctx, prior_failures)
 
     try:
-        runner = CommandRunner(cwd=ctx.cwd or Path.cwd())
+        cwd = ctx.cwd or Path.cwd()
+        runner = CommandRunner(cwd=cwd)
         title = f"Address review findings from {ctx.bead_id}: {ctx.title[:80]}"
         result = await runner.run(
             [
@@ -255,16 +258,12 @@ async def _create_followup_bead(
                 followup_id = data.get("id", "")
 
         if followup_id:
-            await runner.run(
-                [
-                    "bd",
-                    "dep",
-                    "add",
-                    followup_id,
-                    ctx.bead_id,
-                    "--type",
-                    "discovered-from",
-                ]
+            await BeadClient(cwd=cwd).add_dependency(
+                BeadDependency(
+                    blocker_id=ctx.bead_id,
+                    blocked_id=followup_id,
+                    dep_type=DependencyType.DISCOVERED_FROM,
+                )
             )
 
         label = f" ({followup_id})" if followup_id else ""
@@ -363,10 +362,18 @@ async def _escalate_to_replan(
                 logger.warning("escalation.replan_parse_failed", error=str(exc))
 
         if replan_id:
+            from maverick.beads.client import BeadClient
+            from maverick.beads.models import BeadDependency, DependencyType
+
+            dep_client = BeadClient(cwd=ctx.cwd or Path.cwd())
             for bid in full_chain:
                 try:
-                    await runner.run(
-                        ["bd", "dep", "add", replan_id, bid, "--type", "discovered-from"]
+                    await dep_client.add_dependency(
+                        BeadDependency(
+                            blocker_id=bid,
+                            blocked_id=replan_id,
+                            dep_type=DependencyType.DISCOVERED_FROM,
+                        )
                     )
                 except Exception as exc:
                     logger.warning(

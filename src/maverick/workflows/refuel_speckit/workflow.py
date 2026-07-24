@@ -440,26 +440,73 @@ class SpeckitRefuelWorkflow(PythonWorkflow):
         return epic_details.id, existing_task_map
 
     async def _chain_epic(self, client: Any, new_epic_id: str) -> str | None:
-        """Chain *new_epic_id* behind the tail of existing open epics."""
-        from maverick.beads.models import BeadDependency
+        """Chain *new_epic_id* behind the tail of existing open epics.
+
+        Tail selection is deterministic: open epics are sorted by their
+        ``speckit_feature`` NNN prefix (epics without one — flight-plan
+        runs — sort after all NNN-prefixed epics, in bd's own query
+        order) instead of relying on unspecified ``bd query`` ordering
+        (research R8). Additionally wires ``blocks`` edges from any open
+        high-severity assumption entries owned by earlier specs onto the
+        new epic, so refuel-time chaining catches entries recorded before
+        this spec existed (the other temporal order is handled at
+        recording time by ``ledger.next_chained_epic``).
+        """
+        from maverick.assumptions.ledger import open_high_entries_before
+        from maverick.assumptions.models import nnn_prefix
+        from maverick.beads.models import BeadDependency, DependencyType
 
         try:
             all_beads = await client.query("type=epic AND status=open")
         except Exception as exc:
             logger.warning("speckit_chain_epic_query_failed", error=str(exc))
-            return None
+            all_beads = []
         existing_epics = [b for b in all_beads if b.id != new_epic_id]
-        if not existing_epics:
-            return None
-        tail_epic = existing_epics[-1]
+
+        tail_epic_id: str | None = None
+        if existing_epics:
+            ordered: list[tuple[tuple[int, int], Any]] = []
+            for idx, epic in enumerate(existing_epics):
+                prefix: int | None = None
+                try:
+                    details = await client.show(epic.id)
+                    prefix = nnn_prefix(details.state.get("speckit_feature", ""))
+                except Exception:
+                    prefix = None
+                sort_key = (0, prefix) if prefix is not None else (1, idx)
+                ordered.append((sort_key, epic))
+            ordered.sort(key=lambda pair: pair[0])
+            tail_epic_id = ordered[-1][1].id
+            try:
+                await client.add_dependency(
+                    BeadDependency(blocker_id=tail_epic_id, blocked_id=new_epic_id)
+                )
+            except Exception as exc:
+                logger.warning("speckit_chain_epic_failed", error=str(exc))
+                tail_epic_id = None
+
         try:
-            await client.add_dependency(
-                BeadDependency(blocker_id=tail_epic.id, blocked_id=new_epic_id)
-            )
+            blocking_entries = await open_high_entries_before(client, epic_id=new_epic_id)
         except Exception as exc:
-            logger.warning("speckit_chain_epic_failed", error=str(exc))
-            return None
-        return tail_epic.id
+            logger.warning("speckit_chain_epic_assumption_query_failed", error=str(exc))
+            blocking_entries = ()
+        for entry in blocking_entries:
+            try:
+                await client.add_dependency(
+                    BeadDependency(
+                        blocker_id=entry.bead_id,
+                        blocked_id=new_epic_id,
+                        dep_type=DependencyType.BLOCKS,
+                    )
+                )
+            except Exception as exc:
+                logger.warning(
+                    "speckit_chain_epic_assumption_block_failed",
+                    entry_id=entry.bead_id,
+                    error=str(exc),
+                )
+
+        return tail_epic_id
 
     async def _record_run(self, cwd: Path, feature_name: str, epic_id: str, status: str) -> None:
         from maverick.runway.run_metadata import RunMetadata, write_metadata

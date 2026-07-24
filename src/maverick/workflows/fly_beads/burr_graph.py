@@ -8,14 +8,22 @@ Shape:
     init_state → select_next_bead
         ├─ loop_done → done
         └─ has bead → process_bead_start → implement
-                ├─ failed → abandon_bead → record_outcome → select_next_bead (cycle)
+                ├─ failed → abandon_bead → record_assumptions → record_outcome (cycle)
                 └─ ok → gate
-                        ├─ failed → abandon_bead → record_outcome → select_next_bead
+                        ├─ failed → abandon_bead → record_assumptions → record_outcome
                         └─ passed → ac_check
-                                ├─ failed → abandon_bead → record_outcome → ...
+                                ├─ failed → abandon_bead → record_assumptions → ...
                                 └─ passed → spec_check
-                                        ├─ failed → abandon_bead → record_outcome → ...
-                                        └─ passed → review → commit → record_outcome → ...
+                                        ├─ failed → abandon_bead → record_assumptions → ...
+                                        └─ passed → review
+                                        ├─ needs_human_review → create_human_bead
+                                        │       → record_assumptions → commit → ...
+                                        └─ approved → record_assumptions → commit → ...
+
+    record_assumptions branches on ``bead_aborted``: aborted beads skip
+    commit and go straight to record_outcome; approved/human-review beads
+    proceed to commit so the same run stamps the entries with the jj
+    change ID.
 
 The recorder cycles back to ``select_next_bead`` until ``loop_done``
 becomes true (no more beads, graceful stop, or max_beads reached).
@@ -53,6 +61,7 @@ FLY_ACTION_LABELS: dict[str, str] = {
     "spec_check": "Spec check",
     "review": "Reviewing",
     "create_human_bead": "Creating human review bead",
+    "record_assumptions": "Recording assumptions",
     "commit": "Committing",
     "abandon_bead": "Abandoning bead",
     "record_outcome": "Recording outcome",
@@ -127,6 +136,11 @@ def build_fly_application(
                 flight_plan_name=flight_plan_name,
                 events=event_queue,
             ),
+            record_assumptions=fly_actions.record_assumptions.bind(
+                cwd=cwd,
+                epic_id=epic_id,
+                events=event_queue,
+            ),
             commit=fly_actions.commit.bind(cwd=cwd, events=event_queue),
             abandon_bead=fly_actions.abandon_bead.bind(events=event_queue),
             record_outcome=fly_actions.record_outcome,
@@ -166,6 +180,11 @@ def build_fly_application(
             commit_ok=False,
             last_review_findings=[],
             human_bead_id="",
+            # Assumption ledger accumulators — reset per bead in
+            # process_bead_start.
+            pending_assumptions=[],
+            recorded_assumption_ids=[],
+            commit_change_id="",
             # Watch mode: count of consecutive empty-poll cycles.
             idle_polls=0,
             # Aggregate (cross-bead) review summary — None until the
@@ -200,15 +219,25 @@ def build_fly_application(
             ("ac_check", "spec_check"),
             ("spec_check", "abandon_bead", expr("not spec_passed")),
             ("spec_check", "review"),
-            # Review either approves → commit, or escalates to
-            # create_human_bead → commit. The bead's work still lands
-            # in either case (commit applies the needs-human-review
-            # trailer when the assumption bead is created).
+            # Review either approves or escalates to create_human_bead;
+            # both routes funnel through record_assumptions so any
+            # entries accumulated this bead are created before commit
+            # stamps them with the jj change ID. The bead's work still
+            # lands in either case (commit applies the
+            # needs-human-review trailer when the assumption bead is
+            # created).
             ("review", "create_human_bead", expr("needs_human_review")),
-            ("review", "commit"),
-            ("create_human_bead", "commit"),
+            ("review", "record_assumptions"),
+            ("create_human_bead", "record_assumptions"),
+            # Abort paths also funnel through record_assumptions so
+            # assumptions accumulated before the abort (e.g. by the
+            # implementer, then a gate/spec failure) still land in the
+            # ledger. record_assumptions branches on ``bead_aborted``:
+            # aborted beads skip commit and go straight to record_outcome.
+            ("abandon_bead", "record_assumptions"),
+            ("record_assumptions", "record_outcome", expr("bead_aborted")),
+            ("record_assumptions", "commit"),
             ("commit", "record_outcome"),
-            ("abandon_bead", "record_outcome"),
             # Cycle back into the loop.
             ("record_outcome", "select_next_bead"),
         )

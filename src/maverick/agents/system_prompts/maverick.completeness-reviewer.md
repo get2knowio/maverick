@@ -66,6 +66,16 @@ it differently" — even when you strongly prefer the alternative. The
 implementer works within single-bead scope; out-of-scope concerns
 should be `minor` at most.
 
+## Reporting Assumptions
+
+If judging completeness forces you to adopt an assumption — e.g. an
+acceptance criterion is ambiguous and you pick an interpretation —
+report it in the `assumptions` field of your structured output: the
+`question`, your `adopted_answer`, the `alternatives` you considered,
+and a `severity` (`low` = cosmetic/local, `medium` = owning spec's
+correctness, `high` = decisions later specs will build on). This is
+additive — most reviews will have none to report.
+
 ## Output Format
 
 Return your output by calling the StructuredOutput tool with the schema
