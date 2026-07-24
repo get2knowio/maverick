@@ -21,10 +21,12 @@ from maverick.assumptions.models import (
     KEY_WAIVED_AT,
     KEY_WAIVED_BY,
     RECONCILE_STATUS_NEEDS_REVIEW,
+    RECONCILE_STATUS_PENDING,
     RECONCILE_STATUS_RECONCILED,
     STATUS_ANSWERED,
     STATUS_OPEN,
     STATUS_WAIVED,
+    TERMINAL_RECONCILE_STATUSES,
     AssumptionRecord,
     PerSpecAssumptionCounts,
     Severity,
@@ -168,6 +170,17 @@ class TestReconcileConstants:
     def test_reconcile_status_values(self) -> None:
         assert RECONCILE_STATUS_RECONCILED == "reconciled"
         assert RECONCILE_STATUS_NEEDS_REVIEW == "needs-interactive-review"
+        assert RECONCILE_STATUS_PENDING == "pending"
+
+    def test_pending_sentinel_is_non_terminal(self) -> None:
+        # bd rejects empty state values, so re-arm writes ``pending``; it
+        # must NOT be treated as terminal or re-answered entries would never
+        # be re-detected.
+        assert RECONCILE_STATUS_PENDING not in TERMINAL_RECONCILE_STATUSES
+        assert {
+            RECONCILE_STATUS_RECONCILED,
+            RECONCILE_STATUS_NEEDS_REVIEW,
+        } == TERMINAL_RECONCILE_STATUSES
 
 
 class TestNormalizeAnswer:

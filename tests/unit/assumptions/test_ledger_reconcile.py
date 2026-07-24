@@ -30,6 +30,7 @@ from maverick.assumptions.models import (
     KEY_SEVERITY,
     KEY_STATUS,
     RECONCILE_STATUS_NEEDS_REVIEW,
+    RECONCILE_STATUS_PENDING,
     RECONCILE_STATUS_RECONCILED,
     STATUS_ANSWERED,
     AssumptionRecord,
@@ -239,13 +240,18 @@ class TestAnsweredUnreconciledEntries:
 
     @pytest.mark.asyncio
     async def test_queries_regardless_of_closed_status(self) -> None:
-        """answer() closes beads — detection must not filter by open status."""
+        """answer() closes beads — detection must explicitly include closed.
+
+        bd defaults a status-less query to open-only, so a bare
+        ``type=task`` would silently miss every (closed) answered entry.
+        Detection must enumerate ``status=closed`` in its filter.
+        """
         client = _client()
         entries = {"dea-1": _entry("dea-1", answer_text="Changed.")}
         assert entries["dea-1"].status == "closed"
 
         async def fake_query(self: BeadClient, filter_expr: str) -> list[BeadSummary]:
-            assert "status=open" not in filter_expr
+            assert "status=closed" in filter_expr
             return [_summary(k, status="closed") for k in entries]
 
         async def fake_show(self: BeadClient, bead_id: str) -> BeadDetails:
@@ -341,7 +347,14 @@ class TestMarkNeedsInteractiveReview:
 
 class TestAnswerReArm:
     @pytest.mark.asyncio
-    async def test_answer_clears_reconcile_status(self) -> None:
+    async def test_answer_rearms_reconcile_status_with_non_terminal_sentinel(self) -> None:
+        """FR-017 re-arm writes the non-terminal ``pending`` sentinel.
+
+        bd rejects an empty state value (``bd set-state <id> dim=`` →
+        "invalid state format"), so the re-arm must NOT write ``""`` —
+        doing so makes every ``maverick review --answer`` fail. It writes
+        the ``pending`` sentinel, which detection treats as eligible.
+        """
         client = _client()
 
         async def fake_show(self: BeadClient, bead_id: str) -> BeadDetails:
@@ -359,7 +372,35 @@ class TestAnswerReArm:
             await answer(client, bead_id="dea-1", answer_text="Yes.")
 
         state_dict = mock_set_state.await_args.args[1]
-        assert state_dict[KEY_RECONCILE_STATUS] == ""
+        assert state_dict[KEY_RECONCILE_STATUS] == RECONCILE_STATUS_PENDING
+        # Never the empty string bd would reject.
+        assert state_dict[KEY_RECONCILE_STATUS] != ""
+
+    @pytest.mark.asyncio
+    async def test_pending_sentinel_does_not_exclude_from_detection(self) -> None:
+        """A re-armed (``pending``) entry is still detected as a changed answer."""
+        client = _client()
+        entries = {
+            "dea-1": _entry(
+                "dea-1",
+                answer_text="Changed.",
+                reconcile_status=RECONCILE_STATUS_PENDING,
+            ),
+        }
+
+        async def fake_query(self: BeadClient, filter_expr: str) -> list[BeadSummary]:
+            return [_summary(k) for k in entries]
+
+        async def fake_show(self: BeadClient, bead_id: str) -> BeadDetails:
+            return entries[bead_id]
+
+        with (
+            patch.object(BeadClient, "query", new=fake_query),
+            patch.object(BeadClient, "show", new=fake_show),
+        ):
+            result = await answered_unreconciled_entries(client)
+
+        assert [record.bead_id for record in result] == ["dea-1"]
 
 
 class TestCreateReconcileEscalation:

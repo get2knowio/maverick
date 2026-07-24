@@ -163,6 +163,23 @@ async def resolve_conflicts(
 
             conflicted_files = await _read_conflicted_files(cwd)
 
+            # The captured `conflicted` list can go stale mid-round: resolving
+            # an earlier change and squashing it in auto-propagates through
+            # jj's conflict resolution, which may clear a LATER change in this
+            # same list before we reach it. When that happens jj_new_child
+            # above lands on an already-clean change, so there are no markers
+            # to resolve. Calling the agent with an empty file set invites a
+            # hallucinated `unresolvable`, which would trigger a false
+            # escalation for conflicts that are, in fact, already resolved.
+            # Skip it — nothing to fold — and move on.
+            if not conflicted_files:
+                logger.debug(
+                    "resolve_conflicts_already_clear",
+                    entry_id=answer.entry_id,
+                    conflicted_change_id=conflicted_change_id,
+                )
+                continue
+
             payload = await reconciler.resolve_conflicts(
                 question=answer.question,
                 adopted_answer=answer.adopted_answer,

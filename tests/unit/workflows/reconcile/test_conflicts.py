@@ -334,3 +334,59 @@ async def test_list_conflicts_failure_before_loop() -> None:
     assert result.rounds_used == 0
     assert result.error is not None
     reconciler.resolve_conflicts.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_transitively_cleared_change_is_skipped_not_escalated() -> None:
+    """A change auto-cleared mid-round by an earlier squash is skipped.
+
+    Resolving an earlier conflicted change and squashing it in can
+    auto-propagate through jj and clear a LATER change in the same captured
+    list before we reach it. jj_new_child then lands on an already-clean
+    change (no markers), so the agent must NOT be asked to resolve an empty
+    file set — a hallucinated ``unresolvable`` there would falsely escalate
+    conflicts that are, in fact, already resolved.
+    """
+    # Newest-first ("c2", "c1") -> module reverses to earliest-first
+    # ["c1", "c2"]; after the round no conflicts remain.
+    list_conflicts = AsyncMock(
+        side_effect=[
+            {"success": True, "change_ids": ("c2", "c1"), "error": None},
+            {"success": True, "change_ids": (), "error": None},
+        ]
+    )
+    new_child = AsyncMock(return_value={"success": True, "change_id": "kchild", "error": None})
+    squash = AsyncMock(return_value={"success": True, "error": None})
+
+    mock_client = AsyncMock()
+    # First inner iteration (c1) sees a real conflict; the second (c2) has
+    # been transitively cleared by c1's squash, so status is clean.
+    mock_client.status = AsyncMock(
+        side_effect=[
+            _StatusResult(_STATUS_WITH_CONFLICT.output),
+            _StatusResult("The working copy has no changes.\n"),
+        ]
+    )
+
+    reconciler = _make_reconciler(_resolution_payload())
+    answer = _make_answer(target_change_id="base")
+
+    def _fake_read_text(self: Path, *args: Any, **kwargs: Any) -> str:
+        return "<<<<<<<\nmarker\n>>>>>>>\n"
+
+    with (
+        patch(f"{CONFLICTS_MODULE}.jj_list_conflicts", list_conflicts),
+        patch(f"{CONFLICTS_MODULE}.jj_new_child", new_child),
+        patch(f"{CONFLICTS_MODULE}.jj_squash_into", squash),
+        patch(f"{CONFLICTS_MODULE}.JjClient", return_value=mock_client),
+        patch.object(Path, "read_text", _fake_read_text),
+    ):
+        result = await resolve_conflicts(reconciler, answer, cwd=Path("/repo"), max_rounds=3)
+
+    assert result.resolved is True
+    assert result.unresolvable == ()
+    # Positioned on both changes, but only the genuinely-conflicted c1 went
+    # to the agent + squash; the cleared c2 was skipped.
+    assert new_child.await_count == 2
+    assert reconciler.resolve_conflicts.await_count == 1
+    assert squash.await_count == 1

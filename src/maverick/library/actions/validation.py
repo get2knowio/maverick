@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from tenacity import (
     AsyncRetrying,
@@ -14,7 +14,29 @@ from tenacity import (
 
 from maverick.logging import get_logger
 
+if TYPE_CHECKING:
+    from maverick.config import ValidationConfig
+
 logger = get_logger(__name__)
+
+
+def validation_commands_from_config(vc: ValidationConfig) -> dict[str, tuple[str, ...]]:
+    """Convert a ``ValidationConfig`` to the dict shape ``run_independent_gate`` expects.
+
+    Canonical converter shared by every workflow that drives the independent
+    gate (fly-beads, reconcile). Only stages with a configured command are
+    included, so an empty command disables that stage.
+    """
+    commands: dict[str, tuple[str, ...]] = {}
+    if vc.format_cmd:
+        commands["format"] = tuple(vc.format_cmd)
+    if vc.lint_cmd:
+        commands["lint"] = tuple(vc.lint_cmd)
+    if vc.typecheck_cmd:
+        commands["typecheck"] = tuple(vc.typecheck_cmd)
+    if vc.test_cmd:
+        commands["test"] = tuple(vc.test_cmd)
+    return commands
 
 
 class _ValidationStillFailingError(Exception):

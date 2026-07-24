@@ -212,8 +212,10 @@ class TestJjCheckMutability:
         assert result["mutable"] is True
         assert result["immutable_change_ids"] == ()
         assert result["error"] is None
+        # descendants(x) is inclusive of x, so the target-immutability case
+        # needs no separate ``::target & target`` clause.
         mock_client.log.assert_called_once_with(
-            revset=("(::ktarget & immutable() & ktarget) | (descendants(ktarget) & immutable())"),
+            revset="descendants(ktarget) & immutable()",
             limit=1000,
         )
 

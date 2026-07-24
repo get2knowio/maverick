@@ -98,6 +98,7 @@ from maverick.assumptions.models import (
     KEY_RECONCILE_REASON,
     KEY_RECONCILE_STATUS,
     RECONCILE_STATUS_NEEDS_REVIEW,
+    TERMINAL_RECONCILE_STATUSES,
     AssumptionRecord,
 )
 from maverick.beads.client import BeadClient
@@ -187,15 +188,16 @@ async def _bd_show_compat(self: BeadClient, bead_id: str) -> Any:
 async def _bd_set_state_compat(
     self: BeadClient, bead_id: str, state: dict[str, str], reason: str = ""
 ) -> None:
-    # bd 1.1.0 rejects `dimension=` (empty value) outright, so
-    # ``ledger.answer()``'s FR-017 re-arm clear-to-``""`` step (clearing
-    # ``assumption_reconcile_status`` on re-answer) can't go through
-    # ``set-state`` at all (bug note #2). But bd's state IS just
-    # `dimension:value` labels (see ``_bd_show_compat``), and bd exposes
-    # direct label removal (``bd label remove <id> "<dimension>:<value>"``,
-    # confirmed against this bd build) — so "clear a key" is implementable
-    # as "remove its current label", a mechanical, format-only
-    # reinterpretation of the same operation, not new ledger/business logic.
+    # bd 1.1.0 rejects `dimension=` (empty value) outright (bug note #2).
+    # ``ledger.answer()``'s FR-017 re-arm now writes the non-terminal
+    # ``pending`` sentinel rather than clearing to ``""`` for exactly this
+    # reason, so no production path sends an empty value here. This general
+    # empty-value handling is kept as a defensive compat shim regardless: bd's
+    # state IS just `dimension:value` labels (see ``_bd_show_compat``), and bd
+    # exposes direct label removal (``bd label remove <id> "<dimension>:<value>"``,
+    # confirmed against this bd build) — so "clear a key" is implementable as
+    # "remove its current label", a mechanical, format-only reinterpretation
+    # of the same operation, not new ledger/business logic.
     empty_keys = [key for key, value in state.items() if value == ""]
     if empty_keys:
         current = await self.show(bead_id)
@@ -961,8 +963,15 @@ async def test_scenario_2_rollback_on_gate_failure(
         answer_text="Unsafe by default — sabotage the gate, take two.",
     )
     entry2_rearmed = await client.show(record2.bead_id)
-    assert not entry2_rearmed.state.get(KEY_RECONCILE_STATUS), (
-        "re-answering must clear assumption_reconcile_status (FR-017 re-arm)"
+    # bd rejects an empty state value, so the re-arm overwrites the terminal
+    # marker with the non-terminal ``pending`` sentinel rather than clearing
+    # it. What matters for FR-017 is that the status is no longer TERMINAL, so
+    # detection stops excluding the entry (proven end-to-end below by the
+    # re-armed entry reappearing in run 3's outcomes).
+    rearmed_status = entry2_rearmed.state.get(KEY_RECONCILE_STATUS, "")
+    assert rearmed_status not in TERMINAL_RECONCILE_STATUSES, (
+        "re-answering must re-arm assumption_reconcile_status (FR-017): a "
+        f"terminal status still excludes detection, got {rearmed_status!r}"
     )
 
     # bd's re-answer writes dirty @ again — clean before the next run.

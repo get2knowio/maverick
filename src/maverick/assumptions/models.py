@@ -98,6 +98,17 @@ STATUS_WAIVED = "waived"
 # assumption_reconcile_status values (data-model.md "1. Ledger extension").
 RECONCILE_STATUS_RECONCILED = "reconciled"
 RECONCILE_STATUS_NEEDS_REVIEW = "needs-interactive-review"
+#: Non-terminal re-arm sentinel written by ``ledger.answer`` (FR-017). bd
+#: rejects empty state values (``bd set-state <id> dim=`` → "invalid state
+#: format"), so a re-answered entry cannot clear the dimension to ``""`` —
+#: it writes this eligible-again marker instead, which detection treats
+#: identically to an unset status (i.e. NOT excluded).
+RECONCILE_STATUS_PENDING = "pending"
+#: The two terminal reconcile statuses that exclude an entry from
+#: changed-answer detection until it is re-armed (data-model §2).
+TERMINAL_RECONCILE_STATUSES = frozenset(
+    {RECONCILE_STATUS_RECONCILED, RECONCILE_STATUS_NEEDS_REVIEW}
+)
 
 
 def normalize_answer(text: str) -> str:

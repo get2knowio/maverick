@@ -43,7 +43,7 @@ import dataclasses
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal
+from typing import Any, Literal
 
 from maverick.assumptions.ledger import (
     create_reconcile_escalation,
@@ -56,11 +56,15 @@ from maverick.exceptions import WorkflowError
 from maverick.jj.client import JjClient
 from maverick.library.actions.jj import (
     jj_check_mutability,
+    jj_list_conflicts,
     jj_new_child,
     jj_restore_operation,
     jj_snapshot_operation,
 )
-from maverick.library.actions.validation import run_independent_gate
+from maverick.library.actions.validation import (
+    run_independent_gate,
+    validation_commands_from_config,
+)
 from maverick.logging import get_logger
 from maverick.runway.run_metadata import RunMetadata, read_metadata
 from maverick.squadron.reconcile import ReconcileSquadron
@@ -87,9 +91,6 @@ from maverick.workflows.reconcile.state import (
     save_run_state,
 )
 
-if TYPE_CHECKING:
-    from maverick.config import ValidationConfig
-
 __all__ = ["WORKFLOW_NAME", "ReconcileWorkflow"]
 
 logger = get_logger(__name__)
@@ -105,27 +106,6 @@ _GATE_STAGES: tuple[str, ...] = ("format", "lint", "typecheck", "test")
 
 def _utcnow_iso() -> str:
     return datetime.now(tz=UTC).isoformat()
-
-
-def _build_validation_commands(vc: ValidationConfig) -> dict[str, tuple[str, ...]]:
-    """Convert ``ValidationConfig`` to the dict shape ``run_independent_gate`` expects.
-
-    Duplicated (not imported) from ``fly_beads/_plan_parsing.py`` — that
-    function is module-private (``_`` prefix) to the fly-beads package;
-    reaching into it from a sibling workflow package would be a layering
-    violation. The logic is ~10 lines and has no other home; promote to a
-    shared helper if a third consumer appears (Principle VII).
-    """
-    commands: dict[str, tuple[str, ...]] = {}
-    if vc.format_cmd:
-        commands["format"] = tuple(vc.format_cmd)
-    if vc.lint_cmd:
-        commands["lint"] = tuple(vc.lint_cmd)
-    if vc.typecheck_cmd:
-        commands["typecheck"] = tuple(vc.typecheck_cmd)
-    if vc.test_cmd:
-        commands["test"] = tuple(vc.test_cmd)
-    return commands
 
 
 def _answer_as_assumption_record(answer: ChangedAnswer) -> AssumptionRecord:
@@ -226,6 +206,17 @@ class ReconcileWorkflow(PythonWorkflow):
 
         bead_client = BeadClient(cwd=cwd)
 
+        # Dry-run is a read-only preview (contract cli-reconcile.md: "zero
+        # jj/bd/filesystem mutations"), so it branches out BEFORE the two
+        # mutating steps every real run performs — interrupted-run recovery
+        # (jj op restore + bd mark + run-state write) and lockfile
+        # acquisition — and never touches them. Only detection, ordering, and
+        # the read-only mutability guard run.
+        if dry_run:
+            return await self._run_dry_run(
+                run_id=run_id, cwd=cwd, bead_client=bead_client, started_at=started_at
+            )
+
         # Interrupted-run recovery (FR-016, research R9) runs unconditionally
         # first — before the clean-working-copy check below and before the
         # concurrency guards. Ordering rationale in the method's own
@@ -265,34 +256,23 @@ class ReconcileWorkflow(PythonWorkflow):
             original_parent_log = await jj_client.log(revset="@-", limit=1)
             original_parent_change_id = original_parent_log.changes[0].change_id
 
-            changed_answers = await build_changed_answers(bead_client, cwd=cwd)
-            await self.emit_step_completed("detect", output={"count": len(changed_answers)})
+            # Earliest-in-stack first (FR-002). Detection + this sort run
+            # once, before any repair — the per-answer loop below (T032/T033,
+            # research R2/R13) re-resolves each subsequent answer's target
+            # against a fresh stack snapshot immediately before it is
+            # processed, since an earlier answer's fold may have just rebased
+            # this stack.
+            ordered_answers = await self._detect_and_order(bead_client, cwd=cwd)
+            await self.emit_step_completed("detect", output={"count": len(ordered_answers)})
 
-            if not changed_answers:
+            if not ordered_answers:
                 await self.emit_output(
                     "detect", "No changed answers — nothing to reconcile.", level="info"
                 )
                 report = ReconcileReport(
                     run_id=run_id,
                     outcomes=(),
-                    dry_run=dry_run,
-                    started_at=started_at,
-                    finished_at=_utcnow_iso(),
-                )
-                return report.to_dict()
-
-            # Earliest-in-stack first (FR-002). This sort runs once, before
-            # any repair — the per-answer loop below (T032/T033, research
-            # R2/R13) re-resolves each subsequent answer's target against a
-            # fresh stack snapshot immediately before it is processed, since
-            # an earlier answer's fold may have just rebased this stack.
-            ordered_answers = tuple(sorted(changed_answers, key=lambda answer: answer.stack_index))
-
-            if dry_run:
-                report = ReconcileReport(
-                    run_id=run_id,
-                    outcomes=await self._predict_dry_run_outcomes(ordered_answers, cwd=cwd),
-                    dry_run=True,
+                    dry_run=False,
                     started_at=started_at,
                     finished_at=_utcnow_iso(),
                 )
@@ -326,7 +306,7 @@ class ReconcileWorkflow(PythonWorkflow):
                     # this answer's previously-computed target/position may
                     # now be stale. Change ids are stable across rebase
                     # (R13), so the same stamped ids are re-verified here
-                    # against a FRESH `::@` snapshot rather than trusting the
+                    # against a FRESH `all()` snapshot rather than trusting the
                     # one computed at the top of this run. The first answer
                     # is skipped: nothing has been rebased yet when it is
                     # processed, so its pre-run resolution is still current.
@@ -379,10 +359,18 @@ class ReconcileWorkflow(PythonWorkflow):
             except Exception as exc:  # noqa: BLE001 - final landing is cosmetic, best-effort
                 logger.warning("reconcile_final_landing_failed", error=str(exc))
 
-            run_state = run_state.model_copy(
-                update={"status": "completed", "updated_at": _utcnow_iso()}
-            )
-            await save_run_state(run_state, cwd)
+            # Run-completion checkpoint is post-commit bookkeeping: every
+            # answer's outcome is already terminal-marked in the ledger, so a
+            # failure persisting the "completed" run-state must not surface as
+            # a run crash (which would misreport already-committed work as
+            # failed). Best-effort, same rationale as the final landing above.
+            try:
+                run_state = run_state.model_copy(
+                    update={"status": "completed", "updated_at": _utcnow_iso()}
+                )
+                await save_run_state(run_state, cwd)
+            except Exception as exc:  # noqa: BLE001 - completion checkpoint is best-effort
+                logger.warning("reconcile_completion_checkpoint_failed", error=str(exc))
 
             report = ReconcileReport(
                 run_id=run_id,
@@ -412,6 +400,59 @@ class ReconcileWorkflow(PythonWorkflow):
             # stale-pid reclaim (state.py) is what closes that gap on the
             # next invocation.
             await release_lock(cwd)
+
+    async def _detect_and_order(
+        self,
+        bead_client: BeadClient,
+        *,
+        cwd: Path,
+    ) -> tuple[ChangedAnswer, ...]:
+        """Detect changed answers and order them earliest-in-stack first (FR-002).
+
+        Read-only (jj log + bd query); shared verbatim by the real-run and
+        dry-run paths so the two can never diverge on what counts as a
+        changed answer or how the worklist is ordered.
+        """
+        changed_answers = await build_changed_answers(bead_client, cwd=cwd)
+        return tuple(sorted(changed_answers, key=lambda answer: answer.stack_index))
+
+    async def _run_dry_run(
+        self,
+        *,
+        run_id: str,
+        cwd: Path,
+        bead_client: BeadClient,
+        started_at: str,
+    ) -> dict[str, Any]:
+        """Dry-run preview path: detection + ordering + mutability guard only.
+
+        Per contract (``contracts/cli-reconcile.md`` "Preconditions"),
+        ``--dry-run`` performs "zero jj/bd/filesystem mutations". This path
+        therefore never runs interrupted-run recovery or acquires the run
+        lock (both mutate) and never enters the concurrency guards — it only
+        reads. Outcomes are predicted by :meth:`_predict_dry_run_outcomes`,
+        which stops at the read-only mutability guard.
+        """
+        await self.emit_step_started("detect", display_label="Detecting changed answers")
+        ordered_answers = await self._detect_and_order(bead_client, cwd=cwd)
+        await self.emit_step_completed("detect", output={"count": len(ordered_answers)})
+
+        if not ordered_answers:
+            await self.emit_output(
+                "detect", "No changed answers — nothing to reconcile.", level="info"
+            )
+            outcomes: tuple[AnswerOutcome, ...] = ()
+        else:
+            outcomes = await self._predict_dry_run_outcomes(ordered_answers, cwd=cwd)
+
+        report = ReconcileReport(
+            run_id=run_id,
+            outcomes=outcomes,
+            dry_run=True,
+            started_at=started_at,
+            finished_at=_utcnow_iso(),
+        )
+        return report.to_dict()
 
     async def _predict_dry_run_outcomes(
         self,
@@ -602,16 +643,20 @@ class ReconcileWorkflow(PythonWorkflow):
         Transaction boundary (T020/T021/T026/T030, research R8, data-model.md
         §3): once ``restore_op_id`` is captured, every failure exit —
         correction failure, conflict-resolution failure, semantic-pass
-        failure, gate failure, or the broad exception handler — MUST
-        restore the jj operation log to that point *before* writing any bd
-        terminal state (including any escalation bead). ``_finish_needs_review``
-        enforces that ordering; callers here only need to thread
-        ``restore_op_id`` through. The two ``"skipped"`` exits (unlocatable
-        target, mutability guard) are the documented exceptions — both
-        happen before any snapshot exists, so there is nothing to restore.
+        failure, post-semantic conflict guard, gate failure, or the broad
+        exception handler — MUST restore the jj operation log to that point
+        *before* writing any bd terminal state (including any escalation
+        bead). ``_finish_needs_review`` enforces that ordering; callers here
+        only need to thread ``restore_op_id`` through. The two ``"skipped"``
+        exits (unlocatable target, mutability guard) are the documented
+        exceptions — both happen before any snapshot exists, so there is
+        nothing to restore. The boundary CLOSES at ``mark_reconciled``: once
+        the ledger records the entry reconciled the correction is committed,
+        so ``restore_op_id`` is cleared and the trailing run-state/event
+        bookkeeping is best-effort — a failure there must never roll the
+        committed correction back (it would strand the entry permanently).
         """
         step_name = f"answer.{answer.entry_id}"
-        await squadron.rotate_for_new_bead()
         await self.emit_step_started(step_name, display_label=f"Reconciling {answer.entry_id}")
 
         stage_reached = ReconcileStage.PENDING
@@ -621,6 +666,11 @@ class ReconcileWorkflow(PythonWorkflow):
         # therefore have nothing to roll back (research R8).
         restore_op_id: str | None = None
         try:
+            # Session rotation is inside the try (nothing is snapshotted
+            # yet, so restore_op_id stays None): a rotation failure must
+            # escalate this one answer via the broad handler below, never
+            # crash the whole run (the per-answer isolation contract).
+            await squadron.rotate_for_new_bead()
             if answer.target_change_id is None:
                 # data-model.md §2: target_change_id is None => "skipped"
                 # (no mutation ever attempted, FR-015) — NOT
@@ -791,10 +841,54 @@ class ReconcileWorkflow(PythonWorkflow):
             )
             await save_run_state(run_state, cwd)
 
+            # Post-semantic conflict guard: the semantic-dependents pass folds
+            # fixes into descendants AFTER the round-budgeted conflict pass
+            # already ran, so a semantic fix can itself introduce a fresh
+            # rebase conflict in a deeper descendant that conflict pass never
+            # saw. The independent gate below is the primary defense, but it
+            # only exercises compiled/tested files — a conflict in a data or
+            # doc file the gate never touches would otherwise be committed
+            # with literal markers. Refuse to mark reconciled while ANY
+            # conflict remains under the target: roll back and escalate rather
+            # than commit conflict markers into reconciled history.
+            remaining_conflicts = await jj_list_conflicts(
+                revset_scope=f"descendants({answer.target_change_id})", cwd=cwd
+            )
+            if not remaining_conflicts["success"]:
+                return await self._finish_needs_review(
+                    answer,
+                    bead_client=bead_client,
+                    cwd=cwd,
+                    run_state=run_state,
+                    step_name=step_name,
+                    stage_reached=stage_reached,
+                    reason=(
+                        "post-semantic conflict check failed, failing safe: "
+                        f"{remaining_conflicts.get('error') or 'unknown error'}"
+                    ),
+                    restore_op_id=restore_op_id,
+                )
+            if remaining_conflicts["change_ids"]:
+                return await self._finish_needs_review(
+                    answer,
+                    bead_client=bead_client,
+                    cwd=cwd,
+                    run_state=run_state,
+                    step_name=step_name,
+                    stage_reached=stage_reached,
+                    reason=(
+                        "unresolved conflicts remain after the semantic-dependents "
+                        f"pass: {', '.join(remaining_conflicts['change_ids'])}"
+                    ),
+                    restore_op_id=restore_op_id,
+                    escalation_kind="conflicts",
+                    escalation_remaining=tuple(remaining_conflicts["change_ids"]),
+                )
+
             gate_result = await run_independent_gate(
                 stages=list(_GATE_STAGES),
                 cwd=str(cwd),
-                validation_commands=_build_validation_commands(self._config.validation),
+                validation_commands=validation_commands_from_config(self._config.validation),
                 timeout_seconds=self._config.validation.timeout_seconds,
             )
             if not gate_result["passed"]:
@@ -831,14 +925,30 @@ class ReconcileWorkflow(PythonWorkflow):
                 gate_passed=True,
                 no_change_required=correction_result.no_change_required,
             )
-            run_state = _replace_answer_state(
-                run_state,
-                answer.entry_id,
-                stage=ReconcileStage.TERMINAL,
-                terminal_status=outcome.status,
-            )
-            await save_run_state(run_state, cwd)
-            await self.emit_step_completed(step_name, output={"status": outcome.status})
+            # Transaction COMMITTED: the correction has landed and the ledger
+            # records it reconciled (with the applied answer, so detection's
+            # idempotence guard now excludes it). A failure in the trailing
+            # bookkeeping below MUST NOT reach the broad handler's rollback —
+            # restoring the jj op there would undo the good correction while
+            # the ledger still says reconciled, stranding the entry forever
+            # (research R8's all-or-nothing boundary ends here). Clear the
+            # restore point and finish the checkpoint/event best-effort.
+            restore_op_id = None
+            try:
+                run_state = _replace_answer_state(
+                    run_state,
+                    answer.entry_id,
+                    stage=ReconcileStage.TERMINAL,
+                    terminal_status=outcome.status,
+                )
+                await save_run_state(run_state, cwd)
+                await self.emit_step_completed(step_name, output={"status": outcome.status})
+            except Exception as exc:  # noqa: BLE001 - post-commit bookkeeping is best-effort
+                logger.warning(
+                    "reconcile_answer_post_commit_bookkeeping_failed",
+                    entry_id=answer.entry_id,
+                    error=str(exc),
+                )
             return outcome, run_state
 
         except Exception as exc:  # noqa: BLE001 - one answer's failure must not crash the run

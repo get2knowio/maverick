@@ -13,8 +13,8 @@ from maverick.workflows.reconcile.models import ChangedAnswer
 __all__ = ["build_changed_answers", "resolve_target_against_current_stack"]
 
 #: ``stack_index`` sentinel for entries whose target change is unlocatable
-#: (empty ``stamped_change_ids``, or none of them resolve in ``::@``).
-#: Such entries are never scheduled for mutation (data-model.md §2 —
+#: (empty ``stamped_change_ids``, or none of them resolve anywhere in the
+#: repo). Such entries are never scheduled for mutation (data-model.md §2 —
 #: ``target_change_id is None`` implies a terminal ``needs-interactive-
 #: review`` outcome before any mutation), so any value larger than every
 #: real stack position works; this is intentionally far past the
@@ -34,12 +34,20 @@ async def build_changed_answers(client: BeadClient, *, cwd: Path) -> tuple[Chang
     1. Query :func:`answered_unreconciled_entries`. If there are no
        candidates, return ``()`` immediately without touching jj at all —
        the zero-model-call, zero-jj-call fast path.
-    2. Otherwise, run exactly one ``jj log -r "::@"`` (via
-       :meth:`JjClient.log`) to capture the full ancestor stack of the
-       working copy, and index every change id by its position with 0 =
-       earliest (oldest). ``JjClient.log`` returns changes newest-first
-       (``@`` first, root last, confirmed against jj 0.43 locally) so the
-       index is built over the *reversed* list.
+    2. Otherwise, run exactly one ``jj log -r "all()"`` (via
+       :meth:`JjClient.log`) to index every change id in the repo by its
+       topological position with 0 = earliest (oldest). ``JjClient.log``
+       returns changes newest-first (root last, confirmed against jj 0.43
+       locally) so the index is built over the *reversed* list. ``all()``
+       rather than ``::@`` is deliberate: a stamped target need not be an
+       ancestor of the working copy (e.g. the user ran ``jj edit`` on a
+       mid-stack change before reconcile, leaving ``@`` below the tip), and
+       ``::@`` would then wrongly report a descendant-of-``@`` target
+       unlocatable. Interleaving unrelated changes never reorders an
+       ancestor relative to its descendant, so the earliest-first sort key
+       stays valid. This also matches
+       :func:`resolve_target_against_current_stack`, which the per-answer
+       loop already runs against ``all()`` for the same reason mid-run.
     3. For each candidate record, resolve ``target_change_id`` as the
        earliest-in-stack id among ``record.change_ids`` that still exists
        in the index (research R2 — "earliest stamped change that still
@@ -69,9 +77,9 @@ async def build_changed_answers(client: BeadClient, *, cwd: Path) -> tuple[Chang
         return ()
 
     jj_client = JjClient(cwd=cwd)
-    log_result = await jj_client.log(revset="::@", limit=1000)
-    # jj log is newest-first (``@`` first, root last); reverse so index 0
-    # is the earliest (oldest) change in the stack.
+    log_result = await jj_client.log(revset="all()", limit=1000)
+    # jj log is newest-first (root last); reverse so index 0 is the earliest
+    # (oldest) change in the repo.
     stack_index_by_change_id = {
         change.change_id: index for index, change in enumerate(reversed(log_result.changes))
     }
@@ -107,10 +115,8 @@ async def resolve_target_against_current_stack(
     """Re-resolve a target against a FRESH snapshot (research R2/R13, T033).
 
     :func:`build_changed_answers` resolves every candidate's
-    ``target_change_id``/``stack_index`` against a single ``::@`` snapshot
-    taken once at the start of a run — correct there, since at that point
-    ``@`` genuinely sits at the tip of the branch every changed-answer
-    target descends from. Within a batch run
+    ``target_change_id``/``stack_index`` once, against a single ``all()``
+    snapshot taken at the start of a run. Within a batch run
     (``workflows/reconcile/workflow.py``), correcting one answer folds a
     delta into its target via ``jj squash --into`` (:func:`apply_correction
     <maverick.workflows.reconcile.correction.apply_correction>`), which
@@ -122,12 +128,14 @@ async def resolve_target_against_current_stack(
     ``jj log -r '::@'`` shows only ``base``/``A``/``@`` — ``B``/``C`` are
     rebased and still exist, but are no longer reachable from ``@`` at all.
     Re-resolving a later answer's target (which may be one of those
-    now-sibling descendants) against ``::@`` would therefore wrongly report
-    it unlocatable. This function queries ``all()`` instead — every commit
-    in the repo, existence-only, unanchored to wherever ``@`` currently
-    happens to sit — so a genuinely still-existing target (mutable or
-    otherwise; mutability is a separate, later guard) is never lost to this
-    quirk of jj's post-squash working-copy placement.
+    now-sibling descendants) against an ``@``-anchored revset like ``::@``
+    would therefore wrongly report it unlocatable. Both this function and
+    :func:`build_changed_answers` query ``all()`` instead — every commit in
+    the repo, existence-only, unanchored to wherever ``@`` currently happens
+    to sit — so a genuinely still-existing target (mutable or otherwise;
+    mutability is a separate, later guard) is never lost to this quirk of
+    jj's post-squash working-copy placement, nor to a ``@`` the user parked
+    mid-stack before the run.
 
     Change ids themselves are stable across rebase (research R13), so the
     SAME stamped ids are re-checked here — this just re-runs the

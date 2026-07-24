@@ -239,6 +239,12 @@ def _patch_common(
         "jj_new_child": AsyncMock(
             return_value={"success": True, "change_id": "new-empty", "error": None}
         ),
+        # Post-semantic conflict guard: default to "no conflicts remain" so
+        # the happy path reaches mark_reconciled; tests that exercise a
+        # semantic-introduced conflict override this mock's return value.
+        "jj_list_conflicts": AsyncMock(
+            return_value={"success": True, "change_ids": (), "error": None}
+        ),
         "jj_restore_operation": AsyncMock(return_value={"success": True, "error": None}),
         "resolve_target_against_current_stack": AsyncMock(side_effect=_default_resolve_target),
     }
@@ -834,6 +840,48 @@ class TestSemanticDependentsPass:
         assert outcome["stage_reached"] == ReconcileStage.CONFLICTS_RESOLVED.value
         assert "budget exhausted" in outcome["reason"]
         mocks["mark_reconciled"].assert_not_called()
+
+    async def test_conflict_remaining_after_semantic_rolls_back_and_escalates(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A conflict introduced by the semantic pass rolls back + escalates.
+
+        The semantic-dependents pass folds fixes in after conflict
+        resolution, so it can leave a fresh conflict the gate might not
+        exercise. The post-semantic guard must refuse to mark reconciled —
+        rolling back and escalating rather than committing conflict markers.
+        """
+        _patch_jj_client(monkeypatch, files_changed=0)
+        answer = _changed_answer()
+        mocks = _patch_common(
+            monkeypatch,
+            changed_answers=(answer,),
+            escalation_bead_id="bd-conflict-escalation",
+        )
+        # Semantic pass completes cleanly (default), but the post-semantic
+        # conflict guard finds a fresh conflict in a descendant.
+        mocks["jj_list_conflicts"].return_value = {
+            "success": True,
+            "change_ids": ("desc-conflicted",),
+            "error": None,
+        }
+
+        result = await _run_workflow(_workflow(), {"run_id": "run-1", "cwd": str(tmp_path)})
+
+        # The gate never runs and nothing is marked reconciled: we refuse to
+        # reach either with conflict markers present.
+        mocks["run_independent_gate"].assert_not_called()
+        mocks["mark_reconciled"].assert_not_called()
+        mocks["jj_restore_operation"].assert_awaited_once()
+
+        _, escalation_kwargs = mocks["create_reconcile_escalation"].await_args
+        assert escalation_kwargs["kind"] == "conflicts"
+        assert escalation_kwargs["remaining"] == ("desc-conflicted",)
+
+        outcome = result["outcomes"][0]
+        assert outcome["status"] == "needs_interactive_review"
+        assert outcome["stage_reached"] == ReconcileStage.SEMANTIC_DONE.value
+        assert "desc-conflicted" in outcome["reason"]
 
     async def test_semantic_internal_error_rolls_back_and_escalates_with_error_message(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -1664,6 +1712,37 @@ class TestDryRun:
         mocks["jj_restore_operation"].assert_not_called()
         save_run_state_mock.assert_not_called()
 
+    async def test_dry_run_never_recovers_or_locks(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """--dry-run is read-only: no interrupted-run recovery, no lockfile.
+
+        Both mutate the repo/filesystem, so the contract's "zero
+        jj/bd/filesystem mutations" guarantee requires dry-run to branch out
+        before either runs.
+        """
+        _patch_jj_client(monkeypatch, files_changed=0)
+        answer = _changed_answer(entry_id="bd-1", target_change_id="target-1")
+        _patch_common(monkeypatch, changed_answers=(answer,))
+        _FakeSquadron.fail_on_construct = True
+
+        recover_mock = AsyncMock()
+        acquire_mock = AsyncMock(return_value=True)
+        release_mock = AsyncMock()
+        monkeypatch.setattr(ReconcileWorkflow, "_recover_interrupted_run", recover_mock)
+        monkeypatch.setattr(workflow_module, "acquire_lock", acquire_mock)
+        monkeypatch.setattr(workflow_module, "release_lock", release_mock)
+
+        result = await _run_workflow(
+            _workflow(),
+            {"run_id": "run-1", "cwd": str(tmp_path), "dry_run": True},
+        )
+
+        assert result["dry_run"] is True
+        recover_mock.assert_not_called()
+        acquire_mock.assert_not_called()
+        release_mock.assert_not_called()
+
     async def test_multiple_answers_each_predicted_independently(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -1733,3 +1812,39 @@ class TestDryRun:
 
         assert result["dry_run"] is False
         assert result["outcomes"][0]["status"] == "reconciled"
+
+    async def test_post_commit_bookkeeping_failure_stays_reconciled(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A save_run_state failure AFTER mark_reconciled must not roll back.
+
+        Once the correction has landed and the ledger records it reconciled,
+        the transaction is committed. A throw in the trailing (best-effort)
+        run-state checkpoint must NOT restore the jj op (undoing the good
+        correction) nor flip the ledger to needs-interactive-review — doing
+        so would permanently strand the entry (detection's idempotence guard
+        would exclude it forever).
+        """
+        _patch_jj_client(monkeypatch, files_changed=0)
+        answer = _changed_answer(entry_id="bd-1", target_change_id="target-1")
+        mocks = _patch_common(monkeypatch, changed_answers=(answer,))
+
+        real_save = workflow_module.save_run_state
+
+        async def failing_save(state: Any, cwd: Path) -> None:
+            # Fail only on the post-commit (TERMINAL) checkpoint for our entry.
+            if any(
+                a.entry_id == "bd-1" and a.stage == ReconcileStage.TERMINAL for a in state.answers
+            ):
+                raise OSError("disk full")
+            await real_save(state, cwd)
+
+        monkeypatch.setattr(workflow_module, "save_run_state", failing_save)
+
+        result = await _run_workflow(_workflow(), {"run_id": "run-1", "cwd": str(tmp_path)})
+
+        assert result["outcomes"][0]["status"] == "reconciled"
+        mocks["mark_reconciled"].assert_awaited_once()
+        # No rollback and no ledger re-mark despite the checkpoint failure.
+        mocks["jj_restore_operation"].assert_not_called()
+        mocks["mark_needs_interactive_review"].assert_not_called()

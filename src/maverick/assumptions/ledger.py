@@ -37,10 +37,12 @@ from maverick.assumptions.models import (
     KEY_WAIVED_AT,
     KEY_WAIVED_BY,
     RECONCILE_STATUS_NEEDS_REVIEW,
+    RECONCILE_STATUS_PENDING,
     RECONCILE_STATUS_RECONCILED,
     STATUS_ANSWERED,
     STATUS_OPEN,
     STATUS_WAIVED,
+    TERMINAL_RECONCILE_STATUSES,
     AssumptionRecord,
     Severity,
     StampResult,
@@ -84,6 +86,16 @@ _SEVERITY_PRIORITY: dict[Severity, int] = {
 }
 
 _TITLE_MAX_LEN = 150
+
+#: Changed-answer detection must see closed beads: :func:`answer` closes
+#: every answered entry (releasing its ``blocks`` edges), and bd defaults a
+#: status-less ``query`` to open-only — so a bare ``type=task`` filter
+#: silently returns nothing and reconcile becomes a permanent no-op.
+#: Enumerating every lifecycle status forces bd to include closed entries.
+_ALL_STATUS_TASK_FILTER = (
+    "type=task AND (status=open OR status=in_progress OR status=blocked "
+    "OR status=deferred OR status=closed)"
+)
 
 
 def _normalize_question(question: str) -> str:
@@ -775,8 +787,11 @@ async def answer(
                 KEY_STATUS: STATUS_ANSWERED,
                 # FR-017 re-arm: a fresh answer must re-enter reconcile
                 # detection even if a prior reconcile run terminal-marked
-                # this entry (reconciled or needs-interactive-review).
-                KEY_RECONCILE_STATUS: "",
+                # this entry (reconciled or needs-interactive-review). bd
+                # rejects an empty state value, so we overwrite any terminal
+                # marker with the non-terminal ``pending`` sentinel — which
+                # detection treats identically to an unset status.
+                KEY_RECONCILE_STATUS: RECONCILE_STATUS_PENDING,
             },
             reason="assumption answered",
         )
@@ -908,9 +923,11 @@ async def answered_unreconciled_entries(client: BeadClient) -> tuple[AssumptionR
     1. Bead carries ``ASSUMPTION_LABEL`` (legacy ``assumption-review``-only
        escalation beads are excluded — they have no adopted-answer structure).
     2. ``assumption_status`` state is ``STATUS_ANSWERED``.
-    3. ``assumption_reconcile_status`` is unset/empty (entries already
-       terminal-marked ``needs-interactive-review`` are excluded until
-       re-armed by :func:`answer`).
+    3. ``assumption_reconcile_status`` is not one of the terminal statuses
+       in :data:`TERMINAL_RECONCILE_STATUSES` — i.e. unset, or the
+       non-terminal ``pending`` re-arm sentinel. Entries terminal-marked
+       ``reconciled``/``needs-interactive-review`` are excluded until
+       re-armed by :func:`answer`.
     4. ``normalize_answer(assumption_answer) != normalize_answer(adopted_answer)``
        — the adopted answer is parsed from the bead description.
     5. ``normalize_answer(assumption_answer) != normalize_answer(assumption_reconciled_answer)``
@@ -927,7 +944,7 @@ async def answered_unreconciled_entries(client: BeadClient) -> tuple[AssumptionR
         AssumptionLedgerError: On any bd-layer failure.
     """
     try:
-        candidates = await client.query("type=task")
+        candidates = await client.query(_ALL_STATUS_TASK_FILTER)
     except BeadError as exc:
         raise AssumptionLedgerError(f"Failed to query task beads: {exc}") from exc
 
@@ -945,7 +962,7 @@ async def answered_unreconciled_entries(client: BeadClient) -> tuple[AssumptionR
         state = details.state or {}
         if state.get(KEY_STATUS) != STATUS_ANSWERED:
             continue
-        if state.get(KEY_RECONCILE_STATUS):
+        if state.get(KEY_RECONCILE_STATUS) in TERMINAL_RECONCILE_STATUSES:
             continue
 
         normalized_human_answer = normalize_answer(state.get(KEY_ANSWER, ""))

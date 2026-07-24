@@ -133,7 +133,7 @@ class TestBuildChangedAnswers:
 
     @pytest.mark.asyncio
     async def test_stamped_id_no_longer_in_stack_is_skipped_for_targeting(self) -> None:
-        """A stamp that no longer resolves in ::@ is ignored in favor of one that does."""
+        """A stamp that no longer resolves in the repo is ignored in favor of one that does."""
         # "c0" was abandoned/rewritten out of the stack entirely; "c2" still
         # exists and must be chosen even though c0 would have been earlier.
         record = _record("dea-1", change_ids=("c0", "c2"))
@@ -153,7 +153,7 @@ class TestBuildChangedAnswers:
 
     @pytest.mark.asyncio
     async def test_unlocatable_target_when_no_stamp_resolves(self) -> None:
-        """None of the stamped ids exist in ::@ -> target_change_id is None."""
+        """None of the stamped ids exist in the repo -> target_change_id is None."""
         record = _record("dea-1", change_ids=("cZ", "cY"))
 
         async def fake_show(self: BeadClient, bead_id: str) -> BeadDetails:
@@ -288,7 +288,10 @@ class TestBuildChangedAnswers:
             result = await build_changed_answers(_client(), cwd=Path("/tmp/repo"))
 
         assert len(result) == 2
-        log_mock.assert_called_once_with(revset="::@", limit=1000)
+        # ``all()`` not ``::@``: a stamped target need not be an ancestor of
+        # the working copy (e.g. after a mid-stack ``jj edit``), so detection
+        # indexes the whole repo — consistent with the mid-run re-resolver.
+        log_mock.assert_called_once_with(revset="all()", limit=1000)
 
 
 class TestResolveTargetAgainstCurrentStack:

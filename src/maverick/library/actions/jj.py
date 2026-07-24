@@ -297,7 +297,11 @@ async def jj_check_mutability(
         - immutable_change_ids: Tuple of change IDs violating mutability
         - error: Error message if failed, None otherwise
     """
-    revset = f"(::{target} & immutable() & {target}) | (descendants({target}) & immutable())"
+    # ``descendants(x)`` is inclusive of ``x`` in jj (verified against jj
+    # 0.43), so ``descendants(target) & immutable()`` already covers the
+    # target-immutability case — no separate ``::target & target`` clause
+    # is needed.
+    revset = f"descendants({target}) & immutable()"
     try:
         client = _make_client(cwd)
         result = await client.log(revset=revset, limit=1000)
