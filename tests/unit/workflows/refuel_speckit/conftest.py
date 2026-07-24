@@ -39,12 +39,17 @@ def make_mock_bead_client(
     epic_details_by_id: dict[str, BeadDetails] | None = None,
     children_by_epic: dict[str, list[BeadSummary]] | None = None,
     create_bead_side_effect: Any = None,
+    remediation_candidates: list[BeadSummary] | None = None,
 ) -> MagicMock:
     """Build a MagicMock standing in for ``BeadClient``.
 
     All async methods used by SpeckitRefuelWorkflow are stubbed:
     ``create_bead``, ``add_dependency``, ``set_state``, ``query``,
-    ``show``, ``children``.
+    ``show``, ``children``. ``query`` branches on the filter expression:
+    a ``type=epic...`` query returns *existing_epics*; a
+    ``type=task...`` query (the post-ingest remediation-bead adoption
+    scan) returns *remediation_candidates* (defaults to none, so existing
+    callers that don't pass it see no adoption candidates, unchanged).
     """
     client = MagicMock()
     epic_details_by_id = dict(epic_details_by_id or {})
@@ -58,7 +63,13 @@ def make_mock_bead_client(
     client.create_bead = AsyncMock(side_effect=create_bead_side_effect or _default_create_bead)
     client.add_dependency = AsyncMock(return_value=None)
     client.set_state = AsyncMock(return_value=None)
-    client.query = AsyncMock(return_value=existing_epics or [])
+
+    async def _query(expr: str) -> list[BeadSummary]:
+        if "task" in expr:
+            return remediation_candidates or []
+        return existing_epics or []
+
+    client.query = AsyncMock(side_effect=_query)
 
     async def _show(bead_id: str) -> BeadDetails:
         if bead_id in epic_details_by_id:

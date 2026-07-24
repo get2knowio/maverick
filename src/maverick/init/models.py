@@ -679,6 +679,11 @@ class InitResult:
             target path AND the run was not invoked with ``--force``. In this
             mode init re-runs only the idempotent steps (prereqs, beads,
             runway) and leaves the existing config untouched. (FUTURE.md §4.3)
+        speckit_installed: Spec Kit install-offer outcome (R7/US5):
+            ``True`` installed this run, ``False`` the offer was accepted
+            but the installer failed, ``None`` not applicable (already
+            installed) or the offer was skipped/declined (non-interactive
+            session, or the user said no).
     """
 
     success: bool
@@ -692,6 +697,7 @@ class InitResult:
     runway_initialized: bool = False
     provider_discovery: ProviderDiscoveryResult | None = None
     config_existed: bool = False
+    speckit_installed: bool | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization.
@@ -713,6 +719,7 @@ class InitResult:
                 self.provider_discovery.to_dict() if self.provider_discovery else None
             ),
             "config_existed": self.config_existed,
+            "speckit_installed": self.speckit_installed,
         }
 
 

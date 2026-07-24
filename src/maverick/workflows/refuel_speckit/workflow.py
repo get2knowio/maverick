@@ -23,6 +23,7 @@ from maverick.speckit.models import SpeckitFeature
 from maverick.speckit.parser import parse_spec_md, parse_tasks_md
 from maverick.workflows.base import PythonWorkflow
 from maverick.workflows.refuel_speckit.constants import (
+    ADOPT_REMEDIATION,
     CHAIN_EPIC,
     CHECK_TEMPLATE,
     COMMIT_OUTPUT,
@@ -210,6 +211,12 @@ class SpeckitRefuelWorkflow(PythonWorkflow):
 
         # Delta no-op: nothing new to create, but not an error.
         if not plan.new_tasks:
+            adopted_ids: tuple[str, ...] = ()
+            if not dry_run and existing_epic_id:
+                adopted_ids = await self._adopt_remediation_beads(
+                    client, feature_name=feature_name, epic_id=existing_epic_id
+                )
+
             await self.emit_step_started(RECORD_RUN, display_label="Recording run")
             if not dry_run and existing_epic_id:
                 await self._record_run(cwd, feature_name, existing_epic_id, "refueled")
@@ -226,6 +233,7 @@ class SpeckitRefuelWorkflow(PythonWorkflow):
                 delta_run=delta_run,
                 dry_run=dry_run,
                 warnings=tuple(warnings),
+                adopted_remediation_bead_ids=adopted_ids,
             )
             return result.to_dict()
 
@@ -359,6 +367,15 @@ class SpeckitRefuelWorkflow(PythonWorkflow):
             await self.emit_step_completed(CHAIN_EPIC, output={"blocked_by": chained_behind})
 
         # ------------------------------------------------------------
+        # Step 9b: Adopt standalone remediation beads under this epic (R6)
+        # ------------------------------------------------------------
+        main_adopted_ids: tuple[str, ...] = ()
+        if not dry_run:
+            main_adopted_ids = await self._adopt_remediation_beads(
+                client, feature_name=feature_name, epic_id=epic_id
+            )
+
+        # ------------------------------------------------------------
         # Step 10: Record run metadata (skipped on dry-run)
         # ------------------------------------------------------------
         if not dry_run:
@@ -381,6 +398,7 @@ class SpeckitRefuelWorkflow(PythonWorkflow):
             dry_run=dry_run,
             enriched=enriched,
             warnings=tuple(warnings),
+            adopted_remediation_bead_ids=main_adopted_ids,
         )
         return result.to_dict()
 
@@ -507,6 +525,74 @@ class SpeckitRefuelWorkflow(PythonWorkflow):
                 )
 
         return tail_epic_id
+
+    async def _adopt_remediation_beads(
+        self,
+        client: Any,
+        *,
+        feature_name: str,
+        epic_id: str,
+    ) -> tuple[str, ...]:
+        """Adopt standalone ``spec-remediation`` beads for *feature_name*
+        under *epic_id* (R6 post-ingest adoption step).
+
+        Queries open task beads, keeps only those labeled
+        ``spec-remediation`` whose ``speckit_feature`` state matches
+        *feature_name* and that aren't already adopted (unparented, no
+        ``adopted_by_epic`` stamp), and adopts each one. Best-effort per
+        bead (Principle IV) — one failure never aborts ingestion.
+        """
+        from maverick.library.actions.beads import adopt_remediation_bead
+        from maverick.workflows.spec_chain.constants import (
+            KEY_ADOPTED_BY_EPIC,
+            KEY_SPECKIT_FEATURE,
+            SPEC_REMEDIATION_LABEL,
+        )
+
+        await self.emit_step_started(ADOPT_REMEDIATION, display_label="Adopting remediation beads")
+        try:
+            candidates = await client.query("type=task AND status=open")
+        except Exception as exc:
+            logger.warning("speckit_remediation_adoption_query_failed", error=str(exc))
+            await self.emit_step_completed(ADOPT_REMEDIATION, output={"adopted": 0})
+            return ()
+
+        adopted: list[str] = []
+        for candidate in candidates:
+            try:
+                details = await client.show(candidate.id)
+            except Exception as exc:
+                logger.debug(
+                    "speckit_remediation_adoption_show_failed",
+                    bead_id=candidate.id,
+                    error=str(exc),
+                )
+                continue
+            if SPEC_REMEDIATION_LABEL not in (details.labels or []):
+                continue
+            state = details.state or {}
+            if state.get(KEY_SPECKIT_FEATURE) != feature_name:
+                continue
+            if details.parent_id or state.get(KEY_ADOPTED_BY_EPIC):
+                continue  # already adopted — idempotent skip
+
+            try:
+                await adopt_remediation_bead(client, bead_id=candidate.id, epic_id=epic_id)
+                adopted.append(candidate.id)
+            except Exception as exc:  # noqa: BLE001 — one bead's failure must not sink ingestion
+                logger.warning(
+                    "speckit_remediation_adoption_failed",
+                    bead_id=candidate.id,
+                    error=str(exc),
+                )
+
+        if adopted:
+            await self.emit_output(
+                ADOPT_REMEDIATION,
+                f"Adopted {len(adopted)} remediation bead(s) under {epic_id}",
+            )
+        await self.emit_step_completed(ADOPT_REMEDIATION, output={"adopted": len(adopted)})
+        return tuple(adopted)
 
     async def _record_run(self, cwd: Path, feature_name: str, epic_id: str, status: str) -> None:
         from maverick.runway.run_metadata import RunMetadata, write_metadata

@@ -814,3 +814,29 @@ class TechDebtIssueResult:
             "finding_id": self.finding_id,
             "error": self.error,
         }
+
+
+@dataclass(frozen=True, slots=True)
+class RemediationBeadsResult:
+    """Result of creating standalone `spec-remediation` beads from
+    spec-chain analyze findings (R6).
+
+    Attributes:
+        created_bead_ids: IDs of beads newly created this call.
+        skipped_duplicate_fingerprints: Fingerprints that already had an
+            open remediation bead (idempotent re-run of analyze).
+        errors: Per-finding failure messages (best-effort — one finding's
+            failure never blocks the others).
+    """
+
+    created_bead_ids: tuple[str, ...]
+    skipped_duplicate_fingerprints: tuple[str, ...]
+    errors: tuple[str, ...]
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary representation."""
+        return {
+            "created_bead_ids": list(self.created_bead_ids),
+            "skipped_duplicate_fingerprints": list(self.skipped_duplicate_fingerprints),
+            "errors": list(self.errors),
+        }

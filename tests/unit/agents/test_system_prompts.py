@@ -3,7 +3,7 @@
 Two surfaces are covered:
 
 1. ``load_persona_system_prompt`` — file lookup, missing-file fallback,
-   the 18 expected personas are all loadable.
+   the 19 expected personas are all loadable.
 2. :meth:`Agent._execute_via_runtime` forwards the loaded prompt as
    ``system=`` on every adapter call.
 """
@@ -45,8 +45,8 @@ def test_load_returns_body_for_known_persona() -> None:
     assert "knowledge consolidator" in prompt
 
 
-def test_available_personas_lists_all_eighteen() -> None:
-    """The 18 personas we shipped under runtime/opencode/profile/agents/."""
+def test_available_personas_lists_all_nineteen() -> None:
+    """The 19 personas we shipped under runtime/opencode/profile/agents/."""
     expected = {
         "maverick.codebase-analyst",
         "maverick.completeness-reviewer",
@@ -64,6 +64,7 @@ def test_available_personas_lists_all_eighteen() -> None:
         "maverick.recon",
         "maverick.runway-seed",
         "maverick.scopist",
+        "maverick.spec-chain",
         "maverick.structuralist",
         "maverick.validation-fixer",
     }

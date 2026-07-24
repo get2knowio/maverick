@@ -13,16 +13,22 @@ removed.
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from maverick.library.actions.types import (
     BeadCreationResult,
     DependencyWiringResult,
     MarkBeadCompleteResult,
+    RemediationBeadsResult,
     SelectNextBeadResult,
 )
 from maverick.logging import get_logger
+
+if TYPE_CHECKING:
+    from maverick.beads.client import BeadClient
+    from maverick.workflows.spec_chain.models import AnalyzeFinding
 
 logger = get_logger(__name__)
 
@@ -424,3 +430,168 @@ async def defer_bead(
     runner = CommandRunner(cwd=Path(cwd))
     await runner.run(["bd", "defer", bead_id])
     logger.info("bead_deferred", bead_id=bead_id, reason=reason)
+
+
+def _build_remediation_description(finding: AnalyzeFinding) -> str:
+    return (
+        f"## Finding\n\n{finding.title}\n\n"
+        f"## Category\n\n{finding.category}\n\n"
+        f"## Severity Hint\n\n{finding.severity_hint}\n\n"
+        f"## Location\n\n{finding.location}\n\n"
+        f"## Summary\n\n{finding.summary}\n"
+    )
+
+
+async def _existing_remediation_fingerprints(client: BeadClient) -> set[str]:
+    from maverick.workflows.spec_chain.constants import (
+        KEY_FINDING_FINGERPRINT,
+        SPEC_REMEDIATION_LABEL,
+    )
+
+    try:
+        candidates = await client.query("type=task")
+    except Exception as exc:  # noqa: BLE001 — best-effort idempotency probe
+        logger.warning("spec_remediation_fingerprint_query_failed", error=str(exc))
+        return set()
+
+    fingerprints: set[str] = set()
+    for candidate in candidates:
+        try:
+            details = await client.show(candidate.id)
+        except Exception as exc:  # noqa: BLE001 — one bad bead must not sink the scan
+            logger.debug(
+                "spec_remediation_fingerprint_show_failed", bead_id=candidate.id, error=str(exc)
+            )
+            continue
+        if SPEC_REMEDIATION_LABEL in (details.labels or []):
+            fingerprint = (details.state or {}).get(KEY_FINDING_FINGERPRINT)
+            if fingerprint:
+                fingerprints.add(fingerprint)
+    return fingerprints
+
+
+async def create_remediation_beads(
+    findings: Sequence[AnalyzeFinding],
+    *,
+    cwd: Path | str,
+) -> RemediationBeadsResult:
+    """Create one standalone ``spec-remediation`` bead per analyze finding (R6).
+
+    Beads are created unparented (the feature's epic doesn't exist until
+    ``refuel --speckit`` runs) and idempotent per
+    ``finding_fingerprint`` — re-running analyze never duplicates a bead
+    for the same finding. Best-effort per finding (Principle IV): one
+    finding's bd failure is logged and excluded from the result, never
+    raised, so it can't sink the others or the analyze step itself.
+
+    Args:
+        findings: Analyze findings to convert into remediation beads.
+        cwd: Workspace directory whose ``.beads/`` receives the writes.
+            Required — see module docstring.
+
+    Returns:
+        RemediationBeadsResult.
+    """
+    from maverick.beads.client import BeadClient
+    from maverick.beads.models import BeadCategory, BeadDefinition, BeadType
+    from maverick.workflows.spec_chain.constants import (
+        KEY_FINDING_FINGERPRINT,
+        KEY_REMEDIATION_SOURCE,
+        KEY_SPECKIT_FEATURE,
+        REMEDIATION_SOURCE_ANALYZE,
+        SPEC_REMEDIATION_LABEL,
+    )
+
+    if not findings:
+        return RemediationBeadsResult(
+            created_bead_ids=(), skipped_duplicate_fingerprints=(), errors=()
+        )
+
+    client = BeadClient(cwd=Path(cwd))
+    existing_fingerprints = await _existing_remediation_fingerprints(client)
+
+    created_ids: list[str] = []
+    skipped: list[str] = []
+    errors: list[str] = []
+
+    for finding in findings:
+        if finding.fingerprint in existing_fingerprints:
+            skipped.append(finding.fingerprint)
+            continue
+        try:
+            definition = BeadDefinition(
+                title=f"Spec remediation: {finding.title[:150]}",
+                bead_type=BeadType.TASK,
+                # Advisory by design — severity_hint lives in the
+                # description, not priority (FR-012: findings never block).
+                priority=2,
+                category=BeadCategory.CLEANUP,
+                description=_build_remediation_description(finding),
+                labels=[SPEC_REMEDIATION_LABEL],
+            )
+            created = await client.create_bead(definition, parent_id=None)
+            await client.set_state(
+                created.bd_id,
+                {
+                    KEY_SPECKIT_FEATURE: finding.feature_dir,
+                    KEY_REMEDIATION_SOURCE: REMEDIATION_SOURCE_ANALYZE,
+                    KEY_FINDING_FINGERPRINT: finding.fingerprint,
+                },
+                reason="spec-chain analyze finding",
+            )
+            created_ids.append(created.bd_id)
+            existing_fingerprints.add(finding.fingerprint)
+        except Exception as exc:  # noqa: BLE001 — one finding's failure must not sink the rest
+            logger.warning(
+                "spec_remediation_bead_creation_failed", title=finding.title, error=str(exc)
+            )
+            errors.append(f"{finding.title}: {exc}")
+
+    return RemediationBeadsResult(
+        created_bead_ids=tuple(created_ids),
+        skipped_duplicate_fingerprints=tuple(skipped),
+        errors=tuple(errors),
+    )
+
+
+async def adopt_remediation_bead(
+    client: BeadClient,
+    *,
+    bead_id: str,
+    epic_id: str,
+) -> None:
+    """Adopt a standalone ``spec-remediation`` bead under *epic_id* (R6).
+
+    Fallback primitive: no ``bd update --parent`` exists (verified
+    against T001's research — no live ``bd`` install to confirm a real
+    parent-reassignment command, and ``BeadClient`` exposes no such
+    method today). Wires a ``DISCOVERED_FROM`` dependency edge from the
+    epic (provenance/grouping only — does not affect readiness, unlike
+    ``BLOCKS``) plus the ``adopted_by_epic`` state stamp that callers use
+    for the idempotency check ("already adopted" — see
+    ``SpeckitRefuelWorkflow``'s post-ingest adoption step).
+
+    Args:
+        client: BeadClient bound to the user's checkout.
+        bead_id: The remediation bead to adopt.
+        epic_id: The epic to adopt it under.
+
+    Raises:
+        Exception: Any bd-layer failure — callers isolate per-bead
+            failures (Principle IV); this primitive itself does not.
+    """
+    from maverick.beads.models import BeadDependency, DependencyType
+    from maverick.workflows.spec_chain.constants import KEY_ADOPTED_BY_EPIC
+
+    await client.add_dependency(
+        BeadDependency(
+            blocker_id=epic_id,
+            blocked_id=bead_id,
+            dep_type=DependencyType.DISCOVERED_FROM,
+        )
+    )
+    await client.set_state(
+        bead_id,
+        {KEY_ADOPTED_BY_EPIC: epic_id},
+        reason=f"adopted under epic {epic_id}",
+    )

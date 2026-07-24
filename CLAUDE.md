@@ -461,6 +461,24 @@ The full pull-work-push architecture in
 `.claude/scratchpads/architecture-pull-work-push.md` solves it via bd
 federation; until that lands, single-repo is the contract.
 
+**Scoped exception — `maverick spec` (spec 050-headless-spec-chain)**:
+the headless Spec Kit chain (`specify → clarify → plan → tasks →
+analyze`) runs inside a hidden jj workspace at
+`~/.maverick/workspaces/<project-slug>/spec-chain/<feature>/`
+(`src/maverick/workspace/spec_chain.py`), one exception to the model
+above. Rationale: each step mutates `specs/` and `.specify/` state over
+a multi-minute model call, and only a completed step's artifacts may
+land in the user's checkout — running in-checkout would expose
+half-written files mid-run. The bd/`embeddeddolt/` impedance mismatch
+that retired the general-purpose workspace above does **not** apply
+here: the chain never runs `bd` inside the workspace — all bead/ledger
+writes (assumption-ledger entries, remediation beads) happen in the
+user's checkout via the workflow, never the agent. Landing is per-step
+and atomic (`src/maverick/workflows/spec_chain/landing.py`); see
+`.specify/memory/constitution.md` Appendix E and
+`specs/050-headless-spec-chain/research.md` R3 for the full mechanism.
+Every other command still follows the single-repo model unchanged.
+
 ### 1. Async-first means no blocking on the event loop
 
 - Never call `subprocess.run` from an `async def` path.
@@ -521,6 +539,7 @@ Beads-only workflow model. All development is driven by beads (`bd` CLI).
 | Command                                              | Purpose                              |
 | ---------------------------------------------------- | ------------------------------------ |
 | `maverick plan generate <name> --from-prd <file>`    | Flight plan from PRD                 |
+| `maverick spec <feature> --from-prd <file>`          | Headless Spec Kit chain from a PRD   |
 | `maverick refuel <plan-name>`                        | Decompose plan into beads            |
 | `maverick refuel <feature> --speckit [--dry-run\|--enrich]` | Deterministic Spec Kit ingestion |
 | `maverick fly --epic <id>`                           | Implement beads (actor-mailbox)      |
@@ -530,6 +549,34 @@ Beads-only workflow model. All development is driven by beads (`bd` CLI).
 | `maverick brief [--watch\|--human]`                  | Bead status + assumption counts      |
 | `maverick review <bead-id> [--answer\|--waive]`      | Resolve a human-assigned bead         |
 | `maverick runway seed\|consolidate`                  | Manage knowledge store               |
+
+### spec (headless Spec Kit chain)
+
+`maverick spec <feature> --from-prd <file>` runs the target repository's
+own Spec Kit chain — specify → clarify → plan → tasks → analyze —
+headlessly, inside a hidden jj workspace (the one documented exception to
+Guardrail 0; see above), invoking the repo's own `/speckit.*` commands
+via an airframe `SpecChainAgent`. Clarify never blocks: adopted answers
+are filed as standalone assumption-ledger entries
+(`assumptions.ledger.record_standalone_assumption`, no epic yet) via
+question interception where the provider supports it, else by parsing
+Spec Kit's non-interactive `## Clarifications` convention out of the
+updated `spec.md`. A failed or blocked clarify halts the chain (exit 1);
+any other mid-chain failure halts the same way; an analyze failure
+degrades to a `[yellow]Warning:[/yellow]` and the chain still completes
+(exit 0) — analyze findings become standalone `spec-remediation` beads
+that `refuel --speckit` later adopts under the epic it creates. Chain
+state is checkpointed after every step transition
+(`.maverick/runs/<run-id>/spec-chain.json`); re-running `maverick spec
+<feature>` (no `--from-prd` needed) auto-resumes a halted or still-running
+chain from the first incomplete step, re-verifying that already-landed
+artifacts still exist before trusting them. Completed-step artifacts land
+in the user's `specs/NNN-<feature>/` tree as ordinary markdown, one step
+at a time. `maverick init` advisory-checks Spec Kit presence and offers
+to install it (`uvx --from specify-cli==<pin> specify init --here`) on
+interactive TTYs. See `src/maverick/workflows/spec_chain/` (workflow,
+steps, landing, clarify policy, state) and
+`specs/050-headless-spec-chain/` (spec/plan/research/contracts).
 
 ### refuel (Spec Kit ingestion mode)
 

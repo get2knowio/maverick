@@ -20,10 +20,11 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
 __all__ = [
+    "check_gh_authenticated",
+    "check_gh_installed",
     "check_git_installed",
     "check_in_git_repo",
-    "check_gh_installed",
-    "check_gh_authenticated",
+    "check_speckit_installed",
     "verify_prerequisites",
 ]
 
@@ -108,6 +109,68 @@ async def _run_command(
         return 127, "", f"Command not found: {command[0]}"
     except PermissionError:
         return 126, "", f"Permission denied: {command[0]}"
+
+
+def check_speckit_installed(cwd: Path) -> PrerequisiteCheck:
+    """Check whether Spec Kit is installed in the target repository (R7).
+
+    Advisory only — never hard-fails ``maverick init`` (the check is a
+    :class:`PrerequisiteCheck`, not an exception). "Installed" means the
+    repository has the ``.specify/`` marker with a compatible (or
+    unknown-but-present) ``speckit_version``, reusing the same version
+    gate :func:`maverick.speckit.detect.check_template_compatibility`
+    already applies to ``refuel --speckit``. An explicitly *unsupported*
+    version, or a missing ``.specify/`` directory entirely, is reported
+    as ``FAIL`` so callers (``maverick init``'s install offer,
+    ``maverick spec``'s own fail-fast preflight) can act on it.
+
+    Args:
+        cwd: Target repository root.
+
+    Returns:
+        A :class:`PrerequisiteCheck` named ``"speckit_installed"``.
+    """
+    from maverick.speckit.detect import SUPPORTED_SPECKIT_RANGE, check_template_compatibility
+
+    if not (cwd / ".specify").is_dir():
+        return PrerequisiteCheck(
+            name="speckit_installed",
+            display_name="Spec Kit",
+            status=PreflightStatus.FAIL,
+            message="Spec Kit is not installed in this repository",
+            remediation=(
+                "Install Spec Kit: `uvx --from specify-cli specify init --here` "
+                f"(supported range: {SUPPORTED_SPECKIT_RANGE})"
+            ),
+        )
+
+    compat = check_template_compatibility(cwd)
+    if compat.status == "unsupported":
+        return PrerequisiteCheck(
+            name="speckit_installed",
+            display_name="Spec Kit",
+            status=PreflightStatus.FAIL,
+            message=(
+                f"Spec Kit template version {compat.vendored_version} is unsupported "
+                f"(supported range: {compat.supported_range})"
+            ),
+            remediation=(
+                "Reinstall Spec Kit at a supported version: "
+                f"`uvx --from specify-cli specify init --here` "
+                f"(supported range: {compat.supported_range})"
+            ),
+        )
+
+    return PrerequisiteCheck(
+        name="speckit_installed",
+        display_name="Spec Kit",
+        status=PreflightStatus.PASS,
+        message=(
+            f"Spec Kit version {compat.vendored_version} installed"
+            if compat.status == "supported"
+            else "Spec Kit installed (template version unknown — proceeding structurally)"
+        ),
+    )
 
 
 # =============================================================================

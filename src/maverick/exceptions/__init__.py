@@ -116,6 +116,15 @@ from maverick.exceptions.runway import (
     RunwayNotInitializedError,
 )
 
+# Spec-chain-related exceptions
+from maverick.exceptions.spec_chain import (
+    SpecChainError,
+    SpecChainPreflightError,
+    SpecChainStateError,
+    SpecChainStepError,
+    SpecChainWorkspaceError,
+)
+
 # Validation-related exceptions
 from maverick.exceptions.validation import (
     MaverickValidationError,
@@ -220,6 +229,12 @@ __all__ = [
     "RunwayCorruptedError",
     "RunwayError",
     "RunwayNotInitializedError",
+    # Spec chain
+    "SpecChainError",
+    "SpecChainPreflightError",
+    "SpecChainStateError",
+    "SpecChainStepError",
+    "SpecChainWorkspaceError",
     # Flight
     "FlightError",
     "FlightPlanNotFoundError",
