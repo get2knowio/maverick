@@ -14,12 +14,13 @@
     "ghcr.io/devcontainers/features/github-cli:1": {},
     "ghcr.io/eitsupi/devcontainer-features/jq-likes:2": {},
     "ghcr.io/get2knowio/devcontainer-features/ai-clis:2": {
-	"install": "claudeCode,codex,copilot"
+      "install": "claudeCode,codex,copilot,beads,specifyCli"
     },
     "ghcr.io/get2knowio/devcontainer-features/modern-cli-tools:2": {},
     "ghcr.io/get2knowio/devcontainer-features/python-tools:2": {
       "omit": "poetry"
-    }
+    },
+    "ghcr.io/get2knowio/devcontainer-features/github-actions-tools:2": {}
   },
   "remoteEnv": {
     "GH_PAGER": ""
@@ -55,5 +56,5 @@
     "source=${localWorkspaceFolder}/../sample-maverick-project,target=/workspaces/sample-maverick-project,type=bind,consistency=cached",
     "source=${localWorkspaceFolder}/../site,target=/workspaces/site,type=bind,consistency=cached"
   ],
-  "postCreateCommand": "python3 --version && uv --version && node --version"
+  "postCreateCommand": "python3 --version && uv --version && node --version && jj --version && command -v bd && command -v specify"
 }
