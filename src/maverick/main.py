@@ -77,6 +77,10 @@ _LAZY_COMMANDS: dict[str, tuple[str, str]] = {
         "maverick.cli.commands.runway:runway",
         "Manage the runway knowledge store.",
     ),
+    "spec": (
+        "maverick.cli.commands.spec:spec",
+        "Run the headless Spec Kit chain from a PRD.",
+    ),
     "uninstall": (
         "maverick.cli.commands.uninstall:uninstall",
         "Remove Maverick-installed skills and optionally the config file.",

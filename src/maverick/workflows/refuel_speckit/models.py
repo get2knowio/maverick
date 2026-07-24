@@ -24,6 +24,9 @@ class SpeckitRefuelResult:
         dry_run: Whether this run performed zero writes.
         enriched: Whether ``--enrich`` succeeded for this run.
         warnings: Non-fatal warnings collected during the run.
+        adopted_remediation_bead_ids: Standalone `spec-remediation` beads
+            (from a prior `maverick spec` run) adopted under this epic
+            (R6 post-ingest adoption step).
     """
 
     feature_name: str
@@ -36,6 +39,7 @@ class SpeckitRefuelResult:
     dry_run: bool = False
     enriched: bool = False
     warnings: tuple[str, ...] = field(default=())
+    adopted_remediation_bead_ids: tuple[str, ...] = field(default=())
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to a plain dictionary for WorkflowResult.final_output."""
@@ -50,6 +54,7 @@ class SpeckitRefuelResult:
             "dry_run": self.dry_run,
             "enriched": self.enriched,
             "warnings": list(self.warnings),
+            "adopted_remediation_bead_ids": list(self.adopted_remediation_bead_ids),
         }
 
 

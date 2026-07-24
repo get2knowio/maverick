@@ -26,6 +26,7 @@ from maverick.assumptions.models import (
     KEY_SEVERITY,
     KEY_SEVERITY_DEFAULTED,
     KEY_SOURCE_BEAD,
+    KEY_SOURCE_REF,
     KEY_STATUS,
     KEY_WAIVE_REASON,
     KEY_WAIVED_AT,
@@ -55,6 +56,7 @@ __all__ = [
     "open_high_entries_before",
     "parse_description",
     "record_assumption",
+    "record_standalone_assumption",
     "stamp_change_id",
     "waive",
 ]
@@ -531,6 +533,163 @@ async def record_assumption(
         status=STATUS_OPEN,
         owner_spec=owner_spec,
         source_bead=source_bead_id,
+        change_ids=(),
+        is_legacy=False,
+    )
+
+
+async def _find_existing_standalone_entry(
+    client: BeadClient,
+    *,
+    owner_spec: str,
+    normalized_question: str,
+) -> AssumptionRecord | None:
+    """Search open, unparented ``assumption`` beads sharing *owner_spec*.
+
+    Standalone entries have no epic to search via ``children()`` (R5), so
+    dedup instead scans open task beads for the label + matching
+    ``assumption_owner_spec`` + normalized-question triple.
+    """
+    try:
+        candidates = await client.query("type=task AND status=open")
+    except BeadError as exc:
+        raise AssumptionLedgerError(f"Failed to query open task beads: {exc}") from exc
+
+    for candidate in candidates:
+        try:
+            details = await client.show(candidate.id)
+        except BeadError as exc:
+            raise AssumptionLedgerError(f"Failed to load bead {candidate.id}: {exc}") from exc
+        if ASSUMPTION_LABEL not in (details.labels or []):
+            continue
+        state = details.state or {}
+        if state.get(KEY_OWNER_SPEC) != owner_spec:
+            continue
+        if _normalize_question(_extract_question(details.description)) == normalized_question:
+            return _record_from_details(details)
+    return None
+
+
+async def record_standalone_assumption(
+    client: BeadClient,
+    *,
+    payload: AssumptionPayload,
+    owner_spec: str,
+    source_ref: str,
+) -> AssumptionRecord | None:
+    """Create (or merge into) a standalone ledger entry — no owning epic yet.
+
+    Used when a decision must be recorded before any epic exists (R5) —
+    e.g. the spec-chain's clarify step, recorded before ``refuel
+    --speckit`` creates the feature's epic. The bead shape matches
+    :func:`record_assumption`'s output exactly except: no parent epic,
+    and state key ``source_ref`` (the originating step, e.g.
+    ``"spec-chain:clarify"``) replaces ``source_bead``. Dedup runs
+    against open standalone entries sharing the same *owner_spec*,
+    escalating severity on merge exactly like :func:`record_assumption`.
+
+    Returns:
+        The created or merged :class:`AssumptionRecord`.
+
+    Raises:
+        AssumptionLedgerError: On any bd-layer failure.
+    """
+    from maverick.beads.models import BeadCategory, BeadDefinition, BeadType
+
+    severity, defaulted_here = coerce_severity(payload.severity)
+    defaulted = bool(payload.severity_defaulted) or defaulted_here
+
+    normalized_question = _normalize_question(payload.question)
+    existing = await _find_existing_standalone_entry(
+        client, owner_spec=owner_spec, normalized_question=normalized_question
+    )
+    if existing is not None:
+        escalated = await _maybe_escalate_severity(
+            client,
+            existing=existing,
+            new_severity=severity,
+            new_defaulted=defaulted,
+            # No epic to wire a high-blocks edge onto yet — refuel
+            # --speckit's epic-chaining step wires it once the epic exists
+            # (contracts/ledger-and-beads.md).
+            epic_id="",
+        )
+        logger.info(
+            "assumption_standalone_dedup_merged",
+            bead_id=existing.bead_id,
+            source_ref=source_ref,
+            escalated_to=escalated.severity.value if escalated is not existing else None,
+        )
+        return escalated
+
+    definition = BeadDefinition(
+        title=f"Assumption: {payload.question[:_TITLE_MAX_LEN]}",
+        bead_type=BeadType.TASK,
+        priority=_SEVERITY_PRIORITY[severity],
+        category=BeadCategory.REVIEW,
+        description=_build_description(
+            question=payload.question,
+            adopted_answer=payload.adopted_answer,
+            alternatives=payload.alternatives,
+            source_bead_id=source_ref,
+            source_title=source_ref,
+        ),
+        assignee="human",
+        labels=list(ASSUMPTION_LABELS),
+    )
+
+    try:
+        created = await client.create_bead(definition, parent_id=None)
+    except BeadError as exc:
+        raise AssumptionLedgerError(f"Failed to create standalone assumption bead: {exc}") from exc
+
+    state: dict[str, str] = {
+        KEY_SEVERITY: severity.value,
+        KEY_STATUS: STATUS_OPEN,
+        KEY_OWNER_SPEC: owner_spec,
+        KEY_SOURCE_REF: source_ref,
+    }
+    if defaulted:
+        state[KEY_SEVERITY_DEFAULTED] = "true"
+
+    try:
+        await client.set_state(
+            created.bd_id, state, reason=f"standalone assumption recorded from {source_ref}"
+        )
+    except BeadError as exc:
+        raise AssumptionLedgerError(
+            f"Failed to set state on standalone assumption bead {created.bd_id}: {exc}"
+        ) from exc
+
+    if severity is Severity.LOW:
+        from maverick.library.actions.beads import defer_bead
+
+        try:
+            await defer_bead(
+                created.bd_id, cwd=client.cwd, reason="low-severity assumption — advisory only"
+            )
+        except Exception as exc:  # noqa: BLE001 — defer_bead has no typed error hierarchy
+            raise AssumptionLedgerError(
+                f"Failed to defer low-severity entry {created.bd_id}: {exc}"
+            ) from exc
+
+    logger.info(
+        "assumption_standalone_recorded",
+        bead_id=created.bd_id,
+        severity=severity.value,
+        owner_spec=owner_spec,
+        source_ref=source_ref,
+    )
+    return AssumptionRecord(
+        bead_id=created.bd_id,
+        question=payload.question,
+        adopted_answer=payload.adopted_answer,
+        alternatives=tuple(payload.alternatives),
+        severity=severity,
+        severity_defaulted=defaulted,
+        status=STATUS_OPEN,
+        owner_spec=owner_spec,
+        source_bead="",
         change_ids=(),
         is_legacy=False,
     )

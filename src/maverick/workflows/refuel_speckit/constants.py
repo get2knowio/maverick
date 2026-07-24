@@ -11,6 +11,7 @@ ENRICH = "enrich"
 CREATE_BEADS = "create_beads"
 WIRE_DEPS = "wire_deps"
 CHAIN_EPIC = "chain_epic"
+ADOPT_REMEDIATION = "adopt_remediation"
 RECORD_RUN = "record_run"
 COMMIT_OUTPUT = "commit_output"
 

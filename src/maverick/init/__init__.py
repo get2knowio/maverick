@@ -17,7 +17,10 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import sys
 from pathlib import Path
+
+import click
 
 from maverick.exceptions.init import InitError, PrerequisiteError
 from maverick.init.config_generator import generate_config, write_config
@@ -53,6 +56,7 @@ from maverick.logging import get_logger
 __all__ = [
     # Functions
     "run_init",
+    "install_speckit",
     "parse_git_remote",
     "resolve_model_id",
     "discover_providers",
@@ -64,6 +68,7 @@ __all__ = [
     "MARKER_FILE_MAP",
     "VALIDATION_DEFAULTS",
     "PYTHON_DEFAULTS",
+    "SPECKIT_CLI_PIN",
     # Dataclasses
     "ProjectMarker",
     "ValidationCommands",
@@ -496,6 +501,87 @@ async def _maybe_init_runway(project_path: Path, verbose: bool) -> bool:
 
 
 # =============================================================================
+# Spec Kit prerequisite + install offer (R7/US5)
+# =============================================================================
+
+#: Pinned `specify-cli` version for the install offer's `uvx --from`
+#: invocation. Chosen as the supported range's floor
+#: (`SUPPORTED_SPECKIT_RANGE = ">=0.14,<0.15"`) rather than a guessed
+#: "latest patch" — this sandbox has no way to query PyPI for the true
+#: newest compatible release, and the floor is the one version guaranteed
+#: to satisfy the range. Bump when a newer 0.14.x release is verified
+#: compatible.
+SPECKIT_CLI_PIN = "0.14.0"
+
+#: Timeout for the `uvx --from specify-cli==<pin> specify init --here`
+#: installer subprocess.
+_SPECKIT_INSTALL_TIMEOUT_SECONDS = 120.0
+
+
+async def install_speckit(project_path: Path) -> bool:
+    """Run the pinned Spec Kit installer via `CommandRunner`.
+
+    Args:
+        project_path: Target repository root to install into.
+
+    Returns:
+        True if the installer exited successfully.
+    """
+    from maverick.runners.command import CommandRunner
+
+    runner = CommandRunner(cwd=project_path, timeout=_SPECKIT_INSTALL_TIMEOUT_SECONDS)
+    result = await runner.run(
+        ["uvx", "--from", f"specify-cli=={SPECKIT_CLI_PIN}", "specify", "init", "--here"]
+    )
+    if not result.success:
+        logger.warning(
+            "speckit_install_failed",
+            path=str(project_path),
+            returncode=result.returncode,
+            stderr=result.stderr[:500],
+        )
+    return result.success
+
+
+async def _maybe_offer_speckit_install(project_path: Path, verbose: bool) -> bool | None:
+    """Advisory Spec Kit prerequisite check + interactive install offer (R7).
+
+    Never hard-fails init — this is purely informational/offer logic;
+    :func:`check_speckit_installed` itself never raises.
+
+    Args:
+        project_path: Project root directory.
+        verbose: Whether to log the "already installed" pass case.
+
+    Returns:
+        ``True`` installed this run; ``False`` the offer was accepted but
+        the installer failed; ``None`` not applicable (already installed)
+        or the offer was skipped/declined.
+    """
+    from maverick.init.prereqs import check_speckit_installed
+
+    check = check_speckit_installed(project_path)
+    if check.status.value == "pass":
+        if verbose:
+            logger.debug("speckit_already_installed", message=check.message)
+        return None
+
+    if not sys.stdin.isatty():
+        logger.info("speckit_not_installed_notice", message=check.message)
+        return None
+
+    accepted = click.confirm(
+        f"Spec Kit is not installed ({check.message}). Install it now?",
+        default=True,
+    )
+    if not accepted:
+        logger.info("speckit_install_declined", message=check.message)
+        return None
+
+    return await install_speckit(project_path)
+
+
+# =============================================================================
 # .gitignore maintenance (best-effort)
 # =============================================================================
 
@@ -819,6 +905,7 @@ async def run_init(
         runway_initialized = await _maybe_init_runway(effective_path, verbose)
         await _ensure_gitignore_entries(effective_path, verbose)
         await _untrack_bd_local_state(effective_path, verbose)
+        speckit_installed = await _maybe_offer_speckit_install(effective_path, verbose)
         return InitResult(
             success=True,
             config_path=str(config_path),
@@ -831,6 +918,7 @@ async def run_init(
             runway_initialized=runway_initialized,
             provider_discovery=None,
             config_existed=True,
+            speckit_installed=speckit_installed,
         )
 
     # Step 3: Detect project type
@@ -901,6 +989,9 @@ async def run_init(
     await _ensure_gitignore_entries(effective_path, verbose)
     await _untrack_bd_local_state(effective_path, verbose)
 
+    # Step 9: Advisory Spec Kit prerequisite check + install offer (R7/US5).
+    speckit_installed = await _maybe_offer_speckit_install(effective_path, verbose)
+
     # Build and return result
     return InitResult(
         success=True,
@@ -913,4 +1004,5 @@ async def run_init(
         beads_initialized=beads_initialized,
         runway_initialized=runway_initialized,
         provider_discovery=provider_discovery,
+        speckit_installed=speckit_installed,
     )

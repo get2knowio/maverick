@@ -1,22 +1,18 @@
 <!--
 Sync Impact Report
 ==================
-Version change: 1.9.0 → 1.10.0
+Version change: 1.10.0 to 1.11.0
 Modified principles: None
-Removed sections:
-  - Guardrail #11: Workspace Isolation (was DSL-specific cwd threading — now Appendix E covers Python workflows)
-  - Guardrail #12: DSL Expression Type Safety (was YAML DSL-specific — maverick.dsl package removed)
-  - Appendix A: DSL execution split pattern row (maverick.dsl package removed)
+Removed sections: None
 Updated sections:
-  - Principle I: Removed "DSL PythonStep" reference, generalized to "Python steps"
-  - Guardrail #2: Removed "DSL PythonStep" reference, generalized to "Python steps"
-  - Guardrail #5: Removed "DSL/workflow definition" reference
-  - Appendix C: Updated import from maverick.dsl.events to maverick.events
-  - Appendix E: Reframed for Python workflows (removed YAML DSL specifics)
-  - Compliance Review: Removed Guardrail #11 and #12 references
+  - Appendix E: Replaced the stale "fly hidden workspace" narrative (that model was
+    retired when the single-repo CWD model, Guardrail 0, became the default) with a
+    pointer to Guardrail 0 as the default model plus the spec-chain's hidden jj
+    workspace as the one documented, scoped exception (spec 050-headless-spec-chain).
 Templates requiring updates: None
-Source: Feature 041-remove-yaml-dsl — deleted maverick.dsl package entirely in favour of
-Python-native workflow authoring. YAML DSL content in constitution was dead/misleading.
+Source: Feature 050-headless-spec-chain -- maverick spec introduces the first
+hidden-workspace exception to Guardrail 0 since the single-repo model was adopted;
+Appendix E's prior content predated that model and no longer matched any running code.
 -->
 
 # Maverick Constitution
@@ -489,7 +485,7 @@ MUST comply with these principles.
 - Branch naming conventions (Guardrail #10, Appendix D) MUST be verified before pushing
 - Workspace cwd threading (Appendix E) MUST be verified for all new workflow steps
 
-**Version**: 1.10.0 | **Ratified**: 2025-12-12 | **Last Amended**: 2026-03-03
+**Version**: 1.11.0 | **Ratified**: 2025-12-12 | **Last Amended**: 2026-07-24
 
 ## Appendix B: Canonical Third-Party Libraries
 
@@ -687,72 +683,74 @@ and verification procedures prevent wasted effort and repository pollution.
 
 ## Appendix E: Workspace Isolation Architecture
 
-The `fly` command creates a hidden jj workspace at `~/.maverick/workspaces/<project>/`
-where all agent work happens. The user's working directory is never modified during fly.
-After fly completes, `land` curates and pushes commits from the workspace.
+**Default: single-repo CWD model (Guardrail 0).** `fly`, `refuel`, `land`, and every
+other long-running command operate directly in the user's checkout under `Path.cwd()`
+(resolved once at the CLI boundary and threaded explicitly through every layer beneath
+it — see Guardrail 0 and Guardrail 7 in CLAUDE.md). There is no hidden workspace, no
+clone bridge, and no `WorkspaceManager` for these commands. Two implementations of a
+general-purpose hidden-workspace model were tried and retired before this model was
+adopted (`jj git clone` — drifted on bd state, gone in `cf11db4`; `jj workspace add` —
+bd's gitignored `embeddeddolt/` didn't travel into the workspace, gone in the slice that
+introduced the single-repo model). See CLAUDE.md Guardrail 0 for the full history and
+the CWD contract every command in this model follows: CLI resolves `cwd`, passes it
+explicitly to the workflow, which threads it to every action/agent step — no
+`Path.cwd()` defaults inside `src/maverick/workflows/` or `src/maverick/actors/`.
 
-### The CWD Contract
+### The scoped exception: spec-chain's hidden jj workspace
 
-Every workflow step that operates inside the workspace MUST receive the workspace path as
-its working directory. The workspace path is returned by `create_workspace` and must be
-threaded explicitly to all subsequent steps:
+`maverick spec` (spec 050-headless-spec-chain) is a **documented exception** to the
+single-repo model. Each chain step (specify → clarify → plan → tasks → analyze) mutates
+`specs/`, `.specify/feature.json`, and agent scratch state over a multi-minute model
+call; the user's checkout must stay untouched until each step's artifacts are verified
+complete, and only completed-step artifacts may land. Running steps directly in the
+user's checkout would expose half-written spec artifacts mid-run and make atomic landing
+impossible without ad-hoc staging.
 
-```
-create_workspace step
-  └── workspace_path (e.g. "/home/user/.maverick/workspaces/my-project")
-        │
-        ├── implement (agent step)
-        │     context["cwd"] = workspace_path
-        │
-        ├── validate_and_fix (sub-workflow/fragment)
-        │     inputs["cwd"] = workspace_path
-        │     └── (fragment wires cwd to its internal validate + fix_loop steps)
-        │
-        ├── gather_review_context (python step)
-        │     kwargs["cwd"] = workspace_path
-        │
-        └── git_commit (python step)
-              kwargs["cwd"] = workspace_path
-```
+The historic reason general-purpose workspaces were retired — bd's gitignored
+`embeddeddolt/` not traveling into `jj workspace add` — does **not** apply here: the
+spec chain never runs `bd` inside the workspace. All bead/ledger writes (assumption
+ledger entries from clarify, remediation beads from analyze) happen in the user's
+checkout via the workflow (`src/maverick/workflows/spec_chain/workflow.py`), never the
+agent and never the workspace. This keeps Guardrail X.3 (agents never own deterministic
+side effects) and Guardrail X.8 (canonical wrappers) intact even inside the exception.
 
-### Why Explicit CWD Is Required
+**Mechanism** (`src/maverick/workspace/spec_chain.py`, `research.md` R3):
 
-- **Agent steps**: The Claude agent's tool server resolves file paths relative to `cwd`.
-  Without explicit cwd, the agent reads/writes the user's repo instead of the workspace.
-- **Validate steps**: `ValidationRunner` runs `ruff`, `pytest`, etc. in a subprocess.
-  Without cwd, these run against the user's repo (which may not have the workspace's changes).
-- **Review actions**: `AsyncGitRepository(cwd)` computes diffs against the workspace.
-  Without cwd, diffs show nothing because the user repo hasn't changed.
-- **jj actions**: `JjClient(cwd=Path(workspace_path))` operates on the workspace's
-  `.jj/` store. The `_make_client` helper accepts `str | Path | None` and coerces with
-  `Path(cwd)`.
+- Location: `~/.maverick/workspaces/<project-slug>/spec-chain/<feature>/` — per-feature,
+  so two features' chains never share (and one can never destroy the other's resumable
+  state).
+- Creation: `JjClient.workspace_add`, from the user's colocated checkout — the shared
+  backing store materializes committed files (`.claude/commands/speckit.*.md`,
+  `.specify/**`, existing `specs/**`) into the workspace. The PRD file (often untracked)
+  is copied in explicitly.
+- Reuse & cleanup: a resumable chain (`status` `halted`/`running`) reuses its workspace
+  on resume; a fresh or completed chain forgets + recreates it, so runs start clean.
+- Landing: after each step succeeds (verified against the filesystem, never the agent's
+  self-report — research.md R9), `src/maverick/workflows/spec_chain/landing.py` syncs
+  `specs/<feature-dir>/**` from the workspace into the user's checkout via an atomic
+  staged copy (temp sibling + rename). This is what makes "only completed artifacts
+  land" and "resume never regenerates a landed step" both hold.
 
-### Path Coercion at Step Boundaries
+### CWD contract inside the exception
 
-Workspace paths flow as Python `str` or `Path` objects between workflow steps. Step
-handlers MUST coerce to `Path` before use:
+Within the spec-chain workflow itself, the ordinary Guardrail 7 rules still apply one
+level down: `SpecChainWorkflow._run()` resolves the workspace path once (via
+`prepare_workspace`) and threads it explicitly to every step (`build_step_prompt`,
+`verify_step_artifacts`, `land_step_artifacts`) and to `SpecChainSquadron` — no step
+re-derives or defaults it. The one deliberate deviation is `SpecChainAgent.run_step`,
+which binds the OS process working directory via a locked `os.chdir()`/restore pair for
+the duration of a single airframe `execute()` call — a workaround for airframe 0.9.0rc1
+exposing no `cwd`/`working_directory` parameter on the `claude` provider's runtime
+(research.md R1; the field exists on `CopilotOptions`/`KimiOptions`/
+`OpenCodeServerOptions` but not `ClaudeOptions`, an adapter gap worth upstreaming later).
+Because chain steps run strictly sequentially and one Maverick CLI invocation runs one
+workflow per process, the exposure window is a single in-process critical section, not
+cross-workflow concurrency.
 
-```python
-# In action code or step handler:
-from pathlib import Path
-
-def _make_client(cwd: str | Path | None = None) -> JjClient:
-    return JjClient(cwd=Path(cwd) if cwd else Path.cwd())
-
-# In validate step handler:
-input_cwd = context.inputs.get("cwd")
-cwd = Path(input_cwd) if input_cwd else Path.cwd()
-```
-
-### Preflight Tool Availability
-
-Preflight checks for validation tools (`ruff`, `pytest`, `mypy`) MUST be deferred when
-running in workspace mode. The workspace's `.venv` doesn't exist until bootstrap runs
-(after `create_workspace`). Use `check_validation_tools: false` in preflight kwargs and
-rely on the `sync_deps` step to install tools before validation runs.
-
-**Rationale**: The workspace isolation debugging session (2026-02-20) revealed that the
-implementer agent was silently writing files to the user's repo instead of the hidden
-workspace because no step passed `cwd`. The bug was invisible — fly "succeeded" but
-`land` found nothing to push. Explicit cwd threading is the only reliable way to ensure
-workspace isolation.
+**Rationale**: The workspace isolation debugging session (2026-02-20) that originally
+motivated this appendix revealed that an implementer agent can silently write to the
+wrong directory when no step passes `cwd` explicitly — the bug is invisible until
+downstream steps find nothing to work with. That lesson generalizes to both models
+above: whether the working directory is the user's checkout (the default) or a hidden
+workspace (this scoped exception), every step must receive it explicitly, and nothing
+in `workflows/` or `actors/` may default to `Path.cwd()`.

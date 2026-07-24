@@ -153,6 +153,23 @@ maverick plan generate my-feature --from-prd spec.md
 maverick plan generate my-feature --from-prd spec.md --skip-briefing
 ```
 
+### `maverick spec` — Headless Spec Kit Chain
+
+For Spec Kit-managed repositories, runs the repo's own Spec Kit chain —
+specify → clarify → plan → tasks → analyze — end to end with zero
+interactive prompts, invoking the repository's own `/speckit.*` commands
+inside an isolated hidden workspace. Clarify questions are answered
+automatically and filed as auditable assumption-ledger entries; a failed
+or blocked clarify halts the chain rather than producing plans from an
+unvetted spec. Analyze findings become remediation beads instead of
+blocking the run. Completed artifacts land in `specs/NNN-<feature>/` as
+ordinary markdown, one step at a time.
+
+```bash
+maverick spec my-feature --from-prd docs/prd.md
+maverick spec my-feature   # re-run with no --from-prd: resumes a halted/running chain
+```
+
 ### `maverick refuel` — Decompose into Beads
 
 Decomposes a flight plan into work units with acceptance criteria, file scope,

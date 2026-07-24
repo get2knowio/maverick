@@ -73,6 +73,10 @@ KEY_WAIVED_BY = "assumption_waived_by"
 KEY_WAIVED_AT = "assumption_waived_at"
 KEY_WAIVE_REASON = "assumption_waive_reason"
 KEY_SOURCE_BEAD = "source_bead"
+#: Standalone-entry variant of ``source_bead`` (R5) — set instead of
+#: ``source_bead`` when no spawning bead exists yet (e.g. the spec-chain's
+#: clarify step, recorded before its epic is created by ``refuel --speckit``).
+KEY_SOURCE_REF = "source_ref"
 
 # Epic-level state keys read to derive ``assumption_owner_spec``
 # (research R3 — first match wins).

@@ -147,6 +147,37 @@ def _format_git_output(
     return lines
 
 
+def _format_speckit_output(result: InitResult) -> list[str]:
+    """Format the Spec Kit install-offer notice (R7/US5).
+
+    Silent (no output) when Spec Kit was already installed and compatible
+    — ``speckit_installed`` is only ``None`` in that case *or* when the
+    offer was skipped/declined, so a check against the live prerequisite
+    result decides which of those it was.
+    """
+    if result.speckit_installed is True:
+        return ["[green]✓[/] Spec Kit installed.", ""]
+    if result.speckit_installed is False:
+        return [
+            "[yellow]Warning:[/yellow] Spec Kit install failed — "
+            "`maverick spec` will be unavailable until it's installed manually.",
+            "",
+        ]
+
+    # speckit_installed is None: either already fine, or the offer was
+    # skipped/declined — only the latter needs a user-visible notice.
+    from maverick.init.prereqs import check_speckit_installed
+
+    check = check_speckit_installed(Path(result.config_path).parent)
+    if check.status != PreflightStatus.PASS:
+        return [
+            f"[yellow]Notice:[/yellow] {check.message} — "
+            "`maverick spec` will be unavailable until Spec Kit is installed.",
+            "",
+        ]
+    return []
+
+
 def _format_config_output(
     result: InitResult,
     verbose: bool = False,
@@ -297,6 +328,7 @@ async def init(
             lines.extend(_format_detection_output(result, verbose))
             lines.extend(_format_provider_output(result.provider_discovery))
             lines.extend(_format_git_output(result, verbose))
+            lines.extend(_format_speckit_output(result))
             lines.extend(_format_config_output(result, verbose))
 
             for line in lines:
