@@ -15,6 +15,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from maverick.burr import BurrWorkflowDriver
+from maverick.config import MaverickConfig
 from maverick.events import (
     ProgressEvent,
     StepStarted,
@@ -1188,3 +1189,155 @@ class TestFlyBurrGracefulStop:
             assert state["processed_count"] == 0
         finally:
             reset_graceful_stop()
+
+
+class TestFlyBurrMidFlightReconcile:
+    """T025 (052-conditional-landing, US3): the mid-flight reconcile splice.
+
+    ``reconcile_answers`` sits on ``record_outcome -> reconcile_answers ->
+    select_next_bead`` (covering both the commit-success and abandon
+    boundaries, since both funnel through ``record_outcome`` first — see
+    ``burr_graph.py``'s module docstring) and ``reconcile_answers_final``
+    sits on the loop-exit edge, before ``aggregate_review``. These tests
+    only assert the action nodes run at the right points and never block
+    bead progress — the pass's own detection/invocation logic is unit
+    tested in ``test_mid_flight.py``.
+    """
+
+    async def test_reconcile_answers_runs_at_each_boundary_without_blocking_next_bead(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from maverick.workflows.fly_beads.graceful_stop import reset_graceful_stop
+
+        reset_graceful_stop()
+
+        # Detection returns nothing so the pass is a fast no-op at every
+        # boundary — this test is about graph placement, not reconcile's
+        # own behavior.
+        monkeypatch.setattr(
+            "maverick.workflows.fly_beads.mid_flight.answered_unreconciled_entries",
+            AsyncMock(return_value=()),
+        )
+
+        queue: asyncio.Queue[ProgressEvent | None] = asyncio.Queue()
+        coder = StubCodingAgent(
+            implement_payloads=[
+                SubmitImplementationPayload(summary="i1"),
+                SubmitImplementationPayload(summary="i2"),
+            ],
+            fix_payloads=[SubmitFixResultPayload(summary="f") for _ in range(5)],
+        )
+        squadron = StubFlySquadron(coder=coder)
+
+        with (
+            patch(
+                "maverick.library.actions.beads.select_next_bead",
+                new=AsyncMock(side_effect=[_bead("b-1"), _bead("b-2"), _NO_MORE]),
+            ),
+            patch(
+                "maverick.library.actions.validation.run_independent_gate",
+                new=AsyncMock(return_value=_gate_passed()),
+            ),
+            patch(
+                "maverick.library.actions.jj.jj_commit_bead",
+                new=AsyncMock(return_value={"change_id": "c", "success": True}),
+            ),
+            patch(
+                "maverick.library.actions.beads.mark_bead_complete",
+                new=AsyncMock(
+                    return_value=MarkBeadCompleteResult(success=True, bead_id="x", error=None)
+                ),
+            ),
+        ):
+            app = build_fly_application(
+                squadron=squadron,  # type: ignore[arg-type]
+                event_queue=queue,
+                epic_id="e-1",
+                cwd=str(tmp_path),
+                max_beads=10,
+                reconcile_config=MaverickConfig(),
+                fly_run_id="fly-test-1",
+            )
+            driver = BurrWorkflowDriver(app, halt_after=FLY_TERMINAL_ACTIONS, event_queue=queue)
+            events = await _collect(driver)
+
+        sequence = _action_sequence(events)
+        # One boundary pass per completed bead.
+        assert sequence.count("reconcile_answers") == 2
+        # Both beads still ran their full pipeline — the pass never
+        # blocked the next bead from being selected.
+        assert sequence.count("implement") == 2
+        assert sequence.count("commit") == 2
+
+        # Each boundary pass sits strictly between that bead's
+        # record_outcome and the next select_next_bead/process_bead_start.
+        record_outcome_indices = [i for i, name in enumerate(sequence) if name == "record_outcome"]
+        reconcile_indices = [i for i, name in enumerate(sequence) if name == "reconcile_answers"]
+        assert len(record_outcome_indices) == len(reconcile_indices) == 2
+        for ro_idx, rc_idx in zip(record_outcome_indices, reconcile_indices, strict=True):
+            assert ro_idx < rc_idx
+
+        _, _, state = driver.result
+        assert state["succeeded_count"] == 2
+        assert state["failed_count"] == 0
+
+    async def test_reconcile_answers_final_runs_once_before_aggregate_review(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from maverick.workflows.fly_beads.graceful_stop import reset_graceful_stop
+
+        reset_graceful_stop()
+
+        monkeypatch.setattr(
+            "maverick.workflows.fly_beads.mid_flight.answered_unreconciled_entries",
+            AsyncMock(return_value=()),
+        )
+
+        queue: asyncio.Queue[ProgressEvent | None] = asyncio.Queue()
+        coder = StubCodingAgent(
+            implement_payloads=[
+                SubmitImplementationPayload(summary="i1"),
+                SubmitImplementationPayload(summary="i2"),
+            ],
+            fix_payloads=[SubmitFixResultPayload(summary="f") for _ in range(5)],
+        )
+        squadron = StubFlySquadron(coder=coder)
+
+        with (
+            patch(
+                "maverick.library.actions.beads.select_next_bead",
+                new=AsyncMock(side_effect=[_bead("b-1"), _bead("b-2"), _NO_MORE]),
+            ),
+            patch(
+                "maverick.library.actions.validation.run_independent_gate",
+                new=AsyncMock(return_value=_gate_passed()),
+            ),
+            patch(
+                "maverick.library.actions.jj.jj_commit_bead",
+                new=AsyncMock(return_value={"change_id": "c", "success": True}),
+            ),
+            patch(
+                "maverick.library.actions.beads.mark_bead_complete",
+                new=AsyncMock(
+                    return_value=MarkBeadCompleteResult(success=True, bead_id="x", error=None)
+                ),
+            ),
+        ):
+            app = build_fly_application(
+                squadron=squadron,  # type: ignore[arg-type]
+                event_queue=queue,
+                epic_id="e-1",
+                cwd=str(tmp_path),
+                max_beads=10,
+                reconcile_config=MaverickConfig(),
+                fly_run_id="fly-test-1",
+            )
+            driver = BurrWorkflowDriver(app, halt_after=FLY_TERMINAL_ACTIONS, event_queue=queue)
+            events = await _collect(driver)
+
+        sequence = _action_sequence(events)
+        # Exactly one final pass, and it precedes aggregate_review/done.
+        assert sequence.count("reconcile_answers_final") == 1
+        assert sequence[-3] == "reconcile_answers_final"
+        assert sequence[-2] == "aggregate_review"
+        assert sequence[-1] == "done"

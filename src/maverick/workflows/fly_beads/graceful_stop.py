@@ -1,9 +1,10 @@
 """Process-level graceful-stop flag for ``maverick fly``.
 
 The CLI's two-stage SIGINT handler sets this flag on the *first* Ctrl-C
-so the running fly supervisor can finish its current bead and exit
-cleanly instead of throwing away in-flight work. The supervisor's bead
-loop checks the flag at each bead boundary via
+so the running fly drain loop can finish its current bead and exit
+cleanly instead of throwing away in-flight work. The Burr
+``select_next_bead`` action (:mod:`maverick.workflows.fly_beads.actions`)
+checks the flag at each bead boundary via
 :func:`is_graceful_stop_requested`. The *second* Ctrl-C bypasses this
 flag entirely and cancels the workflow task — see
 ``maverick.cli.commands.fly._group``.
@@ -11,11 +12,11 @@ flag entirely and cancels the workflow task — see
 Module-level state is the right shape here:
 
 * The signal handler runs in the asyncio loop with no easy reference to
-  the in-flight ``FlySupervisor`` actor (it's owned by xoscar).
+  the in-flight Burr ``Application`` driving the bead loop.
 * There is exactly one fly run per process, so a singleton flag has no
   multiplexing problem.
-* The supervisor's bead loop polls the flag (no callback machinery
-  needed across the actor boundary).
+* ``select_next_bead`` polls the flag directly (no callback machinery
+  needed across the Burr action boundary).
 
 Tests must call :func:`reset_graceful_stop` in a fixture to keep the
 flag from leaking between cases.

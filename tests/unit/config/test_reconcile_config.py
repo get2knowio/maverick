@@ -22,6 +22,7 @@ def test_defaults() -> None:
     config = ReconcileConfig()
     assert config.resolution_rounds == 3
     assert config.semantic_rounds == 3
+    assert config.mid_flight is True
 
 
 @pytest.mark.parametrize(
@@ -61,3 +62,28 @@ def test_env_var_override(
 
     config = load_config()
     assert config.reconcile.resolution_rounds == 7
+
+
+def test_mid_flight_defaults_true() -> None:
+    """``mid_flight`` defaults to True (052 research R9: opt-out kill-switch)."""
+    config = ReconcileConfig()
+    assert config.mid_flight is True
+
+
+def test_mid_flight_yaml_override_false(clean_env: None, temp_dir: Path) -> None:
+    """``reconcile.mid_flight: false`` in maverick.yaml disables the fly trigger."""
+    os.chdir(temp_dir)
+
+    config_path = temp_dir / "maverick.yaml"
+    config_path.write_text(
+        """
+reconcile:
+  mid_flight: false
+"""
+    )
+
+    config = load_config()
+    assert config.reconcile.mid_flight is False
+    # Untouched fields keep their defaults.
+    assert config.reconcile.resolution_rounds == 3
+    assert config.reconcile.semantic_rounds == 3

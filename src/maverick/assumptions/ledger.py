@@ -44,6 +44,8 @@ from maverick.assumptions.models import (
     STATUS_WAIVED,
     TERMINAL_RECONCILE_STATUSES,
     AssumptionRecord,
+    AssumptionReportEntry,
+    BulkWaiveResult,
     Severity,
     StampResult,
     coerce_severity,
@@ -62,6 +64,7 @@ logger = get_logger(__name__)
 __all__ = [
     "answer",
     "answered_unreconciled_entries",
+    "bulk_waive",
     "create_reconcile_escalation",
     "mark_needs_interactive_review",
     "mark_reconciled",
@@ -71,6 +74,7 @@ __all__ = [
     "parse_description",
     "record_assumption",
     "record_standalone_assumption",
+    "report_entries",
     "stamp_change_id",
     "waive",
 ]
@@ -843,6 +847,50 @@ async def waive(
     return _record_from_details(details)
 
 
+async def bulk_waive(
+    client: BeadClient,
+    *,
+    owner_spec: str,
+    severities: frozenset[Severity],
+    reason: str,
+    waived_by: str,
+) -> BulkWaiveResult:
+    """Waive every open entry owned by *owner_spec* matching *severities*.
+
+    Selection reuses :func:`report_entries` (one bd sweep): open entries
+    (any bucket other than "open" — answered/waived — are never touched)
+    whose ``owner_spec`` matches and whose severity is in *severities*.
+    Legacy escalation beads synthesize ``severity=medium`` (research R1),
+    so they're naturally swept in only when ``Severity.MEDIUM`` is
+    selected — no special-casing needed (contracts/cli-review-bulk-waive.md).
+
+    Loops the existing :func:`waive` per matching entry (Principle VII —
+    one write path); a bd failure on one entry doesn't stop the rest
+    (contracts: "waives what it can"). Never raises — failures are
+    collected in the returned :class:`BulkWaiveResult`.
+    """
+    entries = await report_entries(client)
+    matches = [
+        entry
+        for entry in entries
+        if entry.bucket == "open"
+        and entry.record.owner_spec == owner_spec
+        and entry.record.severity in severities
+    ]
+
+    waived: list[AssumptionRecord] = []
+    failed: dict[str, str] = {}
+    for entry in matches:
+        bead_id = entry.record.bead_id
+        try:
+            record = await waive(client, bead_id=bead_id, reason=reason, waived_by=waived_by)
+            waived.append(record)
+        except AssumptionLedgerError as exc:
+            failed[bead_id] = str(exc)
+
+    return BulkWaiveResult(waived=tuple(waived), failed=failed)
+
+
 async def open_blocking_entries(client: BeadClient) -> tuple[AssumptionRecord, ...]:
     """Open entries with severity in {medium, high} — powers the land gate.
 
@@ -975,6 +1023,85 @@ async def answered_unreconciled_entries(client: BeadClient) -> tuple[AssumptionR
         records.append(_record_from_details(details))
 
     return tuple(sorted(records, key=lambda record: record.bead_id))
+
+
+async def report_entries(client: BeadClient) -> tuple[AssumptionReportEntry, ...]:
+    """Repo-wide, all-status materialization of every ledger entry.
+
+    The single canonical reader behind both the land frontier gate and its
+    provenance report (research R1) — one bd sweep, no per-entry queries
+    beyond the required ``show()`` per candidate. Unlike
+    :func:`open_blocking_entries` (open, medium/high only — the pre-existing
+    gate contract other callers depend on), this includes every status
+    (open, answered, waived) and every severity, plus each entry's
+    answer/waiver/reconcile state keys that :class:`AssumptionRecord`
+    deliberately omits.
+
+    Legacy ``assumption-review`` beads are included only while still open:
+    :func:`_legacy_record_from_details` always synthesizes
+    ``status=STATUS_OPEN`` regardless of the bead's real bd status (it has
+    no resolved/waived distinction), so a closed legacy bead would
+    misreport as perpetually open — it's dropped instead, matching
+    :func:`open_blocking_entries`'s pre-existing open-only semantics for
+    legacy beads.
+
+    ``pending_reconcile`` is sourced from :func:`answered_unreconciled_entries`
+    (051's detection predicate, called once) rather than re-derived, so the
+    land gate and mid-flight reconcile can never disagree about which
+    entries are pending (research R4).
+
+    Raises:
+        AssumptionLedgerError: On any bd-layer failure.
+    """
+    pending_ids = {record.bead_id for record in await answered_unreconciled_entries(client)}
+
+    try:
+        candidates = await client.query(_ALL_STATUS_TASK_FILTER)
+    except BeadError as exc:
+        raise AssumptionLedgerError(f"Failed to query task beads: {exc}") from exc
+
+    entries: list[AssumptionReportEntry] = []
+    for candidate in candidates:
+        try:
+            details = await client.show(candidate.id)
+        except BeadError as exc:
+            raise AssumptionLedgerError(f"Failed to load bead {candidate.id}: {exc}") from exc
+
+        labels = details.labels or []
+        state = details.state or {}
+
+        if ASSUMPTION_LABEL in labels:
+            entries.append(
+                AssumptionReportEntry(
+                    record=_record_from_details(details),
+                    final_answer=state.get(KEY_ANSWER),
+                    waived_by=state.get(KEY_WAIVED_BY),
+                    waived_at=state.get(KEY_WAIVED_AT),
+                    waive_reason=state.get(KEY_WAIVE_REASON),
+                    reconcile_status=state.get(KEY_RECONCILE_STATUS),
+                    reconciled_answer=state.get(KEY_RECONCILED_ANSWER),
+                    reconcile_change_id=state.get(KEY_RECONCILE_CHANGE_ID),
+                    reconcile_reason=state.get(KEY_RECONCILE_REASON),
+                    pending_reconcile=candidate.id in pending_ids,
+                )
+            )
+        elif ASSUMPTION_REVIEW_LABEL in labels and details.status not in _CLOSED_STATUSES:
+            entries.append(
+                AssumptionReportEntry(
+                    record=_legacy_record_from_details(details),
+                    final_answer=None,
+                    waived_by=None,
+                    waived_at=None,
+                    waive_reason=None,
+                    reconcile_status=None,
+                    reconciled_answer=None,
+                    reconcile_change_id=None,
+                    reconcile_reason=None,
+                    pending_reconcile=False,
+                )
+            )
+
+    return tuple(entries)
 
 
 async def mark_reconciled(

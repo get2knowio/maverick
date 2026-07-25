@@ -32,7 +32,7 @@ logger = get_logger(__name__)
 
 
 @click.command("review")
-@click.argument("bead_id")
+@click.argument("bead_id", required=False, default=None)
 @click.option(
     "--approve",
     is_flag=True,
@@ -63,23 +63,40 @@ logger = get_logger(__name__)
     default=None,
     help="Waive a ledger entry with a reason (non-interactive).",
 )
+@click.option(
+    "--spec",
+    "owner_spec",
+    default=None,
+    help="Bulk-waive: owning spec selector (matches `owner_spec` attribution).",
+)
+@click.option(
+    "--severity",
+    "severities",
+    multiple=True,
+    type=click.Choice(["low", "medium", "high"]),
+    help="Bulk-waive: severity filter, repeatable (default: low only).",
+)
 @click.pass_context
 @async_command
 async def review(
     ctx: click.Context,
-    bead_id: str,
+    bead_id: str | None,
     approve: bool,
     reject_guidance: str | None,
     defer: bool,
     answer_text: str | None,
     waive_reason: str | None,
+    owner_spec: str | None,
+    severities: tuple[str, ...],
 ) -> None:
-    """Review a human-assigned bead.
+    """Review a human-assigned bead, or bulk-waive a spec's open entries.
 
     For assumption-ledger entries: displays full context and captures
     answer or waive. For legacy escalation beads: displays the escalation
     context and captures approve, reject (with guidance for the
-    correction agent), or defer.
+    correction agent), or defer. ``--spec`` switches to bulk waive: every
+    open entry owned by that spec, filtered by ``--severity`` (default
+    low only), is waived with a shared reason.
 
     Examples:
 
@@ -94,13 +111,49 @@ async def review(
         maverick review dea-ykp.7 --reject "Use Dockerfile generation instead"
 
         maverick review dea-ykp.7 --defer
+
+        maverick review --spec 052-conditional-landing --waive "accepted for MVP"
     """
-    from maverick.assumptions.models import ASSUMPTION_LABEL
     from maverick.beads.client import BeadClient
 
     if answer_text is not None and waive_reason is not None:
         console.print("[red]Error:[/] --answer and --waive are mutually exclusive")
         raise SystemExit(ExitCode.FAILURE)
+
+    if bead_id is not None and owner_spec is not None:
+        console.print("[red]Error:[/] BEAD_ID and --spec are mutually exclusive")
+        raise SystemExit(ExitCode.FAILURE)
+
+    if bead_id is None and owner_spec is None:
+        console.print("[red]Error:[/] Provide either BEAD_ID or --spec")
+        raise SystemExit(ExitCode.FAILURE)
+
+    if owner_spec is not None:
+        if waive_reason is None:
+            console.print("[red]Error:[/] --spec requires --waive <reason>")
+            raise SystemExit(ExitCode.FAILURE)
+        if answer_text is not None or approve or reject_guidance is not None or defer:
+            console.print(
+                "[red]Error:[/] --spec only supports --waive "
+                "(bulk answering is unsupported — answers are per-question)"
+            )
+            raise SystemExit(ExitCode.FAILURE)
+
+        client = BeadClient(cwd=Path.cwd())
+        if not await client.verify_available():
+            console.print("[red]Error:[/] bd is not available")
+            raise SystemExit(ExitCode.FAILURE)
+
+        await _bulk_waive_flow(
+            client,
+            owner_spec=owner_spec,
+            severities=severities or ("low",),
+            reason=waive_reason,
+        )
+        return
+
+    assert bead_id is not None  # mutual-exclusion checks above guarantee this
+    from maverick.assumptions.models import ASSUMPTION_LABEL
     from maverick.beads.models import (
         BeadCategory,
         BeadDefinition,
@@ -246,6 +299,55 @@ async def review(
     elif decision == "defer":
         console.print(f"\n[yellow]⏸[/] Bead {bead_id} deferred — no action taken.")
         console.print("Run `maverick review` again when ready.")
+
+
+async def _bulk_waive_flow(
+    client: BeadClient,
+    *,
+    owner_spec: str,
+    severities: tuple[str, ...],
+    reason: str,
+) -> None:
+    """Waive every open entry owned by *owner_spec* matching *severities*.
+
+    Contract (contracts/cli-review-bulk-waive.md): zero matches prints a
+    message and exits zero (idempotent); a partial failure waives what it
+    can, lists per-entry failures, and exits non-zero.
+    """
+    from maverick.assumptions.ledger import bulk_waive
+    from maverick.assumptions.models import Severity
+
+    severity_set = frozenset(Severity(s) for s in severities)
+    waived_by = _resolve_git_user_name(Path.cwd())
+
+    result = await bulk_waive(
+        client,
+        owner_spec=owner_spec,
+        severities=severity_set,
+        reason=reason,
+        waived_by=waived_by,
+    )
+
+    if not result.waived and not result.failed:
+        severities_label = "/".join(sorted(s.value for s in severity_set))
+        console.print(f"No open {severities_label}-severity assumptions for {owner_spec}.")
+        return
+
+    if result.waived:
+        console.print(
+            f"[green]✓[/] Waived {len(result.waived)} assumption"
+            f"{'s' if len(result.waived) != 1 else ''} for {owner_spec}:"
+        )
+        for record in result.waived:
+            console.print(f"  {record.bead_id}  {record.question}")
+        console.print(f"Reason: {reason} (waived by {waived_by})")
+
+    if result.failed:
+        console.print()
+        console.print(f"[red]✗[/] Failed to waive {len(result.failed)} entries:")
+        for bead_id, error in result.failed.items():
+            console.print(f"  {bead_id}: {error}")
+        raise SystemExit(ExitCode.FAILURE)
 
 
 def _resolve_git_user_name(cwd: Path) -> str:

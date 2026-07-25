@@ -185,6 +185,99 @@ class PerSpecAssumptionCounts:
     legacy_open: int
 
 
+class LandVerification(StrEnum):
+    """``maverick land``'s classification of a completed landing.
+
+    Attributes:
+        VERIFIED: The frontier is empty and every entry is answered
+            (or there were no entries at all).
+        CONDITIONALLY_VERIFIED: The frontier is empty but at least one
+            entry was waived rather than answered.
+        BLOCKED: The frontier is non-empty — land refused.
+    """
+
+    VERIFIED = "verified"
+    CONDITIONALLY_VERIFIED = "conditionally-verified"
+    BLOCKED = "blocked"
+
+
+@dataclass(frozen=True, slots=True)
+class AssumptionReportEntry:
+    """Full read-side view of one ledger entry — everything the land
+    frontier gate and provenance report need in one place.
+
+    Constructed only by ``ledger.report_entries()``; never from user input.
+
+    Attributes:
+        record: The underlying ledger record (question/answer/severity/etc).
+        final_answer: The human's recorded answer (``KEY_ANSWER``), if any.
+        waived_by: Who waived this entry, if waived.
+        waived_at: ISO-8601 waiver timestamp, if waived.
+        waive_reason: The recorded waiver reason, if waived.
+        reconcile_status: ``assumption_reconcile_status`` state, if set.
+        reconciled_answer: The normalized answer applied by reconcile, if any.
+        reconcile_change_id: The jj change ID reconcile folded the
+            correction into, if reconciled.
+        reconcile_reason: Reconcile's recorded reason (e.g. escalation
+            context), if set.
+        pending_reconcile: True when this entry appears in
+            ``ledger.answered_unreconciled_entries()`` — its human answer
+            has drifted from the ledger record and hasn't been reconciled.
+    """
+
+    record: AssumptionRecord
+    final_answer: str | None
+    waived_by: str | None
+    waived_at: str | None
+    waive_reason: str | None
+    reconcile_status: str | None
+    reconciled_answer: str | None
+    reconcile_change_id: str | None
+    reconcile_reason: str | None
+    pending_reconcile: bool
+
+    @property
+    def bucket(self) -> str:
+        """``"resolved" | "waived" | "open"`` — derived from ledger status."""
+        if self.record.status == STATUS_WAIVED:
+            return "waived"
+        if self.record.status == STATUS_ANSWERED:
+            return "resolved"
+        return "open"
+
+    @property
+    def affected_change_ids(self) -> tuple[str, ...]:
+        """Ledger change stamps plus the reconcile correction id, deduped."""
+        ids = list(self.record.change_ids)
+        if self.reconcile_change_id and self.reconcile_change_id not in ids:
+            ids.append(self.reconcile_change_id)
+        return tuple(ids)
+
+    @property
+    def blocks_landing(self) -> bool:
+        """True when this entry blocks ``maverick land`` (strict, any severity)."""
+        return self.bucket == "open" or self.pending_reconcile
+
+
+@dataclass(frozen=True, slots=True)
+class LandFrontier:
+    """The land gate's decision input — every entry that blocks landing.
+
+    Attributes:
+        open_entries: Open entries of any severity, including open legacy.
+        pending_reconcile_entries: Answered entries whose human answer is
+            pending reconciliation (051's detection predicate).
+    """
+
+    open_entries: tuple[AssumptionReportEntry, ...]
+    pending_reconcile_entries: tuple[AssumptionReportEntry, ...]
+
+    @property
+    def is_empty(self) -> bool:
+        """True when land may proceed — nothing blocks it."""
+        return not self.open_entries and not self.pending_reconcile_entries
+
+
 @dataclass(frozen=True, slots=True)
 class StampResult:
     """Outcome of stamping a batch of entries with a jj change ID.
@@ -197,4 +290,21 @@ class StampResult:
 
     change_id: str
     stamped: tuple[str, ...]
+    failed: dict[str, str]
+
+
+@dataclass(frozen=True, slots=True)
+class BulkWaiveResult:
+    """Outcome of a spec-scoped, severity-filtered bulk waive.
+
+    Mirrors :class:`StampResult`'s batch-with-partial-failure shape
+    (contracts/cli-review-bulk-waive.md: "waives what it can, prints
+    per-entry failures").
+
+    Attributes:
+        waived: Records successfully waived.
+        failed: ``{bead_id: error message}`` for entries that failed to waive.
+    """
+
+    waived: tuple[AssumptionRecord, ...]
     failed: dict[str, str]

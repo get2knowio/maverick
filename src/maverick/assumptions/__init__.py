@@ -7,6 +7,7 @@ CLI modules (research R13). See ``specs/049-assumption-ledger/contracts/``.
 from __future__ import annotations
 
 from maverick.assumptions.errors import AssumptionLedgerError
+from maverick.assumptions.ledger import report_entries
 from maverick.assumptions.models import (
     ASSUMPTION_LABEL,
     ASSUMPTION_LABELS,
@@ -29,6 +30,9 @@ from maverick.assumptions.models import (
     STATUS_OPEN,
     STATUS_WAIVED,
     AssumptionRecord,
+    AssumptionReportEntry,
+    LandFrontier,
+    LandVerification,
     PerSpecAssumptionCounts,
     Severity,
     StampResult,
@@ -59,9 +63,13 @@ __all__ = [
     "STATUS_WAIVED",
     "AssumptionLedgerError",
     "AssumptionRecord",
+    "AssumptionReportEntry",
+    "LandFrontier",
+    "LandVerification",
     "PerSpecAssumptionCounts",
     "Severity",
     "StampResult",
     "coerce_severity",
     "nnn_prefix",
+    "report_entries",
 ]

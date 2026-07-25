@@ -356,10 +356,45 @@ class BeadClient:
             query=f"show {bead_id}",
         )
 
+        # bd show --json may return a list; take the first element
+        # (same wrapping as `bd close --json` above).
+        if isinstance(data, list):
+            if not data:
+                raise BeadQueryError(
+                    f"bd show returned empty list for {bead_id}",
+                    query=f"show {bead_id}",
+                )
+            data = data[0]
+
+        # `bd show --json` carries labels only — state dimensions set via
+        # `bd set-state` (this client's own write path) are queried
+        # separately via `bd state list`, which returns them pre-parsed
+        # out of their `dimension:value` label encoding.
+        data["state"] = await self._state_dict(bead_id)
+
         details = BeadDetails.model_validate(data)
 
         logger.debug("bead_details_fetched", bead_id=bead_id, title=details.title)
         return details
+
+    async def _state_dict(self, bead_id: str) -> dict[str, str]:
+        """Fetch the state-dimension dict for *bead_id* via ``bd state list``.
+
+        ``bd show --json`` doesn't carry state (it's encoded as
+        ``dimension:value`` labels internally); this is the only query
+        that returns it pre-parsed, so :meth:`show` calls it separately.
+        """
+        cmd = ["bd", "state", "list", bead_id, "--json"]
+        data = await self._run_bd(
+            cmd,
+            error_cls=BeadQueryError,
+            error_msg=f"Failed to list state for {bead_id}",
+            query=f"state list {bead_id}",
+        )
+        if isinstance(data, list):
+            data = data[0] if data else {}
+        states = data.get("states", {})
+        return {str(k): str(v) for k, v in states.items()}
 
     async def children(self, parent_id: str) -> list[BeadSummary]:
         """Get child beads of a parent via ``bd list --parent``.
@@ -437,17 +472,20 @@ class BeadClient:
             reason: Optional reason for the state change.
 
         Raises:
-            BeadError: If ``bd set-state`` fails.
+            BeadError: If ``bd set-state`` fails for any dimension.
         """
-        cmd = ["bd", "set-state", bead_id]
+        # `bd set-state` only accepts one `dimension=value` pair per
+        # invocation — one call per key, each its own event bead.
         for key, value in state.items():
-            cmd.append(f"{key}={value}")
-        if reason:
-            cmd.extend(["--reason", reason])
+            cmd = ["bd", "set-state", bead_id, f"{key}={value}"]
+            if reason:
+                cmd.extend(["--reason", reason])
 
-        result = await self._runner.run(cmd, cwd=self._cwd)
-        if not result.success:
-            raise BeadError(f"Failed to set state on bead {bead_id}: {result.stderr.strip()}")
+            result = await self._runner.run(cmd, cwd=self._cwd)
+            if not result.success:
+                raise BeadError(
+                    f"Failed to set state {key}={value} on bead {bead_id}: {result.stderr.strip()}"
+                )
 
         logger.debug(
             "bead_state_set",

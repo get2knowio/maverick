@@ -88,6 +88,12 @@ async def _run(cwd: Path, feature_dir: Path, **overrides: object) -> dict[str, o
 
 
 @pytest.mark.asyncio
+@pytest.mark.timeout(90)
+# Overrides the module-wide 30s default: `BeadClient.set_state` now issues
+# one `bd set-state` subprocess per state key (bd 1.1.0+ only accepts a
+# single `dimension=value` pair per invocation — see client.py), and this
+# lifecycle test creates/updates many beads' state. Comfortably passes in
+# ~25s standalone; under xdist worker contention it can exceed 30s.
 async def test_speckit_refuel_lifecycle(bd_repo: Path) -> None:
     feature_dir = _make_feature_dir(bd_repo)
     client = BeadClient(cwd=bd_repo)

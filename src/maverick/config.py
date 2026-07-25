@@ -394,9 +394,18 @@ class ReconcileConfig(BaseModel):
     round budget for each loop. See data-model.md section 5 in
     ``specs/051-reconcile-changed-answers/`` for the full contract.
 
+    ``mid_flight`` is a separate kill-switch (specs/052-conditional-landing)
+    for the *trigger* — whether a running ``maverick fly`` detects and
+    processes newly-answered assumption-ledger entries at every bead
+    boundary via an in-process ``ReconcileWorkflow`` pass. Disabling it
+    leaves answers detectable by a later standalone ``maverick reconcile``
+    run (or the next fly run); it does not change either round budget.
+
     Attributes:
         resolution_rounds: Conflict-resolution round budget per answer.
         semantic_rounds: Semantic-dependents round budget per answer.
+        mid_flight: Whether ``maverick fly`` runs a reconcile pass at bead
+            boundaries when changed answers are detected.
     """
 
     resolution_rounds: int = Field(
@@ -404,6 +413,10 @@ class ReconcileConfig(BaseModel):
     )
     semantic_rounds: int = Field(
         default=3, ge=1, description="Semantic-dependents round budget per answer"
+    )
+    mid_flight: bool = Field(
+        default=True,
+        description="Kill-switch for fly's mid-flight reconcile trigger at bead boundaries",
     )
 
 

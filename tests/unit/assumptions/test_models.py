@@ -28,6 +28,9 @@ from maverick.assumptions.models import (
     STATUS_WAIVED,
     TERMINAL_RECONCILE_STATUSES,
     AssumptionRecord,
+    AssumptionReportEntry,
+    LandFrontier,
+    LandVerification,
     PerSpecAssumptionCounts,
     Severity,
     coerce_severity,
@@ -198,3 +201,137 @@ class TestNormalizeAnswer:
 
     def test_empty_string(self) -> None:
         assert normalize_answer("") == ""
+
+
+def _record(
+    *,
+    bead_id: str = "dea-1",
+    status: str = STATUS_OPEN,
+    severity: Severity = Severity.LOW,
+    change_ids: tuple[str, ...] = (),
+    is_legacy: bool = False,
+) -> AssumptionRecord:
+    return AssumptionRecord(
+        bead_id=bead_id,
+        question="Q?",
+        adopted_answer="A.",
+        alternatives=(),
+        severity=severity,
+        severity_defaulted=False,
+        status=status,
+        owner_spec="052-conditional-landing",
+        source_bead="dea-0",
+        change_ids=change_ids,
+        is_legacy=is_legacy,
+    )
+
+
+def _entry(
+    *,
+    status: str = STATUS_OPEN,
+    severity: Severity = Severity.LOW,
+    change_ids: tuple[str, ...] = (),
+    reconcile_change_id: str | None = None,
+    pending_reconcile: bool = False,
+) -> AssumptionReportEntry:
+    return AssumptionReportEntry(
+        record=_record(status=status, severity=severity, change_ids=change_ids),
+        final_answer=None,
+        waived_by=None,
+        waived_at=None,
+        waive_reason=None,
+        reconcile_status=None,
+        reconciled_answer=None,
+        reconcile_change_id=reconcile_change_id,
+        reconcile_reason=None,
+        pending_reconcile=pending_reconcile,
+    )
+
+
+class TestLandVerification:
+    def test_members(self) -> None:
+        assert LandVerification.VERIFIED == "verified"
+        assert LandVerification.CONDITIONALLY_VERIFIED == "conditionally-verified"
+        assert LandVerification.BLOCKED == "blocked"
+
+
+class TestAssumptionReportEntryBucket:
+    def test_waived_status_buckets_waived(self) -> None:
+        assert _entry(status=STATUS_WAIVED).bucket == "waived"
+
+    def test_answered_status_buckets_resolved(self) -> None:
+        assert _entry(status=STATUS_ANSWERED).bucket == "resolved"
+
+    def test_open_status_buckets_open(self) -> None:
+        assert _entry(status=STATUS_OPEN).bucket == "open"
+
+    def test_legacy_open_bucket_is_open(self) -> None:
+        entry = AssumptionReportEntry(
+            record=_record(status=STATUS_OPEN, severity=Severity.MEDIUM, is_legacy=True),
+            final_answer=None,
+            waived_by=None,
+            waived_at=None,
+            waive_reason=None,
+            reconcile_status=None,
+            reconciled_answer=None,
+            reconcile_change_id=None,
+            reconcile_reason=None,
+            pending_reconcile=False,
+        )
+        assert entry.bucket == "open"
+
+
+class TestAssumptionReportEntryAffectedChangeIds:
+    def test_merges_ledger_and_reconcile_change_ids(self) -> None:
+        entry = _entry(change_ids=("zzkw",), reconcile_change_id="rlvk")
+        assert entry.affected_change_ids == ("zzkw", "rlvk")
+
+    def test_dedups_reconcile_change_id_already_in_ledger_stamps(self) -> None:
+        entry = _entry(change_ids=("zzkw", "rlvk"), reconcile_change_id="rlvk")
+        assert entry.affected_change_ids == ("zzkw", "rlvk")
+
+    def test_no_reconcile_change_id_returns_ledger_stamps_only(self) -> None:
+        entry = _entry(change_ids=("zzkw", "rlvk"))
+        assert entry.affected_change_ids == ("zzkw", "rlvk")
+
+    def test_order_preserving(self) -> None:
+        entry = _entry(change_ids=("a", "b"), reconcile_change_id="c")
+        assert entry.affected_change_ids == ("a", "b", "c")
+
+
+class TestAssumptionReportEntryBlocksLanding:
+    def test_open_low_severity_blocks(self) -> None:
+        assert _entry(status=STATUS_OPEN, severity=Severity.LOW).blocks_landing is True
+
+    def test_open_medium_severity_blocks(self) -> None:
+        assert _entry(status=STATUS_OPEN, severity=Severity.MEDIUM).blocks_landing is True
+
+    def test_open_high_severity_blocks(self) -> None:
+        assert _entry(status=STATUS_OPEN, severity=Severity.HIGH).blocks_landing is True
+
+    def test_answered_and_not_pending_reconcile_does_not_block(self) -> None:
+        entry = _entry(status=STATUS_ANSWERED, pending_reconcile=False)
+        assert entry.blocks_landing is False
+
+    def test_answered_and_pending_reconcile_blocks(self) -> None:
+        entry = _entry(status=STATUS_ANSWERED, pending_reconcile=True)
+        assert entry.blocks_landing is True
+
+    def test_waived_does_not_block(self) -> None:
+        assert _entry(status=STATUS_WAIVED).blocks_landing is False
+
+
+class TestLandFrontier:
+    def test_empty_when_both_tuples_empty(self) -> None:
+        frontier = LandFrontier(open_entries=(), pending_reconcile_entries=())
+        assert frontier.is_empty is True
+
+    def test_not_empty_with_open_entries(self) -> None:
+        frontier = LandFrontier(open_entries=(_entry(),), pending_reconcile_entries=())
+        assert frontier.is_empty is False
+
+    def test_not_empty_with_pending_reconcile_entries(self) -> None:
+        frontier = LandFrontier(
+            open_entries=(), pending_reconcile_entries=(_entry(pending_reconcile=True),)
+        )
+        assert frontier.is_empty is False
