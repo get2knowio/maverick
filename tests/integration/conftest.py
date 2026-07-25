@@ -13,8 +13,13 @@ Two things every test under ``tests/integration/`` gets automatically:
    scheduling. Under ``-n auto`` they compete with every other worker and
    routinely take several times their serial runtime — the global 30s
    default in ``pyproject.toml`` (right for pure-Python unit tests) left
-   too little headroom and produced intermittent CI failures that passed
-   on re-run and in isolation (issue #163).
+   too little headroom and produced intermittent failures that passed on
+   re-run and in isolation (issue #163).
+
+   Those failures show up in *local* full-suite runs, not CI: GitHub
+   Actions installs ``jj`` but not ``bd``, so the modules in question
+   skip at collection there. ``make ci`` on a dev box is the documented
+   pre-push gate (CLAUDE.md), which is exactly where they bit.
 
 Both are applied only where a test hasn't already said otherwise, so an
 explicit ``@pytest.mark.timeout(...)`` still wins.
