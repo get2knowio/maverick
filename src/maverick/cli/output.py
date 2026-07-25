@@ -6,8 +6,11 @@ This module defines output format options and formatting helpers for CLI command
 from __future__ import annotations
 
 import json
+import sys
 from enum import StrEnum
 from typing import Any
+
+from rich.console import Console
 
 __all__ = [
     "OutputFormat",
@@ -17,6 +20,7 @@ __all__ = [
     "format_warning",
     "format_json",
     "format_table",
+    "write_json_document",
 ]
 
 
@@ -136,6 +140,42 @@ def format_json(data: Any) -> str:
         '{\\n  "status": "success",\\n  "count": 3\\n}'
     """
     return json.dumps(data, indent=2)
+
+
+def write_json_document(data: dict[str, Any]) -> None:
+    """Write a single JSON document to stdout with no markup or styling.
+
+    Transport helper for ``--json`` mode (see
+    ``maverick.cli.json_output.emit_json``): serializes ``data`` compactly
+    and writes exactly one line to stdout via a dedicated Rich ``Console``
+    configured for plain, unstyled, non-wrapping output — safe even when
+    stdout isn't a TTY (color/markup would otherwise corrupt the JSON for
+    machine consumers).
+
+    A fresh ``Console`` is constructed on every call (rather than a
+    module-level singleton) so it always targets the *current* ``sys.stdout``
+    — this matters for tests that patch ``sys.stdout`` after import (e.g.
+    ``capsys``).
+
+    Args:
+        data: JSON-serializable mapping to emit as the sole document.
+    """
+    payload = json.dumps(data, separators=(",", ":"))
+    json_console = Console(
+        file=sys.stdout,
+        markup=False,
+        highlight=False,
+        soft_wrap=True,
+        no_color=True,
+        # Rich substitutes `:name:` tokens with unicode emoji by default.
+        # Agent- and human-authored free text (questions, answers, waive
+        # reasons) routinely contains `:key:`-shaped runs, and silently
+        # rewriting them would corrupt every consumer's view of the ledger
+        # — including `review --answer "<adopted_answer>"` writing the
+        # mutated text straight back in. Must stay off.
+        emoji=False,
+    )
+    json_console.print(payload)
 
 
 def format_table(headers: list[str], rows: list[list[str]]) -> str:

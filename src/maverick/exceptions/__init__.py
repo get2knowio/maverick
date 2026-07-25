@@ -134,6 +134,9 @@ from maverick.exceptions.validation import (
 
 # Workflow-related exceptions
 from maverick.exceptions.workflow import (
+    REASON_CONCURRENT_RUN,
+    REASON_DIRTY_WORKING_COPY,
+    REASON_LOCKED,
     CheckpointNotFoundError,
     DuplicateComponentError,
     DuplicateStepNameError,
@@ -223,6 +226,9 @@ __all__ = [
     "InputMismatchError",
     "ReferenceResolutionError",
     "StagesNotFoundError",
+    "REASON_CONCURRENT_RUN",
+    "REASON_DIRTY_WORKING_COPY",
+    "REASON_LOCKED",
     "WorkflowError",
     "WorkflowStepError",
     # Runway

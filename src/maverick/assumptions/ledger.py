@@ -76,6 +76,7 @@ __all__ = [
     "record_assumption",
     "record_standalone_assumption",
     "report_entries",
+    "report_entry_from_details",
     "stamp_change_id",
     "waive",
 ]
@@ -1053,6 +1054,53 @@ def is_answered_unreconciled(details: object) -> bool:
     return normalized_human_answer != normalize_answer(state.get(KEY_RECONCILED_ANSWER, ""))
 
 
+def report_entry_from_details(details: object) -> AssumptionReportEntry | None:
+    """Build one :class:`AssumptionReportEntry` from an already-fetched bead.
+
+    Extracted out of :func:`report_entries`'s per-candidate loop body
+    (053-assumption-review-console) so both the repo-wide sweep and
+    ``maverick review``'s single-entry reads (already-resolved pre-check,
+    post-write projection) build the identical row shape from one bead's
+    details — no second copy of the label/state-key wiring.
+
+    Returns ``None`` for a bead :func:`report_entries` would also skip: one
+    carrying neither ledger label, or a closed legacy escalation bead (see
+    that function's docstring for why closed legacy beads are dropped
+    rather than misreported as open).
+    """
+    labels = getattr(details, "labels", None) or []
+    state: dict[str, str] = dict(getattr(details, "state", None) or {})
+
+    if ASSUMPTION_LABEL in labels:
+        return AssumptionReportEntry(
+            record=_record_from_details(details),
+            final_answer=state.get(KEY_ANSWER),
+            waived_by=state.get(KEY_WAIVED_BY),
+            waived_at=state.get(KEY_WAIVED_AT),
+            waive_reason=state.get(KEY_WAIVE_REASON),
+            reconcile_status=state.get(KEY_RECONCILE_STATUS),
+            reconciled_answer=state.get(KEY_RECONCILED_ANSWER),
+            reconcile_change_id=state.get(KEY_RECONCILE_CHANGE_ID),
+            reconcile_reason=state.get(KEY_RECONCILE_REASON),
+            pending_reconcile=is_answered_unreconciled(details),
+        )
+    is_open_legacy = getattr(details, "status", None) not in _CLOSED_STATUSES
+    if ASSUMPTION_REVIEW_LABEL in labels and is_open_legacy:
+        return AssumptionReportEntry(
+            record=_legacy_record_from_details(details),
+            final_answer=None,
+            waived_by=None,
+            waived_at=None,
+            waive_reason=None,
+            reconcile_status=None,
+            reconciled_answer=None,
+            reconcile_change_id=None,
+            reconcile_reason=None,
+            pending_reconcile=False,
+        )
+    return None
+
+
 async def report_entries(client: BeadClient) -> tuple[AssumptionReportEntry, ...]:
     """Repo-wide, all-status materialization of every ledger entry.
 
@@ -1094,39 +1142,9 @@ async def report_entries(client: BeadClient) -> tuple[AssumptionReportEntry, ...
         except BeadError as exc:
             raise AssumptionLedgerError(f"Failed to load bead {candidate.id}: {exc}") from exc
 
-        labels = details.labels or []
-        state = details.state or {}
-
-        if ASSUMPTION_LABEL in labels:
-            entries.append(
-                AssumptionReportEntry(
-                    record=_record_from_details(details),
-                    final_answer=state.get(KEY_ANSWER),
-                    waived_by=state.get(KEY_WAIVED_BY),
-                    waived_at=state.get(KEY_WAIVED_AT),
-                    waive_reason=state.get(KEY_WAIVE_REASON),
-                    reconcile_status=state.get(KEY_RECONCILE_STATUS),
-                    reconciled_answer=state.get(KEY_RECONCILED_ANSWER),
-                    reconcile_change_id=state.get(KEY_RECONCILE_CHANGE_ID),
-                    reconcile_reason=state.get(KEY_RECONCILE_REASON),
-                    pending_reconcile=is_answered_unreconciled(details),
-                )
-            )
-        elif ASSUMPTION_REVIEW_LABEL in labels and details.status not in _CLOSED_STATUSES:
-            entries.append(
-                AssumptionReportEntry(
-                    record=_legacy_record_from_details(details),
-                    final_answer=None,
-                    waived_by=None,
-                    waived_at=None,
-                    waive_reason=None,
-                    reconcile_status=None,
-                    reconciled_answer=None,
-                    reconcile_change_id=None,
-                    reconcile_reason=None,
-                    pending_reconcile=False,
-                )
-            )
+        entry = report_entry_from_details(details)
+        if entry is not None:
+            entries.append(entry)
 
     return tuple(entries)
 

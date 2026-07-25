@@ -89,6 +89,7 @@ packages = ["src/maverick"]
 include = [
     "src/maverick/**/*.py",
     "src/maverick/agents/system_prompts/*.md",
+    "src/maverick/skills/**/*.md",
 ]
 
 [tool.ruff]

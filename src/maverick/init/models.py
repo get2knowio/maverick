@@ -684,6 +684,11 @@ class InitResult:
             but the installer failed, ``None`` not applicable (already
             installed) or the offer was skipped/declined (non-interactive
             session, or the user said no).
+        skill_installed: Packaged ``maverick-review`` review-console skill
+            install outcome (053-assumption-review-console): ``True`` the
+            skill file was written/refreshed this run, ``False`` the
+            best-effort write failed (logged, non-fatal), ``None`` not
+            applicable/not attempted.
     """
 
     success: bool
@@ -698,6 +703,7 @@ class InitResult:
     provider_discovery: ProviderDiscoveryResult | None = None
     config_existed: bool = False
     speckit_installed: bool | None = None
+    skill_installed: bool | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization.
@@ -720,6 +726,7 @@ class InitResult:
             ),
             "config_existed": self.config_existed,
             "speckit_installed": self.speckit_installed,
+            "skill_installed": self.skill_installed,
         }
 
 

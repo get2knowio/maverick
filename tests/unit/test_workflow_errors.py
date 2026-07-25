@@ -116,6 +116,35 @@ class TestWorkflowStepError:
         assert isinstance(error, WorkflowError)
         assert isinstance(error, MaverickError)
 
+    def test_reason_is_not_clobbered_by_base_reason_code(self) -> None:
+        """``reason`` (free-text prose) and ``reason_code`` (stable code)
+        are different attributes with different meanings — the base class
+        must not overwrite the subclass's ``reason``."""
+        error = WorkflowStepError("Validation failed")
+        assert error.reason == "Validation failed"
+        assert error.reason_code is None
+
+
+class TestWorkflowErrorReasonCode:
+    """`reason_code` lets callers branch on *what* failed without
+    pattern-matching prose (see `maverick.cli.json_output`)."""
+
+    def test_defaults_to_none(self) -> None:
+        assert WorkflowError("boom").reason_code is None
+
+    def test_round_trips(self) -> None:
+        from maverick.exceptions import REASON_LOCKED
+
+        error = WorkflowError("boom", reason_code=REASON_LOCKED)
+        assert error.reason_code == REASON_LOCKED
+        assert error.message == "boom"
+
+    def test_is_keyword_only(self) -> None:
+        """Positional arg 2 stays `workflow_name` — existing callers unaffected."""
+        error = WorkflowError("boom", "my-workflow")
+        assert error.workflow_name == "my-workflow"
+        assert error.reason_code is None
+
 
 class TestCheckpointNotFoundError:
     """Test CheckpointNotFoundError attributes and message."""
