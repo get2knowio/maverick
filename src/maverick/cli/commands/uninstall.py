@@ -69,11 +69,14 @@ def uninstall(
         console.print()
         if config_exists:
             console.print("Configuration file:")
-            console.print(f"  - [dim]{config_path}[/]")
+            # `soft_wrap` keeps the path on one line: Rich otherwise wraps at
+            # the terminal width, splitting a long path mid-segment so it
+            # can't be copied out of the terminal.
+            console.print(f"  - [dim]{config_path}[/]", soft_wrap=True)
             console.print()
         if skill_exists:
             console.print("Review-console skill:")
-            console.print(f"  - [dim]{skill_path}[/]")
+            console.print(f"  - [dim]{skill_path}[/]", soft_wrap=True)
             console.print()
 
     if dry_run:

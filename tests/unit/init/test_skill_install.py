@@ -261,9 +261,37 @@ class TestUninstallRemovesSkill:
             os.chdir(cwd)
 
         assert result.exit_code == 0, result.output
-        assert "maverick-review" in result.output or str(skill_path) in result.output
+        # The full path must appear intact on one line. Rich wraps at the
+        # terminal width by default, which split long paths mid-segment
+        # (CI's tmp dirs are longer than a dev box's, so this only ever
+        # failed there) and left the path uncopyable.
+        assert str(skill_path) in result.output
         # Dry run must not touch the filesystem.
         assert skill_path.is_file()
+
+    def test_long_paths_are_not_wrapped(self, cli_runner, tmp_path: Path) -> None:
+        """Regression: a path longer than the terminal width stays on one line."""
+        deep = tmp_path
+        for segment in ("a-fairly-long-directory-segment", "and-another-one", "plus-a-third"):
+            deep = deep / segment
+        skill_path = deep / _SKILL_RELATIVE_PATH
+        skill_path.parent.mkdir(parents=True)
+        skill_path.write_text("content", encoding="utf-8")
+        (deep / "maverick.yaml").write_text("# config\n", encoding="utf-8")
+        assert len(str(skill_path)) > 80  # wider than Rich's default width
+
+        import os
+
+        cwd = os.getcwd()
+        try:
+            os.chdir(deep)
+            result = cli_runner.invoke(cli, ["uninstall", "--dry-run"])
+        finally:
+            os.chdir(cwd)
+
+        assert result.exit_code == 0, result.output
+        assert str(skill_path) in result.output
+        assert str(deep / "maverick.yaml") in result.output
 
     def test_real_uninstall_removes_skill_file_and_empty_dirs(
         self, cli_runner, tmp_path: Path
