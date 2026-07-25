@@ -27,9 +27,10 @@ from __future__ import annotations
 
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import click
+from rich.markup import escape
 from rich.panel import Panel
 from rich.table import Table
 
@@ -37,6 +38,14 @@ from maverick.cli.console import console, err_console
 from maverick.cli.context import ExitCode, async_command
 from maverick.cli.output import format_error, format_success, format_warning
 from maverick.logging import get_logger
+
+if TYPE_CHECKING:
+    from maverick.assumptions.land_report import LandReport
+    from maverick.assumptions.models import (
+        AssumptionReportEntry,
+        LandFrontier,
+        LandVerification,
+    )
 
 logger = get_logger(__name__)
 
@@ -161,8 +170,7 @@ async def land(
     # renders, but only exits non-zero at the end (after the rest of the
     # preview runs) rather than short-circuiting immediately.
     gate_blocks, gate_entries, verification = await _check_assumption_gate(cwd)
-    report_md_path = cwd / ".maverick" / "runs" / run_id / "land-report.md"
-    _render_and_persist_land_report(
+    report_md_path = _render_and_persist_land_report(
         gate_entries, verification, run_id=run_id, dry_run=dry_run, cwd=cwd
     )
     if gate_blocks and not dry_run:
@@ -171,6 +179,11 @@ async def land(
     # ── 2. Curation ────────────────────────────────────────────────
     if no_curate:
         console.print("Skipping curation (--no-curate).")
+    elif heuristic_only and dry_run:
+        # `curate_history` rewrites history (jj absorb + squash). A
+        # dry run is a preview on every other curation path, so it must
+        # be one here too — the agent path already stops at the plan.
+        console.print("Dry run — heuristic curation not applied.")
     elif heuristic_only:
         console.print("Running heuristic curation...")
         result = await curate_history(base, cwd=cwd)
@@ -215,10 +228,14 @@ async def land(
         )
     elif finalize:
         target = branch or f"maverick/{project_name}"
+        # Only point at the markdown artifact when it actually landed —
+        # persistence degrades to a warning, and `gh pr create --body-file`
+        # against a missing path just fails for the user.
+        body_file = f" --body-file {report_md_path}" if report_md_path is not None else ""
         console.print()
         console.print(
             f"Finalize hint: push to [bold]{target}[/bold] and open a PR with "
-            f"[bold]gh pr create --base {base} --body-file {report_md_path}[/bold]."
+            f"[bold]gh pr create --base {base}{body_file}[/bold]."
         )
     else:
         console.print()
@@ -404,7 +421,9 @@ def _display_plan(plan: list[dict[str, Any]]) -> None:
 # =====================================================================
 
 
-async def _check_assumption_gate(cwd: Path) -> tuple[bool, tuple[Any, ...], Any]:
+async def _check_assumption_gate(
+    cwd: Path,
+) -> tuple[bool, tuple[AssumptionReportEntry, ...], LandVerification | None]:
     """Evaluate the strict, repo-wide assumption frontier gate.
 
     Returns ``(blocks, entries, verification)``. The gate blocks on any
@@ -419,7 +438,6 @@ async def _check_assumption_gate(cwd: Path) -> tuple[bool, tuple[Any, ...], Any]
     """
     from maverick.assumptions.land_report import classify, frontier
     from maverick.assumptions.ledger import report_entries
-    from maverick.assumptions.models import LandVerification
     from maverick.beads.client import BeadClient
 
     client = BeadClient(cwd=cwd)
@@ -433,7 +451,7 @@ async def _check_assumption_gate(cwd: Path) -> tuple[bool, tuple[Any, ...], Any]
         return False, (), None
 
     land_frontier = frontier(entries)
-    verification: LandVerification = classify(entries)
+    verification = classify(entries)
 
     if not land_frontier.is_empty:
         _display_assumption_gate_table(land_frontier)
@@ -442,7 +460,7 @@ async def _check_assumption_gate(cwd: Path) -> tuple[bool, tuple[Any, ...], Any]
     return False, entries, verification
 
 
-def _display_assumption_gate_table(land_frontier: Any) -> None:
+def _display_assumption_gate_table(land_frontier: LandFrontier) -> None:
     """Render blocking entries (open + pending-reconcile) grouped by spec.
 
     Open entries and pending-reconciliation entries get distinct
@@ -461,11 +479,13 @@ def _display_assumption_gate_table(land_frontier: Any) -> None:
     for entry in sorted(entries, key=lambda e: (e.record.owner_spec, e.record.bead_id)):
         question = entry.record.question
         question = question[:80] + "..." if len(question) > 80 else question
+        # Agent-authored free text: `escape` it, or Rich silently eats any
+        # `[...]` run as a style tag.
         table.add_row(
             entry.record.bead_id,
             entry.record.severity.value,
-            entry.record.owner_spec,
-            question,
+            escape(entry.record.owner_spec),
+            escape(question),
         )
 
     console.print()
@@ -483,7 +503,10 @@ def _display_assumption_gate_table(land_frontier: Any) -> None:
     console.print()
 
 
-def _display_verification(verification: Any, entries: tuple[Any, ...]) -> None:
+def _display_verification(
+    verification: LandVerification | None,
+    entries: tuple[AssumptionReportEntry, ...],
+) -> None:
     """Print the land classification line (contracts/cli-land.md "Output" §2).
 
     No-op when *verification* is ``None`` (bd unavailable / query failed —
@@ -507,19 +530,23 @@ def _display_verification(verification: Any, entries: tuple[Any, ...]) -> None:
 
 
 def _render_and_persist_land_report(
-    entries: tuple[Any, ...],
-    verification: Any,
+    entries: tuple[AssumptionReportEntry, ...],
+    verification: LandVerification | None,
     *,
     run_id: str,
     dry_run: bool,
     cwd: Path,
-) -> None:
+) -> Path | None:
     """Build, render (terminal), and persist the land provenance report.
 
     Runs for every evaluation (blocked, dry-run, successful) — the report
     is the audit trail of what land saw, even for a refused attempt
     (contracts/cli-land.md). Persistence failure degrades to a warning
     and never affects the gate's exit code.
+
+    Returns:
+        The persisted markdown artifact's path, or ``None`` when
+        persistence failed (so callers don't advertise a missing file).
     """
     from maverick.assumptions.land_report import build_report, persist_report
 
@@ -532,15 +559,16 @@ def _render_and_persist_land_report(
     _render_land_report_terminal(report)
 
     try:
-        json_path, _md_path = persist_report(report, cwd=cwd)
+        json_path, md_path = persist_report(report, cwd=cwd)
     except OSError as exc:
         console.print(format_warning(f"Failed to persist land report: {exc}"))
-        return
+        return None
     console.print(f"Report: {json_path}")
     console.print()
+    return md_path
 
 
-def _render_land_report_terminal(report: Any) -> None:
+def _render_land_report_terminal(report: LandReport) -> None:
     """Render the grouped provenance report to the terminal.
 
     Walks ``report.to_dict()`` (not raw entries) so the terminal view can
@@ -555,7 +583,7 @@ def _render_land_report_terminal(report: Any) -> None:
     bucket_heading = {"resolved": "Resolved", "waived": "Waived", "open": "Open"}
 
     for spec in data["specs"]:
-        console.print(f"[bold]{spec['owner_spec']}[/bold]")
+        console.print(f"[bold]{escape(spec['owner_spec'] or '(unattributed)')}[/bold]")
         by_bucket: dict[str, list[dict[str, Any]]] = {"resolved": [], "waived": [], "open": []}
         for entry in spec["entries"]:
             by_bucket[entry["bucket"]].append(entry)
@@ -569,16 +597,22 @@ def _render_land_report_terminal(report: Any) -> None:
                 f"  [{style}]{bucket_heading[bucket_key]}[/{style}] ({len(bucket_entries)})"
             )
             for entry in bucket_entries:
-                console.print(f"    {entry['bead_id']}  {entry['question']}")
+                # Every free-text field below is agent- or human-authored,
+                # so it goes through `escape`: Rich parses `[...]` as a
+                # style tag and silently drops it otherwise.
+                console.print(f"    {entry['bead_id']}  {escape(entry['question'])}")
                 if entry["waiver"]:
                     waiver = entry["waiver"]
                     console.print(
-                        f"      waived by {waiver['by']} at {waiver['at']}: {waiver['reason']}"
+                        f"      waived by {escape(str(waiver['by']))} at "
+                        f"{escape(str(waiver['at']))}: {escape(str(waiver['reason']))}"
                     )
                 if entry["affected_change_ids"]:
                     console.print(f"      changes: {', '.join(entry['affected_change_ids'])}")
                 if entry["annotations"]:
-                    console.print(f"      [{', '.join(entry['annotations'])}]")
+                    # Literally bracketed — `escape` is what keeps the whole
+                    # line from rendering as blank whitespace.
+                    console.print(f"      {escape('[' + ', '.join(entry['annotations']) + ']')}")
         console.print()
 
 

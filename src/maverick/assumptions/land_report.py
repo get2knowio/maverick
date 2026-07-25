@@ -244,7 +244,12 @@ def _render_entry_line(entry: AssumptionReportEntry) -> list[str]:
         lines.append(f"  - Affected changes: {', '.join(entry.affected_change_ids)}")
     if entry.bucket == "waived":
         lines.append(f"  - Waived by {entry.waived_by} at {entry.waived_at}: {entry.waive_reason}")
-    if entry.bucket == "open":
+    # Keyed off ``blocks_landing``, not ``bucket``: a pending-reconcile
+    # entry is always ``assumption_status=answered`` (051's predicate), so
+    # its bucket is "resolved" — gating the hint on ``bucket == "open"``
+    # made the ``maverick reconcile`` branch unreachable and left the one
+    # row that blocks the land with no instruction on how to clear it.
+    if entry.blocks_landing:
         hint = (
             "maverick reconcile"
             if entry.pending_reconcile

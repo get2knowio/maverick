@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import click
+from rich.markup import escape
 
 from maverick.cli.console import console
 from maverick.cli.context import ExitCode, async_command
@@ -128,8 +129,15 @@ async def review(
         console.print("[red]Error:[/] Provide either BEAD_ID or --spec")
         raise SystemExit(ExitCode.FAILURE)
 
+    if owner_spec is None and severities:
+        console.print("[red]Error:[/] --severity only applies to bulk waive (--spec)")
+        raise SystemExit(ExitCode.FAILURE)
+
     if owner_spec is not None:
-        if waive_reason is None:
+        # Validate up front, matching the single-entry path — otherwise an
+        # empty reason sails past this check and surfaces as N identical
+        # per-entry "failed to waive" rows from inside `waive()`.
+        if waive_reason is None or not waive_reason.strip():
             console.print("[red]Error:[/] --spec requires --waive <reason>")
             raise SystemExit(ExitCode.FAILURE)
         if answer_text is not None or approve or reject_guidance is not None or defer:
@@ -314,19 +322,27 @@ async def _bulk_waive_flow(
     message and exits zero (idempotent); a partial failure waives what it
     can, lists per-entry failures, and exits non-zero.
     """
+    from maverick.assumptions.errors import AssumptionLedgerError
     from maverick.assumptions.ledger import bulk_waive
     from maverick.assumptions.models import Severity
 
     severity_set = frozenset(Severity(s) for s in severities)
     waived_by = _resolve_git_user_name(Path.cwd())
 
-    result = await bulk_waive(
-        client,
-        owner_spec=owner_spec,
-        severities=severity_set,
-        reason=reason,
-        waived_by=waived_by,
-    )
+    try:
+        result = await bulk_waive(
+            client,
+            owner_spec=owner_spec,
+            severities=severity_set,
+            reason=reason,
+            waived_by=waived_by,
+        )
+    except AssumptionLedgerError as exc:
+        # `bulk_waive`'s selection sweep raises (only per-entry failures
+        # are collected). Without this the CLI dumps a raw traceback,
+        # unlike every other ledger path in this command.
+        console.print(f"[red]Error:[/] {exc}")
+        raise SystemExit(ExitCode.FAILURE) from exc
 
     if not result.waived and not result.failed:
         severities_label = "/".join(sorted(s.value for s in severity_set))
@@ -339,7 +355,8 @@ async def _bulk_waive_flow(
             f"{'s' if len(result.waived) != 1 else ''} for {owner_spec}:"
         )
         for record in result.waived:
-            console.print(f"  {record.bead_id}  {record.question}")
+            # Agent-authored text — `escape` keeps Rich from eating `[...]`.
+            console.print(f"  {record.bead_id}  {escape(record.question)}")
         console.print(f"Reason: {reason} (waived by {waived_by})")
 
     if result.failed:

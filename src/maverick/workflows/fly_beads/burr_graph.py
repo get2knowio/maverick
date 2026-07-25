@@ -39,8 +39,9 @@ Shape:
 The recorder cycles back to ``select_next_bead`` until ``loop_done``
 becomes true (no more beads, graceful stop, or max_beads reached).
 
-Phase 3 simplifications (see :mod:`actions` docstring) — default
-driver remains xoscar; opt in via ``MAVERICK_USE_BURR=fly``.
+This graph is the only fly drain loop — the earlier xoscar-actor
+``FlySupervisor`` (and its ``MAVERICK_USE_BURR=fly`` opt-in) is retired.
+See :mod:`maverick.workflows.fly_beads.actions` for each stage's contract.
 """
 
 from __future__ import annotations

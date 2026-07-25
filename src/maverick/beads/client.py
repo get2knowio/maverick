@@ -393,7 +393,13 @@ class BeadClient:
         )
         if isinstance(data, list):
             data = data[0] if data else {}
-        states = data.get("states", {})
+        if not isinstance(data, dict):
+            return {}
+        # ``or {}`` (not a ``.get`` default): bd emits ``"states": null``
+        # for a bead with no state dimensions, and ``None.items()`` would
+        # escape ``show()`` as an AttributeError past every ``BeadError``
+        # handler in the ledger.
+        states = data.get("states") or {}
         return {str(k): str(v) for k, v in states.items()}
 
     async def children(self, parent_id: str) -> list[BeadSummary]:
@@ -472,10 +478,18 @@ class BeadClient:
             reason: Optional reason for the state change.
 
         Raises:
-            BeadError: If ``bd set-state`` fails for any dimension.
+            BeadError: If ``bd set-state`` fails for any dimension. Because
+                bd accepts only one pair per invocation this write is
+                **not** atomic — the error names the keys already applied
+                so callers (and humans) can see the partial state. Callers
+                that care about ordering must therefore pass *state* with
+                the safest key last (e.g. ``ledger.answer`` writes
+                ``assumption_status`` last, so a mid-loop failure leaves
+                the entry still open rather than answered-but-stale).
         """
         # `bd set-state` only accepts one `dimension=value` pair per
         # invocation — one call per key, each its own event bead.
+        applied: list[str] = []
         for key, value in state.items():
             cmd = ["bd", "set-state", bead_id, f"{key}={value}"]
             if reason:
@@ -483,9 +497,12 @@ class BeadClient:
 
             result = await self._runner.run(cmd, cwd=self._cwd)
             if not result.success:
+                partial = f" (already applied: {', '.join(applied)})" if applied else ""
                 raise BeadError(
-                    f"Failed to set state {key}={value} on bead {bead_id}: {result.stderr.strip()}"
+                    f"Failed to set state {key}={value} on bead {bead_id}"
+                    f"{partial}: {result.stderr.strip()}"
                 )
+            applied.append(key)
 
         logger.debug(
             "bead_state_set",

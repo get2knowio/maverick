@@ -25,6 +25,12 @@ Contract order (each precondition short-circuits to a skipped outcome):
    (``AssumptionLedgerError``) is treated identically to empty, plus a
    warning event — detection failures must never propagate into the Burr
    loop.
+4. The working copy is dirty -> ``skipped_reason="working-copy-dirty"``.
+   ``ReconcileWorkflow`` would refuse anyway (FR-014), but only after
+   interrupted-run recovery has already had a chance to ``jj op restore``
+   over those very edits — so the boundary reached via ``abandon_bead``
+   (which marks a bead failed without abandoning its jj change) or a
+   failed ``commit`` short-circuits before the workflow is constructed.
 
 Only when detection is non-empty does this invoke ``ReconcileWorkflow``
 in-process, passing ``active_fly_run_id=fly_run_id`` so the concurrent-fly
@@ -35,11 +41,14 @@ postcondition) awaiting this pass. The child workflow's own
 the CLI's own dry-run drain in ``cli/commands/reconcile.py``) so the pass
 gets its own progress grouping in fly's stream.
 
-Any ``MaverickError`` (``WorkflowError`` for a genuinely concurrent other
-fly run, the clean-working-copy guard, the lockfile, or any other
-reconcile-internal failure) is caught here and turned into a warning event
+Any exception out of the child workflow (``WorkflowError`` for a genuinely
+concurrent other fly run, the clean-working-copy guard, the lockfile, or
+any other reconcile-internal failure — including plain built-ins like
+``IndexError``/``OSError``) is caught here and turned into a warning event
 plus ``MidFlightOutcome(error=...)`` — the action **never** raises into the
 Burr application (FR-013: the drain loop must survive a failed pass).
+``asyncio.CancelledError`` is a ``BaseException`` in 3.11+, so a Ctrl-C
+still propagates.
 """
 
 from __future__ import annotations
@@ -51,7 +60,7 @@ from typing import TYPE_CHECKING, Any
 from maverick.assumptions.errors import AssumptionLedgerError
 from maverick.assumptions.ledger import answered_unreconciled_entries
 from maverick.beads.client import BeadClient
-from maverick.exceptions import MaverickError
+from maverick.jj.client import JjClient
 from maverick.logging import get_logger
 from maverick.workflows.fly_beads.actions import _put_output
 from maverick.workflows.fly_beads.graceful_stop import is_graceful_stop_requested
@@ -81,7 +90,8 @@ class MidFlightOutcome:
         escalated: Terminal-marked (``skipped`` or
             ``needs_interactive_review``) outcomes this pass.
         skipped_reason: ``"disabled"``, ``"graceful-stop"``,
-            ``"none-detected"``, or ``None`` when a pass actually ran.
+            ``"none-detected"``, ``"working-copy-dirty"``, or ``None``
+            when a pass actually ran.
         error: Non-``None`` when the pass failed as a whole (the drain
             loop continued regardless).
     """
@@ -97,6 +107,21 @@ def _skip(reason: str) -> MidFlightOutcome:
     return MidFlightOutcome(
         detected=0, processed=0, escalated=0, skipped_reason=reason, error=None
     )
+
+
+async def _working_copy_is_dirty(cwd: Path) -> bool:
+    """Best-effort ``@``-cleanliness probe for the pre-invocation guard.
+
+    Returns False when the probe itself can't run (no jj repo, jj missing,
+    any other failure) so an unanswerable probe never suppresses a pass —
+    ``ReconcileWorkflow``'s own FR-014 check remains the authority.
+    """
+    try:
+        stat = await JjClient(cwd=cwd).diff_stat(revision="@")
+    except Exception as exc:  # noqa: BLE001 — advisory probe only
+        logger.debug("mid_flight_working_copy_probe_failed", error=str(exc))
+        return False
+    return stat.files_changed != 0
 
 
 async def run_mid_flight_pass(
@@ -150,6 +175,26 @@ async def run_mid_flight_pass(
     if not entries:
         return _skip("none-detected")
 
+    if await _working_copy_is_dirty(cwd):
+        # ``ReconcileWorkflow`` refuses to run against a dirty ``@``
+        # (FR-014) — and it checks that only *after* interrupted-run
+        # recovery, which can ``jj op restore`` over the very edits sitting
+        # in the working copy. The abandon path (``abandon_bead`` marks the
+        # bead failed without abandoning the jj change) and a failed
+        # ``commit`` both reach this boundary dirty, so short-circuit here
+        # instead of guaranteeing a warning-shaped failure. The answers stay
+        # detectable by the next boundary, the final pass, or a standalone
+        # ``maverick reconcile`` run (FR-014's deferral contract).
+        logger.info("mid_flight_skipped_dirty_working_copy", detected=len(entries))
+        await _put_output(
+            event_sink,
+            _STEP_NAME,
+            f"Mid-flight reconcile deferred: {len(entries)} changed answer(s) detected "
+            "but the working copy is not clean",
+            level="warning",
+        )
+        return _skip("working-copy-dirty")
+
     detected = len(entries)
     await _put_output(
         event_sink,
@@ -169,7 +214,14 @@ async def run_mid_flight_pass(
     try:
         async for event in workflow.execute(inputs):
             await event_sink.put(event)
-    except MaverickError as exc:
+    # Deliberately broader than ``MaverickError``: FR-013 makes this pass
+    # non-interrupting, and ``ReconcileWorkflow`` can surface plain
+    # built-ins too (e.g. ``IndexError`` from an empty ``jj log -r @-`` on
+    # a root-parented stack, ``OSError`` from a run-state checkpoint
+    # write). Letting one of those escape would abort the whole fly run at
+    # a bead boundary. ``asyncio.CancelledError`` is a ``BaseException`` in
+    # 3.11+, so a Ctrl-C still propagates untouched.
+    except Exception as exc:  # noqa: BLE001 — must never raise into the Burr loop
         logger.warning("mid_flight_reconcile_failed", error=str(exc))
         await _put_output(
             event_sink,
@@ -182,11 +234,11 @@ async def run_mid_flight_pass(
             processed=0,
             escalated=0,
             skipped_reason=None,
-            error=str(exc),
+            error=str(exc) or type(exc).__name__,
         )
 
-    assert workflow.result is not None
-    report = workflow.result.final_output or {}
+    result = workflow.result
+    report = (result.final_output if result is not None else None) or {}
     outcomes: list[dict[str, Any]] = list(report.get("outcomes") or ())
     processed = sum(1 for o in outcomes if o.get("status") == "reconciled")
     escalated = sum(1 for o in outcomes if o.get("status") != "reconciled")
