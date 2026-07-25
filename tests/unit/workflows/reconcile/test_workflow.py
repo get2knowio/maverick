@@ -1387,6 +1387,110 @@ class TestConcurrencyGuards:
 
         assert result["outcomes"][0]["status"] == "reconciled"
 
+    async def test_active_fly_run_id_excludes_own_flying_run(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """052-conditional-landing (research R7): a mid-flight pass passes
+
+        its own fly ``run_id`` as ``active_fly_run_id`` so the guard
+        ignores its own "flying" metadata and the reconcile proceeds.
+        """
+        _patch_jj_client(monkeypatch, files_changed=0)
+        answer = _changed_answer()
+        _patch_common(monkeypatch, changed_answers=(answer,))
+
+        run_dir = tmp_path / ".maverick" / "runs" / "fly-run-1"
+        write_metadata(
+            run_dir,
+            RunMetadata(
+                run_id="fly-run-1",
+                plan_name="some-plan",
+                epic_id="epic-1",
+                status="flying",
+            ),
+        )
+
+        result = await _run_workflow(
+            _workflow(),
+            {
+                "run_id": "run-1",
+                "cwd": str(tmp_path),
+                "active_fly_run_id": "fly-run-1",
+            },
+        )
+
+        assert result["outcomes"][0]["status"] == "reconciled"
+
+    async def test_active_fly_run_id_still_blocks_other_flying_run(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Excluding the caller's own run must not blind the guard to a
+
+        genuinely different concurrent fly run still in status "flying".
+        """
+        _patch_jj_client(monkeypatch, files_changed=0)
+        mocks = _patch_common(monkeypatch, changed_answers=(_changed_answer(),))
+        _FakeSquadron.fail_on_construct = True
+
+        # The caller's own run (excluded) ...
+        write_metadata(
+            tmp_path / ".maverick" / "runs" / "fly-run-1",
+            RunMetadata(
+                run_id="fly-run-1",
+                plan_name="some-plan",
+                epic_id="epic-1",
+                status="flying",
+            ),
+        )
+        # ... plus a different, genuinely concurrent fly run.
+        write_metadata(
+            tmp_path / ".maverick" / "runs" / "fly-run-2",
+            RunMetadata(
+                run_id="fly-run-2",
+                plan_name="other-plan",
+                epic_id="epic-2",
+                status="flying",
+            ),
+        )
+
+        with pytest.raises(WorkflowError, match="fly run is in progress"):
+            await _run_workflow(
+                _workflow(),
+                {
+                    "run_id": "run-1",
+                    "cwd": str(tmp_path),
+                    "active_fly_run_id": "fly-run-1",
+                },
+            )
+
+        mocks["build_changed_answers"].assert_not_called()
+
+    async def test_active_fly_run_id_omitted_preserves_existing_guard(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """No ``active_fly_run_id`` input (the standalone CLI's shape) must
+
+        behave exactly as before — any "flying" run still blocks.
+        """
+        _patch_jj_client(monkeypatch, files_changed=0)
+        mocks = _patch_common(monkeypatch, changed_answers=(_changed_answer(),))
+        _FakeSquadron.fail_on_construct = True
+
+        write_metadata(
+            tmp_path / ".maverick" / "runs" / "fly-run-1",
+            RunMetadata(
+                run_id="fly-run-1",
+                plan_name="some-plan",
+                epic_id="epic-1",
+                status="flying",
+            ),
+        )
+
+        with pytest.raises(WorkflowError, match="fly run is in progress"):
+            await _run_workflow(_workflow(), {"run_id": "run-1", "cwd": str(tmp_path)})
+
+        mocks["build_changed_answers"].assert_not_called()
+
     async def test_lock_released_after_successful_run(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

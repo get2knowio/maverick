@@ -7,14 +7,24 @@ mocking is gone — there is no workspace any more.
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from click.testing import CliRunner
 
-from maverick.assumptions.models import AssumptionRecord, Severity
+from maverick.assumptions.models import (
+    STATUS_ANSWERED,
+    STATUS_OPEN,
+    STATUS_WAIVED,
+    AssumptionRecord,
+    AssumptionReportEntry,
+    Severity,
+)
 from maverick.cli.commands.land import (
+    _agent_curate,
     _display_plan,
     land,
 )
@@ -229,62 +239,137 @@ class TestModeHints:
 # ── Assumption ledger gate ──────────────────────────────────────────
 
 
-def _blocking_entry(
-    bead_id: str = "dea-1", severity: Severity = Severity.MEDIUM
-) -> AssumptionRecord:
-    return AssumptionRecord(
+def _report_entry(
+    *,
+    bead_id: str = "dea-1",
+    severity: Severity = Severity.MEDIUM,
+    status: str = STATUS_OPEN,
+    owner_spec: str = "049-assumption-ledger",
+    pending_reconcile: bool = False,
+    reconcile_status: str | None = None,
+    is_legacy: bool = False,
+) -> AssumptionReportEntry:
+    record = AssumptionRecord(
         bead_id=bead_id,
         question="Should retries be per bead?",
         adopted_answer="Per bead.",
         alternatives=(),
         severity=severity,
         severity_defaulted=False,
-        status="open",
-        owner_spec="049-assumption-ledger",
+        status=status,
+        owner_spec=owner_spec,
         source_bead="src-1",
         change_ids=(),
-        is_legacy=False,
+        is_legacy=is_legacy,
+    )
+    return AssumptionReportEntry(
+        record=record,
+        final_answer="Per bead." if status == STATUS_ANSWERED else None,
+        waived_by="alice" if status == STATUS_WAIVED else None,
+        waived_at="2026-07-24T14:00:00Z" if status == STATUS_WAIVED else None,
+        waive_reason="n/a" if status == STATUS_WAIVED else None,
+        reconcile_status=reconcile_status,
+        reconciled_answer=None,
+        reconcile_change_id=None,
+        reconcile_reason=None,
+        pending_reconcile=pending_reconcile,
     )
 
 
-def _patch_gate(*, entries: list[AssumptionRecord] | None = None, bd_available: bool = True):
+def _patch_gate(*, entries: list[AssumptionReportEntry] | None = None, bd_available: bool = True):
     return (
         patch(
             "maverick.beads.client.BeadClient.verify_available",
             new=AsyncMock(return_value=bd_available),
         ),
         patch(
-            "maverick.assumptions.ledger.open_blocking_entries",
-            new=AsyncMock(return_value=entries or []),
+            "maverick.assumptions.ledger.report_entries",
+            new=AsyncMock(return_value=tuple(entries or ())),
         ),
     )
 
 
 class TestAssumptionGate:
-    def test_blocks_with_table_and_hint_nonzero_exit(self) -> None:
+    def test_open_low_severity_blocks_with_nonzero_exit(self) -> None:
+        """Strict gate (Clarifications 2026-07-24): even low severity blocks."""
         runner = CliRunner()
         gather, curate, consolidate = _patch_curation()
-        verify, blocking = _patch_gate(entries=[_blocking_entry()])
-        with gather, curate, consolidate, verify, blocking:
+        entry = _report_entry(severity=Severity.LOW, status=STATUS_OPEN)
+        verify, entries_patch = _patch_gate(entries=[entry])
+        with gather, curate, consolidate, verify, entries_patch:
             result = runner.invoke(land, ["--no-curate", "--yes"])
         assert result.exit_code != 0
         assert "dea-1" in result.output
         assert "049-assumption-ledger" in result.output
         assert "maverick review" in result.output
 
-    def test_passes_when_no_blocking_entries(self) -> None:
+    def test_open_medium_severity_blocks_with_nonzero_exit(self) -> None:
         runner = CliRunner()
         gather, curate, consolidate = _patch_curation()
-        verify, blocking = _patch_gate(entries=[])
-        with gather, curate, consolidate, verify, blocking:
+        entry = _report_entry(severity=Severity.MEDIUM, status=STATUS_OPEN)
+        verify, entries_patch = _patch_gate(entries=[entry])
+        with gather, curate, consolidate, verify, entries_patch:
+            result = runner.invoke(land, ["--no-curate", "--yes"])
+        assert result.exit_code != 0
+        assert "dea-1" in result.output
+
+    def test_pending_reconciliation_entry_blocks_with_reconcile_hint(self) -> None:
+        runner = CliRunner()
+        gather, curate, consolidate = _patch_curation()
+        entry = _report_entry(status=STATUS_ANSWERED, pending_reconcile=True)
+        verify, entries_patch = _patch_gate(entries=[entry])
+        with gather, curate, consolidate, verify, entries_patch:
+            result = runner.invoke(land, ["--no-curate", "--yes"])
+        assert result.exit_code != 0
+        assert "maverick reconcile" in result.output
+
+    def test_waived_only_frontier_lands_conditionally_verified(self) -> None:
+        runner = CliRunner()
+        gather, curate, consolidate = _patch_curation()
+        entry = _report_entry(status=STATUS_WAIVED)
+        verify, entries_patch = _patch_gate(entries=[entry])
+        with gather, curate, consolidate, verify, entries_patch:
             result = runner.invoke(land, ["--no-curate"])
         assert result.exit_code == 0
+        assert "Conditionally verified" in result.output
+
+    def test_all_answered_lands_verified(self) -> None:
+        runner = CliRunner()
+        gather, curate, consolidate = _patch_curation()
+        entry = _report_entry(status=STATUS_ANSWERED)
+        verify, entries_patch = _patch_gate(entries=[entry])
+        with gather, curate, consolidate, verify, entries_patch:
+            result = runner.invoke(land, ["--no-curate"])
+        assert result.exit_code == 0
+        assert "Verified" in result.output
+
+    def test_zero_entries_lands_verified(self) -> None:
+        runner = CliRunner()
+        gather, curate, consolidate = _patch_curation()
+        verify, entries_patch = _patch_gate(entries=[])
+        with gather, curate, consolidate, verify, entries_patch:
+            result = runner.invoke(land, ["--no-curate"])
+        assert result.exit_code == 0
+        assert "Verified" in result.output
+
+    def test_terminal_reconciled_entry_does_not_block(self) -> None:
+        entry = _report_entry(
+            status=STATUS_ANSWERED, pending_reconcile=False, reconcile_status="reconciled"
+        )
+        runner = CliRunner()
+        gather, curate, consolidate = _patch_curation()
+        verify, entries_patch = _patch_gate(entries=[entry])
+        with gather, curate, consolidate, verify, entries_patch:
+            result = runner.invoke(land, ["--no-curate"])
+        assert result.exit_code == 0
+        assert "Verified" in result.output
 
     def test_dry_run_still_evaluates_and_exits_nonzero_at_end(self) -> None:
         runner = CliRunner()
         gather, curate, consolidate = _patch_curation()
-        verify, blocking = _patch_gate(entries=[_blocking_entry()])
-        with gather, curate, consolidate, verify, blocking:
+        entry = _report_entry(severity=Severity.LOW, status=STATUS_OPEN)
+        verify, entries_patch = _patch_gate(entries=[entry])
+        with gather, curate, consolidate, verify, entries_patch:
             result = runner.invoke(land, ["--no-curate", "--dry-run"])
         # The rest of the (no-op) preview still runs...
         assert "Dry run" in result.output
@@ -292,13 +377,24 @@ class TestAssumptionGate:
         # ...but the command exits non-zero because a real land would block.
         assert result.exit_code != 0
 
-    def test_no_bd_available_gate_passes(self) -> None:
+    def test_dry_run_heuristic_only_path_exits_nonzero_when_blocked(self) -> None:
         runner = CliRunner()
         gather, curate, consolidate = _patch_curation()
-        verify, blocking = _patch_gate(bd_available=False)
-        with gather, curate, consolidate, verify, blocking:
+        entry = _report_entry(severity=Severity.LOW, status=STATUS_OPEN)
+        verify, entries_patch = _patch_gate(entries=[entry])
+        with gather, curate, consolidate, verify, entries_patch:
+            result = runner.invoke(land, ["--heuristic-only", "--dry-run", "--yes"])
+        assert result.exit_code != 0
+
+    def test_no_bd_available_gate_passes_no_classification(self) -> None:
+        runner = CliRunner()
+        gather, curate, consolidate = _patch_curation()
+        verify, entries_patch = _patch_gate(bd_available=False)
+        with gather, curate, consolidate, verify, entries_patch:
             result = runner.invoke(land, ["--no-curate"])
         assert result.exit_code == 0
+        assert "Verified" not in result.output
+        assert "Conditionally verified" not in result.output
 
     def test_help_exposes_no_bypass_flag(self) -> None:
         runner = CliRunner()
@@ -306,6 +402,149 @@ class TestAssumptionGate:
         assert result.exit_code == 0
         for flag in ("--force", "--skip-gate", "--bypass", "--no-gate"):
             assert flag not in result.output
+
+
+class TestAgentCurateDryRunDoesNotPreemptGate:
+    """T012 fix (analysis I1): `_agent_curate`'s dry-run branch used to raise
+    ``SystemExit(SUCCESS)`` directly, pre-empting land()'s own gate-driven
+    exit code. It must now return normally so the caller decides the exit.
+    """
+
+    async def test_dry_run_with_nonempty_plan_does_not_raise(self, tmp_path: Any) -> None:
+        curation_ctx = {"commits": [{"id": "c1", "subject": "x"}], "log_summary": "..."}
+
+        class _FakeStep:
+            command = "describe"
+            args = ("-m", "msg")
+            reason = "tidy"
+
+        class _FakePayload:
+            steps = (_FakeStep(),)
+
+        class _FakeCuratorAgent:
+            def __init__(self, **_kwargs: Any) -> None:
+                pass
+
+            async def __aenter__(self) -> _FakeCuratorAgent:
+                return self
+
+            async def __aexit__(self, *_args: Any) -> bool:
+                return False
+
+            async def curate(self, _prompt: str) -> _FakePayload:
+                return _FakePayload()
+
+        with (
+            patch("maverick.agents.personas.CuratorAgent", _FakeCuratorAgent),
+            patch("maverick.config.load_config"),
+            patch(
+                "maverick.runtime.agent_factory.runtime_for_agent",
+                return_value=(object(), None),
+            ),
+            patch(
+                "maverick.library.actions.curation.build_curator_prompt",
+                return_value="prompt",
+            ),
+            patch(
+                "maverick.library.actions.curation.ensure_refs_trailers",
+                side_effect=lambda plan, commits: plan,
+            ),
+        ):
+            # Must return normally (no SystemExit) — the caller (`land()`)
+            # is what decides the final exit code based on the gate.
+            await _agent_curate(
+                curation_ctx=curation_ctx,
+                base="main",
+                dry_run=True,
+                auto_approve=True,
+                cwd=tmp_path,
+            )
+
+
+# ── Land report rendering + persistence (US2) ───────────────────────
+
+
+class TestLandReportRendering:
+    def test_report_persisted_on_blocked_evaluation(self) -> None:
+        runner = CliRunner()
+        gather, curate, consolidate = _patch_curation()
+        entry = _report_entry(severity=Severity.LOW, status=STATUS_OPEN)
+        verify, entries_patch = _patch_gate(entries=[entry])
+        with runner.isolated_filesystem():
+            with gather, curate, consolidate, verify, entries_patch:
+                result = runner.invoke(land, ["--no-curate", "--yes"])
+            assert result.exit_code != 0
+            assert "Report:" in result.output
+            runs_dir = Path(".maverick") / "runs"
+            run_dirs = list(runs_dir.iterdir())
+            assert len(run_dirs) == 1
+            assert (run_dirs[0] / "land-report.json").is_file()
+            assert (run_dirs[0] / "land-report.md").is_file()
+
+    def test_report_persisted_on_successful_evaluation(self) -> None:
+        runner = CliRunner()
+        gather, curate, consolidate = _patch_curation()
+        entry = _report_entry(status=STATUS_ANSWERED)
+        verify, entries_patch = _patch_gate(entries=[entry])
+        with runner.isolated_filesystem():
+            with gather, curate, consolidate, verify, entries_patch:
+                result = runner.invoke(land, ["--no-curate"])
+            assert result.exit_code == 0
+            runs_dir = Path(".maverick") / "runs"
+            run_dirs = list(runs_dir.iterdir())
+            assert len(run_dirs) == 1
+            data = json.loads((run_dirs[0] / "land-report.json").read_text())
+            assert data["verification"] == "verified"
+
+    def test_report_persisted_on_dry_run_evaluation(self) -> None:
+        runner = CliRunner()
+        gather, curate, consolidate = _patch_curation()
+        verify, entries_patch = _patch_gate(entries=[])
+        with runner.isolated_filesystem():
+            with gather, curate, consolidate, verify, entries_patch:
+                result = runner.invoke(land, ["--no-curate", "--dry-run"])
+            assert result.exit_code == 0
+            runs_dir = Path(".maverick") / "runs"
+            assert len(list(runs_dir.iterdir())) == 1
+
+    def test_persistence_failure_degrades_to_warning_same_exit_code(self) -> None:
+        runner = CliRunner()
+        gather, curate, consolidate = _patch_curation()
+        verify, entries_patch = _patch_gate(entries=[])
+        with (
+            gather,
+            curate,
+            consolidate,
+            verify,
+            entries_patch,
+            patch(
+                "maverick.assumptions.land_report.persist_report",
+                side_effect=OSError("disk full"),
+            ),
+        ):
+            result = runner.invoke(land, ["--no-curate"])
+        assert result.exit_code == 0
+        assert "disk full" in result.output.lower() or "warning" in result.output.lower()
+
+    def test_finalize_hint_references_body_file(self) -> None:
+        runner = CliRunner()
+        gather, curate, consolidate = _patch_curation()
+        verify, entries_patch = _patch_gate(entries=[])
+        with runner.isolated_filesystem():
+            with gather, curate, consolidate, verify, entries_patch:
+                result = runner.invoke(land, ["--no-curate", "--finalize"])
+            assert result.exit_code == 0
+            assert "--body-file" in result.output
+            assert "land-report.md" in result.output
+
+    def test_zero_entries_prints_no_assumptions_adopted(self) -> None:
+        runner = CliRunner()
+        gather, curate, consolidate = _patch_curation()
+        verify, entries_patch = _patch_gate(entries=[])
+        with gather, curate, consolidate, verify, entries_patch:
+            result = runner.invoke(land, ["--no-curate"])
+        assert result.exit_code == 0
+        assert "No assumptions adopted" in result.output
 
 
 # ── Display plan ────────────────────────────────────────────────────

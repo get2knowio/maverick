@@ -6,7 +6,7 @@ that drives one ``maverick fly`` run.
 Shape:
 
     init_state → select_next_bead
-        ├─ loop_done → done
+        ├─ loop_done → reconcile_answers_final → aggregate_review → done
         └─ has bead → process_bead_start → implement
                 ├─ failed → abandon_bead → record_assumptions → record_outcome (cycle)
                 └─ ok → gate
@@ -25,11 +25,23 @@ Shape:
     proceed to commit so the same run stamps the entries with the jj
     change ID.
 
+    record_outcome → reconcile_answers → select_next_bead — every bead
+    boundary (success via commit, or abandonment) funnels through
+    record_outcome first, so this single edge covers both boundaries the
+    mid-flight-reconcile contract names (052-conditional-landing, User
+    Story 3): a running fly detects newly-answered assumption-ledger
+    entries here and reconciles them in-process without stopping the
+    drain loop. ``reconcile_answers_final`` runs once more on the
+    loop-exit edge, before ``aggregate_review``, so an answer arriving
+    during the last bead is still processed before the run completes
+    (FR-009).
+
 The recorder cycles back to ``select_next_bead`` until ``loop_done``
 becomes true (no more beads, graceful stop, or max_beads reached).
 
-Phase 3 simplifications (see :mod:`actions` docstring) — default
-driver remains xoscar; opt in via ``MAVERICK_USE_BURR=fly``.
+This graph is the only fly drain loop — the earlier xoscar-actor
+``FlySupervisor`` (and its ``MAVERICK_USE_BURR=fly`` opt-in) is retired.
+See :mod:`maverick.workflows.fly_beads.actions` for each stage's contract.
 """
 
 from __future__ import annotations
@@ -44,6 +56,7 @@ from maverick.types import StepType
 from maverick.workflows.fly_beads import actions as fly_actions
 
 if TYPE_CHECKING:
+    from maverick.config import MaverickConfig
     from maverick.events import ProgressEvent
     from maverick.squadron.fly import FlySquadron
 
@@ -65,6 +78,8 @@ FLY_ACTION_LABELS: dict[str, str] = {
     "commit": "Committing",
     "abandon_bead": "Abandoning bead",
     "record_outcome": "Recording outcome",
+    "reconcile_answers": "Reconciling answers",
+    "reconcile_answers_final": "Reconciling answers (final)",
     "aggregate_review": "Aggregate review",
     "done": "Done",
 }
@@ -92,8 +107,22 @@ def build_fly_application(
     watch: bool = False,
     watch_interval: int = 30,
     max_idle_polls: int = 60,
+    reconcile_config: MaverickConfig | None = None,
+    fly_run_id: str = "",
 ) -> Any:
-    """Build the ``Application`` for one fly run."""
+    """Build the ``Application`` for one fly run.
+
+    Args:
+        reconcile_config: Full project config, threaded to the
+            ``reconcile_answers``/``reconcile_answers_final`` mid-flight
+            actions (052-conditional-landing) — named for what it's used
+            for at this call site (gating + inheriting the reconcile round
+            budgets), not its type (it's the same ``MaverickConfig`` every
+            other action already has via its owning workflow).
+        fly_run_id: This fly run's own ``run_id``, threaded to the
+            mid-flight actions so a triggered ``ReconcileWorkflow`` pass
+            can exclude this run from its concurrent-fly guard.
+    """
     hook = ProgressEventHook(
         event_queue,
         terminal_actions=FLY_TERMINAL_ACTIONS,
@@ -144,6 +173,18 @@ def build_fly_application(
             commit=fly_actions.commit.bind(cwd=cwd, events=event_queue),
             abandon_bead=fly_actions.abandon_bead.bind(events=event_queue),
             record_outcome=fly_actions.record_outcome,
+            reconcile_answers=fly_actions.reconcile_answers.bind(
+                cwd=cwd,
+                config=reconcile_config,
+                fly_run_id=fly_run_id,
+                events=event_queue,
+            ),
+            reconcile_answers_final=fly_actions.reconcile_answers_final.bind(
+                cwd=cwd,
+                config=reconcile_config,
+                fly_run_id=fly_run_id,
+                events=event_queue,
+            ),
             aggregate_review=fly_actions.aggregate_review.bind(
                 squadron=squadron,
                 events=event_queue,
@@ -200,9 +241,14 @@ def build_fly_application(
         .with_entrypoint("init_state")
         .with_transitions(
             ("init_state", "select_next_bead"),
-            # Loop exit funnels through the aggregate (cross-bead)
-            # review so a finished epic gets a single end-of-run pass.
-            ("select_next_bead", "aggregate_review", expr("loop_done")),
+            # Loop exit funnels through one final mid-flight reconcile
+            # pass (052-conditional-landing FR-009: an answer that
+            # arrived during the last bead must still be processed
+            # before the run completes) and then the aggregate
+            # (cross-bead) review so a finished epic gets a single
+            # end-of-run pass.
+            ("select_next_bead", "reconcile_answers_final", expr("loop_done")),
+            ("reconcile_answers_final", "aggregate_review"),
             ("aggregate_review", "done"),
             # Resumed-from-checkpoint bead → cycle without process
             ("select_next_bead", "select_next_bead", expr("current_bead is None")),
@@ -238,8 +284,13 @@ def build_fly_application(
             ("record_assumptions", "record_outcome", expr("bead_aborted")),
             ("record_assumptions", "commit"),
             ("commit", "record_outcome"),
-            # Cycle back into the loop.
-            ("record_outcome", "select_next_bead"),
+            # Every bead boundary — success (commit) or abandonment —
+            # funnels through record_outcome, so a single mid-flight
+            # reconcile splice here covers both boundaries the contract
+            # names (052-conditional-landing, User Story 3) before
+            # cycling back into the loop.
+            ("record_outcome", "reconcile_answers"),
+            ("reconcile_answers", "select_next_bead"),
         )
     )
 

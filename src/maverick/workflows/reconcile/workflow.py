@@ -132,8 +132,8 @@ def _answer_as_assumption_record(answer: ChangedAnswer) -> AssumptionRecord:
     )
 
 
-def _find_flying_run(cwd: Path) -> RunMetadata | None:
-    """Return metadata for any fly run currently mid-flight (status "flying").
+def _find_flying_run(cwd: Path, *, exclude_run_id: str | None = None) -> RunMetadata | None:
+    """Return metadata for any *other* fly run currently mid-flight ("flying").
 
     Implements contract precondition 4's "no fly run metadata in status
     flying" half (the other half is the reconcile lockfile, guarded
@@ -145,14 +145,25 @@ def _find_flying_run(cwd: Path) -> RunMetadata | None:
     directory-scan mechanics — plain sync file reads called directly from
     async code, same as every existing call site in
     ``fly_beads/workflow.py`` — with no filter beyond status.
+
+    ``exclude_run_id`` (052-conditional-landing, research R7) is the
+    calling fly run's own ``run_id`` when this reconcile is invoked
+    in-process as a mid-flight pass — that run is, by construction,
+    parked at a safe boundary awaiting this pass, so its own "flying"
+    metadata must not trip the guard. Any *other* run still flying still
+    raises. The standalone CLI passes nothing, so ``None`` never matches
+    and behavior there is unchanged.
     """
     runs_dir = cwd / ".maverick" / "runs"
     if not runs_dir.is_dir():
         return None
     for candidate in runs_dir.iterdir():
         meta = read_metadata(candidate)
-        if meta is not None and meta.status == "flying":
-            return meta
+        if meta is None or meta.status != "flying":
+            continue
+        if exclude_run_id is not None and meta.run_id == exclude_run_id:
+            continue
+        return meta
     return None
 
 
@@ -189,19 +200,25 @@ class ReconcileWorkflow(PythonWorkflow):
 
         Args:
             inputs: Required: ``run_id`` (str — caller-supplied, like
-                spec-chain), ``cwd`` (str, user checkout).
+                spec-chain), ``cwd`` (str, user checkout). Optional:
+                ``active_fly_run_id`` (str | None, default None) — set by
+                fly's mid-flight pass (052-conditional-landing) to the
+                calling fly run's own ``run_id`` so the concurrent-fly
+                guard excludes it (see :func:`_find_flying_run`); the
+                standalone CLI never sets this.
 
         Returns:
             :meth:`ReconcileReport.to_dict`.
 
         Raises:
             WorkflowError: If the working copy is not clean (FR-014), if a
-                fly run is currently in status "flying", or if the
-                reconcile lockfile is held by another live process.
+                *different* fly run is currently in status "flying", or if
+                the reconcile lockfile is held by another live process.
         """
         run_id: str = inputs["run_id"]
         cwd = Path(inputs["cwd"])
         dry_run = bool(inputs.get("dry_run", False))
+        active_fly_run_id: str | None = inputs.get("active_fly_run_id")
         started_at = _utcnow_iso()
 
         bead_client = BeadClient(cwd=cwd)
@@ -238,7 +255,7 @@ class ReconcileWorkflow(PythonWorkflow):
         # Concurrency guards (contract "Preconditions" item 4). The
         # fly-flying check is a cheap read-only metadata scan, so it runs
         # before lock acquisition, which mutates the filesystem.
-        flying_run = _find_flying_run(cwd)
+        flying_run = _find_flying_run(cwd, exclude_run_id=active_fly_run_id)
         if flying_run is not None:
             raise WorkflowError("cannot run reconcile while a fly run is in progress")
 

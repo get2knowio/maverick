@@ -19,6 +19,10 @@ from maverick.assumptions.models import (
     KEY_SEVERITY_DEFAULTED,
     KEY_SOURCE_BEAD,
     NEEDS_HUMAN_REVIEW_LABEL,
+    STATUS_WAIVED,
+    AssumptionRecord,
+    BulkWaiveResult,
+    Severity,
 )
 from maverick.beads.models import BeadDetails
 from maverick.cli.commands.review import review
@@ -186,3 +190,175 @@ class TestLegacyBeadsUnaffected:
         assert result.exit_code == 0
         mock_close.assert_awaited_once()
         assert "closed as approved" in result.output
+
+
+def _waived_record(bead_id: str, question: str = "Q?") -> AssumptionRecord:
+    return AssumptionRecord(
+        bead_id=bead_id,
+        question=question,
+        adopted_answer="A.",
+        alternatives=(),
+        severity=Severity.LOW,
+        severity_defaulted=False,
+        status=STATUS_WAIVED,
+        owner_spec="052-conditional-landing",
+        source_bead="dea-0",
+        change_ids=(),
+        is_legacy=False,
+    )
+
+
+class TestBulkWaiveCli:
+    def test_spec_and_waive_waives_matching_entries(self) -> None:
+        runner = CliRunner()
+        result_obj = BulkWaiveResult(
+            waived=(_waived_record("dea-1", "Q1?"), _waived_record("dea-2", "Q2?")),
+            failed={},
+        )
+        with (
+            patch(
+                "maverick.beads.client.BeadClient.verify_available",
+                new=AsyncMock(return_value=True),
+            ),
+            patch(
+                "maverick.cli.commands.review._resolve_git_user_name",
+                return_value="Paul O'Fallon",
+            ),
+            patch(
+                "maverick.assumptions.ledger.bulk_waive",
+                new=AsyncMock(return_value=result_obj),
+            ) as mock_bulk_waive,
+        ):
+            result = runner.invoke(
+                review,
+                ["--spec", "052-conditional-landing", "--waive", "accepted for MVP"],
+            )
+        assert result.exit_code == 0
+        assert mock_bulk_waive.await_args.kwargs["owner_spec"] == "052-conditional-landing"
+        assert mock_bulk_waive.await_args.kwargs["reason"] == "accepted for MVP"
+        assert mock_bulk_waive.await_args.kwargs["waived_by"] == "Paul O'Fallon"
+        # Default severity filter is low only.
+        assert set(mock_bulk_waive.await_args.kwargs["severities"]) == {Severity.LOW}
+        assert "dea-1" in result.output
+        assert "dea-2" in result.output
+        assert "052-conditional-landing" in result.output
+
+    def test_severity_option_is_repeatable(self) -> None:
+        runner = CliRunner()
+        result_obj = BulkWaiveResult(waived=(), failed={})
+        with (
+            patch(
+                "maverick.beads.client.BeadClient.verify_available",
+                new=AsyncMock(return_value=True),
+            ),
+            patch(
+                "maverick.cli.commands.review._resolve_git_user_name",
+                return_value="alice",
+            ),
+            patch(
+                "maverick.assumptions.ledger.bulk_waive",
+                new=AsyncMock(return_value=result_obj),
+            ) as mock_bulk_waive,
+        ):
+            result = runner.invoke(
+                review,
+                [
+                    "--spec",
+                    "052-conditional-landing",
+                    "--waive",
+                    "noise",
+                    "--severity",
+                    "low",
+                    "--severity",
+                    "medium",
+                ],
+            )
+        assert result.exit_code == 0
+        assert set(mock_bulk_waive.await_args.kwargs["severities"]) == {
+            Severity.LOW,
+            Severity.MEDIUM,
+        }
+
+    def test_bead_id_and_spec_mutually_exclusive(self) -> None:
+        runner = CliRunner()
+        result = runner.invoke(
+            review, ["dea-1", "--spec", "052-conditional-landing", "--waive", "x"]
+        )
+        assert result.exit_code != 0
+        assert "mutually exclusive" in result.output.lower()
+
+    def test_spec_without_waive_errors(self) -> None:
+        runner = CliRunner()
+        result = runner.invoke(review, ["--spec", "052-conditional-landing"])
+        assert result.exit_code != 0
+
+    def test_spec_with_answer_errors(self) -> None:
+        runner = CliRunner()
+        result = runner.invoke(review, ["--spec", "052-conditional-landing", "--answer", "Yes."])
+        assert result.exit_code != 0
+
+    def test_neither_bead_id_nor_spec_errors(self) -> None:
+        runner = CliRunner()
+        result = runner.invoke(review, [])
+        assert result.exit_code != 0
+
+    def test_zero_matches_exits_zero_with_message(self) -> None:
+        runner = CliRunner()
+        result_obj = BulkWaiveResult(waived=(), failed={})
+        with (
+            patch(
+                "maverick.beads.client.BeadClient.verify_available",
+                new=AsyncMock(return_value=True),
+            ),
+            patch(
+                "maverick.cli.commands.review._resolve_git_user_name",
+                return_value="alice",
+            ),
+            patch(
+                "maverick.assumptions.ledger.bulk_waive",
+                new=AsyncMock(return_value=result_obj),
+            ),
+        ):
+            result = runner.invoke(
+                review, ["--spec", "052-conditional-landing", "--waive", "noise"]
+            )
+        assert result.exit_code == 0
+        assert "no open" in result.output.lower() or "nothing" in result.output.lower()
+
+    def test_partial_failure_exits_nonzero_listing_failures(self) -> None:
+        runner = CliRunner()
+        result_obj = BulkWaiveResult(
+            waived=(_waived_record("dea-ok"),),
+            failed={"dea-fails": "bd write failed"},
+        )
+        with (
+            patch(
+                "maverick.beads.client.BeadClient.verify_available",
+                new=AsyncMock(return_value=True),
+            ),
+            patch(
+                "maverick.cli.commands.review._resolve_git_user_name",
+                return_value="alice",
+            ),
+            patch(
+                "maverick.assumptions.ledger.bulk_waive",
+                new=AsyncMock(return_value=result_obj),
+            ),
+        ):
+            result = runner.invoke(
+                review, ["--spec", "052-conditional-landing", "--waive", "noise"]
+            )
+        assert result.exit_code != 0
+        assert "dea-fails" in result.output
+        assert "bd write failed" in result.output
+
+    def test_bd_unavailable_errors(self) -> None:
+        runner = CliRunner()
+        with patch(
+            "maverick.beads.client.BeadClient.verify_available",
+            new=AsyncMock(return_value=False),
+        ):
+            result = runner.invoke(
+                review, ["--spec", "052-conditional-landing", "--waive", "noise"]
+            )
+        assert result.exit_code != 0

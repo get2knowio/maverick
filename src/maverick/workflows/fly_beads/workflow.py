@@ -356,6 +356,7 @@ class FlyBeadsWorkflow(PythonWorkflow):
             flight_plan_name=flight_plan_name,
             watch=watch,
             watch_interval=watch_interval,
+            run_id=run_id,
         )
         beads_succeeded = int(burr_result.get("beads_completed", 0))
         beads_failed = int(burr_result.get("beads_failed", 0))
@@ -407,11 +408,19 @@ class FlyBeadsWorkflow(PythonWorkflow):
         flight_plan_name: str = "",
         watch: bool = False,
         watch_interval: int = 30,
+        run_id: str = "",
     ) -> dict[str, Any]:
         """Run the fly bead loop via the Burr-backed driver.
 
         Post-migration gaps are documented in
         :mod:`maverick.workflows.fly_beads.actions`.
+
+        Args:
+            run_id: This run's own ``run_id`` (already minted by
+                :meth:`_run` before the bead loop starts) — threaded to
+                the mid-flight reconcile actions (052-conditional-landing)
+                so a triggered ``ReconcileWorkflow`` pass can exclude this
+                run from its own concurrent-fly guard.
         """
         return await _run_fly_with_burr_impl(
             self,
@@ -422,6 +431,7 @@ class FlyBeadsWorkflow(PythonWorkflow):
             flight_plan_name=flight_plan_name,
             watch=watch,
             watch_interval=watch_interval,
+            run_id=run_id,
         )
 
 
@@ -454,6 +464,7 @@ async def _run_fly_with_burr_impl(
     flight_plan_name: str = "",
     watch: bool = False,
     watch_interval: int = 30,
+    run_id: str = "",
 ) -> dict[str, Any]:
     """Drive the fly Burr application; return the same shape as xoscar.
 
@@ -485,6 +496,8 @@ async def _run_fly_with_burr_impl(
             flight_plan_name=flight_plan_name,
             watch=watch,
             watch_interval=watch_interval,
+            reconcile_config=workflow._config,
+            fly_run_id=run_id,
         )
         driver = BurrWorkflowDriver(
             app,

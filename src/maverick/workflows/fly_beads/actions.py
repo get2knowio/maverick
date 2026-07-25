@@ -1,20 +1,16 @@
 """Burr actions for the ``fly_beads`` workflow.
 
-The ``maverick fly`` bead loop runs through these actions exclusively as
-of Phase 4 of the xoscar → Burr migration. The shape of each stage
-mirrors the legacy ``FlySupervisor`` for parity with prior behaviour;
-the action layer holds the same fix-loop budgets (``MAX_GATE_FIX_ATTEMPTS``,
-``MAX_REVIEW_ROUNDS``) and routes through the same
-``squadron.coder_for(tier)`` / ``squadron.correctness_reviewer_for(tier)``
-agents.
-
-All previously-tracked behavioural gaps relative to the pre-migration
-``FlySupervisor`` are now wired up: graceful stop, watch mode,
-aggregate cross-bead review, human-bead creation on review
-exhaustion, reviewer transient-failure escalation, implementer
-transient-failure escalation, and the Rust spec-check rules
-(``.unwrap()`` / ``.expect()`` / ``std::process::Command`` in async
-contexts).
+The ``maverick fly`` bead loop runs through these actions exclusively —
+the drain loop is Burr-driven end to end (the earlier xoscar-actor
+``FlySupervisor`` is retired). Each stage's shape mirrors that retired
+supervisor for behavioural parity: the action layer holds the same
+fix-loop budgets (``MAX_GATE_FIX_ATTEMPTS``, ``MAX_REVIEW_ROUNDS``) and
+routes through the same ``squadron.coder_for(tier)`` /
+``squadron.correctness_reviewer_for(tier)`` agents. Graceful stop, watch
+mode, aggregate cross-bead review, human-bead creation on review
+exhaustion, reviewer/implementer transient-failure escalation, and the
+Rust spec-check rules (``.unwrap()`` / ``.expect()`` /
+``std::process::Command`` in async contexts) are all wired up here.
 """
 
 from __future__ import annotations
@@ -35,6 +31,7 @@ from maverick.events import (
 from maverick.payloads import dump_supervisor_payload
 
 if TYPE_CHECKING:
+    from maverick.config import MaverickConfig
     from maverick.squadron.fly import FlySquadron
 
 
@@ -55,6 +52,8 @@ __all__ = [
     "process_bead_start",
     "record_assumptions",
     "record_outcome",
+    "reconcile_answers",
+    "reconcile_answers_final",
     "review",
     "select_next_bead",
     "spec_check",
@@ -344,7 +343,7 @@ async def implement(
 
 
 def _build_implement_prompt(bead: dict[str, Any]) -> str:
-    """Mirror :func:`FlySupervisor._build_implement_prompt`'s shape."""
+    """Mirror the retired xoscar-era ``FlySupervisor._build_implement_prompt``'s shape."""
     title = bead.get("title", "")
     description = bead.get("description", "")
     return (
@@ -1166,7 +1165,7 @@ async def create_human_bead(
     """Create an assumption-review bead on ``bd`` for human triage.
 
     Runs when ``needs_human_review`` is true (review rounds exhausted
-    or a fix request failed). Mirrors the pre-migration
+    or a fix request failed). Mirrors the retired xoscar-era
     ``FlySupervisor._create_human_bead``: ``TASK``/``REVIEW``
     bead assigned to ``human`` with labels
     ``["assumption-review", "needs-human-review"]`` and a metadata
@@ -1456,6 +1455,93 @@ async def record_outcome(state: State) -> tuple[dict[str, Any], State]:
 
 
 # ---------------------------------------------------------------------------
+# Mid-flight reconcile (052-conditional-landing, User Story 3)
+# ---------------------------------------------------------------------------
+
+
+async def _run_reconcile_answers(
+    state: State,
+    *,
+    cwd: str,
+    config: MaverickConfig | None,
+    fly_run_id: str,
+    events: asyncio.Queue[ProgressEvent | None],
+) -> tuple[dict[str, Any], State]:
+    """Shared body for both mid-flight reconcile action nodes.
+
+    Thin delegation only — every precondition check, detection query, and
+    the ``ReconcileWorkflow`` invocation itself live in
+    :func:`maverick.workflows.fly_beads.mid_flight.run_mid_flight_pass`.
+    Never raises: the mid-flight contract requires the pass to never
+    interrupt the Burr drain loop (FR-013), and ``run_mid_flight_pass``
+    already catches everything it can fail on.
+    """
+    from maverick.workflows.fly_beads.mid_flight import run_mid_flight_pass
+
+    outcome = await run_mid_flight_pass(
+        cwd=Path(cwd),
+        config=config,
+        fly_run_id=fly_run_id,
+        event_sink=events,
+    )
+    return {
+        "detected": outcome.detected,
+        "processed": outcome.processed,
+        "escalated": outcome.escalated,
+        "skipped_reason": outcome.skipped_reason,
+        "error": outcome.error,
+    }, state
+
+
+@action(reads=[], writes=[])
+async def reconcile_answers(
+    state: State,
+    *,
+    cwd: str,
+    config: MaverickConfig | None,
+    fly_run_id: str,
+    events: asyncio.Queue[ProgressEvent | None],
+) -> tuple[dict[str, Any], State]:
+    """Bead-boundary mid-flight reconcile pass.
+
+    Spliced onto ``record_outcome -> reconcile_answers -> select_next_bead``
+    (contract: covers both the commit success path and the abandon path,
+    since ``abandon_bead`` already funnels through ``record_outcome``
+    before reaching this action — see ``burr_graph.py``'s module
+    docstring). A pass never blocks bead selection: it either finds
+    nothing to do, reconciles in-process, or fails safely — either way
+    the graph proceeds to ``select_next_bead`` immediately after.
+    """
+    return await _run_reconcile_answers(
+        state, cwd=cwd, config=config, fly_run_id=fly_run_id, events=events
+    )
+
+
+@action(reads=[], writes=[])
+async def reconcile_answers_final(
+    state: State,
+    *,
+    cwd: str,
+    config: MaverickConfig | None,
+    fly_run_id: str,
+    events: asyncio.Queue[ProgressEvent | None],
+) -> tuple[dict[str, Any], State]:
+    """Loop-exit mid-flight reconcile pass.
+
+    Spliced onto ``select_next_bead -> reconcile_answers_final ->
+    aggregate_review`` (only on the ``loop_done`` branch) so an answer
+    that arrived during the last bead is still processed before the run
+    is declared complete (FR-009). Identical body to
+    :func:`reconcile_answers` — kept as a distinct action so it occupies
+    its own graph node (and progress-label slot) rather than reusing a
+    state flag to distinguish the two call sites.
+    """
+    return await _run_reconcile_answers(
+        state, cwd=cwd, config=config, fly_run_id=fly_run_id, events=events
+    )
+
+
+# ---------------------------------------------------------------------------
 # Aggregate (cross-bead) review
 # ---------------------------------------------------------------------------
 
@@ -1474,7 +1560,7 @@ async def aggregate_review(
 ) -> tuple[dict[str, Any], State]:
     """Run the epic-level cross-bead review after the bead loop ends.
 
-    Mirrors the pre-migration ``FlySupervisor._maybe_aggregate_review``:
+    Mirrors the retired xoscar-era ``FlySupervisor._maybe_aggregate_review``:
     gated on ``AGGREGATE_REVIEW_THRESHOLD`` successful beads, this asks
     the correctness reviewer to look across the entire epic for
     cross-bead consistency issues. The findings surface as a single

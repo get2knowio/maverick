@@ -549,6 +549,7 @@ Beads-only workflow model. All development is driven by beads (`bd` CLI).
 | `maverick init`                                      | Initialize a Maverick project        |
 | `maverick brief [--watch\|--human]`                  | Bead status + assumption counts      |
 | `maverick review <bead-id> [--answer\|--waive]`      | Resolve a human-assigned bead         |
+| `maverick review --spec <name> --waive <reason>`     | Bulk-waive a spec's open entries      |
 | `maverick runway seed\|consolidate`                  | Manage knowledge store               |
 
 ### spec (headless Spec Kit chain)
@@ -598,12 +599,24 @@ existing epic — no duplicate epics. See
 
 ### fly
 
-Iterates over ready beads. For each: `Implementer → Gate → Reviewer →
-(fix loop if needed) → Commit`. Implementer + reviewer share persistent
-OpenCode sessions across fix rounds (rotated per bead via
-`_rotate_session()`). Options: `--epic`, `--max-beads` (default 30),
-`--auto-commit`. Ctrl-C is a two-stage signal: first sets a graceful stop
-flag (finishes current bead, exits cleanly); second cancels the run.
+Iterates over ready beads. Drain loop is Burr-driven end to end
+(`workflows/fly_beads/burr_graph.py`; the earlier xoscar-actor
+`FlySupervisor` is retired) — each ready bead flows through the state
+machine: `Implementer → Gate → Reviewer → (fix loop if needed) →
+Commit`. Implementer + reviewer share persistent OpenCode sessions
+across fix rounds (rotated per bead via `_rotate_session()`). Options:
+`--epic`, `--max-beads` (default 30), `--auto-commit`. Ctrl-C is a
+two-stage signal: first sets a graceful stop flag (finishes current
+bead, exits cleanly); second cancels the run.
+
+At every bead boundary (`record_outcome → reconcile_answers →
+select_next_bead`) and once more at loop-exit before the aggregate
+review, a thin Burr action detects answered-but-unreconciled ledger
+entries (`assumptions.ledger.answered_unreconciled_entries`) and, when
+any are found, runs `ReconcileWorkflow` in-process
+(`workflows/fly_beads/mid_flight.py`) — closing the human-latency gap
+without ever stopping the drain loop. See `### reconcile` below for the
+mid-flight contract and its `reconcile.mid_flight` kill-switch.
 
 ### land
 
@@ -613,13 +626,33 @@ Three modes: `--approve` (default; curate → push → teardown),
 intelligent reorg, with user approval. Falls back to git push when no
 workspace exists.
 
-Before curation, land runs the **assumption ledger gate**: any open
-`medium`/`high` assumption entry (including legacy escalation beads,
-treated as `medium`) blocks the command with a per-spec table and a
-`maverick review <id>` hint, exit non-zero. There is no bypass flag —
-`maverick review` (answer or waive) is the only way through. `--dry-run`
-still evaluates and prints the table but only exits non-zero at the end,
-after the rest of the preview runs.
+Before curation, land evaluates the **assumption frontier gate**
+(`assumptions.land_report.frontier`, over `ledger.report_entries()`):
+any open entry of **any severity** — including low, and including open
+legacy escalation beads (treated as medium) — or any answered entry
+pending reconciliation (051's `answered_unreconciled_entries` predicate)
+blocks the command with a per-spec table (open rows hint `maverick
+review <id>`; pending-reconciliation rows hint `maverick reconcile`),
+exit non-zero. There is no bypass flag — `maverick review` (answer or
+waive) and `maverick reconcile` are the only ways through. `--dry-run`
+still evaluates and renders but only exits non-zero at the end, after
+the rest of the preview runs — this holds on all three curation paths
+(no-curate, heuristic, agent).
+
+A successful land is classified `verified` (every entry answered, or
+none at all) or `conditionally-verified` (frontier empty but ≥1 entry
+was waived) — printed as a banner line. Every evaluation (blocked,
+dry-run, successful) renders a grouped provenance report to the
+terminal and persists `.maverick/runs/<run-id>/land-report.{json,md}`
+(`assumptions.land_report.build_report`/`persist_report`; schema in
+`specs/052-conditional-landing/contracts/land-report-schema.md`) —
+persistence failure degrades to a warning, never blocks landing. The
+`--finalize` hint references the markdown artifact via `gh pr create
+--body-file`. `maverick review --spec <name> --waive <reason>
+[--severity low|medium|high]...` bulk-waives every open entry a spec
+owns matching the severity filter (default: low only) in one
+invocation — the strict any-severity gate makes clearing accepted-risk
+low-severity noise a named operation rather than one-by-one.
 
 ### reconcile
 
@@ -663,6 +696,18 @@ via `maverick review` re-arms it for the next reconcile run (FR-017).
 See `src/maverick/workflows/reconcile/` and
 `specs/051-reconcile-changed-answers/` for the full contract.
 
+**Mid-flight integration (052-conditional-landing)**: a running
+`maverick fly` triggers this same workflow in-process at every bead
+boundary (`### fly` above) when detection is non-empty, passing
+`active_fly_run_id` so `_find_flying_run`'s concurrent-fly guard
+excludes the calling run (it's parked at a safe empty-`@` boundary) while
+still blocking a genuinely concurrent *other* fly run. Gated by
+`ReconcileConfig.mid_flight` (`maverick.yaml` `reconcile.mid_flight`,
+default `true`) — set `false` to disable and fall back to manual
+`maverick reconcile` runs. See
+`specs/052-conditional-landing/contracts/mid-flight-reconcile.md` and
+`src/maverick/workflows/fly_beads/mid_flight.py`.
+
 ### Assumption ledger
 
 Agents report adopted assumptions (question / adopted answer /
@@ -673,12 +718,14 @@ into a structured bead under the owning epic (labels `assumption` +
 the legacy `assumption-review`/`needs-human-review` pair, so existing
 agent-skip and `brief --human` filters keep working unchanged), wires a
 `discovered-from` edge to the spawning bead, and the `commit` action
-stamps it with the jj change ID. Severity drives enforcement: `low` is
-`bd defer`red (advisory only, never blocks); `medium`/`high` block
-`maverick land`; `high` additionally gains a `blocks` edge onto the
-next spec's epic (wired at recording time and at `refuel --speckit`'s
-epic-chaining step), so downstream work never becomes `bd ready` until
-the entry is answered or waived via `maverick review <id>`.
+stamps it with the jj change ID. Severity drives ready-queue
+enforcement: `low` is `bd defer`red (out of `bd ready`, but — per
+052-conditional-landing's strict land gate — still blocks `maverick
+land` like every other open entry); `high` additionally gains a
+`blocks` edge onto the next spec's epic (wired at recording time and at
+`refuel --speckit`'s epic-chaining step), so downstream work never
+becomes `bd ready` until the entry is answered or waived via `maverick
+review <id>`.
 `maverick brief` reports per-spec assumption counts (open/answered/
 waived × severity, plus a legacy bucket) as a spec-quality signal. All
 ledger logic lives in `src/maverick/assumptions/` — see
