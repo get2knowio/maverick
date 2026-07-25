@@ -52,6 +52,7 @@ from maverick.init.provider_discovery import (
     discover_providers,
 )
 from maverick.logging import get_logger
+from maverick.skills import REVIEW_SKILL_RELATIVE_PATH
 
 __all__ = [
     # Functions
@@ -582,6 +583,62 @@ async def _maybe_offer_speckit_install(project_path: Path, verbose: bool) -> boo
 
 
 # =============================================================================
+# Review-console skill install (053-assumption-review-console, always-on)
+# =============================================================================
+
+#: Where the packaged skill lands in the target project. Relative to
+#: ``project_path``. Shared with ``maverick uninstall`` — see
+#: :data:`maverick.skills.REVIEW_SKILL_RELATIVE_PATH`.
+_REVIEW_SKILL_RELATIVE_PATH = REVIEW_SKILL_RELATIVE_PATH
+
+
+async def _install_review_skill(project_path: Path, verbose: bool) -> bool | None:
+    """Install/refresh the packaged ``maverick-review`` Claude Code skill.
+
+    Unlike the Spec Kit install offer, this is unconditional and
+    always-overwrite: the skill is Maverick-owned and versions with the
+    installed wheel, so every ``init`` run (fresh install or re-init)
+    stamps the packaged content back over whatever is on disk — a local
+    edit doesn't "stick" any more than a hand-edited ``maverick.yaml``
+    header would.
+
+    Best-effort: any I/O failure is logged and swallowed, never raised —
+    matches :func:`_ensure_gitignore_entries`'s "never blocks init"
+    contract.
+
+    Args:
+        project_path: Project root directory.
+        verbose: Whether to log progress.
+
+    Returns:
+        ``True`` on success, ``False`` on a (logged) failure.
+    """
+    try:
+        from maverick.skills.review_console import load_review_skill_markdown
+        from maverick.utils.atomic import atomic_write_text
+
+        content = load_review_skill_markdown()
+        target = project_path / _REVIEW_SKILL_RELATIVE_PATH
+        # Atomic (and `mkdir=True` by default, so no separate mkdir):
+        # an interrupted init (Ctrl-C, full disk) must never leave
+        # a truncated SKILL.md behind — Claude Code would load it and could
+        # be missing the Prohibitions section that forbids direct jj/git/bd
+        # access. Same reason `assumptions/land_report.py` writes this way.
+        atomic_write_text(target, content, encoding="utf-8")
+    except Exception as exc:
+        logger.warning(
+            "review_skill_install_failed",
+            project_path=str(project_path),
+            error=str(exc),
+        )
+        return False
+
+    if verbose:
+        logger.info("review_skill_installed", path=str(project_path / _REVIEW_SKILL_RELATIVE_PATH))
+    return True
+
+
+# =============================================================================
 # .gitignore maintenance (best-effort)
 # =============================================================================
 
@@ -906,6 +963,7 @@ async def run_init(
         await _ensure_gitignore_entries(effective_path, verbose)
         await _untrack_bd_local_state(effective_path, verbose)
         speckit_installed = await _maybe_offer_speckit_install(effective_path, verbose)
+        skill_installed = await _install_review_skill(effective_path, verbose)
         return InitResult(
             success=True,
             config_path=str(config_path),
@@ -919,6 +977,7 @@ async def run_init(
             provider_discovery=None,
             config_existed=True,
             speckit_installed=speckit_installed,
+            skill_installed=skill_installed,
         )
 
     # Step 3: Detect project type
@@ -992,6 +1051,10 @@ async def run_init(
     # Step 9: Advisory Spec Kit prerequisite check + install offer (R7/US5).
     speckit_installed = await _maybe_offer_speckit_install(effective_path, verbose)
 
+    # Step 10: Install/refresh the packaged maverick-review skill
+    # (053-assumption-review-console, always-on, best-effort).
+    skill_installed = await _install_review_skill(effective_path, verbose)
+
     # Build and return result
     return InitResult(
         success=True,
@@ -1005,4 +1068,5 @@ async def run_init(
         runway_initialized=runway_initialized,
         provider_discovery=provider_discovery,
         speckit_installed=speckit_installed,
+        skill_installed=skill_installed,
     )

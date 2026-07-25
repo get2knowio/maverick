@@ -543,13 +543,14 @@ Beads-only workflow model. All development is driven by beads (`bd` CLI).
 | `maverick refuel <plan-name>`                        | Decompose plan into beads            |
 | `maverick refuel <feature> --speckit [--dry-run\|--enrich]` | Deterministic Spec Kit ingestion |
 | `maverick fly --epic <id>`                           | Implement beads (actor-mailbox)      |
-| `maverick land [--eject\|--finalize]`                | Curate history and merge             |
-| `maverick reconcile [--dry-run]`                     | Reapply changed human answers into jj history |
+| `maverick land [--eject\|--finalize] [--status] [--json]` | Curate history and merge, or query the frontier |
+| `maverick reconcile [--dry-run] [--json]`            | Reapply changed human answers into jj history |
 | `maverick workspace status\|clean`                   | Manage hidden workspace              |
-| `maverick init`                                      | Initialize a Maverick project        |
+| `maverick init`                                      | Initialize a Maverick project (installs the `maverick-review` skill) |
 | `maverick brief [--watch\|--human]`                  | Bead status + assumption counts      |
-| `maverick review <bead-id> [--answer\|--waive]`      | Resolve a human-assigned bead         |
-| `maverick review --spec <name> --waive <reason>`     | Bulk-waive a spec's open entries      |
+| `maverick review <bead-id> [--answer\|--waive] [--json]` | Resolve a human-assigned bead     |
+| `maverick review --spec <name> --waive <reason> [--json]` | Bulk-waive a spec's open entries |
+| `maverick review --list [--status\|--spec\|--severity]... [--json]` | List ledger entries with full provenance |
 | `maverick runway seed\|consolidate`                  | Manage knowledge store               |
 
 ### spec (headless Spec Kit chain)
@@ -654,6 +655,28 @@ owns matching the severity filter (default: low only) in one
 invocation — the strict any-severity gate makes clearing accepted-risk
 low-severity noise a named operation rather than one-by-one.
 
+**JSON verbs (053-assumption-review-console)**: `land --status --json`
+runs the gate evaluation and builds/persists the report without
+curating — a read-only frontier query (`verb: land.status`, always
+exits 0 on a completed evaluation, blocked is an answer not a failure).
+`land --json` (with `--yes` to skip the interactive curation-approval
+prompt, which is unreachable in JSON mode) emits the same envelope
+shape as every other JSON verb; a frontier refusal is `ok: false`,
+`kind: frontier-blocked`, with the full report under
+`error.details.report`. Both documents carry a top-level `degraded`
+flag: when the ledger can't be read at all the gate degrades *open*
+and materializes zero entries, so `frontier_clear` is trivially true —
+consumers must read `frontier_clear && !degraded` as the landable
+condition. See
+`specs/053-assumption-review-console/contracts/cli-land-json.md` and
+`error-envelope.md` for the full contract; `src/maverick/cli/json_output.py`
+is the shared envelope/error-kind implementation every JSON verb uses.
+
+The gate evaluation, report building, terminal rendering, and
+persistence shared by `land` and `land --status` live in
+`src/maverick/cli/commands/land_gate.py` — both commands import it,
+neither imports the other.
+
 ### reconcile
 
 `maverick reconcile [--dry-run]` retroactively reapplies human answers to
@@ -695,6 +718,20 @@ zero jj/bd/filesystem mutations. Re-answering a terminal-marked entry
 via `maverick review` re-arms it for the next reconcile run (FR-017).
 See `src/maverick/workflows/reconcile/` and
 `specs/051-reconcile-changed-answers/` for the full contract.
+
+**JSON verbs (053-assumption-review-console)**: `reconcile --json`
+(verb `reconcile.run`) and `reconcile --dry-run --json` (verb
+`reconcile.dry-run`) emit `ReconcileReport.to_dict()` under `result`
+with workflow progress routed to stderr; precondition failures
+(dirty working copy, concurrent fly run, held lockfile, missing
+`.jj`) map to the `dirty-working-copy`/`concurrent-run`/`locked`/`vcs`
+error kinds instead of a bare stderr message. That mapping keys off
+`WorkflowError.reason` — a stable code (`maverick.exceptions.workflow`'s
+`REASON_*` constants) the raiser sets, so rewording a precondition
+message can't silently reclassify it as `internal`; prose-marker
+matching survives only as a fallback for raisers that set no `reason`.
+Exit-code semantics are unchanged from the non-JSON contract. See
+`specs/053-assumption-review-console/contracts/cli-reconcile-json.md`.
 
 **Mid-flight integration (052-conditional-landing)**: a running
 `maverick fly` triggers this same workflow in-process at every bead
@@ -739,6 +776,38 @@ The ledger's lifecycle extends per-entry with reconcile state
 clears any prior reconcile status on re-answer so a corrected human
 answer re-enters reconcile detection without special-casing elsewhere.
 See `### reconcile` above and `specs/051-reconcile-changed-answers/`.
+
+### Assumption review console (053-assumption-review-console)
+
+Every review-lifecycle verb is invocable headlessly with `--json`:
+`review --list [--status\|--spec\|--severity]...` (verb `review.list`,
+full provenance rows filtered/sorted server-side — owning spec asc,
+severity high→low, stable ledger order), `review <id> --answer/--waive`
+(verbs `review.answer`/`review.waive`, with an already-resolved
+pre-check that applies in both JSON and human mode), and
+`review --spec <name> --waive <reason>` (verb `review.bulk-waive`). All
+JSON verbs across `review`/`reconcile`/`land` share one envelope shape
+and error-kind registry (`src/maverick/cli/json_output.py`,
+`specs/053-assumption-review-console/contracts/error-envelope.md`); the
+canonical entry-row projection (`src/maverick/assumptions/serialize.py`
+`entry_to_dict`) is shared verbatim by `review --list` and the land
+report so both surfaces can never drift. `maverick review` without
+`--json` is unchanged (FR-018) — it remains the bare-terminal fallback
+for humans without Claude Code.
+
+`maverick init` installs a packaged Claude Code skill,
+`maverick-review` (`src/maverick/skills/review_console/SKILL.md`,
+installed to `<project>/.claude/skills/maverick-review/SKILL.md`,
+always overwritten — Maverick-owned, versions with the wheel; removed
+by `maverick uninstall`). Invoked as `/maverick-review` or by prose, it
+sweeps the open queue one entry at a time via `AskUserQuestion`
+(adopted answer + alternatives + free-form + waive/skip), applies each
+decision immediately through the JSON verbs above, then — once, after
+the sweep — runs `reconcile --json`, reports the frontier via
+`land --status --json`, and offers to land only on explicit
+confirmation. The skill never touches jj/git/bd or files directly; see
+`specs/053-assumption-review-console/contracts/skill-review-console.md`
+for its full behavioral contract.
 
 ## Dependencies
 

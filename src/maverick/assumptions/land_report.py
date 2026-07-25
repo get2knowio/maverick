@@ -17,11 +17,11 @@ from pathlib import Path
 from typing import Any
 
 from maverick.assumptions.models import (
-    RECONCILE_STATUS_NEEDS_REVIEW,
     AssumptionReportEntry,
     LandFrontier,
     LandVerification,
 )
+from maverick.assumptions.serialize import _annotations, entry_to_dict
 from maverick.utils.atomic import atomic_write_json, atomic_write_text
 
 __all__ = [
@@ -78,54 +78,17 @@ def _bucket_counts(entries: Sequence[AssumptionReportEntry]) -> dict[str, int]:
     return counts
 
 
-def _annotations(entry: AssumptionReportEntry) -> tuple[str, ...]:
-    """Denormalized, human-facing tags — every one derivable from other fields.
-
-    ``reconcile_status`` only ever persists as the single
-    ``RECONCILE_STATUS_NEEDS_REVIEW`` value for both the "skipped" (no
-    mutation attempted) and "needs_interactive_review" (rolled back)
-    flavours described in data-model.md §2 — the ledger has no
-    discriminating field for the two, so both surface identically here.
-    """
-    tags: list[str] = []
-    if entry.record.is_legacy:
-        tags.append("legacy")
-    if entry.reconcile_status == RECONCILE_STATUS_NEEDS_REVIEW:
-        tags.append(f"reconcile: {entry.reconcile_status}")
-    if entry.pending_reconcile:
-        tags.append("pending reconcile")
-    return tuple(tags)
-
-
 def _entry_to_dict(entry: AssumptionReportEntry) -> dict[str, Any]:
-    record = entry.record
-    waiver = (
-        {"by": entry.waived_by, "at": entry.waived_at, "reason": entry.waive_reason}
-        if entry.bucket == "waived"
-        else None
-    )
-    return {
-        "bead_id": record.bead_id,
-        "bucket": entry.bucket,
-        "question": record.question,
-        "adopted_answer": record.adopted_answer,
-        "final_answer": entry.final_answer,
-        "alternatives": list(record.alternatives),
-        "severity": record.severity.value,
-        "severity_defaulted": record.severity_defaulted,
-        "is_legacy": record.is_legacy,
-        "source_bead": record.source_bead,
-        "affected_change_ids": list(entry.affected_change_ids),
-        "waiver": waiver,
-        "reconcile": {
-            "status": entry.reconcile_status,
-            "reconciled_answer": entry.reconciled_answer,
-            "change_id": entry.reconcile_change_id,
-            "reason": entry.reconcile_reason,
-        },
-        "pending_reconcile": entry.pending_reconcile,
-        "annotations": list(_annotations(entry)),
-    }
+    """Backward-compatible alias for :func:`serialize.entry_to_dict`.
+
+    The land report row and the canonical projection used by
+    ``review --list`` (053-assumption-review-console, research R4) are the
+    same shape — this module no longer maintains its own copy. Kept under
+    this name (rather than importing ``entry_to_dict`` directly at call
+    sites) since ``SpecReportSection.to_dict()``/``_render_entry_line``/
+    tests already reference ``_entry_to_dict``.
+    """
+    return entry_to_dict(entry)
 
 
 @dataclass(frozen=True, slots=True)

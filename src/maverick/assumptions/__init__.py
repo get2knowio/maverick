@@ -39,6 +39,7 @@ from maverick.assumptions.models import (
     coerce_severity,
     nnn_prefix,
 )
+from maverick.assumptions.serialize import entry_to_dict
 
 __all__ = [
     "ASSUMPTION_LABEL",
@@ -70,6 +71,7 @@ __all__ = [
     "Severity",
     "StampResult",
     "coerce_severity",
+    "entry_to_dict",
     "nnn_prefix",
     "report_entries",
 ]

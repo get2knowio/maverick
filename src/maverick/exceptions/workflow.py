@@ -2,6 +2,15 @@ from __future__ import annotations
 
 from maverick.exceptions.base import MaverickError
 
+#: Stable, machine-branchable ``WorkflowError.reason_code`` values for the
+#: precondition failures a CLI needs to distinguish. Kept here (not in
+#: ``maverick.cli``) so the workflow layer can set them without importing
+#: anything CLI-shaped; ``maverick.cli.json_output`` maps them onto its
+#: ``ErrorKind`` registry. Additive only — never rename or remove a value.
+REASON_DIRTY_WORKING_COPY = "dirty-working-copy"
+REASON_CONCURRENT_RUN = "concurrent-run"
+REASON_LOCKED = "locked"
+
 
 class WorkflowError(MaverickError):
     """Base exception for workflow-related errors.
@@ -9,16 +18,31 @@ class WorkflowError(MaverickError):
     Attributes:
         message: Human-readable error message.
         workflow_name: Name of the workflow that failed (if known).
+        reason_code: Optional stable code (one of the ``REASON_*``
+            constants above) letting callers branch on *what* failed
+            without pattern-matching the human message. ``None`` for the
+            vast majority of workflow errors, which carry prose only.
+            Deliberately NOT named ``reason`` — :class:`WorkflowStepError`
+            already owns that attribute for free-text failure prose, a
+            different meaning.
     """
 
-    def __init__(self, message: str, workflow_name: str | None = None) -> None:
+    def __init__(
+        self,
+        message: str,
+        workflow_name: str | None = None,
+        *,
+        reason_code: str | None = None,
+    ) -> None:
         """Initialize the WorkflowError.
 
         Args:
             message: Human-readable error message.
             workflow_name: Optional name of the workflow that failed.
+            reason_code: Optional stable code (``REASON_*`` constant).
         """
         self.workflow_name = workflow_name
+        self.reason_code = reason_code
         super().__init__(message)
 
 

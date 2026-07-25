@@ -52,7 +52,12 @@ from maverick.assumptions.ledger import (
 )
 from maverick.assumptions.models import AssumptionRecord
 from maverick.beads.client import BeadClient
-from maverick.exceptions import WorkflowError
+from maverick.exceptions import (
+    REASON_CONCURRENT_RUN,
+    REASON_DIRTY_WORKING_COPY,
+    REASON_LOCKED,
+    WorkflowError,
+)
 from maverick.jj.client import JjClient
 from maverick.library.actions.jj import (
     jj_check_mutability,
@@ -249,7 +254,8 @@ class ReconcileWorkflow(PythonWorkflow):
         working_copy_stat = await jj_client.diff_stat(revision="@")
         if working_copy_stat.files_changed != 0:
             raise WorkflowError(
-                "working copy is not clean — commit or discard changes before running reconcile"
+                "working copy is not clean — commit or discard changes before running reconcile",
+                reason_code=REASON_DIRTY_WORKING_COPY,
             )
 
         # Concurrency guards (contract "Preconditions" item 4). The
@@ -257,12 +263,16 @@ class ReconcileWorkflow(PythonWorkflow):
         # before lock acquisition, which mutates the filesystem.
         flying_run = _find_flying_run(cwd, exclude_run_id=active_fly_run_id)
         if flying_run is not None:
-            raise WorkflowError("cannot run reconcile while a fly run is in progress")
+            raise WorkflowError(
+                "cannot run reconcile while a fly run is in progress",
+                reason_code=REASON_CONCURRENT_RUN,
+            )
 
         acquired = await acquire_lock(cwd)
         if not acquired:
             raise WorkflowError(
-                "another reconcile run is already in progress (lockfile held by a live process)"
+                "another reconcile run is already in progress (lockfile held by a live process)",
+                reason_code=REASON_LOCKED,
             )
 
         try:

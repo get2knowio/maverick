@@ -20,6 +20,7 @@ from rich.table import Table
 
 from maverick.cli.common import (
     cli_error_handler,
+    resolve_verbosity,
 )
 from maverick.cli.console import console, err_console
 from maverick.cli.context import ExitCode
@@ -599,7 +600,7 @@ async def execute_python_workflow(
             console.print(f"[dim]Session log: {run_config.session_log_path}[/]")
 
         # Determine verbosity from Click context.
-        verbosity = ctx.obj.get("verbosity", 0) if ctx.obj else 0
+        verbosity = resolve_verbosity(ctx)
 
         # Count workflow steps for progress display.
         steps_meta = getattr(workflow_class, "STEPS", None) or {}

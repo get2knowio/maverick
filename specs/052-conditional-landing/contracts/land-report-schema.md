@@ -23,7 +23,10 @@ and carries no independent fields.
       "entries": [
         {
           "bead_id": "ma-0042",
+          "owner_spec": "052-conditional-landing",
+          "status": "open | answered | waived",
           "bucket": "resolved | waived | open",
+          "blocks_landing": false,
           "question": "…",
           "adopted_answer": "…",
           "final_answer": "… | null",
@@ -35,13 +38,13 @@ and carries no independent fields.
           "affected_change_ids": ["zzkw…", "rlvk…"],
           "waiver": { "by": "…", "at": "2026-07-24T14:00:00Z", "reason": "…" },
           "reconcile": {
-            "status": "reconciled | needs-interactive-review | skipped | pending | null",
+            "status": "reconciled | needs-interactive-review | pending | null",
             "reconciled_answer": "… | null",
             "change_id": "… | null",
             "reason": "… | null"
           },
           "pending_reconcile": false,
-          "annotations": ["legacy", "reconcile: skipped"]
+          "annotations": ["legacy", "reconcile: needs-interactive-review"]
         }
       ]
     }
@@ -61,6 +64,22 @@ Field notes:
   (report may be partial; `verification` omitted → key absent).
 - `verification: "blocked"` reports never accompany a landing — they are the
   audit trail of a refused attempt.
+- `reconcile.status` never actually persists as `"skipped"` — the ledger
+  only ever writes `"reconciled"` or `"needs-interactive-review"` as
+  terminal values, plus the non-terminal `"pending"` re-arm sentinel (a
+  reconcile run that skips an entry, e.g. an immutable target, still
+  terminal-marks it `"needs-interactive-review"`, per
+  `specs/051-reconcile-changed-answers/`); this corrects an earlier,
+  inaccurate version of this schema note that listed `"skipped"` as a
+  possible persisted value.
+- `owner_spec`, `status` (the ledger's `open|answered|waived` lifecycle
+  state, distinct from `bucket`'s land-report-specific grouping), and
+  `blocks_landing` are additive fields (053-assumption-review-console) —
+  present on every row from that feature onward, needed by
+  `review --list --json`'s flat listing (which has no section key to
+  carry `owner_spec` the way this report's `specs[].owner_spec` does) and
+  reused here for schema parity between the two surfaces. `schema_version`
+  is unchanged (still `1`) since additive fields don't require a bump.
 
 ## `land-report.md` (structure, not schema)
 

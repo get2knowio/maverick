@@ -178,6 +178,27 @@ def _format_speckit_output(result: InitResult) -> list[str]:
     return []
 
 
+def _format_skill_install_output(result: InitResult) -> list[str]:
+    """Format the maverick-review skill install notice (053).
+
+    Always-on, always-overwrite step — silent when not applicable
+    (``None``), otherwise a single success/warning line.
+    """
+    if result.skill_installed is True:
+        return [
+            "[green]✓[/] Installed the maverick-review skill "
+            "(.claude/skills/maverick-review/SKILL.md).",
+            "",
+        ]
+    if result.skill_installed is False:
+        return [
+            "[yellow]Warning:[/yellow] Failed to install the maverick-review skill "
+            "— `/maverick-review` will be unavailable until it's installed manually.",
+            "",
+        ]
+    return []
+
+
 def _format_config_output(
     result: InitResult,
     verbose: bool = False,
@@ -329,6 +350,7 @@ async def init(
             lines.extend(_format_provider_output(result.provider_discovery))
             lines.extend(_format_git_output(result, verbose))
             lines.extend(_format_speckit_output(result))
+            lines.extend(_format_skill_install_output(result))
             lines.extend(_format_config_output(result, verbose))
 
             for line in lines:
