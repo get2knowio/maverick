@@ -1,21 +1,27 @@
 """``RefuelSquadron`` — agents the ``refuel`` workflow exercises.
 
 * Briefing agents (navigator, structuralist, recon, contrarian, plus
-  any pre-flight variants) — built on demand, since the supervisor
-  fans them out via ``asyncio.gather``.
+  any pre-flight variants) — built on demand, since the Burr graph fans
+  them out via ``asyncio.gather``.
 * Generator (flight-plan synthesizer).
 * Decomposer pool (per-tier, demand-driven LRU pool of decomposer agents).
+
+When ``actors.refuel.decomposer.tiers`` is configured, each tier the pool
+is asked for resolves to that tier's own provider/model binding; the
+detail fan-out escalates a failed unit along
+:meth:`RefuelSquadron.decomposer_escalation_ladder`.
 """
 
 from __future__ import annotations
 
 from collections.abc import Iterable
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel
 
 from maverick.agents.base import Agent
+from maverick.config import lookup_tiers_config
 
 if TYPE_CHECKING:
     from maverick.config import MaverickConfig
@@ -26,6 +32,7 @@ from maverick.agents.generator import GeneratorAgent
 from maverick.runtime.agent_factory import runtime_for_agent
 from maverick.squadron.base import Squadron
 from maverick.squadron.decomposer_pool import DecomposerAgentPool
+from maverick.squadron.tiers import binding_for_complexity, escalation_ladder
 
 
 class RefuelSquadron(Squadron):
@@ -43,11 +50,18 @@ class RefuelSquadron(Squadron):
         decomposer_pool_cap: int = 3,
         detail_session_max_turns: int = 5,
         fix_session_max_turns: int = 1,
+        decomposer_tiers: Any = None,
     ) -> None:
         super().__init__(cwd=cwd, config=config, cost_sink=cost_sink)
         self._decomposer_pool_cap = decomposer_pool_cap
         self._detail_session_max_turns = detail_session_max_turns
         self._fix_session_max_turns = fix_session_max_turns
+        # ``None`` here is the "caller didn't decide" signal, so fall back
+        # to the user's config. An explicit value (including a config the
+        # caller built itself) always wins — that's what tests use.
+        if decomposer_tiers is None:
+            decomposer_tiers = lookup_tiers_config(config, "refuel-maverick", "decomposer")
+        self._decomposer_tiers = decomposer_tiers
         # Every briefing built via build_briefing_agent is tracked here so
         # Squadron.close() can guarantee its HTTP session is shut down.
         # Refuel runs 4+ briefings per fan-out; one forgotten close =
@@ -70,8 +84,34 @@ class RefuelSquadron(Squadron):
             factory=self._build_decomposer,
         )
 
+    def decomposer_escalation_ladder(self) -> tuple[str, ...]:
+        """Tier names a failed detail unit escalates along, in order.
+
+        Always starts at the base binding. Collapses to a single entry
+        when no tiers are configured — there is nothing to escalate *to*,
+        and re-running the identical binding under a different tier name
+        is a retry pretending to be an escalation.
+
+        Capped by ``DecomposerTiersConfig.escalation_threshold``, which on
+        *this* model means "escalation steps allowed per unit".
+        """
+        max_steps = getattr(self._decomposer_tiers, "escalation_threshold", None)
+        return escalation_ladder(self._decomposer_tiers, max_steps=max_steps)
+
     async def _build_decomposer(self, tier: str) -> DecomposerAgent:
-        decomposer_runtime, _ = runtime_for_agent("decompose", agents_config=self._config.agents)
+        """Build + open one pooled decomposer bound to ``tier``'s model.
+
+        ``tier`` is a key from :meth:`decomposer_escalation_ladder`; the
+        base-binding sentinel and any tier the user left undefined both
+        resolve ``binding_override=None``, i.e. the ``decompose`` role's
+        own binding.
+        """
+        override = getattr(self._decomposer_tiers, tier, None)
+        decomposer_runtime, _ = runtime_for_agent(
+            "decompose",
+            agents_config=self._config.agents,
+            binding_override=binding_for_complexity(tier, override),
+        )
         agent = DecomposerAgent(
             runtime=decomposer_runtime,
             cwd=str(self._cwd),

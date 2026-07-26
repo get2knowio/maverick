@@ -1,35 +1,35 @@
 """Burr actions for the ``refuel_maverick`` workflow.
 
-The ``maverick refuel`` workflow runs through these actions exclusively
-as of Phase 4 of the xoscar → Burr migration.
+These actions *are* the ``maverick refuel`` workflow — there is no other
+driver and no flag to select one.
 
-Known gaps relative to the pre-migration supervisor (queued for
-follow-up):
+Behaviour worth knowing before changing anything here:
 
-* Detail fan-out: per-unit retry budget is ``MAX_DETAIL_RETRIES = 1``
-  at the current tier. On ``airframe.errors.RuntimeTransientError``
-  the unit escalates one rung on the decomposer tier ladder and
-  retries; timeouts and persistent no-payload outcomes stay
-  abandoned at the current tier (matching the pre-migration
-  ``_try_one_tier`` policy). True per-tier runtime bindings — so
-  the escalated tier maps to a *different* model — are wired
-  through ``runtime_for_agent("decompose")`` today and will
-  benefit from later substrate work to support per-tier overrides.
-* Cache write-back: the workflow now passes a per-plan
-  ``cache_dir = <cwd>/.maverick/plans/<plan>/refuel-cache/``; the
-  ``synthesize_briefing``, ``outline``, and ``detail_fan_out``
-  actions persist their results there (``briefings.json``,
-  ``outline.json``, ``details/<unit_id>.json``). The read side —
-  loading these on a subsequent run to short-circuit re-generation
-  — is a separate follow-up; today the cache is write-only and
-  exists for manual inspection / future resume.
-* Quota error special-handling: treated like any other failure for now.
-* Fix-round merge: merges both ``details`` and ``work_units`` from
-  the fix payload (handles the case where the fixer splits an
-  overloaded unit). New ``work_units`` returned by the fixer are
-  appended to the outline; existing ones are replaced by id.
-
-Default driver remains xoscar; opt in via ``MAVERICK_USE_BURR=refuel``.
+* **Detail fan-out retries.** Per-unit budget is
+  ``MAX_DETAIL_RETRIES = 1`` at the current tier, and a
+  ``RuntimeTransientError`` spends it before escalating. Timeouts and
+  persistent no-payload outcomes are final at the current tier — they
+  don't escalate.
+* **Tier escalation.** The ladder comes from the squadron
+  (:func:`_tier_ladder`), so a rung can only name a tier the squadron
+  built a distinct provider/model binding for. With no
+  ``actors.refuel.decomposer.tiers`` configured the ladder is a single
+  rung and nothing escalates, because there is nothing to escalate *to*.
+* **Quota.** A provider limit is not a model-quality problem, so it
+  neither retries nor escalates: the first unit to hit one aborts the
+  whole fan-out with :class:`ProviderQuotaError` rather than letting
+  every remaining unit re-hit the same wall and then building beads from
+  a truncated plan.
+* **Cache.** ``cache_dir = <cwd>/.maverick/plans/<plan>/refuel-cache/``
+  is both written and read. :func:`init_state` seeds briefs, outline,
+  and per-unit details from it; each producing action short-circuits on
+  an already-populated slot. Envelopes are versioned
+  (:data:`CACHE_SCHEMA_VERSION`) and fail closed — see
+  :func:`_read_cache_json`.
+* **Fix-round merge.** Merges both ``details`` and ``work_units`` from
+  the fix payload (handles the fixer splitting an overloaded unit). New
+  ``work_units`` are appended to the outline; existing ones are replaced
+  by id.
 """
 
 from __future__ import annotations
@@ -48,6 +48,7 @@ from maverick.events import (
     ProgressEvent,
     StepOutput,
 )
+from maverick.exceptions.quota import ProviderQuotaError, is_quota_error
 from maverick.payloads import (
     SUPERVISOR_TOOL_PAYLOAD_MODELS,
     SubmitDetailsPayload,
@@ -56,6 +57,7 @@ from maverick.payloads import (
     SupervisorInboxPayload,
     dump_supervisor_payload,
 )
+from maverick.squadron.tiers import DEFAULT_TIER
 
 if TYPE_CHECKING:
     from maverick.agents.decomposer import DecomposerAgent
@@ -86,7 +88,7 @@ MAX_DETAIL_RETRIES: int = 1
 
 
 #: ``(agent_name, display_label, mcp_tool, role_key)`` tuples — same
-#: layout as ``REFUEL_BRIEFING_CONFIG`` in the xoscar supervisor.
+#: layout as the legacy ``REFUEL_BRIEFING_CONFIG``.
 BRIEFING_CONFIG: tuple[tuple[str, str, str, str], ...] = (
     ("navigator", "Navigator", "submit_navigator_brief", "navigator"),
     ("structuralist", "Structuralist", "submit_structuralist_brief", "structuralist"),
@@ -169,23 +171,44 @@ async def _put_output(
     )
 
 
+#: Envelope version for every file under ``<plan>/refuel-cache/``.
+#:
+#: Bump whenever the *meaning* of a cached payload changes. A cache
+#: written by a different version is discarded rather than adapted —
+#: reusing a drifted brief or outline silently produces beads that don't
+#: match the plan, which is far worse than paying for regeneration.
+CACHE_SCHEMA_VERSION: int = 1
+
+#: ``kind`` discriminators, so a file that lands in the wrong slot (a
+#: copy-paste, a bad merge) is rejected instead of parsed as its neighbour.
+CACHE_KIND_BRIEFINGS = "briefings"
+CACHE_KIND_OUTLINE = "outline"
+CACHE_KIND_DETAIL = "detail"
+
+
 async def _write_cache_json(
     path: Path,
     payload: Any,
     *,
+    kind: str,
     events: asyncio.Queue[ProgressEvent | None] | None,
     label: str,
 ) -> None:
-    """Write ``payload`` to ``path`` as pretty-printed JSON.
+    """Write ``payload`` to ``path`` inside a versioned envelope.
 
     Best-effort: any ``OSError`` (or other filesystem hiccup) is
     logged as a warning via ``events`` and swallowed so the refuel
     run still completes. Creates parent directories on demand.
     """
+    envelope = {
+        "schema_version": CACHE_SCHEMA_VERSION,
+        "kind": kind,
+        "payload": payload,
+    }
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(
-            json.dumps(payload, indent=2, default=str, sort_keys=True),
+            json.dumps(envelope, indent=2, default=str, sort_keys=True),
             encoding="utf-8",
         )
     except OSError as exc:
@@ -197,6 +220,60 @@ async def _write_cache_json(
                 level="warning",
                 metadata={"path": str(path), "label": label},
             )
+
+
+def _read_cache_json(path: Path, *, kind: str) -> Any | None:
+    """Read a versioned cache envelope, or ``None`` if it can't be trusted.
+
+    Fails closed on every ambiguity — missing file, unreadable file,
+    malformed JSON, non-object envelope, unknown ``schema_version``, or
+    a ``kind`` that doesn't match what the caller asked for. The cost of
+    a wrong answer here is a plan decomposed from stale evidence; the
+    cost of a false negative is one regeneration.
+    """
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    try:
+        envelope = json.loads(raw)
+    except (ValueError, TypeError):
+        return None
+    if not isinstance(envelope, dict):
+        return None
+    if envelope.get("schema_version") != CACHE_SCHEMA_VERSION:
+        return None
+    if envelope.get("kind") != kind:
+        return None
+    # A cached ``null`` is indistinguishable from "absent" downstream, so
+    # treat it as a miss rather than seeding a slot with nothing.
+    return envelope.get("payload")
+
+
+def _load_cached_details(cache_dir: Path) -> dict[str, dict[str, Any]]:
+    """Load every per-unit detail under ``<cache_dir>/details/``.
+
+    Returns ``{unit_id: detail}``. Individual unreadable or drifted files
+    are skipped, so a partially-corrupt cache degrades to regenerating
+    only the units it lost.
+    """
+    details_dir = cache_dir / "details"
+    try:
+        entries = sorted(details_dir.glob("*.json"))
+    except OSError:
+        return {}
+    loaded: dict[str, dict[str, Any]] = {}
+    for entry in entries:
+        payload = _read_cache_json(entry, kind=CACHE_KIND_DETAIL)
+        if not isinstance(payload, dict):
+            continue
+        # Trust the payload's own id over the filename: the filename is
+        # derived from it at write time, but only the payload is what
+        # downstream merging keys on.
+        unit_id = payload.get("id") or payload.get("unit_id") or entry.stem
+        if unit_id:
+            loaded[str(unit_id)] = payload
+    return loaded
 
 
 # ---------------------------------------------------------------------------
@@ -211,6 +288,7 @@ async def _write_cache_json(
         "briefing_markdown",
         "outline",
         "accumulated_details",
+        "cached_details",
         "specs",
         "fix_rounds",
         "validation_passed",
@@ -224,13 +302,59 @@ async def _write_cache_json(
         "abandoned_unit_ids",
     ],
 )
-async def init_state(state: State) -> tuple[dict[str, Any], State]:
-    """Seed scratch slots used by downstream actions."""
+async def init_state(
+    state: State,
+    *,
+    cache_dir: str = "",
+    events: asyncio.Queue[ProgressEvent | None] | None = None,
+) -> tuple[dict[str, Any], State]:
+    """Seed scratch slots used by downstream actions.
+
+    When ``cache_dir`` names a populated ``refuel-cache/`` from an
+    earlier run, its briefs / outline / per-unit details are loaded here
+    and the actions that would have produced them short-circuit. Doing
+    the disk read once, in one action, keeps every producer a pure
+    function of state.
+
+    Anything the cache can't vouch for is simply absent — see
+    :func:`_read_cache_json`.
+    """
+    briefs: dict[str, Any] = {}
+    outline_dict: dict[str, Any] | None = None
+    cached_details: dict[str, dict[str, Any]] = {}
+
+    if cache_dir:
+        root = Path(cache_dir)
+        cached_briefs = _read_cache_json(root / "briefings.json", kind=CACHE_KIND_BRIEFINGS)
+        if isinstance(cached_briefs, dict):
+            briefs = cached_briefs
+        cached_outline = _read_cache_json(root / "outline.json", kind=CACHE_KIND_OUTLINE)
+        if isinstance(cached_outline, dict):
+            outline_dict = cached_outline
+        cached_details = _load_cached_details(root)
+
+        if events is not None and (briefs or outline_dict is not None or cached_details):
+            await _put_output(
+                events,
+                "decompose",
+                (
+                    f"Reusing refuel cache: {len(briefs)} briefs, "
+                    f"outline {'hit' if outline_dict else 'miss'}, "
+                    f"{len(cached_details)} unit details"
+                ),
+                metadata={
+                    "brief_count": len(briefs),
+                    "outline_cached": outline_dict is not None,
+                    "detail_count": len(cached_details),
+                },
+            )
+
     return {}, state.update(
-        briefs={},
+        briefs=briefs,
         briefing_markdown="",
-        outline=None,
+        outline=outline_dict,
         accumulated_details=[],
+        cached_details=cached_details,
         specs=[],
         fix_rounds=0,
         validation_passed=False,
@@ -253,8 +377,23 @@ async def parallel_briefings(
     events: asyncio.Queue[ProgressEvent | None],
     max_concurrent: int,
 ) -> tuple[dict[str, Any], State]:
-    """Run navigator + structuralist + recon in parallel."""
+    """Run navigator + structuralist + recon in parallel.
+
+    Roles already present in ``briefs`` (seeded from cache by
+    :func:`init_state`) are skipped — a cached brief is the same
+    evidence at zero cost.
+    """
     provider_labels: dict[str, str] = state["provider_labels"]
+    existing: dict[str, Any] = dict(state["briefs"])
+    pending = [n for n in PARALLEL_BRIEFING_AGENTS if _ROLE_FOR[n] not in existing]
+    if not pending:
+        await _put_output(
+            events,
+            "briefing",
+            "Reusing cached briefings",
+            metadata={"cached_roles": sorted(existing)},
+        )
+        return {"briefs_collected": list(existing), "from_cache": True}, state
     sem = asyncio.Semaphore(max(1, max_concurrent))
 
     async def _bounded(name: str) -> tuple[str, dict[str, Any]]:
@@ -267,8 +406,8 @@ async def parallel_briefings(
                 provider_label=provider_labels.get(_LABEL_FOR[name], ""),
             )
 
-    results = await asyncio.gather(*(_bounded(n) for n in PARALLEL_BRIEFING_AGENTS))
-    briefs = dict(state["briefs"])
+    results = await asyncio.gather(*(_bounded(n) for n in pending))
+    briefs = existing
     for role_key, payload_dict in results:
         briefs[role_key] = payload_dict
     return {"briefs_collected": list(briefs)}, state.update(briefs=briefs)
@@ -284,10 +423,15 @@ async def contrarian_briefing(
     squadron: RefuelSquadron,
     events: asyncio.Queue[ProgressEvent | None],
 ) -> tuple[dict[str, Any], State]:
-    """Run the contrarian after the parallel briefings are in."""
+    """Run the contrarian after the parallel briefings are in.
+
+    Skipped entirely when a cached contrarian brief was seeded.
+    """
     from maverick.agents.briefing.prompts import build_contrarian_prompt
 
     briefs = state["briefs"]
+    if _ROLE_FOR["contrarian"] in briefs:
+        return {"contrarian_done": True, "from_cache": True}, state
     prompt = build_contrarian_prompt(
         flight_plan_content=state["raw_content"],
         navigator=briefs.get("navigator"),
@@ -333,7 +477,8 @@ async def synthesize_briefing(
     if cache_dir and briefs:
         await _write_cache_json(
             Path(cache_dir) / "briefings.json",
-            {"payloads": briefs},
+            briefs,
+            kind=CACHE_KIND_BRIEFINGS,
             events=events,
             label="briefings",
         )
@@ -345,7 +490,12 @@ async def synthesize_briefing(
 # ---------------------------------------------------------------------------
 
 
-_DEFAULT_TIER = "default"
+#: Re-exported so this module's pool keys can't drift from the tier
+#: names the squadron builds bindings for. It used to be a local
+#: ``"default"`` while every other tier surface used ``"_default"``;
+#: with real per-tier bindings that divergence would silently route a
+#: tier lookup to the wrong (or no) override.
+_DEFAULT_TIER = DEFAULT_TIER
 
 
 @action(
@@ -361,10 +511,20 @@ async def outline(
 ) -> tuple[dict[str, Any], State]:
     """Acquire a decomposer from the pool and run the outline pass.
 
-    When ``cache_dir`` is set, persists the outline payload to
-    ``<cache_dir>/outline.json`` after the agent returns. Cache
-    failures are non-fatal.
+    Short-circuits when :func:`init_state` already seeded an outline from
+    ``<cache_dir>/outline.json``. Otherwise persists the outline payload
+    there after the agent returns. Cache failures are non-fatal.
     """
+    if state["outline"] is not None:
+        cached_units = len(state["outline"].get("work_units", ()))
+        await _put_output(
+            events,
+            "decompose",
+            f"Reusing cached outline ({cached_units} work units)",
+            metadata={"work_unit_count": cached_units, "from_cache": True},
+        )
+        return {"work_unit_count": cached_units, "from_cache": True}, state
+
     await _put_output(events, "decompose", "Requesting outline")
     decomposer: DecomposerAgent = await squadron.decomposer_pool.acquire(_DEFAULT_TIER)
     await events.put(AgentStarted(step_name="decompose", agent_name="outline", provider=""))
@@ -401,29 +561,25 @@ async def outline(
     if cache_dir:
         await _write_cache_json(
             Path(cache_dir) / "outline.json",
-            {"payload": outline_dict},
+            outline_dict,
+            kind=CACHE_KIND_OUTLINE,
             events=events,
             label="outline",
         )
     return {"work_unit_count": unit_count}, state.update(outline=outline_dict)
 
 
-_REFUEL_TIER_LADDER: tuple[str, ...] = (
-    _DEFAULT_TIER,
-    "trivial",
-    "simple",
-    "moderate",
-    "complex",
-)
+def _tier_ladder(squadron: RefuelSquadron) -> tuple[str, ...]:
+    """The tier names a failed unit escalates along, cheapest-first.
 
-
-def _refuel_tier_for_level(level: int) -> str:
-    """Pick the decomposer tier name for an escalation level."""
-    if level <= 0:
-        return _REFUEL_TIER_LADDER[0]
-    if level >= len(_REFUEL_TIER_LADDER):
-        return _REFUEL_TIER_LADDER[-1]
-    return _REFUEL_TIER_LADDER[level]
+    Sourced from the squadron so the ladder can never name a tier whose
+    binding the squadron wouldn't actually vary. Falls back to the
+    base-binding-only ladder for stub squadrons in tests.
+    """
+    ladder = getattr(squadron, "decomposer_escalation_ladder", None)
+    if ladder is None:
+        return (_DEFAULT_TIER,)
+    return ladder() or (_DEFAULT_TIER,)
 
 
 async def _run_one_detail(
@@ -439,8 +595,15 @@ async def _run_one_detail(
     one of ``""`` (success), ``"timeout"``, ``"transient"``, or
     ``"no_payload"``. ``transient`` lets the caller escalate to the
     next tier; the others propagate up as abandon.
+
+    Transient errors consume the same-tier retry budget before they are
+    reported. They used to short-circuit it and rely on the escalation
+    ladder for a second attempt, which only worked because every tier
+    resolved to the same binding; now that the ladder climbs real
+    bindings (and is empty when none are configured), the same-binding
+    retry a network blip needs has to happen here.
     """
-    from airframe.errors import RuntimeTransientError
+    from airframe.errors import RuntimeBudgetExceededError, RuntimeTransientError
 
     label = unit_id
     await events.put(AgentStarted(step_name="decompose", agent_name=label, provider=""))
@@ -449,33 +612,56 @@ async def _run_one_detail(
     last_payload: dict[str, Any] | None = None
     failure_kind = "no_payload"
     last_error: str | None = None
-    for attempt in range(attempts):
-        try:
-            payload = await decomposer.detail(unit_ids=(unit_id,))
-        except TimeoutError:
-            if attempt + 1 >= attempts:
-                failure_kind = "timeout"
-                last_error = "timed out"
+    try:
+        for attempt in range(attempts):
+            try:
+                payload = await decomposer.detail(unit_ids=(unit_id,))
+            except TimeoutError:
+                if attempt + 1 >= attempts:
+                    failure_kind = "timeout"
+                    last_error = "timed out"
+                    break
+                continue
+            except RuntimeBudgetExceededError as exc:
+                raise ProviderQuotaError(str(exc), agent_name=f"decomposer:{unit_id}") from exc
+            except RuntimeTransientError as exc:
+                # Some providers report a hard quota as a transient
+                # 429/5xx. Retrying or escalating that burns wall-clock
+                # against a limit that won't move until it resets.
+                if is_quota_error(str(exc)):
+                    raise ProviderQuotaError(str(exc), agent_name=f"decomposer:{unit_id}") from exc
+                failure_kind = "transient"
+                last_error = str(exc)
+                if attempt + 1 >= attempts:
+                    break
+                continue
+            if not isinstance(payload, SubmitDetailsPayload):
+                raise TypeError(
+                    f"decomposer.detail returned {type(payload).__name__}, "
+                    f"expected SubmitDetailsPayload"
+                )
+            payload_dict = dump_supervisor_payload(payload)
+            details = payload_dict.get("details", []) or []
+            matching = [d for d in details if (d.get("id") or d.get("unit_id")) == unit_id]
+            if matching:
+                last_payload = matching[0]
+                failure_kind = ""
                 break
-            continue
-        except RuntimeTransientError as exc:
-            failure_kind = "transient"
-            last_error = str(exc)
-            break
-        if not isinstance(payload, SubmitDetailsPayload):
-            raise TypeError(
-                f"decomposer.detail returned {type(payload).__name__}, "
-                f"expected SubmitDetailsPayload"
+            if attempt + 1 >= attempts:
+                break
+    except ProviderQuotaError as exc:
+        # Close out the agent's progress row before unwinding, or the
+        # UI leaves a spinner running for a unit that will never finish.
+        await events.put(
+            AgentCompleted(
+                step_name="decompose",
+                agent_name=label,
+                duration_seconds=time.monotonic() - t0,
+                success=False,
+                error=str(exc),
             )
-        payload_dict = dump_supervisor_payload(payload)
-        details = payload_dict.get("details", []) or []
-        matching = [d for d in details if (d.get("id") or d.get("unit_id")) == unit_id]
-        if matching:
-            last_payload = matching[0]
-            failure_kind = ""
-            break
-        if attempt + 1 >= attempts:
-            break
+        )
+        raise
 
     await events.put(
         AgentCompleted(
@@ -498,18 +684,21 @@ async def _run_detail_with_escalation(
 ) -> dict[str, Any] | None:
     """Run one unit's detail pass with per-unit tier escalation.
 
-    On ``RuntimeTransientError``, bumps to the next tier on
-    :data:`_REFUEL_TIER_LADDER` and re-acquires a decomposer from the
-    pool for that tier. Returns the unit's detail payload on success
-    or ``None`` once the ladder is exhausted (or a non-transient
-    failure terminates the loop). Timeouts and persistent
-    no-payload outcomes are treated as final at the current tier —
-    they don't escalate.
+    On ``RuntimeTransientError`` that survives the same-tier retry
+    budget, moves to the next tier on the squadron's ladder
+    (:func:`_tier_ladder`) and re-acquires a decomposer bound to that
+    tier's model. Returns the unit's detail payload on success or
+    ``None`` once the ladder is exhausted (or a non-transient failure
+    terminates the loop). Timeouts and persistent no-payload outcomes
+    are treated as final at the current tier — they don't escalate.
+
+    :class:`ProviderQuotaError` propagates untouched: a exhausted
+    provider limit is not a model-quality problem, so climbing the tier
+    ladder just spends wall-clock re-hitting the same wall. The caller
+    aborts the run.
     """
-    level = 0
-    max_level = len(_REFUEL_TIER_LADDER) - 1
-    while True:
-        tier = _refuel_tier_for_level(level)
+    ladder = _tier_ladder(squadron)
+    for level, tier in enumerate(ladder):
         decomposer = await squadron.decomposer_pool.acquire(tier)
         try:
             detail, failure = await _run_one_detail(
@@ -522,9 +711,9 @@ async def _run_detail_with_escalation(
             await squadron.decomposer_pool.release(decomposer, tier)
         if detail is not None:
             return detail
-        if failure != "transient" or level >= max_level:
+        if failure != "transient" or level + 1 >= len(ladder):
             return None
-        next_tier = _refuel_tier_for_level(level + 1)
+        next_tier = ladder[level + 1]
         await _put_output(
             events,
             "decompose",
@@ -532,11 +721,11 @@ async def _run_detail_with_escalation(
             level="warning",
             metadata={"unit_id": unit_id, "from_tier": tier, "to_tier": next_tier},
         )
-        level += 1
+    return None
 
 
 @action(
-    reads=["outline"],
+    reads=["outline", "cached_details"],
     writes=["accumulated_details", "abandoned_unit_ids"],
 )
 async def detail_fan_out(
@@ -554,7 +743,10 @@ async def detail_fan_out(
     :func:`_run_detail_with_escalation`. When ``cache_dir`` is set,
     each successful unit detail is persisted to
     ``<cache_dir>/details/<unit_id>.json`` immediately so a
-    partially-successful fan-out is recoverable.
+    partially-successful fan-out is recoverable — and units already
+    present in ``cached_details`` are not requested again. Cache reuse
+    is per unit, so a run that abandoned half its units re-requests only
+    those.
     """
     outline_dict = state["outline"]
     if outline_dict is None:
@@ -564,21 +756,63 @@ async def detail_fan_out(
     if not unit_ids:
         return {"unit_count": 0}, state
 
-    await _put_output(events, "decompose", f"Requesting details for {len(unit_ids)} units")
+    cached: dict[str, dict[str, Any]] = state.get("cached_details") or {}
+    # Only reuse details for units this outline still contains — a
+    # regenerated outline may have dropped or renamed a unit, and a
+    # detail for a unit that no longer exists must not enter the merge.
+    reused = [cached[uid] for uid in unit_ids if uid in cached]
+    pending_ids = [uid for uid in unit_ids if uid not in cached]
+
+    if reused:
+        await _put_output(
+            events,
+            "decompose",
+            f"Reusing {len(reused)} cached unit details",
+            metadata={"reused": len(reused), "pending": len(pending_ids)},
+        )
+    if not pending_ids:
+        return (
+            {"completed_count": len(reused), "abandoned_count": 0, "from_cache": True},
+            state.update(accumulated_details=list(reused), abandoned_unit_ids=[]),
+        )
+
+    await _put_output(events, "decompose", f"Requesting details for {len(pending_ids)} units")
     sem = asyncio.Semaphore(max(1, pool_size))
-    accumulated: list[dict[str, Any]] = []
+    accumulated: list[dict[str, Any]] = list(reused)
     abandoned: list[str] = []
     lock = asyncio.Lock()
     details_dir = Path(cache_dir) / "details" if cache_dir else None
 
+    # Set by the first unit to hit a provider limit. Once it is set,
+    # every other in-flight and queued unit gives up immediately: the
+    # limit is account-wide, so the remaining requests would each burn a
+    # round-trip to be told the same thing.
+    quota_error: ProviderQuotaError | None = None
+
     async def _one(unit_id: str) -> None:
+        nonlocal quota_error
+        if quota_error is not None:
+            async with lock:
+                abandoned.append(unit_id)
+            return
         async with sem:
-            detail = await _run_detail_with_escalation(
-                unit_id=unit_id,
-                squadron=squadron,
-                retries_remaining=MAX_DETAIL_RETRIES,
-                events=events,
-            )
+            if quota_error is not None:
+                async with lock:
+                    abandoned.append(unit_id)
+                return
+            try:
+                detail = await _run_detail_with_escalation(
+                    unit_id=unit_id,
+                    squadron=squadron,
+                    retries_remaining=MAX_DETAIL_RETRIES,
+                    events=events,
+                )
+            except ProviderQuotaError as exc:
+                async with lock:
+                    if quota_error is None:
+                        quota_error = exc
+                    abandoned.append(unit_id)
+                return
         async with lock:
             if detail is None:
                 abandoned.append(unit_id)
@@ -588,11 +822,39 @@ async def detail_fan_out(
             await _write_cache_json(
                 details_dir / f"{unit_id}.json",
                 detail,
+                kind=CACHE_KIND_DETAIL,
                 events=events,
                 label=f"detail/{unit_id}",
             )
 
-    await asyncio.gather(*(_one(u) for u in unit_ids))
+    await asyncio.gather(*(_one(u) for u in pending_ids))
+
+    if quota_error is not None:
+        reset_hint = (
+            f" Provider limit resets {quota_error.reset_time}." if quota_error.reset_time else ""
+        )
+        await _put_output(
+            events,
+            "decompose",
+            (
+                f"Provider quota exhausted during detail fan-out; aborting refuel. "
+                f"{len(accumulated)} unit details were cached and will be reused on "
+                f"re-run.{reset_hint}"
+            ),
+            level="error",
+            metadata={
+                "quota_exhausted": True,
+                "cached_details": len(accumulated),
+                "abandoned": len(abandoned),
+                "reset_time": quota_error.reset_time,
+            },
+        )
+        # Abort rather than proceeding to validate/create_beads: a plan
+        # decomposed from a truncated fan-out would produce beads that
+        # silently omit most of the work. Everything completed so far is
+        # already on disk under the refuel cache, so a re-run after the
+        # limit resets picks up where this left off.
+        raise quota_error
 
     await _put_output(
         events,
@@ -638,7 +900,7 @@ async def validate(
     expected_sc_refs: tuple[str, ...] = (),
     sc_count: int = 0,
 ) -> tuple[dict[str, Any], State]:
-    """Run the same deterministic validator the xoscar workflow uses."""
+    """Run the deterministic decomposition validator."""
     from maverick.library.actions.decompose import validate_decomposition
     from maverick.workflows.refuel_maverick.models import WorkUnitSpec
 
@@ -650,7 +912,7 @@ async def validate(
     # ``validate_decomposition`` returns a list of gap strings on
     # success (empty == passed) and *raises* ``ValueError`` /
     # ``SCCoverageError`` on schema-level issues (cycles, dangling
-    # depends_on, uncovered SCs). Mirror the xoscar supervisor's
+    # depends_on, uncovered SCs). Mirror the legacy supervisor's
     # behaviour and surface either path as ``validation_warnings``.
     gaps: list[str] = []
     try:

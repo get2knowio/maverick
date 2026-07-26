@@ -464,7 +464,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
         # Steps 2b-4: Briefing + Decompose + Validate — driven by the
         # Burr application built around the RefuelSquadron.
         # ------------------------------------------------------------------
-        decomposition = await self._run_with_burr(
+        decomposition = await self._run_decomposition(
             flight_plan=flight_plan,
             raw_content=raw_content,
             codebase_context=codebase_context,
@@ -558,14 +558,13 @@ class RefuelMaverickWorkflow(PythonWorkflow):
         # ------------------------------------------------------------------
         # Steps 6-7: Consume the supervisor's bead-creation outputs.
         #
-        # ``RefuelSupervisor._run_decompose`` already created the epic +
-        # work beads via :class:`BeadCreatorActor` and wired
-        # ``depends_on`` deps inside the same call. Re-running
-        # ``create_beads`` here would fabricate a duplicate epic with
-        # identical children — that was the historical bug. Instead, we
-        # adopt the supervisor's outputs from ``ctx`` (stashed in
-        # ``_run_with_burr``) and only run the post-creation
-        # bookkeeping the supervisor doesn't own (run-meta update,
+        # The Burr graph's ``create_beads`` action already created the
+        # epic + work beads and wired ``depends_on`` deps inside the same
+        # call. Re-running bead creation here would fabricate a duplicate
+        # epic with identical children — that was the historical bug.
+        # Instead, we adopt the graph's outputs from ``ctx`` (stashed in
+        # :meth:`_run_decomposition`) and only run the post-creation
+        # bookkeeping the graph doesn't own (run-meta update,
         # ``flight_plan_name`` state attachment, cross-epic dep wiring).
         # ------------------------------------------------------------------
         supervisor_epic: dict[str, Any] | None = ctx.get("supervisor_epic")
@@ -824,7 +823,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
         )
         return result.to_dict()
 
-    async def _run_with_burr(
+    async def _run_decomposition(
         self,
         *,
         flight_plan: Any,
@@ -836,12 +835,11 @@ class RefuelMaverickWorkflow(PythonWorkflow):
         ctx: dict[str, Any] | None = None,
         ws_cwd: Path,
     ) -> Any:
-        """Run briefing + decomposition via the Burr-backed driver.
+        """Run briefing + decomposition via Burr.
 
-        Post-Burr-migration: single-tier decomposer dispatch, no
-        escalation, no cache write-back. Cache reads still pass through
-        when prior runs left a cache on disk; restoring cache writes is
-        queued behind the rest of the post-migration gaps.
+        Kept as its own method rather than inlined into :meth:`_run` only
+        to keep that method readable; there is no alternative driver to
+        select between.
         """
         from maverick.agents.briefing.prompts import build_briefing_prompt
         from maverick.burr import BurrWorkflowDriver
@@ -880,6 +878,8 @@ class RefuelMaverickWorkflow(PythonWorkflow):
             cost_sink=cost_sink,
             decomposer_pool_cap=self._config.parallel.decomposer_pool_size,
         ) as squadron:
+            # ``decomposer_tiers`` is resolved from config inside the
+            # squadron; nothing to thread here.
             event_queue: asyncio.Queue[ProgressEvent | None] = asyncio.Queue()
             # Per-plan refuel cache under
             # ``<cwd>/.maverick/plans/<plan>/refuel-cache/`` so a

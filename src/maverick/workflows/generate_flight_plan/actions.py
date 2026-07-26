@@ -50,7 +50,7 @@ _SOURCE = "plan-burr"
 
 
 #: ``(agent_name, display_label, mcp_tool, role_key)`` tuples — same
-#: layout as the xoscar ``PLAN_BRIEFING_CONFIG`` so per-role configuration
+#: layout as ``PLAN_BRIEFING_CONFIG`` so per-role configuration
 #: stays portable across the two drivers.
 BRIEFING_CONFIG: tuple[tuple[str, str, str, str], ...] = (
     ("scopist", "Scopist", "submit_scope", "scope"),

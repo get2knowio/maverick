@@ -27,6 +27,7 @@ from maverick.payloads import (
     SubmitImplementationPayload,
     SubmitReviewPayload,
 )
+from maverick.squadron.tiers import DEFAULT_TIER
 from maverick.workflows.fly_beads.burr_graph import (
     FLY_TERMINAL_ACTIONS,
     build_fly_application,
@@ -65,7 +66,11 @@ class StubFlySquadron:
         coders_by_tier: dict[str, StubCodingAgent] | None = None,
         correctness_by_tier: dict[str, StubReviewerAgent] | None = None,
         completeness_by_tier: dict[str, StubReviewerAgent] | None = None,
+        escalation_ladder: tuple[str, ...] | None = None,
     ) -> None:
+        # ``None`` mirrors a squadron with no ``tiers:`` config: one
+        # binding, so nothing to escalate to.
+        self._escalation_ladder = escalation_ladder or (DEFAULT_TIER,)
         self.coder = coder or StubCodingAgent(
             implement_payloads=[SubmitImplementationPayload(summary="stub impl")],
             fix_payloads=[SubmitFixResultPayload(summary="stub fix") for _ in range(5)],
@@ -81,6 +86,12 @@ class StubFlySquadron:
         self.coders_by_tier: dict[str, StubCodingAgent] = coders_by_tier or {}
         self.correctness_by_tier: dict[str, StubReviewerAgent] = correctness_by_tier or {}
         self.completeness_by_tier: dict[str, StubReviewerAgent] = completeness_by_tier or {}
+
+    def implementer_escalation_ladder(self) -> tuple[str, ...]:
+        return self._escalation_ladder
+
+    def reviewer_escalation_ladder(self) -> tuple[str, ...]:
+        return self._escalation_ladder
 
     def coder_for(self, tier: str) -> StubCodingAgent:
         return self.coders_by_tier.get(tier, self.coder)
@@ -657,7 +668,10 @@ class TestFlyBurrImplementerTransientEscalation:
 
         squadron = StubFlySquadron(
             coder=escalated_coder,
-            coders_by_tier={"_default": default_coder},
+            coders_by_tier={DEFAULT_TIER: default_coder},
+            # One configured tier above the base binding — escalation is
+            # only meaningful when the next rung is a *different* model.
+            escalation_ladder=(DEFAULT_TIER, "complex"),
         )
 
         queue: asyncio.Queue[ProgressEvent | None] = asyncio.Queue()
@@ -699,7 +713,7 @@ class TestFlyBurrImplementerTransientEscalation:
         assert any(c[0] == "implement" for c in escalated_coder.calls)
 
     async def test_implement_transient_exhausts_aborts_bead(self, tmp_path: Path) -> None:
-        """Every tier raises transient → bead is abandoned, level pinned at 4."""
+        """Every rung raises transient → bead abandoned at the top rung."""
         from airframe.errors import RuntimeTransientError
 
         from maverick.workflows.fly_beads.graceful_stop import reset_graceful_stop
@@ -720,7 +734,9 @@ class TestFlyBurrImplementerTransientEscalation:
                 raise RuntimeTransientError(f"upstream fix fault #{self.fix_calls}")
 
         always_raising = _AlwaysRaisingCoder()
-        squadron = StubFlySquadron()
+        squadron = StubFlySquadron(
+            escalation_ladder=(DEFAULT_TIER, "moderate", "complex"),
+        )
         squadron.coder_for = lambda _tier: always_raising  # type: ignore[assignment]
 
         queue: asyncio.Queue[ProgressEvent | None] = asyncio.Queue()
@@ -741,13 +757,13 @@ class TestFlyBurrImplementerTransientEscalation:
             await _collect(driver)
 
         _, _, state = driver.result
-        # All 5 rungs walked, bead aborted (not aggregated — only 1 bead
-        # so aggregate is below threshold and doesn't fire).
-        assert state["implementer_escalation_level"] == 4
+        # All 3 configured rungs walked, bead aborted (not aggregated —
+        # only 1 bead, so aggregate is below threshold and doesn't fire).
+        assert state["implementer_escalation_level"] == 2
         assert state["implement_ok"] is False
         assert state["bead_aborted"] is True
         assert state["failed_count"] == 1
-        assert always_raising.implement_calls == 5
+        assert always_raising.implement_calls == 3
 
 
 class TestFlyBurrReviewerTransientEscalation:
@@ -782,8 +798,9 @@ class TestFlyBurrReviewerTransientEscalation:
                 review_kind="completeness",
                 review_payloads=[SubmitReviewPayload(approved=True, findings=())],
             ),
-            correctness_by_tier={"_default": default_correctness},
-            completeness_by_tier={"_default": default_completeness},
+            correctness_by_tier={DEFAULT_TIER: default_correctness},
+            completeness_by_tier={DEFAULT_TIER: default_completeness},
+            escalation_ladder=(DEFAULT_TIER, "complex"),
         )
 
         queue: asyncio.Queue[ProgressEvent | None] = asyncio.Queue()
@@ -827,7 +844,7 @@ class TestFlyBurrReviewerTransientEscalation:
     async def test_transient_failure_exhausts_escalation_marks_human_review(
         self, tmp_path: Path
     ) -> None:
-        """Every tier raises transient → needs-human-review with error message."""
+        """Every configured rung raises transient → needs-human-review."""
         from airframe.errors import RuntimeTransientError
 
         from maverick.workflows.fly_beads.graceful_stop import reset_graceful_stop
@@ -861,7 +878,9 @@ class TestFlyBurrReviewerTransientEscalation:
         correctness_always = _AlwaysRaising("correctness")
         completeness_always = _AlwaysRaising("completeness")
 
-        squadron = StubFlySquadron()
+        squadron = StubFlySquadron(
+            escalation_ladder=(DEFAULT_TIER, "moderate", "complex"),
+        )
         # Override the tier-dispatch methods to always return the
         # raising stubs.
         squadron.correctness_reviewer_for = lambda _tier: correctness_always  # type: ignore[assignment]
@@ -899,14 +918,14 @@ class TestFlyBurrReviewerTransientEscalation:
             await _collect(driver)
 
         _, _, state = driver.result
-        # Climbed all 5 ladder rungs (level 0..4) and then exited.
-        assert state["reviewer_escalation_level"] == 4
+        # Climbed all 3 configured rungs (level 0..2) and then exited.
+        assert state["reviewer_escalation_level"] == 2
         assert state["needs_human_review"] is True
         assert state["approved"] is False
-        # Each rung tried once → 5 correctness attempts; completeness
+        # Each rung tried once → 3 correctness attempts; completeness
         # may be cancelled mid-flight by the gather, so we only assert
         # the lower bound for it.
-        assert correctness_always.calls == 5
+        assert correctness_always.calls == 3
         # Finding text carries the exhaustion reason.
         finding_text = " ".join(state["last_review_findings"])
         assert "exhausted escalation" in finding_text

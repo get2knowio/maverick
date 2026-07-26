@@ -1,8 +1,8 @@
 """Implement helpers for fly-beads.
 
-Snapshot/describe operations and verification-only detection.
-Agent implementation is now handled by ImplementerActor in the
-Thespian actor system.
+Snapshot/describe operations and verification-only detection. The agent
+implementation itself is driven by the Burr graph's ``implement`` action
+(:mod:`maverick.workflows.fly_beads.actions`), not from here.
 """
 
 from __future__ import annotations

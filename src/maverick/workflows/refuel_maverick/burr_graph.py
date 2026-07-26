@@ -17,8 +17,10 @@ that mirrors the legacy ``RefuelSupervisor`` shape:
 When ``skip_briefing=True`` the briefing actions are skipped and the
 graph routes ``init_state → outline``.
 
-Phase 2 simplifications (documented in :mod:`actions`): single-tier
-decomposer dispatch, no escalation, no cache write-back.
+``init_state`` also seeds briefs / outline / per-unit details from
+``<cache_dir>/`` when an earlier run left one, and every producing
+action short-circuits on an already-populated slot — so a re-run after
+a mid-flight failure resumes rather than re-pays.
 """
 
 from __future__ import annotations
@@ -97,7 +99,10 @@ def build_refuel_application(
     builder: Any = (
         ApplicationBuilder()
         .with_actions(
-            init_state=refuel_actions.init_state,
+            init_state=refuel_actions.init_state.bind(
+                cache_dir=cache_dir,
+                events=event_queue,
+            ),
             parallel_briefings=refuel_actions.parallel_briefings.bind(
                 squadron=squadron,
                 events=event_queue,
@@ -153,6 +158,7 @@ def build_refuel_application(
             briefing_markdown="",
             outline=None,
             accumulated_details=[],
+            cached_details={},
             specs=[],
             fix_rounds=0,
             validation_passed=False,

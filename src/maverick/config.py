@@ -38,6 +38,7 @@ __all__ = [
     "get_user_config_path",
     "load_config",
     "lookup_actor_config",
+    "lookup_tiers_config",
 ]
 
 logger = get_logger(__name__)
@@ -560,6 +561,70 @@ def lookup_actor_config(
     except ValidationError as exc:
         logger.warning(
             "actor_config_parse_failed",
+            workflow=workflow_name,
+            actor=actor_name,
+            error=str(exc),
+        )
+        return None
+
+
+#: ``(workflow_name, actor_name) -> tiers model`` for every actor that
+#: supports per-complexity provider/model routing. Adding an entry here is
+#: all that's needed to make a new role's ``tiers:`` block load.
+TIERS_MODEL_FOR_ACTOR: dict[tuple[str, str], type[BaseModel]] = {
+    ("fly-beads", "implementer"): ImplementerTiersConfig,
+    ("fly-beads", "reviewer"): ReviewerTiersConfig,
+    ("refuel-maverick", "decomposer"): DecomposerTiersConfig,
+}
+
+
+def lookup_tiers_config(
+    config: MaverickConfig,
+    workflow_name: str,
+    actor_name: str,
+) -> BaseModel | None:
+    """Parse ``actors.<workflow>.<actor>.tiers`` into its typed tiers model.
+
+    :class:`ActorConfig` accepts ``tiers`` as an untyped pass-through so a
+    user can keep top-level fields and tier overrides in one YAML block;
+    this is the resolver that gives it a type. It previously lived in the
+    per-workflow supervisors, which the Burr migration deleted — leaving
+    every ``tiers:`` block silently inert (#135).
+
+    Malformed blocks degrade to ``None`` with a warning rather than
+    raising: a typo in one tier must not take down workflow startup, and
+    the caller's no-tiers path is always a valid fallback.
+
+    Args:
+        config: Loaded :class:`MaverickConfig`.
+        workflow_name: Internal workflow name (e.g. ``"fly-beads"``).
+        actor_name: Actor name as known to the workflow code
+            (e.g. ``"implementer"``, ``"decomposer"``).
+
+    Returns:
+        The parsed tiers model when a ``tiers:`` block is present, valid,
+        and the actor supports tiering; ``None`` otherwise.
+    """
+    model_cls = TIERS_MODEL_FOR_ACTOR.get((workflow_name, actor_name))
+    if model_cls is None:
+        return None
+    actor_config = lookup_actor_config(config, workflow_name, actor_name)
+    if actor_config is None or actor_config.tiers is None:
+        return None
+    raw = actor_config.tiers
+    if not isinstance(raw, dict):
+        logger.warning(
+            "tiers_config_invalid_shape",
+            workflow=workflow_name,
+            actor=actor_name,
+            got=type(raw).__name__,
+        )
+        return None
+    try:
+        return model_cls.model_validate(raw)
+    except ValidationError as exc:
+        logger.warning(
+            "tiers_config_parse_failed",
             workflow=workflow_name,
             actor=actor_name,
             error=str(exc),

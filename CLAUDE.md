@@ -5,10 +5,10 @@ Guidance for Claude Code when working in this repository.
 ## Project Overview
 
 Maverick is a Python CLI that orchestrates AI-powered development workflows
-on top of an OpenCode HTTP runtime. It runs PRD → plan → beads → implement →
-review → commit using an actor-mailbox architecture; mailbox actors return
-typed payloads via OpenCode's structured-output tool rather than per-agent
-MCP gateways.
+on top of the **airframe** agent-runtime abstraction. It runs PRD → plan →
+beads → implement → review → commit as **Burr** state machines; agents return
+typed Pydantic payloads via airframe's structured-output support rather than
+per-agent MCP gateways.
 
 ## Technology Stack
 
@@ -17,17 +17,16 @@ MCP gateways.
 | Language         | Python 3.11+                          | `from __future__ import annotations`        |
 | Package Manager  | uv                                    | reproducible via `uv.lock`                  |
 | Build            | Make                                  | AI-friendly minimal-noise targets           |
-| Agent runtime    | OpenCode HTTP (`opencode serve`)      | one server per workflow run                 |
-| HTTP client      | httpx                                 | `maverick.runtime.opencode.OpenCodeClient`  |
-| Actors           | xoscar                                | `n_process=0`, in-pool coroutines           |
-| Structured output| Pydantic + `format=json_schema`       | `maverick.payloads`                         |
+| Agent runtime    | airframe (`airframe.AgentRuntime`)    | `maverick.runtime.agent_factory`            |
+| Orchestration    | Burr state machines                   | `maverick.burr` + `workflows/*/burr_graph.py` |
+| Structured output| Pydantic result models                | `maverick.payloads`                         |
 | CLI              | Click + Rich                          | `maverick.cli.console`                      |
 | Validation       | Pydantic                              | config + data models                        |
 | Testing          | pytest + pytest-asyncio + xdist       | parallel via `-n auto`                      |
 | Lint / Type      | ruff / mypy (strict)                  | —                                           |
 | VCS writes       | Jujutsu (jj)                          | `maverick.jj.client.JjClient`               |
 | VCS reads        | GitPython                             | `maverick.git`                              |
-| Workspaces       | WorkspaceManager                      | hidden jj clones in `~/.maverick/workspaces/` |
+| Workspaces       | spec-chain only                       | `maverick.workspace.spec_chain`             |
 | GitHub API       | PyGithub                              | `maverick.utils.github_client`              |
 | Logging          | structlog                             | `maverick.logging.get_logger`               |
 | Retry            | tenacity                              | `AsyncRetrying`                             |
@@ -56,16 +55,18 @@ alternatives or hand-rolled equivalents.
 ```
 src/maverick/
 ├── main.py              # Click entrypoint
-├── config.py            # Pydantic config models (incl. ProviderTiersConfig)
+├── config.py            # Pydantic config models (agents:, actors:, tiers)
 ├── exceptions/          # MaverickError hierarchy
 ├── types.py / events.py / results.py / constants.py / payloads.py
-├── runtime/opencode/    # OpenCode HTTP client, server lifecycle, tiers
-├── actors/xoscar/       # supervisors + agent + deterministic actors
-├── agents/              # prompt builders (HOW)
-├── executor/            # StepExecutor protocol + OpenCode-backed default
+├── runtime/             # agent_factory (role → airframe runtime), registry
+├── burr/                # BurrWorkflowDriver + ProgressEventHook
+├── squadron/            # per-workflow agent sets + shared tier helpers
+├── agents/              # Agent subclasses: prompts + role (HOW)
+├── executor/            # StepConfig resolution
 ├── jj/ vcs/             # JjClient + VcsRepository protocol
-├── workspace/           # WorkspaceManager (hidden jj clones)
-├── workflows/           # plan_generate / refuel_maverick / fly_beads / ...
+├── workspace/           # spec-chain workspace (Guardrail 0's one exception)
+├── workflows/           # generate_flight_plan / refuel_maverick / fly_beads / ...
+│                        #   each: actions.py (@action fns) + burr_graph.py (wiring)
 ├── runners/             # CommandRunner, process_group, provider_health
 ├── library/actions/     # typed action layer (jj, git, beads, runway, ...)
 ├── runway/              # episodic + semantic knowledge store
@@ -74,20 +75,21 @@ src/maverick/
 
 ### Separation of concerns
 
-- **Actors** — `xo.Actor` subclasses owning state, exposing typed `async def`
-  methods. Agent actors hold a persistent OpenCode session; deterministic
-  actors wrap pure async Python.
-- **Supervisors** — `xo.Actor` with `@xo.generator run()` yielding
-  `ProgressEvent`s, plus typed domain methods child actors invoke.
-- **Agents** — know HOW (prompts, role). Don't own orchestration.
-- **Workflows** — know WHAT/WHEN. Create the actor pool (which spawns one
-  OpenCode server), send "start", wait for "complete".
-- **Structured output** — mailbox actors declare a `result_model` Pydantic
-  class; OpenCode's `format=json_schema` synthesizes a `StructuredOutput`
-  tool the model is forced to call. Payloads round-trip via
+- **Actions** — plain `async def` functions decorated with Burr's
+  `@action(reads=[...], writes=[...])`. They own one step of a workflow and
+  read/write only the state slots they declare.
+- **Burr graphs** — `build_*_application()` wires actions into a state
+  machine with explicit transitions. This is where control flow lives.
+- **Agents** — know HOW (prompts, role, result model). Don't own
+  orchestration.
+- **Squadrons** — per-run container owning every agent a workflow needs,
+  plus their airframe runtimes. Opened once per run, handed to the graph.
+- **Workflows** — know WHAT/WHEN. Open the squadron, build the app, drain
+  its events through `BurrWorkflowDriver`.
+- **Structured output** — agents declare a `result_model` Pydantic class;
+  airframe forces the model to return it. Payloads round-trip via
   `maverick.payloads.SubmitXxxPayload`.
 - **JjClient** — typed jj wrapper with retries/timeouts/error hierarchy.
-- **WorkspaceManager** — lifecycle for hidden jj workspaces.
 
 ### Three information types
 
@@ -151,204 +153,104 @@ acceptable.
 - **Only defer when truly blocked** (missing access, non-reproducible). When
   deferring, document what's blocked and the next concrete step.
 
-## OpenCode Runtime
+## Agent Runtime (airframe)
 
-All mailbox actors execute via the OpenCode HTTP runtime
-(`maverick.runtime.opencode`). One `opencode serve` subprocess runs per
-workflow run, spawned by the workflow's `Squadron`
-(`maverick.squadron.Squadron`) on a free port with HTTP Basic auth
-(username `opencode`, per-spawn random `OPENCODE_SERVER_PASSWORD`).
-Mailbox actors share that one server; each actor owns its own
-`OpenCodeClient` and session.
+Every LLM call goes through **airframe**, a provider-abstraction layer.
+`maverick.runtime.agent_factory.runtime_for_agent(role, ...)` maps a role
+name to a constructed `airframe.AgentRuntime` plus its resolved
+`(provider, model_id)` binding. There is no long-lived HTTP server and no
+per-workflow subprocess to manage.
 
-### Three-layer composition: Squadron + Agent + Actor
+Roles are fixed: `implement`, `review`, `briefing`, `decompose`,
+`generate` (`agent_factory.KNOWN_ROLES`). Each maps to an `agents.<role>`
+block in `maverick.yaml`. A role with no binding raises at squadron-open
+rather than silently picking a model the user never authorised — the
+same reason `runtime_for_agent` validates the binding against the
+adapter before returning.
 
-LLM-backed work flows through three layers:
+### Two-layer composition: Squadron + Agent
 
-1. **`Squadron`** (`src/maverick/squadron/`) — per-workflow lifecycle
-   container. Spawns the OpenCode server, validates every tier
-   binding it will use against `GET /provider` at startup (collapsing
-   the silent bad-modelID landmine to one place), and exposes the
-   typed agents the workflow's actors need. Per-workflow subclasses:
-   `FlySquadron`, `RefuelSquadron`, `PlanSquadron`.
-2. **`Agent`** + 3. **Actor** — see below.
+1. **`Squadron`** (`src/maverick/squadron/`) — per-run lifecycle
+   container. Builds one runtime per agent role, opens every agent, and
+   closes them all on exit. Per-workflow subclasses: `FlySquadron`,
+   `RefuelSquadron`, `PlanSquadron`, `ReconcileSquadron`.
+2. **`Agent`** (`src/maverick/agents/`) — owns its runtime scope,
+   structured-output validation, and cost telemetry. Subclass `Agent`,
+   declare `result_model` / `provider_tier` / `persona_name`, add domain
+   methods (`coder.implement(prompt)`).
 
 ```python
 async with FlySquadron(cwd=cwd, config=config, cost_sink=sink) as squadron:
-    async with actor_pool(
-        opencode_handle=squadron.handle,
-        provider_tiers=squadron.tier_overrides,
-        cost_sink=squadron.cost_sink,
-    ) as (pool, address):
-        # ...create supervisor, drain events...
-```
-
-The pool no longer owns the OpenCode lifecycle — it just registers
-the squadron's handle/tier-overrides/cost-sink against its address so
-the existing `opencode_handle_for(self.address)` lookups in agent
-construction keep working unchanged.
-
-### Two-layer agent model
-
-LLM-backed work flows through two layers:
-
-1. **`Agent`** (`src/maverick/agents/`) — owns the OpenCode session,
-   tier cascade, structured-output validation, cost telemetry. Subclass
-   `Agent`, declare `result_model` / `provider_tier` / `opencode_agent`,
-   add domain methods (`coder.implement(prompt, *, bead_id)`).
-   Independent of xoscar; can be used directly from scripts or tests.
-2. **Actor** (`src/maverick/actors/xoscar/`) — xoscar mailbox shell.
-   Holds an `Agent` instance built by a `_make_agent()` factory hook,
-   forwards supervisor calls to agent methods, classifies errors into
-   `PromptError` / `payload_parse_error` for the supervisor.
-
-```python
-# Layer 1: Agent
-class CodingAgent(Agent):
-    result_model: ClassVar = SubmitImplementationPayload
-    provider_tier: ClassVar[str] = "implement"
-    opencode_agent: ClassVar[str | None] = "maverick.implementer"
-
-    async def implement(self, prompt: str, *, bead_id: str) -> SubmitImplementationPayload:
+    app = build_fly_application(squadron=squadron, event_queue=queue, ...)
+    driver = BurrWorkflowDriver(app, halt_after=FLY_TERMINAL_ACTIONS, event_queue=queue)
+    async for evt in driver.events():
         ...
-
-# Layer 2: Actor (thin shell)
-class ImplementerActor(xo.Actor):
-    def _make_agent(self) -> CodingAgent:
-        # Override in tests to inject a stubbed agent.
-        return CodingAgent(handle=opencode_handle_for(self.address), ...)
-
-    async def __post_create__(self) -> None:
-        self._agent = self._make_agent()
-        await self._agent.open()
+    _, _, state = driver.result
 ```
 
-Agent methods provided by the base class:
+Agent base-class helpers: `_execute_via_runtime()` (structured),
+`_execute_text_via_runtime()` (plain text), `rotate_session()` (fresh
+context between beads), `open()` / `close()` + `async with`.
 
-- `_send_structured(prompt, *, schema=None, timeout=...)` — `format=json_schema`,
-  cascade, validation, typed payload.
-- `_send_text(prompt, *, timeout=...)` — plain-text response.
-- `rotate_session()` — drop the OpenCode session for a fresh context
-  (called between beads).
-- `open()` / `close()` lifecycle, plus `async with` support.
+### Per-complexity tiers
 
-What the agent layer **doesn't** do (what the legacy ACP+MCP path had
-and the new path doesn't need): MCP tool registration, `on_tool_call`,
-two-turn self-nudge loop, JSON-in-text fallback. The
-`StructuredOutput` tool forces the model to return a typed payload on
-the first turn — the recovery loops are dead code.
+`actors.<workflow>.<actor>.tiers.<complexity>` routes work to a
+different provider/model by the decomposer-assigned `complexity`.
+Three actors support it: fly's `implementer` and `reviewer`, refuel's
+`decomposer`.
 
-### Three operational landmines (and their mitigations)
+- `maverick.config.lookup_tiers_config()` parses the block into its
+  typed model. Malformed blocks degrade to `None` with a warning — one
+  typo must not take down workflow startup.
+- `maverick.squadron.tiers` holds everything shared: `TIER_ORDER`,
+  the `DEFAULT_TIER` sentinel (`"_default"` — the role's base binding,
+  deliberately *not* a member of `TIER_ORDER`), `binding_for_complexity()`,
+  `defined_tiers()`, `escalation_ladder()`, `merge_tier_config()`.
+- **Escalation ladders come from the squadron, never hardcoded.** A rung
+  may only name a tier the squadron built a *distinct* binding for, so a
+  squadron with no `tiers:` config yields a one-rung ladder and nothing
+  escalates. Escalating to an identical binding is a retry in disguise,
+  and it hides the fact that the binding never varied.
+- `escalation_threshold` means different things on different models
+  ("escalation steps" on `DecomposerTiersConfig`, "fix rounds before
+  promoting" on `ImplementerTiersConfig`), so `escalation_ladder()` takes
+  an explicit `max_steps` instead of reading it. The implementer reading
+  is currently unimplemented.
 
-The OpenCode HTTP API has three sharp edges. Every mitigation is wired
-into `maverick.runtime.opencode` already; if you find yourself writing
-HTTP calls outside that module, you'll re-introduce one of these.
+### Burr orchestration
 
-1. **Async dispatch + bad `modelID` = persistent server crash loop.**
-   `POST /session/:id/prompt_async` with an invalid model returns
-   HTTP 200 but persists the user message to the on-disk DB and crashes
-   the server in the background. Restart replays it and crashes again.
-   *Mitigation:* always validate the model via `validate_model_id()`
-   before sending, and prefer `send_with_event_watch()` (synchronous)
-   over `send_message_async()` for load-bearing work. Recovery runbook
-   for an existing crash loop: `python /tmp/opencode-spike/purge_queued.py`.
+Each workflow is a package with `actions.py` (`@action` functions) and
+`burr_graph.py` (`build_*_application()` + transitions + terminal
+actions). `maverick.burr.BurrWorkflowDriver` runs the app and yields
+`ProgressEvent`s while it goes.
 
-2. **Errors are silent on the synchronous HTTP response.** A bad
-   `modelID`, bad provider auth, or context overflow returns HTTP 200
-   with an empty body. Errors only surface on the `/event` SSE stream as
-   `session.error` events. *Mitigation:*
-   `OpenCodeClient.send_with_event_watch()` joins the send call to a
-   parallel event-drain and raises classified exceptions
-   (`OpenCodeAuthError`, `OpenCodeModelNotFoundError`,
-   `OpenCodeContextOverflowError`, etc.) instead of returning empty
-   bodies. Don't bypass it.
+- **The driver defers exceptions.** An action that raises does *not*
+  interrupt `driver.events()`; the exception is stored and re-raised
+  when you touch `driver.result`. Tests that assert on a raising action
+  must drain the events first, then access `.result`.
+- Actions declare `reads` / `writes` explicitly. Adding a state slot
+  means adding it to the producing action's `writes`, every consumer's
+  `reads`, *and* the graph's `.with_state(...)` seed.
+- Keep actions pure functions of state plus injected collaborators
+  (`squadron`, `events`, config values) bound via `.bind(...)` in the
+  graph. Disk and network reads belong in one place — see
+  `refuel_maverick`'s `init_state`, which is the only action that reads
+  the refuel cache.
 
-3. **Claude wraps StructuredOutput payloads inconsistently.** Roughly 30%
-   of haiku-4.5 responses come back as `{input: {...}}`,
-   `{parameter: {...}}`, `{content: '<json-string>'}`, etc. *Mitigation:*
-   `_unwrap_envelope()` in `client.py` strips the wrapper before
-   `model_validate`. Treat it as a permanent client-side normalization
-   layer — always go through `structured_of(message)` rather than
-   reading `info["structured"]` directly.
-
-### Provider tiers + cascade
-
-Each actor's `provider_tier` is a role name (`"review"`, `"implement"`,
-`"briefing"`, `"decompose"`, `"generate"`). The runtime resolves the tier
-to an ordered list of `(provider_id, model_id)` bindings via
-`maverick.runtime.opencode.tiers.resolve_tier()`. Defaults live in
-`DEFAULT_TIERS`; users override per-tier in `maverick.yaml` under
-`provider_tiers:`.
-
-When a binding fails for a recoverable reason (auth /
-model-not-found / sustained transient / structured-output failure) the
-mixin's `_send_with_model` falls over to the next binding via
-`cascade_send`. Failed bindings stick — future sends on the same actor
-skip them without retry. Each successful send populates
-`self._last_cost_record` and emits an `opencode_actor.cost` structured
-log row.
-
-Context-overflow is intentionally NOT cascadable; it needs a bigger
-context model, not a different one. Callers handle it explicitly.
-
-### Actor-mailbox + xoscar runtime
-
-All workflows run on an **xoscar** pool
-(`maverick.actors.xoscar.pool.actor_pool()`) bound to `127.0.0.1:0` — so
-concurrent workflows coexist. Pool uses `n_process=0`, all actors run as
-coroutines on a shared event loop. The pool also spawns one OpenCode
-server (`with_opencode=True` is the default) and registers its handle
-plus any user-config tier overrides on the pool address.
-
-- Supervisor created via
-  `await xo.create_actor(Supervisor, inputs, address=address, uid=…)` and
-  drained via `self._drain_xoscar_supervisor(supervisor)`. Children are
-  created in `__post_create__` and destroyed in `__pre_destroy__`.
-- Wrap long-running child calls in **`xo.wait_for`** (not
-  `asyncio.wait_for` — xoscar has a documented pitfall where
-  `asyncio.wait_for` around a remote call can lose the timeout if the pool
-  hangs).
-- Async generators across actor refs require `@xo.generator` on the source
-  and `async for event in await ref.run(...)` (note `await` before the
-  loop) on the consumer.
-- `await xo.destroy_actor(ref)` runs `__pre_destroy__`. `await pool.stop()`
-  alone does NOT — supervisors destroy children explicitly on completion.
-- The parent process must keep its asyncio loop running:
-  `subprocess.Popen.communicate()` blocks the loop and starves the
-  OpenCode subprocess. Use `asyncio.create_subprocess_exec` instead.
-
-Standard mailbox-actor lifecycle:
-
-| Phase                | What happens                                              |
-| -------------------- | --------------------------------------------------------- |
-| `__post_create__`    | Build the agent via `_make_agent()` factory, call `agent.open()` (no network yet). |
-| First send           | `agent._build_client()` opens a `OpenCodeClient` against the registered handle and creates a session. |
-| Subsequent sends     | Reuse the same session.                                   |
-| New bead             | Actor calls `agent.rotate_session()`; the next send opens a new session. |
-| `__pre_destroy__`    | Actor calls `agent.close()` — delete session, close client. |
-
-### Adding a new agent + actor
+### Adding a new agent
 
 1. Define a payload model in `maverick.payloads` and register it in
-   `SUPERVISOR_TOOL_PAYLOAD_MODELS` (the dict keys are kept stable for
-   the briefing agent's per-instance schema lookup).
+   `SUPERVISOR_TOOL_PAYLOAD_MODELS` (keys are stable — the briefing
+   agent does a per-instance schema lookup against them).
 2. Add an `Agent` subclass under `src/maverick/agents/<role>.py`:
-   - Declare `result_model`, `provider_tier`, `opencode_agent` class vars.
-   - Implement domain methods that call `_send_structured(prompt, ...)`
-     and return the typed payload.
-3. Add an actor shell under `src/maverick/actors/xoscar/<role>.py`:
-   - Subclass `xo.Actor`.
-   - Implement `_make_agent()` factory returning your agent instance,
-     wired with handle/cwd/step_config/tier_overrides/cost_sink from
-     the pool registries (`opencode_handle_for(self.address)` etc.).
-   - In `__post_create__`: `self._agent = self._make_agent(); await self._agent.open()`.
-   - In `__pre_destroy__`: `await self._agent.close()`.
-   - Implement supervisor-facing methods (`send_review`, `send_fix`,
-     etc.) — forward to agent methods, classify errors into
-     `PromptError`, route typed payloads to supervisor RPCs.
-4. Decorate methods reverse-called by the supervisor with `@xo.no_lock`
-   (so they don't deadlock against the actor lock held by the in-flight
-   `send_*`).
+   declare `result_model` / `provider_tier` / `persona_name`, and
+   implement domain methods that call `_execute_via_runtime(...)` and
+   return the typed payload.
+3. Build it in the workflow's `Squadron` subclass via
+   `runtime_for_agent(<role>, agents_config=self._config.agents)`,
+   and make sure `_all_agents()` yields it so `close()` tears it down.
+4. Call it from an `@action` in the workflow's `actions.py`, and wire
+   that action into `burr_graph.py`.
 
 ## CLI Output
 
@@ -542,7 +444,7 @@ Beads-only workflow model. All development is driven by beads (`bd` CLI).
 | `maverick spec <feature> --from-prd <file>`          | Headless Spec Kit chain from a PRD   |
 | `maverick refuel <plan-name>`                        | Decompose plan into beads            |
 | `maverick refuel <feature> --speckit [--dry-run\|--enrich]` | Deterministic Spec Kit ingestion |
-| `maverick fly --epic <id>`                           | Implement beads (actor-mailbox)      |
+| `maverick fly --epic <id>`                           | Implement beads (Burr drain loop)    |
 | `maverick land [--eject\|--finalize] [--status] [--json]` | Curate history and merge, or query the frontier |
 | `maverick reconcile [--dry-run] [--json]`            | Reapply changed human answers into jj history |
 | `maverick workspace status\|clean`                   | Manage hidden workspace              |
@@ -601,11 +503,10 @@ existing epic — no duplicate epics. See
 ### fly
 
 Iterates over ready beads. Drain loop is Burr-driven end to end
-(`workflows/fly_beads/burr_graph.py`; the earlier xoscar-actor
-`FlySupervisor` is retired) — each ready bead flows through the state
-machine: `Implementer → Gate → Reviewer → (fix loop if needed) →
-Commit`. Implementer + reviewer share persistent OpenCode sessions
-across fix rounds (rotated per bead via `_rotate_session()`). Options:
+(`workflows/fly_beads/burr_graph.py`) — each ready bead flows through
+the state machine: `Implementer → Gate → Reviewer → (fix loop if
+needed) → Commit`. Implementer + reviewer share a persistent runtime
+scope across fix rounds (rotated per bead via `rotate_session()`). Options:
 `--epic`, `--max-beads` (default 30), `--auto-commit`. Ctrl-C is a
 two-stage signal: first sets a graceful stop flag (finishes current
 bead, exits cleanly); second cancels the run.
@@ -813,10 +714,12 @@ for its full behavioral contract.
 
 - [uv](https://docs.astral.sh/uv/) for dependencies (`uv sync`).
 - [Make](https://www.gnu.org/software/make/) for development commands.
-- [opencode](https://opencode.ai) — agent runtime; pinned to v1.14.x.
-  `opencode auth login <provider>` populates
-  `~/.local/share/opencode/auth.json` so OpenCode can route to live
-  models. The runtime spawns one server per workflow run.
+- **airframe** — the agent-runtime abstraction every LLM call goes
+  through. Providers (Claude Code, Copilot, OpenCode, OpenRouter,
+  Bedrock, Kimi, …) are selected per role in `maverick.yaml` under
+  `agents:`; `maverick init` discovers which are authenticated locally.
+  Each provider carries its own auth step — e.g. `opencode auth login
+  <provider>` for the OpenCode-backed adapters.
 - [GitHub CLI](https://cli.github.com/) (`gh`) for PRs/issues outside the
   PyGithub-covered surface.
 - Optional: [CodeRabbit CLI](https://coderabbit.ai/), [ntfy](https://ntfy.sh).

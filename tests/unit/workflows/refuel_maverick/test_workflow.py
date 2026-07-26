@@ -85,7 +85,7 @@ class TestRefuelMaverickWorkflowHappyPath:
                 {"flight_plan_path": str(fp), "skip_briefing": True},
             )
 
-        # StepStarted events for outer steps (decompose/validate run inside Thespian)
+        # StepStarted events for outer steps (decompose/validate run inside the Burr graph)
         started_names = [e.step_name for e in events if isinstance(e, StepStarted)]
         for step in _OUTER_STEPS:
             assert step in started_names, f"Expected StepStarted for {step}"

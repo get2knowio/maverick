@@ -192,7 +192,7 @@ class GenerateFlightPlanWorkflow(PythonWorkflow):
         # Steps 2-5: briefing, generation, validation, and writing —
         # driven by the Burr application built around the PlanSquadron.
         # ------------------------------------------------------------------
-        result = await self._generate_with_burr(
+        result = await self._generate_plan(
             prd_content=prd_content,
             name=name,
             plan_dir=plan_dir,
@@ -207,7 +207,7 @@ class GenerateFlightPlanWorkflow(PythonWorkflow):
             briefing_generated=result.get("briefing_path") is not None,
         ).to_dict()
 
-    async def _generate_with_burr(
+    async def _generate_plan(
         self,
         *,
         prd_content: str,
@@ -216,12 +216,11 @@ class GenerateFlightPlanWorkflow(PythonWorkflow):
         skip_briefing: bool,
         cwd: str,
     ) -> dict[str, Any]:
-        """Generate the flight plan via the Burr-backed driver.
+        """Run briefing → generation → validation → write via Burr.
 
-        Opt-in path behind ``MAVERICK_USE_BURR=plan``. Same return-dict
-        contract as :meth:`_generate_with_xoscar`. The squadron, agents,
-        provider labels, and step configs are sourced exactly as in the
-        xoscar path; only the orchestration substrate differs.
+        Kept as its own method rather than inlined into :meth:`_run` only
+        to keep that method readable; there is no alternative driver to
+        select between.
         """
         import asyncio
 

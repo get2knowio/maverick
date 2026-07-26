@@ -1,7 +1,7 @@
 """Lazy Click group that defers command module imports.
 
 Top-level command modules (``fly``, ``refuel``, ``brief`` …) drag in
-workflows, the ACP SDK, the xoscar runtime, etc. — easily 400ms on
+workflows, Burr, the airframe runtime, etc. — easily 400ms on
 startup. The CLI entry point registers command *pointers* with
 :class:`LazyGroup`; the pointed-to module is imported only when that
 command is actually invoked, and ``maverick --help`` renders a stored

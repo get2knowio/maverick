@@ -11,10 +11,10 @@ Actions are organized by domain:
 - dry_run: Dry-run mode support
 
 The legacy ``review`` action surface (text-mode dual-reviewer + fix
-loop) was removed in the airframe migration; the live actor
-flow under :mod:`maverick.actors.xoscar.fly_supervisor` runs reviews
-via two parallel ReviewerActor instances and a structured-output
-fixer instead.
+loop) was removed in the airframe migration; the live flow in
+:mod:`maverick.workflows.fly_beads.actions` runs reviews via two
+parallel reviewer agents (correctness + completeness) and a
+structured-output fixer instead.
 """
 
 from __future__ import annotations

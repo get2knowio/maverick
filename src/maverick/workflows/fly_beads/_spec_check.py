@@ -2,7 +2,7 @@
 
 Ports the rule engine from the pre-migration ``SpecCheckActor`` into a
 substrate-independent helper that the Burr ``spec_check`` action can
-call directly. No xoscar, no actor shell — just :mod:`subprocess` calls
+call directly. No agent, no LLM — just :mod:`subprocess` calls
 to ``git diff`` and ``grep``.
 
 Rust is the only project type with rules today (matches the legacy

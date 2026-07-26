@@ -64,7 +64,7 @@ def _make_supervisor_result(
     plan_dir: Path,
     output: FlightPlanOutput | None = None,
 ) -> dict[str, Any]:
-    """Build a dict matching what _generate_with_burr returns.
+    """Build a dict matching what _generate_plan returns.
 
     Also writes the flight plan file to disk so tests that check file
     existence continue to work.
@@ -73,7 +73,7 @@ def _make_supervisor_result(
     today = __import__("datetime").date.today()
     plan = _convert_output_to_flight_plan(fp_output, today)
 
-    # Write the flight plan file (thespian actors do this in production)
+    # Write the flight plan file (the Burr graph does this in production)
     from maverick.flight.serializer import serialize_flight_plan
 
     plan_dir.mkdir(parents=True, exist_ok=True)
@@ -200,14 +200,14 @@ class TestGenerateFlightPlanWorkflowHappyPath:
         mock_config: MagicMock,
         tmp_path: Path,
     ) -> None:
-        """read_prd step produces a StepCompleted event (other steps run inside Thespian)."""
+        """read_prd produces a StepCompleted event (other steps run inside the Burr graph)."""
         plan_dir = tmp_path / "test-plan"
         supervisor_result = _make_supervisor_result(plan_dir)
 
         workflow = _make_workflow(mock_config)
         with patch.object(
             workflow,
-            "_generate_with_burr",
+            "_generate_plan",
             new=AsyncMock(return_value=supervisor_result),
         ):
             events = await _collect_events(
@@ -237,7 +237,7 @@ class TestGenerateFlightPlanWorkflowHappyPath:
         workflow = _make_workflow(mock_config)
         with patch.object(
             workflow,
-            "_generate_with_burr",
+            "_generate_plan",
             new=AsyncMock(return_value=supervisor_result),
         ):
             events = await _collect_events(
@@ -266,7 +266,7 @@ class TestGenerateFlightPlanWorkflowHappyPath:
         workflow = _make_workflow(mock_config)
         with patch.object(
             workflow,
-            "_generate_with_burr",
+            "_generate_plan",
             new=AsyncMock(return_value=supervisor_result),
         ):
             events = await _collect_events(
@@ -289,14 +289,14 @@ class TestGenerateFlightPlanWorkflowHappyPath:
         mock_config: MagicMock,
         tmp_path: Path,
     ) -> None:
-        """Thespian actor system writes the flight plan file to disk."""
+        """The Burr graph writes the flight plan file to disk."""
         plan_dir = tmp_path / "test-plan"
         supervisor_result = _make_supervisor_result(plan_dir)
 
         workflow = _make_workflow(mock_config)
         with patch.object(
             workflow,
-            "_generate_with_burr",
+            "_generate_plan",
             new=AsyncMock(return_value=supervisor_result),
         ):
             await _collect_events(
@@ -328,7 +328,7 @@ class TestGenerateFlightPlanWorkflowHappyPath:
         workflow = _make_workflow(mock_config)
         with patch.object(
             workflow,
-            "_generate_with_burr",
+            "_generate_plan",
             new=AsyncMock(return_value=supervisor_result),
         ):
             await _collect_events(
@@ -373,11 +373,11 @@ class TestGenerateFlightPlanWorkflowErrors:
         mock_config: MagicMock,
         tmp_path: Path,
     ) -> None:
-        """Agent returning no output causes Thespian to report failure."""
+        """Agent returning no output causes the Burr graph to report failure."""
         workflow = _make_workflow(mock_config)
         with patch.object(
             workflow,
-            "_generate_with_burr",
+            "_generate_plan",
             new=AsyncMock(
                 side_effect=WorkflowError("Plan generation failed: no output from agent")
             ),
