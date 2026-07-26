@@ -151,6 +151,34 @@ async def _run_one_briefing(
     return _ROLE_FOR[agent_name], dump_supervisor_payload(payload)
 
 
+async def _briefing_failed(
+    events: asyncio.Queue[ProgressEvent | None],
+    agent_name: str,
+    exc: BaseException,
+) -> None:
+    """Report a briefing agent failure without aborting the workflow.
+
+    Briefings are evidence-gathering, and every downstream consumer
+    already treats each brief as optional —
+    :func:`~maverick.preflight_briefing.serializer.serialize_briefs_to_markdown`
+    takes all four as ``| None``. So one agent failing should cost its
+    brief, not the run.
+
+    It used to cost the run: a contrarian that could not produce valid
+    structured output ("max structured output retries") aborted refuel
+    outright, discarding three briefs that had already succeeded (#135
+    subtask 5). That is the exact case Core Principle 3 — "one agent
+    failing must not crash the workflow" — exists to prevent.
+    """
+    await _put_output(
+        events,
+        "briefing",
+        f"Briefing agent {agent_name!r} failed; continuing without its brief: {exc}",
+        level="warning",
+        metadata={"agent": agent_name, "error": str(exc)},
+    )
+
+
 async def _put_output(
     events: asyncio.Queue[ProgressEvent | None],
     step_name: str,
@@ -220,6 +248,30 @@ async def _write_cache_json(
                 level="warning",
                 metadata={"path": str(path), "label": label},
             )
+
+
+async def _write_briefings_cache(
+    briefs: dict[str, Any],
+    *,
+    cache_dir: str,
+    events: asyncio.Queue[ProgressEvent | None] | None,
+) -> None:
+    """Persist whatever briefs exist so far.
+
+    Called after *each* briefing phase rather than once at the end. The
+    cache's whole purpose is to make a failed run cheap to retry, and a
+    single write at the end of the briefing sequence cannot do that — a
+    contrarian failure discarded three completed briefs (#135 subtask 5).
+    """
+    if not cache_dir or not briefs:
+        return
+    await _write_cache_json(
+        Path(cache_dir) / "briefings.json",
+        briefs,
+        kind=CACHE_KIND_BRIEFINGS,
+        events=events,
+        label="briefings",
+    )
 
 
 def _read_cache_json(path: Path, *, kind: str) -> Any | None:
@@ -378,6 +430,7 @@ async def parallel_briefings(
     squadron: RefuelSquadron,
     events: asyncio.Queue[ProgressEvent | None],
     max_concurrent: int,
+    cache_dir: str = "",
 ) -> tuple[dict[str, Any], State]:
     """Run navigator + structuralist + recon in parallel.
 
@@ -398,20 +451,33 @@ async def parallel_briefings(
         return {"briefs_collected": list(existing), "from_cache": True}, state
     sem = asyncio.Semaphore(max(1, max_concurrent))
 
-    async def _bounded(name: str) -> tuple[str, dict[str, Any]]:
+    async def _bounded(name: str) -> tuple[str, dict[str, Any]] | None:
         async with sem:
-            return await _run_one_briefing(
-                agent_name=name,
-                prompt=state["briefing_prompt"],
-                squadron=squadron,
-                events=events,
-                provider_label=provider_labels.get(_LABEL_FOR[name], ""),
-            )
+            try:
+                return await _run_one_briefing(
+                    agent_name=name,
+                    prompt=state["briefing_prompt"],
+                    squadron=squadron,
+                    events=events,
+                    provider_label=provider_labels.get(_LABEL_FOR[name], ""),
+                )
+            except Exception as exc:  # noqa: BLE001 — see _briefing_failed
+                await _briefing_failed(events, name, exc)
+                return None
 
     results = await asyncio.gather(*(_bounded(n) for n in pending))
     briefs = existing
-    for role_key, payload_dict in results:
+    for result in results:
+        if result is None:
+            continue
+        role_key, payload_dict = result
         briefs[role_key] = payload_dict
+
+    # Persist as soon as the parallel phase lands, not after the
+    # contrarian: the contrarian is a separate agent that can fail on its
+    # own, and when it did, three successful briefs (290s of work) were
+    # thrown away because the only cache write sat downstream of it.
+    await _write_briefings_cache(briefs, cache_dir=cache_dir, events=events)
     return {"briefs_collected": list(briefs)}, state.update(briefs=briefs)
 
 
@@ -424,6 +490,7 @@ async def contrarian_briefing(
     *,
     squadron: RefuelSquadron,
     events: asyncio.Queue[ProgressEvent | None],
+    cache_dir: str = "",
 ) -> tuple[dict[str, Any], State]:
     """Run the contrarian after the parallel briefings are in.
 
@@ -440,15 +507,21 @@ async def contrarian_briefing(
         structuralist=briefs.get("structuralist"),
         recon=briefs.get("recon"),
     )
-    role_key, payload_dict = await _run_one_briefing(
-        agent_name="contrarian",
-        prompt=prompt,
-        squadron=squadron,
-        events=events,
-        provider_label=state["provider_labels"].get("Contrarian", ""),
-    )
+    try:
+        role_key, payload_dict = await _run_one_briefing(
+            agent_name="contrarian",
+            prompt=prompt,
+            squadron=squadron,
+            events=events,
+            provider_label=state["provider_labels"].get("Contrarian", ""),
+        )
+    except Exception as exc:  # noqa: BLE001 — see _briefing_failed
+        await _briefing_failed(events, "contrarian", exc)
+        return {"contrarian_done": False, "failed": True}, state
+
     new_briefs = dict(briefs)
     new_briefs[role_key] = payload_dict
+    await _write_briefings_cache(new_briefs, cache_dir=cache_dir, events=events)
     return {"contrarian_done": True}, state.update(briefs=new_briefs)
 
 

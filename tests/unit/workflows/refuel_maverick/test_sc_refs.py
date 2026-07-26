@@ -273,3 +273,56 @@ class TestArtifactsColocateWithThePlan:
         # The frontmatter name must not reappear as a directory key.
         assert '"plans" / flight_plan.name' not in src
         assert '"plans" / plan_name' not in src
+
+
+class TestBriefingFailuresAreSurvivable:
+    """A failed briefing agent costs its brief, not the run (#135 subtask 5).
+
+    A live refuel died outright when the contrarian could not produce
+    valid structured output after 5 attempts. Navigator, Structuralist
+    and Recon had all already succeeded — 290 seconds of agent work —
+    and every bit of it was discarded, because the only briefings cache
+    write sat downstream of the contrarian.
+
+    Two separate defects, both fixed here: the failure was fatal, and the
+    cache could not help with the one failure mode it most needed to.
+    """
+
+    def test_all_briefs_are_optional_downstream(self) -> None:
+        """The premise the graceful path relies on."""
+        import inspect
+
+        from maverick.preflight_briefing.serializer import serialize_briefs_to_markdown
+
+        sig = inspect.signature(serialize_briefs_to_markdown)
+        for name in ("scope", "analysis", "criteria", "challenge"):
+            assert sig.parameters[name].default is None, (
+                f"{name} must be optional for a missing brief to be survivable"
+            )
+
+    def test_briefing_actions_do_not_let_one_agent_kill_the_run(self) -> None:
+        import inspect
+
+        from maverick.workflows.refuel_maverick import actions as acts
+
+        for fn in (acts.parallel_briefings, acts.contrarian_briefing):
+            src = inspect.getsource(getattr(fn, "_action", fn) if hasattr(fn, "_action") else fn)
+            assert "_briefing_failed" in src, (
+                f"{fn} must degrade on agent failure, not propagate it"
+            )
+
+    def test_cache_is_written_before_the_contrarian_runs(self) -> None:
+        """The ordering that made the cache useless for this failure."""
+        import inspect
+
+        from maverick.workflows.refuel_maverick import actions as acts
+
+        src = inspect.getsource(acts)
+        parallel_at = src.index("async def parallel_briefings")
+        contrarian_at = src.index("async def contrarian_briefing")
+        first_write = src.index("_write_briefings_cache(", parallel_at)
+
+        assert parallel_at < first_write < contrarian_at, (
+            "the parallel phase must persist its briefs before the "
+            "contrarian gets a chance to fail"
+        )
