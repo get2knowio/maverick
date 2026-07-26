@@ -112,6 +112,45 @@ def _outline_cache_key(
     return h.hexdigest()[:16]
 
 
+def success_criteria_refs(flight_plan: Any) -> tuple[tuple[str, ...], int]:
+    """Split a flight plan's success criteria into ``(ref_ids, count)``.
+
+    Only *real* ref identifiers are returned. The markdown flight-plan
+    format stores each criterion as prose —
+    :class:`~maverick.flight.models.SuccessCriterion` has ``text`` and
+    ``checked``, no id — so ``ref_ids`` is normally empty and
+    :func:`~maverick.library.actions.decompose.validate_decomposition`
+    falls back to sequential ``SC-001..SC-NNN``, which is exactly what the
+    decomposer emits as ``trace_ref``.
+
+    That falsiness is load-bearing. This used to read ``sc.id`` /
+    ``sc.description``, neither of which exists on that model, producing
+    one empty string per criterion — and a tuple of empty strings is
+    truthy, so it suppressed the fallback and left the validator
+    comparing ``""`` against every ``trace_ref``. Nothing ever matched,
+    so every refuel reported all criteria uncovered, spent its whole fix
+    budget on a gap no edit could close, and let the fixer invent
+    redundant work units chasing criteria it could not name (a live run
+    turned 7 work units into 18, with duplicates).
+
+    Args:
+        flight_plan: Any object exposing ``success_criteria``; a missing
+            attribute is treated as "no criteria" rather than an error,
+            since older plan objects predate the field.
+
+    Returns:
+        ``(ref_ids, count)``. ``count`` covers every criterion, including
+        those contributing no ref — it is what sizes the fallback.
+    """
+    criteria = tuple(getattr(flight_plan, "success_criteria", ()) or ())
+    refs = tuple(
+        ref
+        for sc in criteria
+        if (ref := str(getattr(sc, "id", None) or getattr(sc, "ref", None) or "").strip())
+    )
+    return refs, len(criteria)
+
+
 class RefuelMaverickWorkflow(PythonWorkflow):
     """Workflow that decomposes a Maverick Flight Plan into work units and beads.
 
@@ -861,13 +900,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
             open_bead_context=open_bead_result,
         )
 
-        # Extract success-criteria refs from the FlightPlan so the
-        # validator can check coverage.
-        sc_refs: tuple[str, ...] = tuple(
-            (getattr(sc, "id", None) or getattr(sc, "description", "") or "")
-            for sc in (getattr(flight_plan, "success_criteria", ()) or ())
-        )
-        sc_count = len(sc_refs)
+        sc_refs, sc_count = success_criteria_refs(flight_plan)
         plan_name = str(getattr(flight_plan, "name", "") or "")
         plan_objective = str(getattr(flight_plan, "objective", "") or "")
 
