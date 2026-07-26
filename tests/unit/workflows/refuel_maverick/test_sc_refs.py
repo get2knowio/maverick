@@ -14,6 +14,12 @@ which burned the entire fix budget on an unfixable gap and let the fixer
 invent redundant work units chasing criteria it could not name.
 
 A live run turned 7 work units into 18, with confirmed duplicates.
+
+Fixing the extraction alone was *not* enough, and made this workload
+worse before it made it better: with a precise-but-impossible target
+(``SC-015: total source lines stay under 500``) the fixer tried harder
+and produced 33 units instead of 18. See
+:class:`TestUntracedCriteriaAreAdvisory` for the second half of the fix.
 """
 
 from __future__ import annotations
@@ -140,3 +146,130 @@ class TestValidatorFallbackContract:
 
         assert expected == ["", "", ""]
         assert "SC-001" not in expected
+
+
+class TestUntracedCriteriaAreAdvisory:
+    """Untraced criteria must not drive the fix loop (#135 subtask 5).
+
+    A criterion goes untraced for two incompatible reasons and the check
+    cannot distinguish them: the decomposition genuinely missed a
+    feature, or the criterion is a cross-cutting constraint no single
+    work unit can carry ("total LOC <= 500", "ruff check passes",
+    "the package installs"). Failing on the second kind is unrecoverable
+    — and expensive. Two live runs each spent their whole 3-round fix
+    budget on it, and the fixer, told to make a work unit cover a
+    codebase-wide LOC budget, invented units trying: 7 became 18 on one
+    run and 33 on the other.
+    """
+
+    def test_traceability_error_is_distinguishable_from_overload(self) -> None:
+        """Both used to be one exception type, so callers could not tell
+        the uncloseable case from the one the fixer can act on."""
+        from maverick.library.actions.decompose import (
+            SCCoverageError,
+            SCTraceabilityError,
+        )
+
+        assert issubclass(SCTraceabilityError, SCCoverageError)
+        # Overload still raises the base class, so `except
+        # SCTraceabilityError` cannot swallow it.
+        assert not issubclass(SCCoverageError, SCTraceabilityError)
+
+    def test_untraced_criteria_raise_traceability_error(self) -> None:
+        from maverick.library.actions.decompose import (
+            SCTraceabilityError,
+            validate_decomposition,
+        )
+        from maverick.workflows.refuel_maverick.models import WorkUnitSpec
+
+        spec = WorkUnitSpec.model_validate(
+            {
+                "id": "u-1",
+                "task": "do a thing",
+                "sequence": 1,
+                "depends_on": [],
+                "file_scope": {},
+                "complexity": "simple",
+                "instructions": "go",
+                "acceptance_criteria": [{"text": "ac", "trace_ref": "SC-001"}],
+                "verification": ["pytest"],
+                "test_specification": "",
+            }
+        )
+
+        try:
+            validate_decomposition([spec], success_criteria_count=2)
+        except SCTraceabilityError as exc:
+            # SC-002 is uncovered; SC-001 is fine.
+            assert any("SC-002" in g for g in exc.gaps)
+        else:  # pragma: no cover - the gap must be detected
+            raise AssertionError("expected SCTraceabilityError")
+
+    def test_overload_still_raises_the_hard_error(self) -> None:
+        """The fixer *can* split an overloaded unit, so it must keep
+        failing validation."""
+        from maverick.library.actions.decompose import (
+            SCCoverageError,
+            SCTraceabilityError,
+            validate_decomposition,
+        )
+        from maverick.workflows.refuel_maverick.models import WorkUnitSpec
+
+        spec = WorkUnitSpec.model_validate(
+            {
+                "id": "u-1",
+                "task": "do everything",
+                "sequence": 1,
+                "depends_on": [],
+                "file_scope": {},
+                "complexity": "complex",
+                "instructions": "go",
+                "acceptance_criteria": [
+                    {"text": f"ac-{i}", "trace_ref": f"SC-{i:03d}"} for i in range(1, 14)
+                ],
+                "verification": ["pytest"],
+                "test_specification": "",
+            }
+        )
+
+        try:
+            validate_decomposition([spec], success_criteria_count=13)
+        except SCCoverageError as exc:
+            assert not isinstance(exc, SCTraceabilityError), (
+                "overload must stay hard-failing, or the fixer never splits the unit"
+            )
+            assert "Split into smaller units" in str(exc)
+        else:  # pragma: no cover
+            raise AssertionError("expected SCCoverageError for the overloaded unit")
+
+
+class TestArtifactsColocateWithThePlan:
+    """Refuel writes next to the flight plan, not to ``<frontmatter name>``.
+
+    ``plan generate <name>`` writes ``plans/<name>/flight-plan.md``, but
+    the generator chooses the frontmatter ``name:`` freely — a plan
+    generated as ``greet-cli`` came back named ``greet-cli-mvp``. Refuel
+    used to key its work-unit and cache directories off that frontmatter
+    name, so a live run left the flight plan in ``plans/greet-cli/`` and
+    everything refuel produced in ``plans/greet-cli-mvp/`` (#135
+    subtask 5).
+    """
+
+    def test_work_units_and_cache_derive_from_the_plan_path(self) -> None:
+        """Pin the derivation as source, since exercising the real
+        workflow needs a squadron and a live Burr app."""
+        import inspect
+
+        from maverick.workflows.refuel_maverick import workflow as wf
+
+        src = inspect.getsource(wf.RefuelMaverickWorkflow)
+
+        assert "work_units_dir = flight_plan_path.parent" in src, (
+            "work units must colocate with the flight plan"
+        )
+        assert 'cache_dir = str(plan_dir / "refuel-cache")' in src, (
+            "the refuel cache must colocate with the flight plan"
+        )
+        # The frontmatter name must not reappear as a directory key.
+        assert '"plans" / flight_plan.name' not in src
+        assert '"plans" / plan_name' not in src

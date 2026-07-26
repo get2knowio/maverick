@@ -1124,23 +1124,32 @@ class TestRefuelBurrQuotaHandling:
 
 class TestRefuelBurrGraphValidationLoop:
     async def test_fix_loop_runs_when_validation_fails_then_passes(self, tmp_path: Path) -> None:
-        """First validate produces gaps → request_fix → validate (passes)."""
-        # Outline has one unit with no AC, first detail leaves AC empty,
-        # fix delivers a corrected detail.
+        """First validate produces gaps → request_fix → validate (passes).
+
+        Driven by an *overloaded* work unit rather than untraced success
+        criteria. Untraced criteria are advisory now — they are routinely
+        cross-cutting constraints no work unit can carry — so they no
+        longer reach the fix loop. Overload still does, and it is the one
+        the fixer can actually act on: split the unit.
+        """
         outline = _make_outline(unit_ids=("u-1",))
-        # First detail call: AC without trace_ref → coverage gap.
+        # First detail call: one unit claiming 13 SC refs — over the
+        # hard limit of 12, so validation fails.
         empty_details = SubmitDetailsPayload(
             details=(
                 WorkUnitDetailPayload(
                     id="u-1",
                     instructions="todo",
-                    acceptance_criteria=(AcceptanceCriterionPayload(text="todo ac"),),
+                    acceptance_criteria=tuple(
+                        AcceptanceCriterionPayload(text=f"ac-{i}", trace_ref=f"SC-{i:03d}")
+                        for i in range(1, 14)
+                    ),
                     verification=("pytest -k todo",),
                     test_specification="",
                 ),
             )
         )
-        # Fix delivers AC with the expected trace_ref so coverage closes.
+        # Fix delivers a slimmed-down unit that is back under the limit.
         fix_payload = SubmitFixPayload(
             work_units=(),
             details=(
@@ -1148,7 +1157,7 @@ class TestRefuelBurrGraphValidationLoop:
                     id="u-1",
                     instructions="done",
                     acceptance_criteria=(
-                        AcceptanceCriterionPayload(text="ac-1", trace_ref="SC-1"),
+                        AcceptanceCriterionPayload(text="ac-1", trace_ref="SC-001"),
                     ),
                     verification=("pytest",),
                     test_specification="",
@@ -1185,10 +1194,10 @@ class TestRefuelBurrGraphValidationLoop:
                 plan_objective="o",
                 cwd=str(tmp_path),
                 skip_briefing=True,
-                # Pass non-zero sc_count so the validator notices the
-                # missing acceptance criteria in the first detail pass.
+                # sc_count drives the overload check's ref accounting;
+                # the trigger is the 13-ref unit, not coverage.
                 success_criteria_count=1,
-                expected_sc_refs=("SC-1",),
+                expected_sc_refs=("SC-001",),
             )
             driver = BurrWorkflowDriver(app, halt_after=REFUEL_TERMINAL_ACTIONS, event_queue=queue)
             events = await _collect(driver)
@@ -1211,12 +1220,18 @@ class TestRefuelBurrGraphValidationLoop:
         should contain both units so downstream actions see the split.
         """
         outline = _make_outline(unit_ids=("u-1",))
+        # Overloaded unit (13 SC refs > the hard limit of 12) — the one
+        # coverage failure the fixer can genuinely act on, and the
+        # scenario this test is named for.
         empty_details = SubmitDetailsPayload(
             details=(
                 WorkUnitDetailPayload(
                     id="u-1",
                     instructions="todo",
-                    acceptance_criteria=(AcceptanceCriterionPayload(text="todo ac"),),
+                    acceptance_criteria=tuple(
+                        AcceptanceCriterionPayload(text=f"ac-{i}", trace_ref=f"SC-{i:03d}")
+                        for i in range(1, 14)
+                    ),
                     verification=("pytest -k todo",),
                     test_specification="",
                 ),
@@ -1242,11 +1257,22 @@ class TestRefuelBurrGraphValidationLoop:
         fix_payload = SubmitFixPayload(
             work_units=(new_unit_a, new_unit_b),
             details=(
+                # The split also slims the original unit; without this
+                # u-1 would still carry 13 refs and fail again.
+                WorkUnitDetailPayload(
+                    id="u-1",
+                    instructions="slimmed",
+                    acceptance_criteria=(
+                        AcceptanceCriterionPayload(text="ac-1", trace_ref="SC-001"),
+                    ),
+                    verification=("pytest",),
+                    test_specification="",
+                ),
                 WorkUnitDetailPayload(
                     id="u-1-a",
                     instructions="done a",
                     acceptance_criteria=(
-                        AcceptanceCriterionPayload(text="ac-a", trace_ref="SC-1"),
+                        AcceptanceCriterionPayload(text="ac-a", trace_ref="SC-001"),
                     ),
                     verification=("pytest",),
                     test_specification="",
@@ -1255,7 +1281,7 @@ class TestRefuelBurrGraphValidationLoop:
                     id="u-1-b",
                     instructions="done b",
                     acceptance_criteria=(
-                        AcceptanceCriterionPayload(text="ac-b", trace_ref="SC-1"),
+                        AcceptanceCriterionPayload(text="ac-b", trace_ref="SC-001"),
                     ),
                     verification=("pytest",),
                     test_specification="",
@@ -1293,7 +1319,7 @@ class TestRefuelBurrGraphValidationLoop:
                 cwd=str(tmp_path),
                 skip_briefing=True,
                 success_criteria_count=1,
-                expected_sc_refs=("SC-1",),
+                expected_sc_refs=("SC-001",),
             )
             driver = BurrWorkflowDriver(app, halt_after=REFUEL_TERMINAL_ACTIONS, event_queue=queue)
             await _collect(driver)

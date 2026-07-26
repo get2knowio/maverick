@@ -973,10 +973,17 @@ def validate_decomposition(
             if ref not in covered_refs:
                 gap = f"{ref} not explicitly covered by any work unit"
                 gaps.append(gap)
-                logger.warning("sc_not_covered", ref=ref)
+                # debug, not warning: the gap is already carried on the
+                # raised exception, so warning level only duplicated it —
+                # while putting a raw structlog row on stderr per
+                # uncovered ref, which lands in the user's terminal
+                # interleaved with the Rich output the CLI rules say is
+                # the only thing they should see. A live run emitted 16
+                # of them in one validation pass (#135 subtask 5).
+                logger.debug("sc_not_covered", ref=ref)
 
     if gaps:
-        raise SCCoverageError(
+        raise SCTraceabilityError(
             f"Incomplete SC coverage: {len(gaps)} success criteria not traced — {'; '.join(gaps)}",
             gaps=gaps,
         )
@@ -1058,7 +1065,7 @@ def validate_decomposition(
 
 
 class SCCoverageError(ValueError):
-    """Raised when success criteria are not fully covered by work units.
+    """Raised when success-criteria coverage is structurally wrong.
 
     Attributes:
         gaps: List of uncovered SC references.
@@ -1067,3 +1074,32 @@ class SCCoverageError(ValueError):
     def __init__(self, message: str, gaps: list[str]) -> None:
         super().__init__(message)
         self.gaps = gaps
+
+
+class SCTraceabilityError(SCCoverageError):
+    """Some success criteria are not traced by any work unit.
+
+    Split out from :class:`SCCoverageError` because it is **advisory**,
+    unlike its sibling case (an overloaded work unit), which the fixer
+    can act on by splitting the unit.
+
+    A criterion is untraced for one of two very different reasons, and
+    the check cannot tell them apart:
+
+    * The decomposition genuinely missed a feature — worth fixing.
+    * The criterion is a **cross-cutting constraint** and no single work
+      unit can ever carry it: "total source lines stay under 500",
+      "``ruff check`` passes", "the package installs and ``--help``
+      works". These are quality gates over the finished codebase, not
+      units of work.
+
+    Treating the second kind as a hard failure is unrecoverable, and
+    expensive: the fix loop cannot close the gap no matter how many
+    rounds it spends, and the fixer — asked to make a work unit cover
+    "total LOC ≤ 500" — invents work units trying. A live run of the
+    sample project turned 7 work units into 33 across three rounds,
+    every one of them wasted (#135 subtask 5).
+
+    So callers should record these gaps and show them to the human, but
+    must not fail validation or drive the fix loop on them alone.
+    """

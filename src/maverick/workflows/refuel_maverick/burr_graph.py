@@ -163,6 +163,7 @@ def build_refuel_application(
             fix_rounds=0,
             validation_passed=False,
             validation_warnings=[],
+            untraced_criteria=[],
             validation_complete=False,
             epic_id="",
             epic=None,

@@ -512,6 +512,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
             skip_briefing=skip_briefing,
             ctx=ctx,
             ws_cwd=ws_cwd,
+            plan_dir=flight_plan_path.parent,
         )
         briefing_path_str: str | None = None
         suggested_deps: tuple[str, ...] = ()
@@ -526,8 +527,15 @@ class RefuelMaverickWorkflow(PythonWorkflow):
         if decomposition is None:
             raise WorkflowError("Decomposition loop exited without producing a result")
 
-        # Determine output directory (colocated with flight plan in workspace)
-        work_units_dir = ws_cwd / ".maverick" / "plans" / flight_plan.name
+        # Colocate work units with the flight plan they came from.
+        #
+        # Derived from the plan's own path, not ``flight_plan.name``: the
+        # generator writes the plan to ``plans/<cli-name>/`` but is free
+        # to put a different ``name:`` in the frontmatter (it picked
+        # "greet-cli-mvp" for a plan generated as "greet-cli"), which
+        # scattered the outputs into a second directory that had no
+        # flight plan in it (#135 subtask 5).
+        work_units_dir = flight_plan_path.parent
 
         # Convert specs to WorkUnit models
         work_units = convert_specs_to_work_units(
@@ -873,6 +881,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
         skip_briefing: bool = False,
         ctx: dict[str, Any] | None = None,
         ws_cwd: Path,
+        plan_dir: Path,
     ) -> Any:
         """Run briefing + decomposition via Burr.
 
@@ -919,11 +928,12 @@ class RefuelMaverickWorkflow(PythonWorkflow):
             # later resume can read the raw artifacts. The actions
             # treat ``cache_dir`` as advisory — empty disables writes
             # and any OSError is swallowed with a warning.
-            cache_dir = (
-                str(ws_cwd / ".maverick" / "plans" / plan_name / "refuel-cache")
-                if plan_name
-                else ""
-            )
+            # Keyed off the plan's own directory, not ``flight_plan.name``
+            # — see the note on ``work_units_dir``. Caches written by an
+            # older build under ``plans/<frontmatter-name>/`` are simply
+            # not found, which is the correct outcome: they belong to a
+            # directory with no flight plan in it.
+            cache_dir = str(plan_dir / "refuel-cache")
             app = build_refuel_application(
                 squadron=squadron,
                 event_queue=event_queue,

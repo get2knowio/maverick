@@ -293,6 +293,7 @@ def _load_cached_details(cache_dir: Path) -> dict[str, dict[str, Any]]:
         "fix_rounds",
         "validation_passed",
         "validation_warnings",
+        "untraced_criteria",
         "epic_id",
         "epic",
         "work_beads",
@@ -359,6 +360,7 @@ async def init_state(
         fix_rounds=0,
         validation_passed=False,
         validation_warnings=[],
+        untraced_criteria=[],
         epic_id="",
         epic=None,
         work_beads=[],
@@ -891,7 +893,7 @@ def _merge_to_specs(
 
 @action(
     reads=["outline", "accumulated_details"],
-    writes=["specs", "validation_passed", "validation_warnings"],
+    writes=["specs", "validation_passed", "validation_warnings", "untraced_criteria"],
 )
 async def validate(
     state: State,
@@ -908,13 +910,22 @@ async def validate(
     if outline_dict is None:
         raise RuntimeError("validate ran without an outline")
 
+    from maverick.library.actions.decompose import SCTraceabilityError
+
     specs = _merge_to_specs(outline_dict, state["accumulated_details"])
-    # ``validate_decomposition`` returns a list of gap strings on
-    # success (empty == passed) and *raises* ``ValueError`` /
-    # ``SCCoverageError`` on schema-level issues (cycles, dangling
-    # depends_on, uncovered SCs). Mirror the legacy supervisor's
-    # behaviour and surface either path as ``validation_warnings``.
+    # ``validate_decomposition`` returns a list of soft warnings on
+    # success (empty == passed) and *raises* on schema-level issues.
+    # Two classes of raise, deliberately handled differently:
+    #
+    # * ``SCTraceabilityError`` — untraced success criteria. Advisory:
+    #   cross-cutting constraints ("total LOC <= 500", "lint passes")
+    #   can never be traced to one work unit, so failing on them sends
+    #   the fix loop after a gap it cannot close. Recorded and shown,
+    #   but does not fail validation.
+    # * Everything else (cycles, dangling depends_on, overloaded units)
+    #   — genuinely fixable, so it still fails and drives the fix loop.
     gaps: list[str] = []
+    advisory: list[str] = []
     try:
         spec_models = [WorkUnitSpec.model_validate(s) for s in specs]
         result = validate_decomposition(
@@ -923,9 +934,26 @@ async def validate(
             expected_sc_refs=list(expected_sc_refs) if expected_sc_refs else None,
         )
         gaps = list(result)
+    except SCTraceabilityError as exc:
+        advisory = list(exc.gaps)
     except ValueError as exc:
         gaps = [str(exc)]
     passed = not gaps
+
+    if advisory:
+        # Name the criteria. The count alone told an operator nothing —
+        # and cost two live debugging sessions to work around (#135).
+        await _put_output(
+            events,
+            "decompose",
+            (
+                f"{len(advisory)} success criterion/criteria not traced to a work unit "
+                f"(not blocking — cross-cutting constraints usually can't be): "
+                + "; ".join(advisory)
+            ),
+            level="warning",
+            metadata={"untraced_count": len(advisory), "untraced": advisory},
+        )
 
     if passed:
         await _put_output(events, "decompose", "Validation passed", level="success")
@@ -933,15 +961,20 @@ async def validate(
         await _put_output(
             events,
             "decompose",
-            f"Validation found {len(gaps)} gap(s)",
+            f"Validation found {len(gaps)} gap(s): " + "; ".join(gaps),
             level="warning",
-            metadata={"gap_count": len(gaps)},
+            metadata={"gap_count": len(gaps), "gaps": gaps},
         )
 
     return {"passed": passed, "gap_count": len(gaps)}, state.update(
         specs=specs,
         validation_passed=passed,
+        # Kept separate from ``untraced_criteria`` on purpose:
+        # ``request_fix`` builds the fixer's prompt from this slot, and
+        # advisory gaps must never reach it — that is precisely how the
+        # fixer ends up chasing an uncloseable criterion.
         validation_warnings=list(gaps),
+        untraced_criteria=list(advisory),
     )
 
 
