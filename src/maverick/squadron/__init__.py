@@ -4,13 +4,17 @@ A Squadron is the substrate-aware container for a single workflow run.
 It builds one :class:`airframe.AgentRuntime` per agent role via
 :func:`maverick.runtime.agent_factory.runtime_for_agent` (driven by
 :class:`MaverickConfig.agents`), and exposes the typed agents the
-workflow's actors need.
+workflow's Burr graph needs.
 
-Workflows compose Squadron with the xoscar :func:`actor_pool`::
+A workflow opens its squadron for the length of the run and hands it to
+the graph builder::
 
     async with FlySquadron(cwd=cwd, config=config, cost_sink=sink) as squadron:
-        async with actor_pool(cost_sink=squadron.cost_sink) as (pool, address):
-            ...
+        app = build_fly_application(squadron=squadron, event_queue=queue, ...)
+        ...
+
+Per-complexity provider/model routing is shared across squadrons in
+:mod:`maverick.squadron.tiers`.
 """
 
 from __future__ import annotations

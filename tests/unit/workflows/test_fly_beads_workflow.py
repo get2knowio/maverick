@@ -27,7 +27,6 @@ from maverick.library.actions.types import (
 _WF_MOD = "maverick.workflows.fly_beads.workflow"
 _STEPS_MOD = "maverick.workflows.fly_beads.steps"
 _IMPL_MOD = "maverick.workflows.fly_beads._implement"
-_REVIEW_MOD = "maverick.workflows.fly_beads._review"
 _RUNWAY_MOD = "maverick.workflows.fly_beads._runway"
 _COMMIT_MOD = "maverick.workflows.fly_beads._commit"
 
@@ -118,7 +117,7 @@ def _make_mock_actions(
             "error": None,
         },
         "mark_complete_return": mark_complete,
-        "xoscar_return": {
+        "bead_loop_return": {
             "beads_completed": 1,
             "completed_bead_ids": ["b1"],
             "beads_failed": 0,
@@ -184,9 +183,9 @@ _PATCH_SPECS: list[tuple[str, str, str | None, str]] = [
         _RV,
     ),
     (
-        "xoscar",
-        f"{_WF_MOD}.FlyBeadsWorkflow._run_fly_with_burr",
-        "xoscar_return",
+        "bead_loop",
+        f"{_WF_MOD}._run_bead_loop",
+        "bead_loop_return",
         _RV,
     ),
 ]
@@ -335,9 +334,9 @@ class TestFlyBeadsWorkflow:
     async def test_bead_failure_reported_in_result(
         self, fly_workflow: Any, tmp_path: Path
     ) -> None:
-        """When Thespian reports bead failures, they appear in the result."""
+        """When the bead loop reports failures, they appear in the result."""
         mv = _make_mock_actions()
-        mv["xoscar_return"] = {
+        mv["bead_loop_return"] = {
             "beads_completed": 0,
             "completed_bead_ids": [],
             "beads_failed": 1,
@@ -348,7 +347,7 @@ class TestFlyBeadsWorkflow:
                 fly_workflow, {"epic_id": "", "max_beads": 5, "cwd": str(tmp_path)}
             )
 
-        mocks["xoscar"].assert_called_once()
+        mocks["bead_loop"].assert_called_once()
 
         completed = next(e for e in events if isinstance(e, WorkflowCompleted))
         assert completed.success is True
@@ -375,22 +374,22 @@ class TestFlyBeadsWorkflow:
         completed = next(e for e in events if isinstance(e, WorkflowCompleted))
         assert completed.success is False
 
-    async def test_xoscar_path_invoked(self, fly_workflow: Any, tmp_path: Path) -> None:
-        """Thespian path is invoked for execution."""
+    async def test_bead_loop_invoked(self, fly_workflow: Any, tmp_path: Path) -> None:
+        """The Burr bead loop is invoked for execution."""
         with _patch_all_actions() as mocks:
             await _collect_events(
                 fly_workflow, {"epic_id": "", "max_beads": 5, "cwd": str(tmp_path)}
             )
 
-        mocks["xoscar"].assert_called_once()
+        mocks["bead_loop"].assert_called_once()
         mocks["select"].assert_not_called()
 
-    async def test_human_review_items_come_from_xoscar_events(
+    async def test_human_review_items_come_from_bead_loop_events(
         self, fly_workflow: Any, tmp_path: Path
     ) -> None:
-        """Needs-human-review beads are derived from Thespian bead events."""
+        """Needs-human-review beads are derived from the loop's bead events."""
         mv = _make_mock_actions()
-        mv["xoscar_return"] = {
+        mv["bead_loop_return"] = {
             "beads_completed": 1,
             "completed_bead_ids": ["b1"],
             "beads_failed": 0,
@@ -422,7 +421,7 @@ class TestFlyBeadsWorkflow:
         ]
 
     async def test_max_beads_limit(self, fly_workflow: Any, tmp_path: Path) -> None:
-        """Thespian result beads_completed used for final count."""
+        """The bead loop's beads_completed is used for the final count."""
         select_side_effect = [
             _make_select_result(bead_id=f"b{i}", title=f"Bead {i}", done=False) for i in range(10)
         ]
@@ -430,7 +429,7 @@ class TestFlyBeadsWorkflow:
             select_side_effect=select_side_effect,
         )
 
-        mv["xoscar_return"] = {
+        mv["bead_loop_return"] = {
             "beads_completed": 3,
             "completed_bead_ids": ["b1", "b2", "b3"],
             "beads_failed": 0,
@@ -446,9 +445,9 @@ class TestFlyBeadsWorkflow:
         assert final["beads_succeeded"] == 3
 
     async def test_multiple_beads_processed(self, fly_workflow: Any, tmp_path: Path) -> None:
-        """Multiple beads reported by Thespian appear in result."""
+        """Multiple beads reported by the bead loop appear in the result."""
         mv = _make_mock_actions()
-        mv["xoscar_return"] = {
+        mv["bead_loop_return"] = {
             "beads_completed": 2,
             "completed_bead_ids": ["b1", "b2"],
             "beads_failed": 0,
@@ -463,15 +462,15 @@ class TestFlyBeadsWorkflow:
         assert fly_workflow.result.final_output["beads_succeeded"] == 2
 
     async def test_epic_id_passed_to_supervisor(self, fly_workflow: Any, tmp_path: Path) -> None:
-        """Epic ID is passed to the Thespian path for processing."""
+        """Epic ID is passed to the bead loop for processing."""
         with _patch_all_actions() as mocks:
             async for _ in fly_workflow.execute(
                 {"epic_id": "epic-99", "max_beads": 5, "cwd": str(tmp_path)}
             ):
                 pass
 
-        mocks["xoscar"].assert_called_once()
-        call_kwargs = mocks["xoscar"].call_args[1]
+        mocks["bead_loop"].assert_called_once()
+        call_kwargs = mocks["bead_loop"].call_args[1]
         assert call_kwargs["epic_id"] == "epic-99"
 
     async def test_epic_not_closed_when_children_still_open(

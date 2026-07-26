@@ -29,6 +29,7 @@ from maverick.events import (
     StepOutput,
 )
 from maverick.payloads import dump_supervisor_payload
+from maverick.squadron.tiers import DEFAULT_TIER as _DEFAULT_TIER
 
 if TYPE_CHECKING:
     from maverick.config import MaverickConfig
@@ -68,7 +69,9 @@ MAX_SPEC_FIX_ATTEMPTS: int = 2
 # many beads have completed in the current run.
 AGGREGATE_REVIEW_THRESHOLD: int = 2
 
-DEFAULT_TIER: str = "_default"
+#: Re-exported from the shared tier module so this module's tier keys
+#: can't drift from the names the squadron builds bindings for.
+DEFAULT_TIER: str = _DEFAULT_TIER
 
 _SOURCE = "fly-burr"
 
@@ -829,17 +832,30 @@ async def review(
     )
 
 
-_TIER_LADDER: tuple[str, ...] = (DEFAULT_TIER, "trivial", "simple", "moderate", "complex")
-_REVIEWER_TIER_LADDER: tuple[str, ...] = _TIER_LADDER
+def _ladder(squadron: FlySquadron, which: str) -> tuple[str, ...]:
+    """The escalation ladder ``squadron`` actually has distinct agents for.
+
+    Sourced from the squadron rather than hardcoded so a rung can never
+    name a tier whose binding the squadron wouldn't vary. A squadron with
+    no ``tiers:`` config yields ``(DEFAULT_TIER,)`` — escalating to an
+    identical binding is a retry in disguise (#135).
+
+    Falls back to the base-binding-only ladder for stub squadrons in
+    tests that don't model tiering.
+    """
+    getter = getattr(squadron, f"{which}_escalation_ladder", None)
+    if getter is None:
+        return (DEFAULT_TIER,)
+    return getter() or (DEFAULT_TIER,)
 
 
-def _tier_for_level(level: int) -> str:
-    """Resolve a tier name on :data:`_TIER_LADDER` for an escalation level."""
+def _tier_at(ladder: tuple[str, ...], level: int) -> str:
+    """Clamp ``level`` onto ``ladder`` and return that rung's tier name."""
     if level <= 0:
-        return _TIER_LADDER[0]
-    if level >= len(_TIER_LADDER):
-        return _TIER_LADDER[-1]
-    return _TIER_LADDER[level]
+        return ladder[0]
+    if level >= len(ladder):
+        return ladder[-1]
+    return ladder[level]
 
 
 async def _call_implementer_with_escalation(
@@ -864,10 +880,11 @@ async def _call_implementer_with_escalation(
 
     step_name = op
     level = max(0, initial_level)
-    max_level = len(_TIER_LADDER) - 1
+    ladder = _ladder(squadron, "implementer")
+    max_level = len(ladder) - 1
     last_transient = ""
     while True:
-        tier_name = _tier_for_level(level)
+        tier_name = _tier_at(ladder, level)
         coder = squadron.coder_for(tier_name)
         await events.put(AgentStarted(step_name=step_name, agent_name=label, provider=""))
         t0 = time.monotonic()
@@ -899,7 +916,7 @@ async def _call_implementer_with_escalation(
                 )
                 return None, level, last_transient
             next_level = level + 1
-            next_tier = _tier_for_level(next_level)
+            next_tier = _tier_at(ladder, next_level)
             await _put_output(
                 events,
                 step_name,
@@ -943,20 +960,6 @@ async def _call_implementer_with_escalation(
         return payload, level, ""
 
 
-def _reviewer_tier_for_level(level: int) -> str:
-    """Resolve the reviewer tier name for an escalation level.
-
-    Level ``0`` is the squadron default. Each transient failure bumps
-    one rung up :data:`_REVIEWER_TIER_LADDER`; once the top is reached
-    there are no further tiers to try.
-    """
-    if level <= 0:
-        return _REVIEWER_TIER_LADDER[0]
-    if level >= len(_REVIEWER_TIER_LADDER):
-        return _REVIEWER_TIER_LADDER[-1]
-    return _REVIEWER_TIER_LADDER[level]
-
-
 async def _review_round_with_escalation(
     *,
     squadron: FlySquadron,
@@ -982,9 +985,10 @@ async def _review_round_with_escalation(
 
     level = max(0, initial_level)
     last_transient_error = ""
-    max_level = len(_REVIEWER_TIER_LADDER) - 1
+    ladder = _ladder(squadron, "reviewer")
+    max_level = len(ladder) - 1
     while True:
-        tier_name = _reviewer_tier_for_level(level)
+        tier_name = _tier_at(ladder, level)
         correctness = squadron.correctness_reviewer_for(tier_name)
         completeness = squadron.completeness_reviewer_for(tier_name)
 
@@ -1043,7 +1047,7 @@ async def _review_round_with_escalation(
                     )
                     return None, level, last_transient_error
                 next_level = level + 1
-                next_tier = _reviewer_tier_for_level(next_level)
+                next_tier = _tier_at(ladder, next_level)
                 await _put_output(
                     events,
                     "review",
@@ -1574,7 +1578,7 @@ async def aggregate_review(
         )
 
     # Build "<id>: <title>" lines from the per-bead event ledger so the
-    # prompt mirrors the xoscar shape (titles are not on the
+    # prompt intentionally omits titles (they are not on the
     # completed_bead_ids list itself).
     bead_events: list[dict[str, Any]] = list(state.get("bead_events") or ())
     title_by_id: dict[str, str] = {e["bead_id"]: e.get("title", "") for e in bead_events}

@@ -2,16 +2,13 @@
 
 When ``actors.fly.implementer.tiers`` / ``actors.fly.reviewer.tiers`` is
 configured, one agent per defined tier is built at startup. Each per-tier
-agent owns its own persistent runtime scope and provider/model
-binding. Bead routing (complexity → tier) and escalation policy
-(complex-bead-failed → retry on next-higher tier) stay in the supervisor;
-this layer just builds and hands out agents.
+agent owns its own persistent runtime scope and provider/model binding.
+Bead routing (complexity → tier) and escalation policy
+(complex-bead-failed → retry on next-higher tier) stay in the Burr fly
+graph; this layer just builds and hands out agents.
 
-The actor-pool wires each per-tier ``ImplementerActor`` / ``ReviewerActor``
-shell to a pre-built agent via the ``agent=`` constructor kwarg so the
-existing xoscar boundary stays in place (Path A). Tests and any
-no-tiers caller fall back to a single agent under the ``_DEFAULT_TIER``
-key — same shape as the supervisor's legacy single-actor path.
+Tests and any no-tiers caller fall back to a single agent under the
+:data:`~maverick.squadron.tiers.DEFAULT_TIER` key.
 """
 
 from __future__ import annotations
@@ -27,45 +24,20 @@ from maverick.agents.reviewer import ReviewerAgent
 from maverick.config import AgentBindingConfig
 from maverick.runtime.agent_factory import runtime_for_agent
 from maverick.squadron.base import Squadron
+from maverick.squadron.tiers import (
+    DEFAULT_TIER,
+    TIER_ORDER,
+    binding_for_complexity,
+    escalation_ladder,
+    merge_tier_config,
+)
+
+#: Back-compat alias — this module owned the helper before it was shared.
+_merge_tier_config = merge_tier_config
 
 if TYPE_CHECKING:
     from maverick.config import MaverickConfig
     from maverick.runtime.registry import CostSink
-
-#: Ordered tier names (low → high intelligence). Matches WorkUnitComplexity
-#: and the Burr fly graph's per-tier dispatch in
-#: ``maverick.workflows.fly_beads.actions``.
-TIER_ORDER: tuple[str, ...] = ("trivial", "simple", "moderate", "complex")
-
-#: Sentinel name for the single-agent fallback when no tiers are configured.
-DEFAULT_TIER: str = "_default"
-
-
-def _merge_tier_config(base: Any, override: Any) -> Any:
-    """Merge a per-tier override over a base ``StepConfig``.
-
-    Each field set on the override replaces the base. Fields left as
-    ``None`` on the override fall through to base. Returns a new
-    ``StepConfig`` (``StepConfig`` is frozen, so this is a ``model_copy``).
-    """
-    if base is None:
-        from maverick.executor.config import StepConfig
-
-        return StepConfig(
-            provider=override.provider,
-            model_id=override.model_id,
-            timeout=override.timeout,
-            max_tokens=override.max_tokens,
-            temperature=override.temperature,
-        )
-    updates: dict[str, Any] = {}
-    for field_name in ("provider", "model_id", "timeout", "max_tokens", "temperature"):
-        value = getattr(override, field_name, None)
-        if value is not None:
-            updates[field_name] = value
-    if not updates:
-        return base
-    return base.model_copy(update=updates)
 
 
 class FlySquadron(Squadron):
@@ -96,21 +68,8 @@ class FlySquadron(Squadron):
         self.completeness_reviewers = {}
 
     def _binding_for_complexity(self, tier_name: str, override: Any) -> AgentBindingConfig | None:
-        """Convert a per-complexity ``ImplementerTierConfig`` to a factory override.
-
-        The complexity-tier config is a Maverick-only shape with extra
-        fields (timeout / max_tokens / temperature) the airframe factory
-        doesn't consume; only ``provider`` + ``model_id`` flow through.
-        Returns ``None`` for the ``DEFAULT_TIER`` sentinel (no
-        complexity override) or when neither field is set.
-        """
-        if tier_name == DEFAULT_TIER or override is None:
-            return None
-        provider = getattr(override, "provider", None)
-        model_id = getattr(override, "model_id", None)
-        if not provider or not model_id:
-            return None
-        return AgentBindingConfig(provider=provider, model_id=model_id)
+        """Thin instance-level alias for :func:`binding_for_complexity`."""
+        return binding_for_complexity(tier_name, override)
 
     def _build_coder(self, tier_name: str, step_config: Any, override: Any = None) -> CodingAgent:
         suffix = "" if tier_name == DEFAULT_TIER else f".{tier_name}"
@@ -194,6 +153,20 @@ class FlySquadron(Squadron):
                 self._build_reviewer_pair(DEFAULT_TIER, reviewer_base)
 
         await asyncio.gather(*(a.open() for a in self._all_agents()))
+
+    def implementer_escalation_ladder(self) -> tuple[str, ...]:
+        """Tier names a transient-failing implementer escalates along.
+
+        Uncapped: ``ImplementerTiersConfig.escalation_threshold`` counts
+        *fix rounds before promoting*, not escalation steps, so it is not
+        a cap on this ladder. (It is currently consumed nowhere — see
+        #135.)
+        """
+        return escalation_ladder(self._implementer_tiers)
+
+    def reviewer_escalation_ladder(self) -> tuple[str, ...]:
+        """Tier names a transient-failing reviewer escalates along."""
+        return escalation_ladder(self._reviewer_tiers)
 
     def coder_for(self, tier_name: str) -> CodingAgent:
         """Look up the coder for ``tier_name``.

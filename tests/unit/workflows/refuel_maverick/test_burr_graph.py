@@ -33,6 +33,8 @@ from maverick.payloads import (
     WorkUnitDetailPayload,
     WorkUnitOutlinePayload,
 )
+from maverick.squadron.tiers import DEFAULT_TIER
+from maverick.workflows.refuel_maverick.actions import CACHE_SCHEMA_VERSION
 from maverick.workflows.refuel_maverick.burr_graph import (
     REFUEL_TERMINAL_ACTIONS,
     build_refuel_application,
@@ -140,7 +142,11 @@ class StubRefuelSquadron:
         detail_payloads: list[SubmitDetailsPayload] | None = None,
         fix_payloads: list[SubmitFixPayload] | None = None,
         briefing_payloads: dict[str, Any] | None = None,
+        escalation_ladder: tuple[str, ...] | None = None,
     ) -> None:
+        # ``None`` mirrors an unconfigured squadron: the base binding is
+        # the only rung, so there is nothing to escalate to.
+        self._escalation_ladder = escalation_ladder or (DEFAULT_TIER,)
         outline = outline_payload or _make_outline()
         # Each per-unit detail call returns details for *one* unit;
         # the fan-out makes one decomposer call per unit by default.
@@ -156,6 +162,9 @@ class StubRefuelSquadron:
         self.decomposer_pool = _StubDecomposerPool(self._decomposer)
         self._briefing_payloads = dict(briefing_payloads or _BRIEF_PAYLOADS)
         self.built_briefings: list[StubBriefingAgent] = []
+
+    def decomposer_escalation_ladder(self) -> tuple[str, ...]:
+        return self._escalation_ladder
 
     def build_briefing_agent(self, *, agent_name: str, result_model: Any) -> StubBriefingAgent:
         payload = self._briefing_payloads.get(agent_name)
@@ -199,6 +208,20 @@ def _make_bead_result() -> BeadCreationResult:
         },
         errors=(),
     )
+
+
+def _raise_budget(message: str) -> None:
+    """Raise airframe's budget error with its required metadata."""
+    from airframe.errors import RuntimeBudgetExceededError
+
+    raise RuntimeBudgetExceededError(message, cap=10.0, current=10.5, kind="usd")
+
+
+def _dump(payload: Any) -> dict[str, Any]:
+    """Serialize a payload the way the cache writer does."""
+    from maverick.payloads import dump_supervisor_payload
+
+    return dump_supervisor_payload(payload)
 
 
 def _make_wire_result() -> DependencyWiringResult:
@@ -371,13 +394,21 @@ class TestRefuelBurrGraphHappyPath:
 
 
 class TestRefuelBurrDetailEscalation:
-    async def test_transient_on_default_tier_escalates_and_succeeds(self, tmp_path: Path) -> None:
-        """Detail call raises transient → next tier acquired → unit succeeds."""
+    async def test_transient_retries_on_same_tier_when_no_tiers_configured(
+        self, tmp_path: Path
+    ) -> None:
+        """Transient → same-binding retry inside the budget → unit succeeds.
+
+        With no ``tiers:`` config there is no second binding to escalate
+        to, so resilience against a transient blip has to come from the
+        same-tier retry budget rather than from walking a ladder of
+        aliases for one model (#135).
+        """
         from airframe.errors import RuntimeTransientError
 
         outline = _make_outline(unit_ids=("u-1",))
-        # The first ``detail()`` call raises transient; the retry on
-        # the escalated tier succeeds. ``outline()`` must still work.
+        # The first ``detail()`` call raises transient; the retry
+        # succeeds. ``outline()`` must still work.
         squadron = StubRefuelSquadron(
             outline_payload=outline,
             detail_payloads=[_make_details(("u-1",))],
@@ -424,13 +455,80 @@ class TestRefuelBurrDetailEscalation:
         # Detail eventually landed and the unit was not abandoned.
         assert state["abandoned_unit_ids"] == []
         assert any(d.get("id") == "u-1" for d in state["accumulated_details"])
-        # The pool was acquired for the outline + the failed default
-        # tier + the escalated trivial tier. Release count matches.
+        # One acquire for the outline + one for the detail unit. The
+        # retry happens *within* that acquire, so no second checkout.
         acquired = squadron.decomposer_pool.acquire_calls
-        assert acquired == ["default", "default", "trivial"]
+        assert acquired == [DEFAULT_TIER, DEFAULT_TIER]
         assert squadron.decomposer_pool.release_calls == acquired
-        # The escalation actually re-ran ``detail``.
+        # The retry actually re-ran ``detail``.
         assert detail_calls["n"] == 2
+
+    async def test_transient_escalates_through_configured_tiers(self, tmp_path: Path) -> None:
+        """A configured ladder is walked in order, one acquire per rung.
+
+        This is the behaviour that was missing: before per-tier bindings
+        existed, every rung resolved to the same model, so "escalation"
+        bought nothing.
+        """
+        from airframe.errors import RuntimeTransientError
+
+        outline = _make_outline(unit_ids=("u-1",))
+        squadron = StubRefuelSquadron(
+            outline_payload=outline,
+            detail_payloads=[_make_details(("u-1",))],
+            escalation_ladder=(DEFAULT_TIER, "moderate", "complex"),
+        )
+        original_detail = squadron._decomposer.detail
+        detail_calls = {"n": 0}
+
+        # Fail every attempt on the first two rungs (the retry budget
+        # gives 2 attempts per rung), then succeed on "complex".
+        async def _fail_until_complex(**kwargs: Any) -> SubmitDetailsPayload:
+            detail_calls["n"] += 1
+            if detail_calls["n"] <= 4:
+                raise RuntimeTransientError("rate limited")
+            return await original_detail(**kwargs)
+
+        squadron._decomposer.detail = _fail_until_complex  # type: ignore[assignment]
+
+        queue: asyncio.Queue[ProgressEvent | None] = asyncio.Queue()
+        with (
+            patch(
+                "maverick.library.actions.beads.create_beads",
+                new=AsyncMock(return_value=_make_bead_result()),
+            ),
+            patch(
+                "maverick.library.actions.beads.wire_dependencies",
+                new=AsyncMock(return_value=_make_wire_result()),
+            ),
+        ):
+            app = build_refuel_application(
+                squadron=squadron,
+                event_queue=queue,
+                raw_content="x",
+                briefing_prompt="x",
+                codebase_context=_empty_codebase_context(),
+                open_bead_context=None,
+                runway_context_text=None,
+                plan_name="p",
+                plan_objective="o",
+                cwd=str(tmp_path),
+                skip_briefing=True,
+            )
+            driver = BurrWorkflowDriver(app, halt_after=REFUEL_TERMINAL_ACTIONS, event_queue=queue)
+            await _collect(driver)
+
+        _, _, state = driver.result
+        assert state["abandoned_unit_ids"] == []
+        assert any(d.get("id") == "u-1" for d in state["accumulated_details"])
+        # Outline on the base tier, then one acquire per ladder rung —
+        # and critically, the *configured* rungs, not a fixed list.
+        assert squadron.decomposer_pool.acquire_calls == [
+            DEFAULT_TIER,
+            DEFAULT_TIER,
+            "moderate",
+            "complex",
+        ]
 
     async def test_transient_exhausts_ladder_abandons_unit(self, tmp_path: Path) -> None:
         """Every tier raises transient → unit is abandoned, no detail recorded."""
@@ -453,7 +551,10 @@ class TestRefuelBurrDetailEscalation:
                 raise AssertionError("fix should not be called when all details fail")
 
         always_raising = _AlwaysRaisingDecomposer()
-        squadron = StubRefuelSquadron(outline_payload=outline)
+        squadron = StubRefuelSquadron(
+            outline_payload=outline,
+            escalation_ladder=(DEFAULT_TIER, "moderate", "complex"),
+        )
         # Outline still uses the stub agent; only swap the agent the
         # pool hands out *after* the outline action has run. Easiest:
         # leave outline alone and route subsequent acquires to the
@@ -464,7 +565,7 @@ class TestRefuelBurrDetailEscalation:
             await original_acquire(tier)  # records the call
             if (
                 always_raising.detail_calls == 0
-                and tier == "default"
+                and tier == DEFAULT_TIER
                 and (outline_acquired["n"] == 0)
             ):
                 outline_acquired["n"] = 1
@@ -502,18 +603,17 @@ class TestRefuelBurrDetailEscalation:
             await _collect(driver)
 
         _, _, state = driver.result
-        # All 5 rungs of the ladder tried (transients escalate
-        # immediately, so each tier sees exactly one call).
-        assert always_raising.detail_calls == 5
+        # 3 rungs x 2 attempts each (the same-tier retry budget) — the
+        # ladder is exhausted only after every rung has spent its budget.
+        assert always_raising.detail_calls == 6
         assert "u-1" in state["abandoned_unit_ids"]
         assert all(d.get("id") != "u-1" for d in state["accumulated_details"])
-        # Outline acquired once on "default" + each of the 5 detail
-        # tiers acquired once = 6 total.
-        assert len(squadron.decomposer_pool.acquire_calls) == 6
-        assert len(squadron.decomposer_pool.release_calls) == 6
-        # The detail-side calls cycled through the full tier ladder.
+        # Outline acquired once + one acquire per rung = 4 total.
+        assert len(squadron.decomposer_pool.acquire_calls) == 4
+        assert len(squadron.decomposer_pool.release_calls) == 4
+        # The detail-side calls walked the configured ladder in order.
         detail_tiers = squadron.decomposer_pool.acquire_calls[1:]
-        assert detail_tiers == ["default", "trivial", "simple", "moderate", "complex"]
+        assert detail_tiers == [DEFAULT_TIER, "moderate", "complex"]
 
 
 class TestRefuelBurrCacheWriteBack:
@@ -561,12 +661,18 @@ class TestRefuelBurrCacheWriteBack:
         assert u2_path.exists()
 
         outline_doc = _json.loads(outline_path.read_text())
-        assert "payload" in outline_doc
-        unit_ids = {u["id"] for u in outline_doc["payload"].get("work_units") or ()}
+        # Versioned envelope — a drifted or mis-filed cache must be
+        # rejectable on read without parsing the payload.
+        assert outline_doc["schema_version"] == CACHE_SCHEMA_VERSION
+        assert outline_doc["kind"] == "outline"
+        outline_doc = outline_doc["payload"]
+        unit_ids = {u["id"] for u in outline_doc.get("work_units") or ()}
         assert unit_ids == {"u-1", "u-2"}
 
         u1_doc = _json.loads(u1_path.read_text())
-        assert u1_doc.get("id") == "u-1"
+        assert u1_doc["schema_version"] == CACHE_SCHEMA_VERSION
+        assert u1_doc["kind"] == "detail"
+        assert u1_doc["payload"].get("id") == "u-1"
 
     async def test_briefings_written_to_cache_dir(self, tmp_path: Path) -> None:
         """``briefings.json`` lands alongside the outline/details files."""
@@ -615,7 +721,10 @@ class TestRefuelBurrCacheWriteBack:
         briefings_path = cache_dir / "briefings.json"
         assert briefings_path.exists()
         doc = _json.loads(briefings_path.read_text())
-        assert set(doc.get("payloads", {}).keys()) == {
+        assert doc["schema_version"] == CACHE_SCHEMA_VERSION
+        assert doc["kind"] == "briefings"
+        doc = doc["payload"]
+        assert set(doc.keys()) == {
             "navigator",
             "structuralist",
             "recon",
@@ -655,6 +764,362 @@ class TestRefuelBurrCacheWriteBack:
             await _collect(driver)
 
         assert not cache_dir.exists()
+
+
+class TestRefuelBurrCacheReadBack:
+    """A populated ``refuel-cache/`` short-circuits regeneration (#135).
+
+    The write side landed first and nothing consumed it, so every re-run
+    paid full agent cost for evidence already sitting on disk.
+    """
+
+    @staticmethod
+    def _write(path: Path, kind: str, payload: Any, *, version: int | None = None) -> None:
+        import json as _json
+
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            _json.dumps(
+                {
+                    "schema_version": CACHE_SCHEMA_VERSION if version is None else version,
+                    "kind": kind,
+                    "payload": payload,
+                }
+            )
+        )
+
+    async def _run(
+        self, squadron: StubRefuelSquadron, tmp_path: Path, cache_dir: Path, **kwargs: Any
+    ) -> Any:
+        queue: asyncio.Queue[ProgressEvent | None] = asyncio.Queue()
+        with (
+            patch(
+                "maverick.library.actions.beads.create_beads",
+                new=AsyncMock(return_value=_make_bead_result()),
+            ),
+            patch(
+                "maverick.library.actions.beads.wire_dependencies",
+                new=AsyncMock(return_value=_make_wire_result()),
+            ),
+        ):
+            app = build_refuel_application(
+                squadron=squadron,
+                event_queue=queue,
+                raw_content="x",
+                briefing_prompt="x",
+                codebase_context=_empty_codebase_context(),
+                open_bead_context=None,
+                runway_context_text=None,
+                plan_name="p",
+                plan_objective="o",
+                cwd=str(tmp_path),
+                cache_dir=str(cache_dir),
+                **kwargs,
+            )
+            driver = BurrWorkflowDriver(app, halt_after=REFUEL_TERMINAL_ACTIONS, event_queue=queue)
+            await _collect(driver)
+        return driver.result[2]
+
+    async def test_cached_outline_and_details_skip_the_decomposer(self, tmp_path: Path) -> None:
+        outline = _make_outline(unit_ids=("u-1", "u-2"))
+        cache_dir = tmp_path / "refuel-cache"
+        self._write(
+            cache_dir / "outline.json",
+            "outline",
+            _dump(outline),
+        )
+        for uid in ("u-1", "u-2"):
+            self._write(
+                cache_dir / "details" / f"{uid}.json",
+                "detail",
+                {"id": uid, "instructions": f"cached {uid}", "acceptance_criteria": []},
+            )
+
+        squadron = StubRefuelSquadron(outline_payload=outline)
+        state = await self._run(squadron, tmp_path, cache_dir, skip_briefing=True)
+
+        # Zero decomposer checkouts: neither the outline nor any detail
+        # needed an agent.
+        assert squadron.decomposer_pool.acquire_calls == []
+        assert state["abandoned_unit_ids"] == []
+        assert {d["id"] for d in state["accumulated_details"]} == {"u-1", "u-2"}
+        assert any("cached u-1" in d.get("instructions", "") for d in state["accumulated_details"])
+
+    async def test_partial_detail_cache_regenerates_only_the_gap(self, tmp_path: Path) -> None:
+        """A run that abandoned half its units re-requests only those."""
+        outline = _make_outline(unit_ids=("u-1", "u-2"))
+        cache_dir = tmp_path / "refuel-cache"
+        self._write(cache_dir / "outline.json", "outline", _dump(outline))
+        self._write(
+            cache_dir / "details" / "u-1.json",
+            "detail",
+            {"id": "u-1", "instructions": "cached u-1", "acceptance_criteria": []},
+        )
+
+        squadron = StubRefuelSquadron(
+            outline_payload=outline,
+            detail_payloads=[_make_details(("u-2",))],
+        )
+        state = await self._run(squadron, tmp_path, cache_dir, skip_briefing=True)
+
+        # Exactly one detail checkout — for the uncached unit.
+        assert squadron.decomposer_pool.acquire_calls == [DEFAULT_TIER]
+        assert {d["id"] for d in state["accumulated_details"]} == {"u-1", "u-2"}
+
+    async def test_cached_briefs_skip_all_four_briefing_agents(self, tmp_path: Path) -> None:
+        cache_dir = tmp_path / "refuel-cache"
+        self._write(
+            cache_dir / "briefings.json",
+            "briefings",
+            {role: {"summary": f"cached {role}"} for role in _BRIEF_PAYLOADS},
+        )
+
+        squadron = StubRefuelSquadron()
+        state = await self._run(squadron, tmp_path, cache_dir, skip_briefing=False)
+
+        # No briefing agent was ever built, let alone called.
+        assert squadron.built_briefings == []
+        assert set(state["briefs"]) == set(_BRIEF_PAYLOADS)
+        # The markdown is still rendered — it's a pure function of briefs.
+        assert state["briefing_markdown"]
+
+    async def test_stale_schema_version_fails_closed(self, tmp_path: Path) -> None:
+        """A cache from a different schema is discarded, not adapted.
+
+        Regenerating costs budget; reusing a drifted outline silently
+        produces beads that don't match the plan.
+        """
+        outline = _make_outline(unit_ids=("u-1",))
+        cache_dir = tmp_path / "refuel-cache"
+        self._write(
+            cache_dir / "outline.json",
+            "outline",
+            _dump(outline),
+            version=CACHE_SCHEMA_VERSION + 1,
+        )
+
+        squadron = StubRefuelSquadron(outline_payload=outline)
+        await self._run(squadron, tmp_path, cache_dir, skip_briefing=True)
+
+        # Two checkouts — one to regenerate the outline, one for the
+        # single unit's detail. A cache hit would have made it one.
+        assert squadron.decomposer_pool.acquire_calls == [DEFAULT_TIER, DEFAULT_TIER]
+
+    async def test_wrong_kind_fails_closed(self, tmp_path: Path) -> None:
+        """A detail file sitting in the outline slot must not be parsed
+        as an outline."""
+        outline = _make_outline(unit_ids=("u-1",))
+        cache_dir = tmp_path / "refuel-cache"
+        self._write(cache_dir / "outline.json", "detail", _dump(outline))
+
+        squadron = StubRefuelSquadron(outline_payload=outline)
+        await self._run(squadron, tmp_path, cache_dir, skip_briefing=True)
+
+        # Outline regenerated (2 checkouts, not 1) — see the
+        # stale-schema case for the same reasoning.
+        assert squadron.decomposer_pool.acquire_calls == [DEFAULT_TIER, DEFAULT_TIER]
+
+    async def test_corrupt_json_fails_closed(self, tmp_path: Path) -> None:
+        outline = _make_outline(unit_ids=("u-1",))
+        cache_dir = tmp_path / "refuel-cache"
+        (cache_dir).mkdir(parents=True, exist_ok=True)
+        (cache_dir / "outline.json").write_text("{not json")
+
+        squadron = StubRefuelSquadron(outline_payload=outline)
+        await self._run(squadron, tmp_path, cache_dir, skip_briefing=True)
+
+        # Outline regenerated (2 checkouts, not 1) — see the
+        # stale-schema case for the same reasoning.
+        assert squadron.decomposer_pool.acquire_calls == [DEFAULT_TIER, DEFAULT_TIER]
+
+    async def test_detail_for_a_dropped_unit_is_not_merged(self, tmp_path: Path) -> None:
+        """A regenerated outline may drop a unit; its stale cached detail
+        must not leak into the merge."""
+        outline = _make_outline(unit_ids=("u-1",))
+        cache_dir = tmp_path / "refuel-cache"
+        self._write(cache_dir / "outline.json", "outline", _dump(outline))
+        for uid in ("u-1", "u-obsolete"):
+            self._write(
+                cache_dir / "details" / f"{uid}.json",
+                "detail",
+                {"id": uid, "instructions": f"cached {uid}", "acceptance_criteria": []},
+            )
+
+        squadron = StubRefuelSquadron(outline_payload=outline)
+        state = await self._run(squadron, tmp_path, cache_dir, skip_briefing=True)
+
+        assert {d["id"] for d in state["accumulated_details"]} == {"u-1"}
+
+
+class TestRefuelBurrQuotaHandling:
+    """Provider quota aborts the run; it does not walk the tier ladder (#135).
+
+    Quota exhaustion is account-wide and time-bound: no other model,
+    tier, or retry makes it go away before the limit resets. Treating it
+    like an ordinary failure meant every remaining unit paid a full
+    round-trip to be told the same thing, and then beads were created
+    from a truncated fan-out.
+    """
+
+    @staticmethod
+    async def _run_expecting_quota(
+        squadron: StubRefuelSquadron, tmp_path: Path, **kwargs: Any
+    ) -> BaseException | None:
+        queue: asyncio.Queue[ProgressEvent | None] = asyncio.Queue()
+        with (
+            patch(
+                "maverick.library.actions.beads.create_beads",
+                new=AsyncMock(return_value=_make_bead_result()),
+            ),
+            patch(
+                "maverick.library.actions.beads.wire_dependencies",
+                new=AsyncMock(return_value=_make_wire_result()),
+            ),
+        ):
+            app = build_refuel_application(
+                squadron=squadron,
+                event_queue=queue,
+                raw_content="x",
+                briefing_prompt="x",
+                codebase_context=_empty_codebase_context(),
+                open_bead_context=None,
+                runway_context_text=None,
+                plan_name="p",
+                plan_objective="o",
+                cwd=str(tmp_path),
+                skip_briefing=True,
+                **kwargs,
+            )
+            driver = BurrWorkflowDriver(app, halt_after=REFUEL_TERMINAL_ACTIONS, event_queue=queue)
+            await _collect(driver)
+            # The driver defers an action's exception to ``.result`` so
+            # the event stream always drains cleanly first.
+            try:
+                _ = driver.result
+            except BaseException as exc:  # noqa: BLE001 — the assertion subject
+                return exc
+        return None
+
+    async def test_budget_exceeded_aborts_without_climbing_the_ladder(
+        self, tmp_path: Path
+    ) -> None:
+
+        from maverick.exceptions.quota import ProviderQuotaError
+
+        outline = _make_outline(unit_ids=("u-1",))
+        squadron = StubRefuelSquadron(
+            outline_payload=outline,
+            escalation_ladder=(DEFAULT_TIER, "moderate", "complex"),
+        )
+        calls = {"n": 0}
+
+        async def _quota(**_kw: Any) -> SubmitDetailsPayload:
+            calls["n"] += 1
+            _raise_budget("monthly usage limit exceeded")
+
+        squadron._decomposer.detail = _quota  # type: ignore[assignment]
+
+        exc = await self._run_expecting_quota(squadron, tmp_path)
+
+        assert isinstance(exc, ProviderQuotaError)
+        # One attempt total: no same-tier retry, no escalation to
+        # "moderate" or "complex".
+        assert calls["n"] == 1
+        assert squadron.decomposer_pool.acquire_calls == [DEFAULT_TIER, DEFAULT_TIER]
+
+    async def test_quota_reported_as_transient_is_not_retried(self, tmp_path: Path) -> None:
+        """Some providers dress a hard limit up as a 429/5xx.
+
+        Classifying by message keeps those off the retry-and-escalate
+        path that a genuine transient belongs on.
+        """
+        from airframe.errors import RuntimeTransientError
+
+        from maverick.exceptions.quota import ProviderQuotaError
+
+        outline = _make_outline(unit_ids=("u-1",))
+        squadron = StubRefuelSquadron(
+            outline_payload=outline,
+            escalation_ladder=(DEFAULT_TIER, "complex"),
+        )
+        calls = {"n": 0}
+
+        async def _quota_as_transient(**_kw: Any) -> SubmitDetailsPayload:
+            calls["n"] += 1
+            raise RuntimeTransientError("429: usage limit reached, resets 6am UTC")
+
+        squadron._decomposer.detail = _quota_as_transient  # type: ignore[assignment]
+
+        exc = await self._run_expecting_quota(squadron, tmp_path)
+
+        assert isinstance(exc, ProviderQuotaError)
+        assert calls["n"] == 1
+        # The reset hint is parsed off the message for the operator.
+        assert exc.reset_time is not None
+        assert "6am" in exc.reset_time
+
+    async def test_genuine_transient_still_retries_and_escalates(self, tmp_path: Path) -> None:
+        """Guard the other side: the quota check must not swallow real
+        transients, which *do* deserve the ladder."""
+        from airframe.errors import RuntimeTransientError
+
+        outline = _make_outline(unit_ids=("u-1",))
+        squadron = StubRefuelSquadron(
+            outline_payload=outline,
+            detail_payloads=[_make_details(("u-1",))],
+            escalation_ladder=(DEFAULT_TIER, "complex"),
+        )
+        original_detail = squadron._decomposer.detail
+        calls = {"n": 0}
+
+        async def _transient_then_ok(**kwargs: Any) -> SubmitDetailsPayload:
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise RuntimeTransientError("503 service unavailable")
+            return await original_detail(**kwargs)
+
+        squadron._decomposer.detail = _transient_then_ok  # type: ignore[assignment]
+
+        exc = await self._run_expecting_quota(squadron, tmp_path)
+
+        assert exc is None
+        assert calls["n"] == 2
+
+    async def test_completed_units_are_cached_before_the_abort(self, tmp_path: Path) -> None:
+        """The abort is only tolerable because progress survives it.
+
+        Units that finished before the limit hit are on disk, so the
+        re-run after reset resumes instead of starting over.
+        """
+
+        outline = _make_outline(unit_ids=("u-1", "u-2"))
+        cache_dir = tmp_path / "refuel-cache"
+        squadron = StubRefuelSquadron(outline_payload=outline)
+        original_detail = squadron._decomposer.detail
+        seen: list[str] = []
+
+        async def _one_then_quota(**kwargs: Any) -> SubmitDetailsPayload:
+            unit_ids = kwargs.get("unit_ids") or ()
+            seen.extend(unit_ids)
+            if len(seen) > 1:
+                _raise_budget("you have no quota left")
+            return await original_detail(**kwargs)
+
+        squadron._decomposer.detail = _one_then_quota  # type: ignore[assignment]
+
+        from maverick.exceptions.quota import ProviderQuotaError
+
+        # pool_size=1 so the two units are strictly ordered.
+        exc = await self._run_expecting_quota(
+            squadron, tmp_path, cache_dir=str(cache_dir), decomposer_pool_size=1
+        )
+
+        # The run aborted rather than creating beads from a fan-out that
+        # only covered half the plan...
+        assert isinstance(exc, ProviderQuotaError)
+        # ...and the half that did complete survived the abort.
+        cached = sorted(p.name for p in (cache_dir / "details").glob("*.json"))
+        assert cached == ["u-1.json"]
 
 
 class TestRefuelBurrGraphValidationLoop:

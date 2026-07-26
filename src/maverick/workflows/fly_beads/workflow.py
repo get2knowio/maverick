@@ -348,11 +348,12 @@ class FlyBeadsWorkflow(PythonWorkflow):
         # queue drains, polling for newly-ready beads every
         # ``watch_interval`` seconds up to a fixed idle cap.
         # ----------------------------------------------------------------
-        burr_result = await self._run_fly_with_burr(
+        burr_result = await _run_bead_loop(
+            self,
             epic_id=epic_id,
             cwd=cwd,
             max_beads=max_beads,
-            completed_bead_ids=completed_bead_ids,
+            completed_bead_ids=tuple(completed_bead_ids or ()),
             flight_plan_name=flight_plan_name,
             watch=watch,
             watch_interval=watch_interval,
@@ -398,42 +399,6 @@ class FlyBeadsWorkflow(PythonWorkflow):
         )
         return result.to_dict()
 
-    async def _run_fly_with_burr(
-        self,
-        *,
-        epic_id: str,
-        cwd: Path,
-        max_beads: int = MAX_BEADS,
-        completed_bead_ids: set[str] | None = None,
-        flight_plan_name: str = "",
-        watch: bool = False,
-        watch_interval: int = 30,
-        run_id: str = "",
-    ) -> dict[str, Any]:
-        """Run the fly bead loop via the Burr-backed driver.
-
-        Post-migration gaps are documented in
-        :mod:`maverick.workflows.fly_beads.actions`.
-
-        Args:
-            run_id: This run's own ``run_id`` (already minted by
-                :meth:`_run` before the bead loop starts) — threaded to
-                the mid-flight reconcile actions (052-conditional-landing)
-                so a triggered ``ReconcileWorkflow`` pass can exclude this
-                run from its own concurrent-fly guard.
-        """
-        return await _run_fly_with_burr_impl(
-            self,
-            epic_id=epic_id,
-            cwd=cwd,
-            max_beads=max_beads,
-            completed_bead_ids=tuple(completed_bead_ids or ()),
-            flight_plan_name=flight_plan_name,
-            watch=watch,
-            watch_interval=watch_interval,
-            run_id=run_id,
-        )
-
 
 def _cost_sink_for_cwd(cwd: Path) -> Any:
     """Return a :class:`CostSink` appender for the user repo's runway store.
@@ -454,7 +419,7 @@ def _cost_sink_for_cwd(cwd: Path) -> Any:
     return make_cost_sink(store)
 
 
-async def _run_fly_with_burr_impl(
+async def _run_bead_loop(
     workflow: Any,
     *,
     epic_id: str,
@@ -466,14 +431,22 @@ async def _run_fly_with_burr_impl(
     watch_interval: int = 30,
     run_id: str = "",
 ) -> dict[str, Any]:
-    """Drive the fly Burr application; return the same shape as xoscar.
+    """Drive the fly Burr application; return the aggregate bead counts.
 
     Lives outside the class so the import-cycle (squadron → workflow)
     stays manageable: callers pass ``self`` in as ``workflow``.
+
+    Args:
+        run_id: This run's own ``run_id`` (already minted by
+            :meth:`FlyBeadsWorkflow._run` before the bead loop starts) —
+            threaded to the mid-flight reconcile actions
+            (052-conditional-landing) so a triggered ``ReconcileWorkflow``
+            pass can exclude this run from its own concurrent-fly guard.
     """
     import asyncio as _asyncio
 
     from maverick.burr import BurrWorkflowDriver
+    from maverick.config import lookup_tiers_config
     from maverick.events import ProgressEvent
     from maverick.squadron.fly import FlySquadron
     from maverick.workflows.fly_beads.burr_graph import (
@@ -482,7 +455,17 @@ async def _run_fly_with_burr_impl(
     )
 
     cost_sink = _cost_sink_for_cwd(cwd)
-    async with FlySquadron(cwd=cwd, config=workflow._config, cost_sink=cost_sink) as squadron:
+    async with FlySquadron(
+        cwd=cwd,
+        config=workflow._config,
+        cost_sink=cost_sink,
+        # ``actors.fly.{implementer,reviewer}.tiers`` was parsed by the
+        # supervisors the Burr migration deleted, which left the whole
+        # tier surface inert (#135). The squadron has always accepted
+        # these; nothing was passing them.
+        implementer_tiers=lookup_tiers_config(workflow._config, "fly-beads", "implementer"),
+        reviewer_tiers=lookup_tiers_config(workflow._config, "fly-beads", "reviewer"),
+    ) as squadron:
         event_queue: _asyncio.Queue[ProgressEvent | None] = _asyncio.Queue()
         app = build_fly_application(
             squadron=squadron,

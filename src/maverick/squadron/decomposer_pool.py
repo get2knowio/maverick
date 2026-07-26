@@ -1,10 +1,9 @@
 """``DecomposerAgentPool`` — per-tier LRU pool of :class:`DecomposerAgent`.
 
-Mirrors the legacy ``_DecomposerPool`` (which pooled
-:class:`DecomposerActor` xoscar refs) but at the agent layer. The
-RefuelSquadron exposes one of these so the actor pool — or any other
-caller in step 3+ — can acquire a tier-specific decomposer without
-each call paying for fresh runtime scope setup.
+The RefuelSquadron exposes one of these so the detail fan-out can
+acquire a decomposer bound to a specific tier's model without each
+call paying for fresh runtime scope setup. Tier names come from
+:meth:`RefuelSquadron.decomposer_escalation_ladder`.
 
 Behaviour:
 

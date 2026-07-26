@@ -5,7 +5,7 @@ All agentic execution flows through airframe-runtime-backed
 
 * Per-role mailbox agents (``CodingAgent``, ``ReviewerAgent``,
   ``BriefingAgent``, ``DecomposerAgent``, ``GeneratorAgent``) — driven
-  by xoscar actor shells; one ``provider_tier`` class var per role.
+  by the workflows' Burr graphs; one ``provider_tier`` class var per role.
 * One-shot persona agents (``maverick.agents.personas``) — wrappers
   around bundled persona prompts (consolidator, curator, validation-
   fixer, runway-seed, flight-plan-generator); used by CLI commands and

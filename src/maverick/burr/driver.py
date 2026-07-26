@@ -14,9 +14,9 @@ spikes:
 * After the consumer finishes iterating, ``result`` exposes the tuple
   returned by ``Application.arun()`` for downstream use.
 
-This is the airframe-side analogue of the xoscar supervisor's
-``@xo.generator run()`` drain (see
-:meth:`maverick.workflows.base.PythonWorkflow._drain_xoscar_supervisor`).
+This is the single drain path for every workflow: the graph pushes
+``ProgressEvent``s onto a queue while it runs, and the consumer
+forwards them to the workflow's own event stream.
 """
 
 from __future__ import annotations
