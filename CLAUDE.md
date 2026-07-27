@@ -5,10 +5,17 @@ Guidance for Claude Code when working in this repository.
 ## Project Overview
 
 Maverick is a Python CLI that orchestrates AI-powered development workflows
-on top of the **airframe** agent-runtime abstraction. It runs PRD → plan →
+on top of the **airframe** agent-runtime abstraction. It runs PRD → spec →
 beads → implement → review → commit as **Burr** state machines; agents return
 typed Pydantic payloads via airframe's structured-output support rather than
 per-agent MCP gateways.
+
+**The Spec Kit path is the default.** `maverick spec` produces
+`specs/NNN-name/{spec.md,tasks.md}` and `maverick refuel --speckit` ingests
+them into beads deterministically, with zero model calls. The classic
+flight-plan path (`plan generate` → `refuel`) remains fully supported for
+repositories without Spec Kit artifacts — it is a fallback, not deprecated.
+See constitution Principle XIII and Appendix F.
 
 ## Technology Stack
 
@@ -136,6 +143,9 @@ See `.specify/memory/constitution.md` for the authoritative reference.
 6. **Simplicity** — no global mutable state, no god-classes, no premature abstractions.
 7. **Complete work** — each bead is self-contained. No TODO/FIXME/HACK punts;
    the workflow runs autonomously with no human watching.
+8. **Determinism over inference** — where a structured artifact already carries
+   the information, parse it; don't ask a model to re-derive it. Spec Kit
+   ingestion is the default path and makes zero model calls.
 
 ## Operating Standard (Ownership & Follow-Through)
 
@@ -346,9 +356,8 @@ without any sync step.
   (curator-greppable) and a `Bead: <id>` git trailer (forward-compatible
   with the env-aware ready check).
 - Every workflow/CLI command receives `cwd: Path` from the CLI
-  boundary. `Path.cwd()` defaults inside `src/maverick/workflows/` or
-  `src/maverick/actors/` are a layering smell — set them at the CLI
-  boundary and pass them down.
+  boundary. `Path.cwd()` defaults inside `src/maverick/workflows/` are a
+  layering smell — set them at the CLI boundary and pass them down.
 
 **Background — what was tried and rejected**: an earlier revision ran
 every long-running op inside a hidden jj workspace under
@@ -419,35 +428,64 @@ Return concrete types (avoid `Any` on public APIs).
 
 ### 7. Explicit cwd threading
 
-Operational form of Guardrail 0. Every step receives a `cwd` (the
-workspace path, resolved by the CLI from
-`WorkspaceManager.find_or_create()`):
+Operational form of Guardrail 0. Every step receives a `cwd`, resolved
+once at the CLI boundary from `Path.cwd().resolve()`:
 
 - Agent steps: `cwd` in the step's `context` dict.
 - jj actions: `cwd` (accepts `str | Path | None`).
 - bd / runway / plan parsing: `cwd=cwd` — never default to `Path.cwd()`.
 
-A grep for `Path.cwd()` inside `src/maverick/workflows/` or
-`src/maverick/actors/` should return ~zero hits in a clean tree; new
-occurrences are bugs in waiting. The CLI resolves the workspace path
-once, then every layer beneath it operates against that explicit path.
+A grep for `Path.cwd()` inside `src/maverick/workflows/` should return
+~zero hits in a clean tree; new occurrences are bugs in waiting. The CLI
+resolves the path once, then every layer beneath it operates against
+that explicit path.
 
-See `.specify/memory/constitution.md` Appendix E for the full architecture.
+### 8. Deterministic ingestion over model inference
+
+Where a structured artifact already carries the information, derive it by
+parsing. A model call on a path where parsing would do is a design smell.
+
+- Spec Kit ingestion makes **zero** model calls. `--enrich` is the only
+  step permitted to touch a model, and it stays opt-in.
+- **Validation must not fail on conditions no fix can close.** A check the
+  fixer cannot satisfy — a cross-cutting constraint like a LOC budget or
+  "lint passes" — is advisory, reported to the human, never routed into a
+  fix loop.
+- **Advisory findings get their own state slot.** The slot that feeds the
+  fixer is exactly how an uncloseable condition reaches it; that is how
+  one refuel spent its entire fix budget inventing work units for a
+  criterion no unit could carry.
+
+See `.specify/memory/constitution.md` Appendix E for the workspace
+architecture and Appendix F for the two decomposition entry paths.
 
 ## CLI Workflows
 
 Beads-only workflow model. All development is driven by beads (`bd` CLI).
 
+**Default path** (deterministic — Spec Kit):
+
+| Command                                              | Purpose                              |
+| ---------------------------------------------------- | ------------------------------------ |
+| `maverick spec <feature> --from-prd <file>`          | Headless Spec Kit chain from a PRD   |
+| `maverick refuel <feature> --speckit [--dry-run\|--enrich]` | Deterministic Spec Kit ingestion |
+
+**Fallback path** (AI decomposition — repos without `specs/`):
+
 | Command                                              | Purpose                              |
 | ---------------------------------------------------- | ------------------------------------ |
 | `maverick plan generate <name> --from-prd <file>`    | Flight plan from PRD                 |
-| `maverick spec <feature> --from-prd <file>`          | Headless Spec Kit chain from a PRD   |
 | `maverick refuel <plan-name>`                        | Decompose plan into beads            |
-| `maverick refuel <feature> --speckit [--dry-run\|--enrich]` | Deterministic Spec Kit ingestion |
+
+Mode is auto-detected from repository shape; `--speckit` forces it.
+
+**Shared by both paths**:
+
+| Command                                              | Purpose                              |
+| ---------------------------------------------------- | ------------------------------------ |
 | `maverick fly --epic <id>`                           | Implement beads (Burr drain loop)    |
 | `maverick land [--eject\|--finalize] [--status] [--json]` | Curate history and merge, or query the frontier |
 | `maverick reconcile [--dry-run] [--json]`            | Reapply changed human answers into jj history |
-| `maverick workspace status\|clean`                   | Manage hidden workspace              |
 | `maverick init`                                      | Initialize a Maverick project (installs the `maverick-review` skill) |
 | `maverick brief [--watch\|--human]`                  | Bead status + assumption counts      |
 | `maverick review <bead-id> [--answer\|--waive] [--json]` | Resolve a human-assigned bead     |
