@@ -1,7 +1,7 @@
 # Workspace leaks, event-bead bloat, and write amplification — plan
 
 **Audience:** Maverick maintainers; the implementation plan for the three cost defects filed from the first live Spec Kit walkthrough.
-**Status:** Proposed. Not yet implemented. Supersedes the "Not in this PR" section of #175.
+**Status:** In progress — PR 1 done (#177), PRs 2 and 3 not started. Supersedes the "Not in this PR" section of #175.
 **Date:** 2026-07-27.
 **Author:** derived from the live walkthrough of `spec → refuel --speckit → fly → land` against `sample-maverick-project` (#168).
 
@@ -69,7 +69,22 @@ could not be proven read-only. **Verify before writing any translator code** —
 throwaway `bd init` directory, run a two-node plan and confirm both the `ids` map and that
 `bd dep tree` shows `a` blocking `b`, not the reverse.
 
-## PR 1 — Workspace teardown and sweep
+## PR 1 — Workspace teardown and sweep — **DONE (#177)**
+
+Landed as planned. Two things worth recording for PRs 2 and 3:
+
+- **`jj op restore` reverts more than the rollback section assumed.** During the sample
+  project cleanup it un-did a `mv` of `.maverick/plans/greet-cli` on its own, because that
+  directory was a *tracked* working-copy addition rather than an ignored file. The manual
+  un-park step in [Verification](#verification) is unnecessary. What it does *not* touch
+  held exactly as written: gitignored files, `.maverick/runs/`, and `.beads/embeddeddolt/`
+  all needed removing or restoring by hand.
+- **One existing test had to be rewritten rather than deleted.**
+  `test_deleted_workspace_is_reseeded_from_checkout` asserted on workspace contents *after*
+  a completed run — precisely what teardown removes. Its intent stayed valid, so it now
+  observes during the `tasks` step. Expect the same shape in PR 2, where
+  `TestMidCreationFailure` asserts partial-bead semantics that atomic graph creation
+  eliminates.
 
 Self-contained; no bd involvement.
 
