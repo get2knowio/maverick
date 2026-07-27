@@ -112,6 +112,45 @@ def _outline_cache_key(
     return h.hexdigest()[:16]
 
 
+def success_criteria_refs(flight_plan: Any) -> tuple[tuple[str, ...], int]:
+    """Split a flight plan's success criteria into ``(ref_ids, count)``.
+
+    Only *real* ref identifiers are returned. The markdown flight-plan
+    format stores each criterion as prose —
+    :class:`~maverick.flight.models.SuccessCriterion` has ``text`` and
+    ``checked``, no id — so ``ref_ids`` is normally empty and
+    :func:`~maverick.library.actions.decompose.validate_decomposition`
+    falls back to sequential ``SC-001..SC-NNN``, which is exactly what the
+    decomposer emits as ``trace_ref``.
+
+    That falsiness is load-bearing. This used to read ``sc.id`` /
+    ``sc.description``, neither of which exists on that model, producing
+    one empty string per criterion — and a tuple of empty strings is
+    truthy, so it suppressed the fallback and left the validator
+    comparing ``""`` against every ``trace_ref``. Nothing ever matched,
+    so every refuel reported all criteria uncovered, spent its whole fix
+    budget on a gap no edit could close, and let the fixer invent
+    redundant work units chasing criteria it could not name (a live run
+    turned 7 work units into 18, with duplicates).
+
+    Args:
+        flight_plan: Any object exposing ``success_criteria``; a missing
+            attribute is treated as "no criteria" rather than an error,
+            since older plan objects predate the field.
+
+    Returns:
+        ``(ref_ids, count)``. ``count`` covers every criterion, including
+        those contributing no ref — it is what sizes the fallback.
+    """
+    criteria = tuple(getattr(flight_plan, "success_criteria", ()) or ())
+    refs = tuple(
+        ref
+        for sc in criteria
+        if (ref := str(getattr(sc, "id", None) or getattr(sc, "ref", None) or "").strip())
+    )
+    return refs, len(criteria)
+
+
 class RefuelMaverickWorkflow(PythonWorkflow):
     """Workflow that decomposes a Maverick Flight Plan into work units and beads.
 
@@ -473,6 +512,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
             skip_briefing=skip_briefing,
             ctx=ctx,
             ws_cwd=ws_cwd,
+            plan_dir=flight_plan_path.parent,
         )
         briefing_path_str: str | None = None
         suggested_deps: tuple[str, ...] = ()
@@ -487,8 +527,15 @@ class RefuelMaverickWorkflow(PythonWorkflow):
         if decomposition is None:
             raise WorkflowError("Decomposition loop exited without producing a result")
 
-        # Determine output directory (colocated with flight plan in workspace)
-        work_units_dir = ws_cwd / ".maverick" / "plans" / flight_plan.name
+        # Colocate work units with the flight plan they came from.
+        #
+        # Derived from the plan's own path, not ``flight_plan.name``: the
+        # generator writes the plan to ``plans/<cli-name>/`` but is free
+        # to put a different ``name:`` in the frontmatter (it picked
+        # "greet-cli-mvp" for a plan generated as "greet-cli"), which
+        # scattered the outputs into a second directory that had no
+        # flight plan in it (#135 subtask 5).
+        work_units_dir = flight_plan_path.parent
 
         # Convert specs to WorkUnit models
         work_units = convert_specs_to_work_units(
@@ -834,6 +881,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
         skip_briefing: bool = False,
         ctx: dict[str, Any] | None = None,
         ws_cwd: Path,
+        plan_dir: Path,
     ) -> Any:
         """Run briefing + decomposition via Burr.
 
@@ -861,13 +909,7 @@ class RefuelMaverickWorkflow(PythonWorkflow):
             open_bead_context=open_bead_result,
         )
 
-        # Extract success-criteria refs from the FlightPlan so the
-        # validator can check coverage.
-        sc_refs: tuple[str, ...] = tuple(
-            (getattr(sc, "id", None) or getattr(sc, "description", "") or "")
-            for sc in (getattr(flight_plan, "success_criteria", ()) or ())
-        )
-        sc_count = len(sc_refs)
+        sc_refs, sc_count = success_criteria_refs(flight_plan)
         plan_name = str(getattr(flight_plan, "name", "") or "")
         plan_objective = str(getattr(flight_plan, "objective", "") or "")
 
@@ -886,11 +928,12 @@ class RefuelMaverickWorkflow(PythonWorkflow):
             # later resume can read the raw artifacts. The actions
             # treat ``cache_dir`` as advisory — empty disables writes
             # and any OSError is swallowed with a warning.
-            cache_dir = (
-                str(ws_cwd / ".maverick" / "plans" / plan_name / "refuel-cache")
-                if plan_name
-                else ""
-            )
+            # Keyed off the plan's own directory, not ``flight_plan.name``
+            # — see the note on ``work_units_dir``. Caches written by an
+            # older build under ``plans/<frontmatter-name>/`` are simply
+            # not found, which is the correct outcome: they belong to a
+            # directory with no flight plan in it.
+            cache_dir = str(plan_dir / "refuel-cache")
             app = build_refuel_application(
                 squadron=squadron,
                 event_queue=event_queue,

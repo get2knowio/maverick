@@ -107,10 +107,12 @@ def build_refuel_application(
                 squadron=squadron,
                 events=event_queue,
                 max_concurrent=max_briefing_agents,
+                cache_dir=cache_dir,
             ),
             contrarian_briefing=refuel_actions.contrarian_briefing.bind(
                 squadron=squadron,
                 events=event_queue,
+                cache_dir=cache_dir,
             ),
             synthesize_briefing=refuel_actions.synthesize_briefing.bind(
                 cache_dir=cache_dir,
@@ -163,6 +165,7 @@ def build_refuel_application(
             fix_rounds=0,
             validation_passed=False,
             validation_warnings=[],
+            untraced_criteria=[],
             validation_complete=False,
             epic_id="",
             epic=None,
