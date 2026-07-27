@@ -290,6 +290,14 @@ wheels = [
 ]
 
 [[package]]
+name = "apache-burr"
+version = "0.42.0"
+source = { registry = "https://pypi.org/simple" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/80/01/2ad49e37cb45662212cb82e13000a5daad430b7178767a4ff92293ef6e6e/apache_burr-0.42.0-py3-none-any.whl", hash = "sha256:cbcf9699e51582e64facde802345a9afcb84974199f32e9d27312fc673c90d30", size = 4707584, upload-time = "2026-05-10T03:59:28.523Z" },
+]
+
+[[package]]
 name = "ast-serialize"
 version = "0.6.0"
 source = { registry = "https://pypi.org/simple" }
@@ -375,11 +383,14 @@ wheels = [
 
 [[package]]
 name = "burr"
-version = "0.40.2"
+version = "0.42.0"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/1f/9c/f978b798a82eb2592c12be7ef24eb41851be33edd68395d283201719f8bf/burr-0.40.2.tar.gz", hash = "sha256:275f3e26a3deede8126c57f78e1e6a0d9940b0c89c0b8ae78ce97a3ae1e2c2a6", size = 25533834, upload-time = "2025-05-28T05:55:30.44Z" }
+dependencies = [
+    { name = "apache-burr" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/21/79/475352b260b18ac3ecbb22b905ba55561d2ce2bf1b0d3d3400c9db57aa4c/burr-0.42.0.tar.gz", hash = "sha256:82f7da9925d6eae8fadc166f1919fcf27aa5ba8022795475c99f072c05c25516", size = 3008, upload-time = "2026-07-18T21:40:54.159Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/53/93/b678ae49ff67fbb2f6fdd21ca4c0ff455857ae58dc180860cc4407c2ae5e/burr-0.40.2-py3-none-any.whl", hash = "sha256:b8e790cdba5ffc61270db2ef2324d828de1a4d56d06f732d7d496d7cb053d0c7", size = 5809991, upload-time = "2025-05-28T05:55:21.387Z" },
+    { url = "https://files.pythonhosted.org/packages/c6/68/53d88f59afb083c77ef9f78fddbd9f604750ab8b2b31031cd83f6b36563d/burr-0.42.0-py3-none-any.whl", hash = "sha256:44e43327726c6e8b27b4dcb2d80b3692737780e38c6edf20506d69c823fa73d1", size = 2335, upload-time = "2026-07-18T21:40:53.171Z" },
 ]
 
 [[package]]
@@ -903,14 +914,14 @@ wheels = [
 
 [[package]]
 name = "gitpython"
-version = "3.1.51"
+version = "3.1.52"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "gitdb" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/59/30/a8a0c15f9480dc91b5b7f11ebd26105e5f80898d7ff02da197fef35d8395/gitpython-3.1.51.tar.gz", hash = "sha256:22c9c94bb6b0b9f3c7157c684fece45a414cea204586b600beae6cd4570dcd6d", size = 223519, upload-time = "2026-07-12T13:40:07.922Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/e5/fd/df0bafa4eb5ea2f51e1adee9f7a94c8e62c5d180e65117045dfca3439c8a/gitpython-3.1.52.tar.gz", hash = "sha256:de0a8ad86274c6e75ae8b37dd055ba68f19818c813108642263227b20775b48e", size = 223726, upload-time = "2026-07-16T03:15:59.599Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/f8/11/1232bb1ba52a230f20ff08e1b3df7cd9d43a71b61cc0a1c37941064fe4c7/gitpython-3.1.51-py3-none-any.whl", hash = "sha256:d5b29685708f3c80a56db040b665bfd69492c8e150b5848532af8013b686c5a4", size = 215246, upload-time = "2026-07-12T13:40:06.43Z" },
+    { url = "https://files.pythonhosted.org/packages/8d/90/04dff7c1e176bb1c3011ef1647393d368790da710d8dde1cdcfad301f45a/gitpython-3.1.52-py3-none-any.whl", hash = "sha256:79a36ee1f83523214a3f72d56cf1c4e490d577dc61af77e43dfe5862bd9da01a", size = 215366, upload-time = "2026-07-16T03:15:58.239Z" },
 ]
 
 [[package]]
@@ -1340,7 +1351,7 @@ requires-dist = [
     { name = "airframe-agents", extras = ["all"], specifier = ">=0.9.0rc1,<0.10" },
     { name = "anyio", specifier = ">=4.0,<5" },
     { name = "atomicwrites", specifier = ">=1.4,<2" },
-    { name = "burr", specifier = ">=0.40,<0.41" },
+    { name = "burr", specifier = ">=0.40,<0.43" },
     { name = "click", specifier = ">=8.1.0,<9" },
     { name = "detect-secrets", specifier = ">=1.4,<2" },
     { name = "gitpython", specifier = ">=3.1,<4" },
