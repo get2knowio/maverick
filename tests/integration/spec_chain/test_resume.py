@@ -170,17 +170,36 @@ class TestWorkspaceReseedOnResume:
 
         # Run 2 (resume): workspace is recreated fresh, then reseeded with
         # the landed upstream artifacts before tasks re-runs.
-        stub_runtime_factory(monkeypatch)
+        #
+        # Observed *during* the run rather than after it: the reseed is only
+        # visible while the workspace exists, and a chain that completes now
+        # tears its workspace down (a completed chain cannot be resumed, so
+        # keeping it would strand a stray head in the user's commit graph).
+        seen_at_tasks: dict[str, bool] = {}
+
+        def _record_workspace(feature_path: Path, _runtime: Any) -> dict[str, Any]:
+            seen_at_tasks["spec.md"] = (feature_path / "spec.md").is_file()
+            seen_at_tasks["plan.md"] = (feature_path / "plan.md").is_file()
+            (feature_path / "tasks.md").write_text("# Tasks\n", encoding="utf-8")
+            return {
+                "status": "completed",
+                "artifacts": ["tasks.md"],
+                "questions": [],
+                "findings": [],
+                "detail": "ok",
+            }
+
+        stub_runtime_factory(monkeypatch, step_handlers={ChainStep.TASKS: _record_workspace})
         await _run_once(speckit_repo, fake_home, run_id=run_id)
 
-        # The reseed restored upstream artifacts into the fresh workspace.
-        ws_feature = workspace_root / "specs" / FEATURE_DIR
-        assert (ws_feature / "spec.md").is_file()
-        assert (ws_feature / "plan.md").is_file()
+        assert seen_at_tasks == {"spec.md": True, "plan.md": True}, (
+            "reseed did not restore landed upstream artifacts before tasks re-ran"
+        )
 
         final_state = await load_chain_state(run_id, speckit_repo)
         assert final_state is not None
         assert final_state.status == "completed"
+        assert not workspace_root.exists(), "a completed chain must not leave its workspace behind"
 
 
 class TestPrdDigestMismatchWarns:

@@ -231,3 +231,65 @@ class TestAnalyzeFailureIsAWarningNotAHalt:
         report = workflow.result.final_output
         assert report["status"] == "completed"
         assert report["resume_hint"] is None
+
+
+class TestWorkspaceLifecycleAcrossOutcomes:
+    """Teardown is gated on the chain *completing*, not on it finishing.
+
+    A halted chain's hidden workspace is the only copy of the failing step's
+    partial output — landing only ever copies out artifacts a step declared,
+    and a step that failed declared none. Resume also reuses it. Collecting
+    it would destroy the evidence the run exists to produce.
+    """
+
+    async def test_halted_chain_keeps_its_workspace(
+        self,
+        speckit_repo: Path,
+        fake_home: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        bd_stubs: list[str],
+    ) -> None:
+        stub_runtime_factory(monkeypatch, step_handlers={ChainStep.PLAN: _blocked_handler})
+        await _run_workflow(speckit_repo, fake_home, run_id="halt-keeps-workspace")
+
+        state = await load_chain_state("halt-keeps-workspace", speckit_repo)
+        assert state is not None
+        assert state.status == "halted"
+
+        workspace = fake_home / ".maverick" / "workspaces" / "repo" / "spec-chain" / FEATURE
+        assert workspace.is_dir(), "a halted chain must keep its workspace to resume from"
+
+    async def test_completed_chain_tears_its_workspace_down(
+        self,
+        speckit_repo: Path,
+        fake_home: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        bd_stubs: list[str],
+    ) -> None:
+        stub_runtime_factory(monkeypatch)
+        await _run_workflow(speckit_repo, fake_home, run_id="complete-tears-down")
+
+        state = await load_chain_state("complete-tears-down", speckit_repo)
+        assert state is not None
+        assert state.status == "completed"
+
+        workspace = fake_home / ".maverick" / "workspaces" / "repo" / "spec-chain" / FEATURE
+        assert not workspace.exists()
+
+    async def test_stale_workspace_from_an_abandoned_feature_is_swept(
+        self,
+        speckit_repo: Path,
+        fake_home: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        bd_stubs: list[str],
+    ) -> None:
+        """The realistic leak: a chain the user Ctrl-C'd, whose state never
+        reached a terminal status the CLI would resume from."""
+        root = fake_home / ".maverick" / "workspaces" / "repo" / "spec-chain"
+        abandoned = root / "some-other-feature"
+        abandoned.mkdir(parents=True)
+
+        stub_runtime_factory(monkeypatch)
+        await _run_workflow(speckit_repo, fake_home, run_id="sweep-run")
+
+        assert not abandoned.exists(), "a workspace with no resumable state must be swept"

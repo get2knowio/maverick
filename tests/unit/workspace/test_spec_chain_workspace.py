@@ -538,3 +538,160 @@ class TestWorkspaceCreationFailurePropagation:
             )
 
         assert exc_info.value.__cause__ is underlying
+
+
+# ---------------------------------------------------------------------------
+# Teardown and sweep
+# ---------------------------------------------------------------------------
+
+
+class TestTeardownWorkspace:
+    """A completed chain's workspace is garbage and must not survive.
+
+    Regression for the first live Spec Kit walkthrough: nothing ever tore a
+    workspace down. `prepare_workspace(reuse=False)` only wipes on the *next*
+    run of the same feature, and a completed feature can never be re-run (the
+    CLI's collision check exits 2) -- so every feature ever specced leaked a
+    directory, a registered jj workspace, and a stray anonymous head in the
+    user's own commit graph.
+    """
+
+    async def test_forgets_then_removes(
+        self, home: Path, checkout: Path, mock_jj_client: AsyncMock
+    ) -> None:
+        from maverick.workspace.spec_chain import teardown_workspace
+
+        ws = _workspace_dir(home, checkout, "050-feature")
+        ws.mkdir(parents=True)
+        (ws / "specs").mkdir()
+
+        await teardown_workspace(
+            cwd=checkout, feature="050-feature", jj_client=mock_jj_client, home=home
+        )
+
+        mock_jj_client.workspace_forget.assert_awaited_once_with("050-feature")
+        assert not ws.exists()
+
+    async def test_forget_precedes_removal(
+        self, home: Path, checkout: Path, mock_jj_client: AsyncMock
+    ) -> None:
+        """Order is load-bearing: removing first leaves jj tracking a ghost."""
+        from maverick.workspace.spec_chain import teardown_workspace
+
+        ws = _workspace_dir(home, checkout, "050-feature")
+        ws.mkdir(parents=True)
+        seen: list[bool] = []
+
+        async def _forget(_name: str) -> None:
+            seen.append(ws.exists())
+
+        mock_jj_client.workspace_forget.side_effect = _forget
+
+        await teardown_workspace(
+            cwd=checkout, feature="050-feature", jj_client=mock_jj_client, home=home
+        )
+        assert seen == [True], "workspace_forget ran after the directory was removed"
+
+    async def test_jj_error_is_tolerated_and_directory_still_removed(
+        self, home: Path, checkout: Path, mock_jj_client: AsyncMock
+    ) -> None:
+        from maverick.workspace.spec_chain import teardown_workspace
+
+        ws = _workspace_dir(home, checkout, "050-feature")
+        ws.mkdir(parents=True)
+        mock_jj_client.workspace_forget.side_effect = JjError("no such workspace")
+
+        await teardown_workspace(
+            cwd=checkout, feature="050-feature", jj_client=mock_jj_client, home=home
+        )
+        assert not ws.exists()
+
+    async def test_missing_directory_is_not_an_error(
+        self, home: Path, checkout: Path, mock_jj_client: AsyncMock
+    ) -> None:
+        from maverick.workspace.spec_chain import teardown_workspace
+
+        await teardown_workspace(
+            cwd=checkout, feature="never-created", jj_client=mock_jj_client, home=home
+        )
+        mock_jj_client.workspace_forget.assert_awaited_once_with("never-created")
+
+    async def test_never_raises_so_a_completed_chain_cannot_fail_on_cleanup(
+        self, home: Path, checkout: Path, mock_jj_client: AsyncMock
+    ) -> None:
+        from maverick.workspace.spec_chain import teardown_workspace
+
+        mock_jj_client.workspace_forget.side_effect = RuntimeError("catastrophe")
+        await teardown_workspace(
+            cwd=checkout, feature="050-feature", jj_client=mock_jj_client, home=home
+        )
+
+
+class TestSweepStaleWorkspaces:
+    """Teardown-on-completion alone does not bound growth.
+
+    It never fires for an abandoned Ctrl-C chain -- which is the realistic
+    leak -- so a sweep has to collect anything with no resumable state behind
+    it.
+    """
+
+    async def test_removes_workspaces_not_in_keep(
+        self, home: Path, checkout: Path, mock_jj_client: AsyncMock
+    ) -> None:
+        from maverick.workspace.spec_chain import sweep_stale_workspaces
+
+        stale = _workspace_dir(home, checkout, "abandoned")
+        live = _workspace_dir(home, checkout, "halted-chain")
+        stale.mkdir(parents=True)
+        live.mkdir(parents=True)
+
+        await sweep_stale_workspaces(
+            cwd=checkout, jj_client=mock_jj_client, keep={"halted-chain"}, home=home
+        )
+
+        assert not stale.exists()
+        assert live.exists()
+        mock_jj_client.workspace_forget.assert_awaited_once_with("abandoned")
+
+    async def test_scoped_to_this_project(
+        self, home: Path, checkout: Path, mock_jj_client: AsyncMock
+    ) -> None:
+        """Another checkout's workspaces are not ours to collect."""
+        from maverick.workspace.spec_chain import sweep_stale_workspaces
+
+        ours = _workspace_dir(home, checkout, "abandoned")
+        theirs = home / ".maverick" / "workspaces" / "other-project" / "spec-chain" / "abandoned"
+        ours.mkdir(parents=True)
+        theirs.mkdir(parents=True)
+
+        await sweep_stale_workspaces(cwd=checkout, jj_client=mock_jj_client, keep=set(), home=home)
+
+        assert not ours.exists()
+        assert theirs.exists()
+
+    async def test_missing_root_is_a_no_op(
+        self, home: Path, checkout: Path, mock_jj_client: AsyncMock
+    ) -> None:
+        from maverick.workspace.spec_chain import sweep_stale_workspaces
+
+        await sweep_stale_workspaces(cwd=checkout, jj_client=mock_jj_client, keep=set(), home=home)
+        mock_jj_client.workspace_forget.assert_not_awaited()
+
+    async def test_one_failure_does_not_stop_the_sweep(
+        self, home: Path, checkout: Path, mock_jj_client: AsyncMock
+    ) -> None:
+        from maverick.workspace.spec_chain import sweep_stale_workspaces
+
+        first = _workspace_dir(home, checkout, "aaa-bad")
+        second = _workspace_dir(home, checkout, "zzz-good")
+        first.mkdir(parents=True)
+        second.mkdir(parents=True)
+
+        async def _forget(name: str) -> None:
+            if name == "aaa-bad":
+                raise JjError("boom")
+
+        mock_jj_client.workspace_forget.side_effect = _forget
+
+        await sweep_stale_workspaces(cwd=checkout, jj_client=mock_jj_client, keep=set(), home=home)
+        assert not second.exists()
