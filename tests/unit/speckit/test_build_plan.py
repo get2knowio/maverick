@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 
 import pytest
@@ -255,8 +256,15 @@ class TestVerificationFallback:
         )
         assert any("specs/001-greet-cli/" in ln for ln in lines), lines
 
+    @pytest.mark.skipif(shutil.which("rg") is None, reason="requires ripgrep on PATH")
     def test_fallback_actually_matches_on_a_real_tree(self, tmp_path: Path) -> None:
-        """Run the emitted command for real -- the point is that it passes."""
+        """Run the emitted command for real -- the point is that it passes.
+
+        Guarded rather than reimplemented: asserting against our own glob
+        expansion would test a copy of the thing under test, and the whole
+        defect was that a command nobody executed could not match. CI installs
+        ripgrep so this runs there; the skip is for contributors without it.
+        """
         import shlex
         import subprocess
 
