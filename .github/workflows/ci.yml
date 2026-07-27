@@ -1,16 +1,17 @@
 name: CI
 
 on:
+  # No paths-ignore. "CI (Python 3.11)" and "CI (Python 3.12)" are required
+  # status checks on main and enforce_admins is on, so any path this workflow
+  # skips is a path whose PRs can never merge — the required checks simply
+  # never report and nobody, including an admin, can override. A docs-only
+  # PR deadlocked exactly this way. Skipping ~3 minutes of CI is not worth
+  # an unmergeable PR; if that trade changes, add a companion workflow that
+  # reports these same two check names instead of narrowing the trigger.
   push:
     branches: [main]
-    paths-ignore:
-      - "docs/**"
-      - ".github/workflows/docs.yml"
   pull_request:
     branches: [main]
-    paths-ignore:
-      - "docs/**"
-      - ".github/workflows/docs.yml"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
