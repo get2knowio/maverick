@@ -18,6 +18,7 @@ __all__ = [
     "KEY_SOURCE_REF",
     "KEY_SPECKIT_FEATURE",
     "REMEDIATION_SOURCE_ANALYZE",
+    "SOURCE_REF_ASSUMPTIONS",
     "SOURCE_REF_CLARIFY",
     "SPEC_REMEDIATION_LABEL",
     "STEP_TIMEOUT_SECONDS",
@@ -73,6 +74,11 @@ KEY_SOURCE_REF = "source_ref"
 
 #: ``source_ref`` value stamped on clarify-derived ledger entries.
 SOURCE_REF_CLARIFY = "spec-chain:clarify"
+
+#: Provenance for entries harvested from specify's ``## Assumptions``
+#: section, distinct from clarify's own answers so a reviewer can tell
+#: "the model was asked and answered" from "the model decided unasked".
+SOURCE_REF_ASSUMPTIONS = "spec-chain:assumptions"
 
 # ---------------------------------------------------------------------------
 # Timeouts
