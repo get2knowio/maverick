@@ -186,3 +186,79 @@ class TestDecisionsFromSpecMd:
         decisions = decisions_from_spec_md(content)
         assert decisions[0].severity is Severity.LOW
         assert decisions[0].severity_defaulted is True
+
+
+class TestAssumptionsFromSpecMd:
+    """`## Assumptions` is where specify records what it decided unasked.
+
+    From the first live Spec Kit walkthrough: specify resolved all three of
+    the PRD's explicit Open Questions into this section and emitted zero
+    `[NEEDS CLARIFICATION]` markers, so clarify had nothing left to ask.
+    Six adopted decisions -- including "defer this feature entirely" --
+    reached no ledger entry and therefore never reached the land gate.
+    """
+
+    LIVE = """\
+# Feature Specification: Greet CLI
+
+## Clarifications
+
+### Session 2026-07-27
+
+- Q: What is the minimum supported Python version? → A: Python 3.10+.
+
+## Assumptions
+
+- **`--random` behavior**: Selects exactly one language per invocation.
+- **Grid/all-at-once layout**: Deferred entirely; output is always sequential.
+- **RTL language rendering**: Banner rendered left-to-right; no bidi reflow.
+
+## Success Criteria
+
+- **SC-001**: A user sees output within 60 seconds.
+"""
+
+    def test_parses_each_assumption_bullet(self) -> None:
+        from maverick.workflows.spec_chain.clarify import assumptions_from_spec_md
+
+        decisions = assumptions_from_spec_md(self.LIVE)
+        assert [d.question for d in decisions] == [
+            "`--random` behavior",
+            "Grid/all-at-once layout",
+            "RTL language rendering",
+        ]
+        assert decisions[1].adopted_answer.startswith("Deferred entirely")
+
+    def test_section_ends_at_the_next_heading(self) -> None:
+        """SC-001 lives under Success Criteria and is not an assumption."""
+        from maverick.workflows.spec_chain.clarify import assumptions_from_spec_md
+
+        decisions = assumptions_from_spec_md(self.LIVE)
+        assert all("SC-001" not in d.question for d in decisions)
+        assert len(decisions) == 3
+
+    def test_clarification_bullets_are_not_assumptions(self) -> None:
+        from maverick.workflows.spec_chain.clarify import assumptions_from_spec_md
+
+        decisions = assumptions_from_spec_md(self.LIVE)
+        assert all("minimum supported Python" not in d.question for d in decisions)
+
+    def test_path_records_how_the_decision_was_captured(self) -> None:
+        from maverick.workflows.spec_chain.clarify import assumptions_from_spec_md
+
+        decisions = assumptions_from_spec_md(self.LIVE)
+        assert {d.path for d in decisions} == {"assumptions_section"}
+
+    def test_severity_assessed_over_question_and_answer(self) -> None:
+        """A scope signal in the *decision* must escalate, not just in the topic."""
+        from maverick.workflows.spec_chain.clarify import assumptions_from_spec_md
+
+        content = "## Assumptions\n\n- **Retry budget**: Out of scope for this release.\n"
+        decisions = assumptions_from_spec_md(content)
+        assert decisions[0].severity is Severity.MEDIUM
+        assert decisions[0].severity_defaulted is False
+
+    def test_no_assumptions_section_yields_nothing(self) -> None:
+        from maverick.workflows.spec_chain.clarify import assumptions_from_spec_md
+
+        assert assumptions_from_spec_md("# Spec\n\n## Requirements\n\n- FR-001\n") == []

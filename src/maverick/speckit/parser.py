@@ -60,8 +60,15 @@ def _extract_file_paths(text: str) -> tuple[str, ...]:
     """
     paths: list[str] = []
     for raw_tok in text.split():
-        tok = raw_tok.strip(".,;:()[]{}'\"")
+        tok = raw_tok.strip(".,;:()[]{}'\"`")
         if "/" not in tok:
+            continue
+        # Markup left *inside* the token means this was never one path --
+        # e.g. "`[tool.mypy]`/`[tool.ruff]`" is two inline code spans. Emitting
+        # it would produce a glob that cannot match, and an unmatchable
+        # verification command is what routes a task into an AC check no fix
+        # can close.
+        if any(ch in tok for ch in "`[]{}()"):
             continue
         if tok.endswith("/") or re.search(r"\.[A-Za-z0-9_]+$", tok):
             paths.append(tok)
@@ -190,6 +197,27 @@ def parse_tasks_md(
             continue
 
         if current_phase is None:
+            # A checkbox line carrying a real T### id outside every phase is
+            # lost work, not prose. Dropping it silently is how a stock
+            # "## Phase N: Polish" placeholder rendered as "## Final Phase:"
+            # discarded a feature's entire quality-gate task with no signal
+            # anywhere downstream. Free-form checkbox prose has no id and
+            # stays benign.
+            orphan_m = _TASK_LINE_RE.match(line)
+            if orphan_m:
+                raise SpeckitParseError(
+                    f"{file}:{line_number}: task {orphan_m.group(2)} appears outside "
+                    f"any phase section: {line!r}",
+                    file=file,
+                    line=line_number,
+                    expected="every task to sit under a '## Phase <n>' heading",
+                    suggestion=(
+                        "rename the enclosing heading to '## Phase <n>: <title>' "
+                        "(a numbered phase); headings such as '## Final Phase' or "
+                        "'## Phase N' are not recognised and would silently drop "
+                        "their tasks"
+                    ),
+                )
             continue
 
         stripped = line.strip()

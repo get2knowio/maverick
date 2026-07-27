@@ -37,9 +37,13 @@ from maverick.logging import get_logger
 from maverick.payloads import AssumptionPayload
 from maverick.squadron.spec_chain import SpecChainSquadron
 from maverick.workflows.base import PythonWorkflow
-from maverick.workflows.spec_chain.clarify import decisions_from_spec_md
+from maverick.workflows.spec_chain.clarify import (
+    assumptions_from_spec_md,
+    decisions_from_spec_md,
+)
 from maverick.workflows.spec_chain.constants import (
     CHAIN_STEP_ORDER,
+    SOURCE_REF_ASSUMPTIONS,
     SOURCE_REF_CLARIFY,
     ChainStep,
 )
@@ -624,7 +628,19 @@ class SpecChainWorkflow(PythonWorkflow):
         if not spec_md_path.is_file():
             return state
         spec_content = await _read_text(spec_md_path)
+        # Two sources, one ledger. `## Clarifications` holds what clarify was
+        # asked and answered; `## Assumptions` holds what specify decided
+        # unasked. Both are adopted answers with no human in the loop, so both
+        # belong in front of the land gate. Clarify wins a tie: if the same
+        # topic appears in both, its bullet is the more deliberate record.
         parsed_decisions = decisions_from_spec_md(spec_content)
+        seen = {_normalize_question(d.question) for d in parsed_decisions}
+        assumption_decisions = [
+            d
+            for d in assumptions_from_spec_md(spec_content)
+            if _normalize_question(d.question) not in seen
+        ]
+        parsed_decisions.extend(assumption_decisions)
         if not parsed_decisions:
             return state
 
@@ -643,7 +659,11 @@ class SpecChainWorkflow(PythonWorkflow):
                     bead_client,
                     payload=payload,
                     owner_spec=feature_dir_name,
-                    source_ref=SOURCE_REF_CLARIFY,
+                    source_ref=(
+                        SOURCE_REF_ASSUMPTIONS
+                        if decision.path == "assumptions_section"
+                        else SOURCE_REF_CLARIFY
+                    ),
                 )
             except Exception as exc:  # noqa: BLE001 — one bad entry must not sink clarify
                 logger.warning(

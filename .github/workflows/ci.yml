@@ -54,6 +54,19 @@ jobs:
           sudo install -m 0755 /tmp/jj /usr/local/bin/jj
           jj --version
 
+      - name: Install ripgrep
+        # Spec Kit ingestion *generates* `rg --files -g '<path>'` verification
+        # commands that fly's AC check later executes, so rg is a de-facto
+        # runtime dependency of that path. One test runs an emitted command
+        # for real to prove the no-file-scope fallback is satisfiable — the
+        # defect that once drove the fixer to fabricate a file to match an
+        # unmatchable glob. It skips without rg, so CI must supply it or that
+        # regression could land green.
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends ripgrep
+          rg --version
+
       - name: Run CI checks (lint, typecheck, test)
         run: make ci-coverage
 

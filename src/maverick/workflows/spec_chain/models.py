@@ -97,7 +97,7 @@ class ClarifyDecision:
     alternatives: tuple[str, ...]
     severity: Severity
     severity_defaulted: bool
-    path: Literal["interception", "non_interactive"]
+    path: Literal["interception", "non_interactive", "assumptions_section"]
     ledger_bead_id: str | None = None
 
 

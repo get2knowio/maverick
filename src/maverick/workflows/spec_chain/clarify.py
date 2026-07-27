@@ -37,6 +37,7 @@ from maverick.workflows.spec_chain.models import ClarifyDecision
 __all__ = [
     "ESCALATION_SIGNALS",
     "assess_severity",
+    "assumptions_from_spec_md",
     "decisions_from_interception",
     "decisions_from_spec_md",
     "supports_interception",
@@ -62,6 +63,16 @@ ESCALATION_SIGNALS: dict[str, tuple[str, ...]] = {
 }
 
 _CLARIFICATION_BULLET_RE = re.compile(r"^-\s+Q:\s*(.+?)\s*\u2192\s*A:\s*(.+)$")
+
+#: ``## Assumptions`` opens the section; any other H2 closes it.
+_ASSUMPTIONS_HEADING_RE = re.compile(r"^##\s+Assumptions\s*$", re.IGNORECASE)
+_OTHER_H2_RE = re.compile(r"^##\s+")
+
+#: Spec Kit writes ``- **Topic**: decision``. The bold topic is optional —
+#: a plain ``- Topic: decision`` bullet carries the same information.
+_ASSUMPTION_BULLET_RE = re.compile(
+    r"^-\s+(?:\*\*(?P<bold>.+?)\*\*|(?P<plain>[^:]+?))\s*:\s*(?P<decision>.+)$"
+)
 
 
 def assess_severity(question: str) -> tuple[Severity, bool]:
@@ -154,6 +165,60 @@ def decisions_from_spec_md(spec_md_content: str) -> list[ClarifyDecision]:
                 severity=severity,
                 severity_defaulted=defaulted,
                 path="non_interactive",
+                ledger_bead_id=None,
+            )
+        )
+    return decisions
+
+
+def assumptions_from_spec_md(spec_md_content: str) -> list[ClarifyDecision]:
+    """Harvest ``## Assumptions`` — what specify decided without being asked.
+
+    Spec Kit's specify step resolves an underspecified PRD by *documenting
+    an assumption* rather than emitting ``[NEEDS CLARIFICATION]``. Those
+    entries are adopted answers in every sense the ledger cares about
+    (question, adopted answer, no human in the loop), but they are written
+    by a different step than clarify and in a different shape, so
+    :func:`decisions_from_spec_md` never sees them.
+
+    Leaving them unharvested means the land gate — whose whole purpose is
+    to make a human look at what was decided on their behalf — silently
+    skips the decisions with the widest blast radius, including "defer
+    this capability entirely".
+
+    Severity is assessed over the topic *and* the decision, because the
+    escalating signal usually lives in the answer ("out of scope for this
+    release"), not in the topic ("Retry budget").
+    """
+    decisions: list[ClarifyDecision] = []
+    in_section = False
+    for raw_line in spec_md_content.splitlines():
+        line = raw_line.rstrip()
+        if _ASSUMPTIONS_HEADING_RE.match(line):
+            in_section = True
+            continue
+        if in_section and _OTHER_H2_RE.match(line):
+            break
+        if not in_section:
+            continue
+
+        m = _ASSUMPTION_BULLET_RE.match(line.strip())
+        if not m:
+            continue
+        topic = (m.group("bold") or m.group("plain") or "").strip()
+        decision = m.group("decision").strip()
+        if not topic or not decision:
+            continue
+
+        severity, defaulted = assess_severity(f"{topic} {decision}")
+        decisions.append(
+            ClarifyDecision(
+                question=topic,
+                adopted_answer=decision,
+                alternatives=(),
+                severity=severity,
+                severity_defaulted=defaulted,
+                path="assumptions_section",
                 ledger_bead_id=None,
             )
         )
