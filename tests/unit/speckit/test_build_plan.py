@@ -208,3 +208,65 @@ class TestValidationBeforeWrite:
         )
         _plan, warnings = build_ingestion_plan(feature)
         assert any("Success Criteria" in w for w in warnings)
+
+
+class TestVerificationFallback:
+    """The no-file-scope fallback must be a check a fix can actually close.
+
+    Regression for the first live walkthrough: a task with no extractable
+    file paths got ``rg --files -g '<feature_name>'``. ``build.py`` calls
+    that "trivially-true", but nothing in a repository is *named*
+    ``001-greet-cli`` -- the directory is ``specs/001-greet-cli/``. The
+    check therefore always failed, routed the bead into an AC fix round no
+    edit could close, and the fixer satisfied it by fabricating and
+    committing a junk file named ``specs/001-greet-cli/001-greet-cli``.
+    """
+
+    TASKS = """\
+## Phase 1: Setup
+
+- [ ] T001 Draft the rollout narrative for stakeholders
+"""
+
+    SPEC = """\
+# Feature Specification: Greet
+
+## Success Criteria
+
+- **SC-001**: It works.
+"""
+
+    def _verification_lines(self, tmp_path: Path) -> list[str]:
+        feature_dir = tmp_path / "specs" / "001-greet-cli"
+        feature_dir.mkdir(parents=True)
+        feature = _feature_from_fixture(feature_dir, self.TASKS, self.SPEC)
+        plan, _ = build_ingestion_plan(feature)
+        body = plan.new_tasks[0].definition.description
+        section = body.split("## Verification", 1)[1]
+        return [
+            ln.strip("- ").strip() for ln in section.splitlines() if ln.strip().startswith("-")
+        ]
+
+    def test_fallback_targets_the_feature_directory_not_a_bare_name(self, tmp_path: Path) -> None:
+        lines = self._verification_lines(tmp_path)
+        assert lines, "the AC gate must never be left with nothing to run"
+        assert "rg --files -g '001-greet-cli'" not in lines, (
+            "a bare feature name matches no file; this check can never pass"
+        )
+        assert any("specs/001-greet-cli/" in ln for ln in lines), lines
+
+    def test_fallback_actually_matches_on_a_real_tree(self, tmp_path: Path) -> None:
+        """Run the emitted command for real -- the point is that it passes."""
+        import shlex
+        import subprocess
+
+        feature_dir = tmp_path / "specs" / "001-greet-cli"
+        lines = self._verification_lines(tmp_path)
+        (feature_dir / "spec.md").write_text("# Spec\n", encoding="utf-8")
+        (feature_dir / "tasks.md").write_text("# Tasks\n", encoding="utf-8")
+
+        proc = subprocess.run(shlex.split(lines[0]), cwd=tmp_path, capture_output=True, text=True)
+        assert proc.stdout.strip(), (
+            f"fallback {lines[0]!r} matched nothing in {tmp_path}; "
+            "an unmatchable check is an AC gate no fix can close"
+        )

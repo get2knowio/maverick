@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any
 
 import click
 from rich.live import Live
+from rich.markup import escape
 from rich.spinner import Spinner
 from rich.table import Table
 
@@ -273,7 +274,7 @@ async def render_workflow_events(
             console_obj.print(f"  [green]✓[/] [bold]{event.name}[/]")
 
         elif isinstance(event, PreflightCheckFailed):
-            console_obj.print(f"  [red]✗[/] [bold]{event.name}[/]: {event.message}")
+            console_obj.print(f"  [red]✗[/] [bold]{event.name}[/]: {escape(event.message)}")
             if event.remediation:
                 console_obj.print(f"    [dim]Hint: {event.remediation}[/]")
 
@@ -333,7 +334,7 @@ async def render_workflow_events(
                 console_obj.print()
                 _agent_streaming = False
 
-            label = event.display_label or _current_label or _display_name(event.step_name)
+            label = escape(event.display_label or _current_label or _display_name(event.step_name))
             dur = f"{event.duration_ms / 1000:.2f}s"
             icon = "[green]✓[/]" if event.success else "[red]✗[/]"
 
@@ -346,7 +347,7 @@ async def render_workflow_events(
                 if _first_interim:
                     style = _level_styles.get("info", "[cyan]")
                     console_obj.print(f"  {style}∟[/] {_first_interim}")
-                console_obj.print(f"{icon} {label}: {event.error} [dim]({dur})[/]")
+                console_obj.print(f"{icon} {label}: {escape(event.error)} [dim]({dur})[/]")
             elif not _header_printed:
                 # No interims at all — just show the label
                 console_obj.print(f"{icon} {label} [dim]({dur})[/]")
@@ -392,10 +393,10 @@ async def render_workflow_events(
 
         elif isinstance(event, StepOutput):
             if _agent_tracker is not None and _agent_tracker.active:
-                _agent_tracker.add_message(event.message)
+                _agent_tracker.add_message(escape(event.message))
             elif not _header_printed and not _first_interim:
                 # Buffer first interim — enables collapsing for simple steps
-                _first_interim = event.message
+                _first_interim = escape(event.message)
             else:
                 # Check for progress-counter messages (e.g., "Detail 3/45 complete")
                 # and render as a single updating line instead of 45 separate lines.
@@ -436,7 +437,7 @@ async def render_workflow_events(
                         _first_interim = None
                     _ensure_header()
                     style = _level_styles.get(event.level, "[cyan]")
-                    console_obj.print(f"  {style}∟[/] {event.message}")
+                    console_obj.print(f"  {style}∟[/] {escape(event.message)}")
 
         elif isinstance(event, RollbackStarted):
             console_obj.print(f"[yellow]  ↩ Rolling back: {event.step_name}...[/]")
@@ -449,7 +450,7 @@ async def render_workflow_events(
                 console_obj.print(f"[red]  ✗ Rollback failed: {event.step_name}{error_detail}[/]")
 
         elif isinstance(event, LoopIterationStarted):
-            label = event.item_label or f"iteration {event.iteration_index + 1}"
+            label = escape(event.item_label or f"iteration {event.iteration_index + 1}")
             total = event.total_iterations
             idx = event.iteration_index + 1
             console_obj.print(f"\n[cyan]── [{idx}/{total}] {label} ──[/]")

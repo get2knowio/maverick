@@ -279,7 +279,13 @@ def _build_verification_lines(task: SpeckitTask, feature: SpeckitFeature) -> lis
         # Fallback: confirm the source feature directory itself exists —
         # a trivially-true but non-empty check (D8: never leave the AC-check
         # gate with nothing to run).
-        lines.append(f"rg --files -g '{feature.feature_name}'")
+        #
+        # The glob must name the directory's *contents*. Globbing the bare
+        # feature name matches nothing (no file is called "001-greet-cli";
+        # the directory is "specs/001-greet-cli/"), which turned this
+        # supposedly-trivial check into an AC gate no fix could close — and
+        # the fixer closed it by fabricating a file with that exact name.
+        lines.append(f"rg --files -g 'specs/{feature.feature_name}/*'")
     return lines
 
 

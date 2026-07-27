@@ -62,6 +62,41 @@ class TestHappyPath:
         assert "tests/test_feature_a.py" in by_id["T007"].file_paths
         assert by_id["T001"].file_paths == ()
 
+    def test_backtick_wrapped_paths_extracted(self) -> None:
+        """Spec Kit writes every path in backticks -- the common real shape.
+
+        Regression for the first live walkthrough: 26 of 28 generated tasks
+        extracted zero paths because ``_extract_file_paths`` stripped
+        ``.,;:()[]{}'"`` but not backticks. Empty file scope then routed
+        every task into ``_build_verification_lines``' fallback glob.
+        """
+        content = """\
+## Phase 1: Setup
+
+- [ ] T001 Create `src/greet/renderers/__init__.py` to establish the sub-package
+- [ ] T002 Update `get_console()` in `src/greet/output.py` and `src/greet/core.py`
+"""
+        phases, _ = parse_tasks_md(content)
+        by_id = {t.task_id: t for phase in phases for t in phase.tasks}
+        assert by_id["T001"].file_paths == ("src/greet/renderers/__init__.py",)
+        assert by_id["T002"].file_paths == ("src/greet/output.py", "src/greet/core.py")
+
+    def test_adjacent_inline_code_spans_are_not_a_path(self) -> None:
+        """``\\`[tool.mypy]\\`/\\`[tool.ruff]\\``` is two code spans, not a path.
+
+        Stripping only the outer delimiters leaves markup characters inside
+        the token; emitting it as a file path yields a glob that can never
+        match, which is what routes a task into an uncloseable AC check.
+        """
+        content = """\
+## Phase 1: Setup
+
+- [ ] T001 Create `pyproject.toml` with `[tool.mypy]`/`[tool.ruff]` sections
+"""
+        phases, _ = parse_tasks_md(content)
+        paths = phases[0].tasks[0].file_paths
+        assert paths == (), f"expected no path tokens, got {paths!r}"
+
     def test_fenced_code_block_is_skipped(self, full_tasks_md: str) -> None:
         phases, _ = parse_tasks_md(full_tasks_md)
         all_ids = {t.task_id for phase in phases for t in phase.tasks}
@@ -147,6 +182,57 @@ more prose
         phases, _ = parse_tasks_md(content)
         assert phases[0].tasks == ()
         assert phases[1].tasks[0].task_id == "T001"
+
+
+class TestOrphanedTasks:
+    """A real T### task outside any phase must never be discarded silently.
+
+    Regression for the first live Spec Kit walkthrough: ``/speckit.tasks``
+    rendered the stock template's ``## Phase N: Polish & Cross-Cutting
+    Concerns`` placeholder as ``## Final Phase: ...``. That heading misses
+    :data:`_PHASE_HEADING_RE`, so the three tasks beneath it were dropped
+    with no error anywhere in the pipeline -- including the only task that
+    ran the quality gates.
+    """
+
+    FINAL_PHASE = """\
+## Phase 1: Setup
+
+- [ ] T001 Do a thing
+
+## Final Phase: Polish & Cross-Cutting Concerns
+
+- [ ] T026 [P] Add a fallback in `src/greet/output.py`
+- [ ] T028 Run full quality gate suite
+"""
+
+    def test_task_under_unrecognized_phase_heading_is_not_dropped(self) -> None:
+        with pytest.raises(SpeckitParseError):
+            parse_tasks_md(self.FINAL_PHASE, file="tasks.md")
+
+    def test_orphan_error_names_the_lost_task_and_its_line(self) -> None:
+        with pytest.raises(SpeckitParseError) as exc_info:
+            parse_tasks_md(self.FINAL_PHASE, file="tasks.md")
+        err = exc_info.value
+        assert "T026" in str(err), "the error must name the task that would be lost"
+        assert err.file == "tasks.md"
+        assert err.line == 7
+        assert err.suggestion
+
+    def test_checkbox_prose_outside_a_phase_is_still_ignored(self) -> None:
+        """Free-form checkbox lines carry no task ID and must stay benign."""
+        content = """\
+## Phase 1: Setup
+
+- [ ] T001 Do a thing
+
+## Notes
+
+- [ ] this is prose, not a task
+"""
+        phases, _ = parse_tasks_md(content)
+        assert [p.number for p in phases] == [1]
+        assert phases[0].tasks[0].task_id == "T001"
 
 
 class TestHardErrors:

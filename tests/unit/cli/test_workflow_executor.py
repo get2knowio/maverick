@@ -80,3 +80,47 @@ class TestExecutePythonWorkflow:
 
         assert RecordingWorkflow.last_workflow_name == WORKFLOW_NAME
         mock_render.assert_awaited_once()
+
+
+class TestStepOutputMarkupSafety:
+    """Workflow text is data, not Rich markup.
+
+    Regression for the first live Spec Kit walkthrough: a Spec Kit task
+    description mentioning ``[project.scripts]`` and ``[tool.mypy]`` had
+    those tokens silently eaten by Rich's markup parser on the way to the
+    terminal, and a description containing ``[/]`` raises ``MarkupError``
+    outright. Neither is markup the workflow authored -- both come from a
+    file Maverick parsed.
+    """
+
+    @staticmethod
+    async def _render(messages: list[str]) -> str:
+        import io
+
+        from rich.console import Console
+
+        from maverick.cli.workflow_executor import render_workflow_events
+        from maverick.events import StepOutput
+
+        async def _events() -> AsyncIterator[Any]:
+            for msg in messages:
+                yield StepOutput(step_name="create_beads", message=msg)
+
+        buf = io.StringIO()
+        await render_workflow_events(_events(), Console(file=buf, width=200, no_color=True))
+        return buf.getvalue()
+
+    async def test_bracketed_tokens_survive_rendering(self) -> None:
+        out = await self._render(
+            [
+                "first interim",
+                "T001: create `[project.scripts]` and `[tool.mypy]`/`[tool.ruff]` sections",
+            ]
+        )
+        assert "[project.scripts]" in out
+        assert "[tool.mypy]" in out
+        assert "[tool.ruff]" in out
+
+    async def test_closing_tag_in_message_does_not_raise(self) -> None:
+        out = await self._render(["first interim", "T002: handle the `[/]` route"])
+        assert "[/]" in out
