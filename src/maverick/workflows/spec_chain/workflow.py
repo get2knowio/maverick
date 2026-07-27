@@ -62,9 +62,17 @@ from maverick.workflows.spec_chain.models import (
     StepStatus,
     is_valid_feature_slug,
 )
-from maverick.workflows.spec_chain.state import load_chain_state, save_chain_state
+from maverick.workflows.spec_chain.state import (
+    load_chain_state,
+    resumable_features,
+    save_chain_state,
+)
 from maverick.workflows.spec_chain.steps import build_step_prompt
-from maverick.workspace.spec_chain import prepare_workspace
+from maverick.workspace.spec_chain import (
+    prepare_workspace,
+    sweep_stale_workspaces,
+    teardown_workspace,
+)
 
 __all__ = ["WORKFLOW_NAME", "SpecChainWorkflow"]
 
@@ -287,9 +295,43 @@ class SpecChainWorkflow(PythonWorkflow):
         if state.status == "running":
             state = state.model_copy(update={"status": "completed", "updated_at": _utcnow()})
             await save_chain_state(state, cwd)
+            # Completed only. A halted or interrupted chain keeps its
+            # workspace: it holds the failing step's partial output, and
+            # resume reuses it. A completed chain's cannot even be resumed —
+            # re-running the feature hits the CLI's spec-dir collision check —
+            # so it is pure garbage, and left alone it would strand a stray
+            # anonymous head in the user's own commit graph forever.
+            # Checkpointed first: cleanup is best-effort and must never be
+            # able to lose the record that the chain finished.
+            await teardown_workspace(
+                cwd=cwd, feature=feature, jj_client=JjClient(cwd=cwd), home=home
+            )
 
         logger.info("spec_chain_finished", run_id=run_id, feature=feature, status=state.status)
         return _build_report(state).to_dict()
+
+    async def _sweep_stale_workspaces(
+        self, *, cwd: Path, feature: str, jj_client: JjClient, home: Path | None
+    ) -> None:
+        """Collect workspaces left behind by chains that never completed.
+
+        Teardown-on-completion never fires for a chain the user abandoned
+        with Ctrl-C, which is the realistic leak, so the sweep is what
+        actually bounds growth.
+
+        The keep-set is this layer's policy call, which is why it is computed
+        here rather than inside ``workspace/``: resumability is a property of
+        ``.maverick/runs`` state, not of the filesystem. *feature* is always
+        kept — on a fresh run ``prepare_workspace`` is about to recreate it,
+        on a resume it is in active use.
+        """
+        try:
+            keep = await resumable_features(cwd)
+        except Exception as exc:  # noqa: BLE001 — never block a run on cleanup
+            logger.warning("spec_chain_workspace_sweep_skipped", error=str(exc))
+            return
+        keep.add(feature)
+        await sweep_stale_workspaces(cwd=cwd, jj_client=jj_client, keep=keep, home=home)
 
     async def _start_fresh(
         self,
@@ -306,6 +348,9 @@ class SpecChainWorkflow(PythonWorkflow):
         prd_digest = hashlib.sha256(prd_content.encode("utf-8")).hexdigest()
 
         jj_client = JjClient(cwd=cwd)
+        await self._sweep_stale_workspaces(
+            cwd=cwd, feature=feature, jj_client=jj_client, home=home
+        )
         workspace_path = await prepare_workspace(
             cwd=cwd,
             feature=feature,
@@ -366,6 +411,9 @@ class SpecChainWorkflow(PythonWorkflow):
                 )
 
         jj_client = JjClient(cwd=cwd)
+        await self._sweep_stale_workspaces(
+            cwd=cwd, feature=feature, jj_client=jj_client, home=home
+        )
         workspace_path = await prepare_workspace(
             cwd=cwd,
             feature=feature,

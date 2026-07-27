@@ -438,3 +438,72 @@ async def test_discover_resumable_skips_unparseable_state_files(temp_dir: Path) 
 
     assert result is not None
     assert result.run_id == "run-valid"
+
+
+class TestResumableFeatures:
+    """`resumable_features` names every feature a sweep must not delete.
+
+    The hidden workspace of a halted or still-running chain is that chain's
+    only copy of the failing step's partial output, and resume reuses it. A
+    completed chain's workspace is pure garbage -- it cannot even be resumed,
+    since re-running the feature hits the CLI's collision check.
+    """
+
+    async def test_returns_features_with_resumable_status(self, tmp_path: Path) -> None:
+        from maverick.workflows.spec_chain.state import resumable_features
+
+        await save_chain_state(
+            _chain_state(run_id="r1", feature="halted-one", status="halted"), tmp_path
+        )
+        await save_chain_state(
+            _chain_state(run_id="r2", feature="running-one", status="running"), tmp_path
+        )
+
+        assert await resumable_features(tmp_path) == {"halted-one", "running-one"}
+
+    async def test_completed_features_are_not_resumable(self, tmp_path: Path) -> None:
+        from maverick.workflows.spec_chain.state import resumable_features
+
+        await save_chain_state(
+            _chain_state(run_id="r1", feature="done", status="completed"), tmp_path
+        )
+        await save_chain_state(
+            _chain_state(run_id="r2", feature="live", status="halted"), tmp_path
+        )
+
+        assert await resumable_features(tmp_path) == {"live"}
+
+    async def test_missing_runs_dir_is_empty_not_an_error(self, tmp_path: Path) -> None:
+        from maverick.workflows.spec_chain.state import resumable_features
+
+        assert await resumable_features(tmp_path / "no-such-checkout") == set()
+
+    async def test_corrupt_state_file_is_skipped(self, tmp_path: Path) -> None:
+        from maverick.workflows.spec_chain.state import resumable_features
+
+        await save_chain_state(
+            _chain_state(run_id="good", feature="live", status="halted"), tmp_path
+        )
+        bad = tmp_path / ".maverick" / "runs" / "bad"
+        bad.mkdir(parents=True)
+        (bad / "spec-chain.json").write_text("{not json", encoding="utf-8")
+
+        assert await resumable_features(tmp_path) == {"live"}
+
+    async def test_agrees_with_discover_resumable(self, tmp_path: Path) -> None:
+        """The two must never disagree -- they gate the same decision."""
+        from maverick.workflows.spec_chain.state import resumable_features
+
+        for run_id, feature, status in (
+            ("r1", "halted-one", "halted"),
+            ("r2", "done-one", "completed"),
+            ("r3", "running-one", "running"),
+        ):
+            await save_chain_state(
+                _chain_state(run_id=run_id, feature=feature, status=status), tmp_path
+            )
+
+        features = await resumable_features(tmp_path)
+        for feature in ("halted-one", "done-one", "running-one"):
+            found = await discover_resumable(feature, tmp_path)
+            assert (found is not None) == (feature in features), feature
