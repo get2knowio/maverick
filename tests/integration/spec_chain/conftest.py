@@ -55,17 +55,22 @@ def build_speckit_repo(tmp_path: Path) -> Path:
     _run(["git", "config", "user.name", "Test"], cwd=repo)
     _run(["jj", "git", "init", "--colocate"], cwd=repo)
 
-    commands_dir = repo / ".claude" / "commands"
-    commands_dir.mkdir(parents=True)
+    # Spec Kit >= 0.14 ships skills, not commands — match the version
+    # declared in init-options.json below so the fixture repo is the shape
+    # `steps.resolve_command` will actually meet in the field. The pre-0.14
+    # command layout stays covered by the unit tests.
+    skills_dir = repo / ".claude" / "skills"
     for step in COMMAND_STEPS:
-        (commands_dir / f"speckit.{step.value}.md").write_text(
-            f"Instructions for /speckit.{step.value}.\n", encoding="utf-8"
+        step_dir = skills_dir / f"speckit-{step.value}"
+        step_dir.mkdir(parents=True)
+        (step_dir / "SKILL.md").write_text(
+            f"Instructions for /speckit-{step.value}.\n", encoding="utf-8"
         )
 
     specify_dir = repo / ".specify"
     specify_dir.mkdir()
     (specify_dir / "init-options.json").write_text(
-        '{"speckit_version": "0.14.0"}', encoding="utf-8"
+        '{"speckit_version": "0.16.0"}', encoding="utf-8"
     )
 
     docs_dir = repo / "docs"
@@ -171,7 +176,7 @@ class ConfigurableSpeckitRuntime:
     @staticmethod
     def _infer_step(prompt: str) -> ChainStep:
         for step in COMMAND_STEPS:
-            if f"/speckit.{step.value}" in prompt:
+            if f"/speckit-{step.value}" in prompt:
                 return step
         raise AssertionError(f"could not infer step from prompt: {prompt!r}")
 

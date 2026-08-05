@@ -123,7 +123,16 @@ class TestTemplateCompatibility:
     def test_boundary_at_upper_exclusive_is_unsupported(self, temp_dir: Path) -> None:
         specify_dir = temp_dir / ".specify"
         specify_dir.mkdir(parents=True)
-        (specify_dir / "init-options.json").write_text(json.dumps({"speckit_version": "0.15.0"}))
+        (specify_dir / "init-options.json").write_text(json.dumps({"speckit_version": "0.17.0"}))
 
         compat = check_template_compatibility(temp_dir)
         assert compat.status == "unsupported"
+
+    @pytest.mark.parametrize("version", ["0.14.0", "0.15.2", "0.16.0"])
+    def test_verified_versions_are_supported(self, temp_dir: Path, version: str) -> None:
+        specify_dir = temp_dir / ".specify"
+        specify_dir.mkdir(parents=True)
+        (specify_dir / "init-options.json").write_text(json.dumps({"speckit_version": version}))
+
+        compat = check_template_compatibility(temp_dir)
+        assert compat.status == "supported"

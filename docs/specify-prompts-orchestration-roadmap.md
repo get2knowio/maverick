@@ -11,7 +11,7 @@ maverick refuel <feature-name> --speckit
 maverick fly --epic <epic-id>
 ```
 
-(or paste directly into `/speckit.specify` if driving Spec Kit by hand).
+(or paste directly into `/speckit-specify` if driving Spec Kit by hand).
 
 Prompts are written per Spec Kit convention — intent, behavior, and constraints,
 with implementation left to the plan phase. Where a prompt references existing

@@ -1,12 +1,19 @@
 """Per-step prompt builders for the spec-chain workflow.
 
 Each chain step's prompt instructs the agent to run the target
-repository's own ``/speckit.*`` slash command (R1/FR-003). When the
-command's definition file is present in the workspace, its body is
-inlined too — a fallback for providers whose agent surface can't invoke
-slash commands natively, and a belt-and-suspenders reinforcement for
-providers that can. Either way the instructions still come from the
-target repository's own files, not from Maverick.
+repository's own Spec Kit command (R1/FR-003). When that command's
+definition file is present in the workspace, its body is inlined too — a
+fallback for providers whose agent surface can't invoke slash commands
+natively, and a belt-and-suspenders reinforcement for providers that
+can. Either way the instructions still come from the target repository's
+own files, not from Maverick.
+
+Spec Kit 0.14 renamed that surface: `.claude/commands/speckit.<step>.md`
+(invoked `/speckit.<step>`) became `.claude/skills/speckit-<step>/SKILL.md`
+(invoked `/speckit-<step>`). Rather than hardcode either shape, every
+lookup here probes the workspace and reports the name matching whatever
+it actually finds — so a repo on 0.14+ and a repo still carrying the
+pre-0.14 layout each get a prompt naming a command that exists there.
 """
 
 from __future__ import annotations
@@ -15,19 +22,24 @@ from pathlib import Path
 
 from maverick.workflows.spec_chain.constants import ChainStep
 
-__all__ = ["SLASH_COMMANDS", "build_step_prompt", "read_command_body"]
+__all__ = [
+    "SLASH_COMMANDS",
+    "build_step_prompt",
+    "read_command_body",
+    "resolve_command",
+]
 
-#: Slash command name per chain step — the target repo's own `/speckit.*`
-#: surface.
-SLASH_COMMANDS: dict[ChainStep, str] = {
-    ChainStep.SPECIFY: "/speckit.specify",
-    ChainStep.CLARIFY: "/speckit.clarify",
-    ChainStep.PLAN: "/speckit.plan",
-    ChainStep.TASKS: "/speckit.tasks",
-    ChainStep.ANALYZE: "/speckit.analyze",
+#: Default slash command per chain step — the Spec Kit 0.14+ skill form,
+#: used when the workspace carries neither surface on disk. Prefer
+#: :func:`resolve_command`, which reports what the workspace actually has.
+SLASH_COMMANDS: dict[ChainStep, str] = {step: f"/speckit-{step.value}" for step in ChainStep}
+
+#: Skill-definition file (Spec Kit >= 0.14), relative to the workspace root.
+_SKILL_FILE: dict[ChainStep, str] = {
+    step: f".claude/skills/speckit-{step.value}/SKILL.md" for step in ChainStep
 }
 
-#: Command-definition file, relative to the workspace root, per step.
+#: Command-definition file (Spec Kit < 0.14), relative to the workspace root.
 _COMMAND_FILE: dict[ChainStep, str] = {
     step: f".claude/commands/speckit.{step.value}.md" for step in ChainStep
 }
@@ -40,16 +52,41 @@ _STRUCTURED_REPORT_INSTRUCTION = (
 )
 
 
+def resolve_command(workspace: Path, step: ChainStep) -> tuple[str, str | None]:
+    """Resolve *step*'s slash command and definition body in *workspace*.
+
+    Probes the Spec Kit >= 0.14 skill layout first, then the pre-0.14
+    command layout, so the returned name always matches the surface
+    actually installed there.
+
+    Args:
+        workspace: The workspace root to probe.
+        step: The chain step to resolve.
+
+    Returns:
+        A ``(slash_command, body)`` pair. ``body`` is ``None`` when
+        neither definition file exists, in which case ``slash_command``
+        falls back to :data:`SLASH_COMMANDS`.
+    """
+    for relative_path, command in (
+        (_SKILL_FILE[step], f"/speckit-{step.value}"),
+        (_COMMAND_FILE[step], f"/speckit.{step.value}"),
+    ):
+        candidate = workspace / relative_path
+        if candidate.is_file():
+            return command, candidate.read_text(encoding="utf-8")
+
+    return SLASH_COMMANDS[step], None
+
+
 def read_command_body(workspace: Path, step: ChainStep) -> str | None:
     """Read *step*'s command-definition markdown from the workspace.
 
-    Returns ``None`` when no known command file exists there (the inline
-    fallback is simply omitted from the prompt in that case).
+    Returns ``None`` when neither the skill nor the command definition
+    exists there (the inline fallback is simply omitted from the prompt
+    in that case).
     """
-    candidate = workspace / _COMMAND_FILE[step]
-    if not candidate.is_file():
-        return None
-    return candidate.read_text(encoding="utf-8")
+    return resolve_command(workspace, step)[1]
 
 
 def build_step_prompt(
@@ -73,7 +110,7 @@ def build_step_prompt(
     Returns:
         The full prompt text for this step.
     """
-    command = SLASH_COMMANDS[step]
+    command, body = resolve_command(workspace, step)
     parts: list[str] = []
 
     if step is ChainStep.SPECIFY:
@@ -85,7 +122,6 @@ def build_step_prompt(
     else:
         parts.append(f'Run `{command}` for the current feature ("{feature}").')
 
-    body = read_command_body(workspace, step)
     if body:
         parts.append(
             f"If your environment cannot invoke `{command}` as a slash "

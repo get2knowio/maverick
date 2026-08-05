@@ -1,7 +1,7 @@
 """Full five-step happy-path integration test for `SpecChainWorkflow`.
 
 Runs against a real tmp jj+git colocated repo fixture (with
-`.claude/commands/speckit.*.md` and `.specify/` markers) and a stubbed
+`.claude/skills/speckit-*/SKILL.md` and `.specify/` markers) and a stubbed
 airframe runtime that writes canned artifacts — no live model calls.
 Asserts strict ordering, artifact landing, final report counts, that no
 interactive input is ever requested (FR-004), and that spec/plan/tasks
@@ -54,17 +54,20 @@ def _build_speckit_repo(tmp_path: Path) -> Path:
     _run(["git", "config", "user.name", "Test"], cwd=repo)
     _run(["jj", "git", "init", "--colocate"], cwd=repo)
 
-    commands_dir = repo / ".claude" / "commands"
-    commands_dir.mkdir(parents=True)
+    # Spec Kit >= 0.14 ships skills, not commands — see the note in
+    # `conftest.build_speckit_repo`.
+    skills_dir = repo / ".claude" / "skills"
     for step in _COMMAND_STEPS:
-        (commands_dir / f"speckit.{step.value}.md").write_text(
-            f"Instructions for /speckit.{step.value}.\n", encoding="utf-8"
+        step_dir = skills_dir / f"speckit-{step.value}"
+        step_dir.mkdir(parents=True)
+        (step_dir / "SKILL.md").write_text(
+            f"Instructions for /speckit-{step.value}.\n", encoding="utf-8"
         )
 
     specify_dir = repo / ".specify"
     specify_dir.mkdir()
     (specify_dir / "init-options.json").write_text(
-        '{"speckit_version": "0.14.0"}', encoding="utf-8"
+        '{"speckit_version": "0.16.0"}', encoding="utf-8"
     )
 
     docs_dir = repo / "docs"
@@ -194,7 +197,7 @@ class _CannedSpeckitRuntime:
     @staticmethod
     def _infer_step(prompt: str) -> ChainStep:
         for step in _COMMAND_STEPS:
-            if f"/speckit.{step.value}" in prompt:
+            if f"/speckit-{step.value}" in prompt:
                 return step
         raise AssertionError(f"could not infer step from prompt: {prompt!r}")
 
