@@ -54,7 +54,12 @@ class TestInteractiveAccept:
         assert cmd[0] == "uvx"
         assert "--from" in cmd
         assert any(arg.startswith("specify-cli==") for arg in cmd)
-        assert cmd[-2:] == ["init", "--here"]
+        assert cmd[cmd.index("specify") + 1 : cmd.index("specify") + 3] == ["init", "--here"]
+        # Every flag that keeps the installer from blocking on a prompt
+        # under CommandRunner — see `install_speckit`.
+        assert "--force" in cmd
+        assert cmd[cmd.index("--integration") + 1] == "claude"
+        assert "--ignore-agent-tools" in cmd
 
     async def test_install_failure_returns_false(self, tmp_path: Path) -> None:
         from maverick.runners.command import CommandRunner

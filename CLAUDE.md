@@ -498,8 +498,12 @@ Mode is auto-detected from repository shape; `--speckit` forces it.
 `maverick spec <feature> --from-prd <file>` runs the target repository's
 own Spec Kit chain — specify → clarify → plan → tasks → analyze —
 headlessly, inside a hidden jj workspace (the one documented exception to
-Guardrail 0; see above), invoking the repo's own `/speckit.*` commands
-via an airframe `SpecChainAgent`. Clarify never blocks: adopted answers
+Guardrail 0; see above), invoking the repo's own Spec Kit command surface
+via an airframe `SpecChainAgent`. That surface is resolved per step from
+the workspace rather than hardcoded — `.claude/skills/speckit-<step>/SKILL.md`
+(invoked `/speckit-<step>`) on Spec Kit >= 0.14, falling back to the
+pre-0.14 `.claude/commands/speckit.<step>.md` (`/speckit.<step>`) — see
+`workflows/spec_chain/steps.py:resolve_command`. Clarify never blocks: adopted answers
 are filed as standalone assumption-ledger entries
 (`assumptions.ledger.record_standalone_assumption`, no epic yet) via
 question interception where the provider supports it, else by parsing

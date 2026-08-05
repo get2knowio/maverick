@@ -81,8 +81,8 @@ class TestHaltedChainResumesFromFailedStep:
         # specify was never re-invoked in the resumed run.
         assert len(second_runtimes) == 1
         prompts = [c["prompt"] for c in second_runtimes[0].execute_calls]
-        assert not any("/speckit.specify" in p for p in prompts)
-        assert any("/speckit.clarify" in p for p in prompts)
+        assert not any("/speckit-specify" in p for p in prompts)
+        assert any("/speckit-clarify" in p for p in prompts)
 
         final_state = await load_chain_state(run_id, speckit_repo)
         assert final_state is not None
@@ -126,9 +126,9 @@ class TestLandedArtifactVerification:
         await _run_once(speckit_repo, fake_home, run_id=run_id)
 
         prompts = [c["prompt"] for c in second_runtimes[0].execute_calls]
-        assert not any("/speckit.specify" in p for p in prompts)
-        assert not any("/speckit.clarify" in p for p in prompts)
-        assert any("/speckit.plan" in p for p in prompts)
+        assert not any("/speckit-specify" in p for p in prompts)
+        assert not any("/speckit-clarify" in p for p in prompts)
+        assert any("/speckit-plan" in p for p in prompts)
 
         final_state = await load_chain_state(run_id, speckit_repo)
         assert final_state is not None
@@ -229,7 +229,7 @@ class TestPrdDigestMismatchWarns:
         _workflow, events = await _run_once(speckit_repo, fake_home, run_id=run_id)
 
         prompts = [c["prompt"] for c in second_runtimes[0].execute_calls]
-        assert not any("/speckit.specify" in p for p in prompts)
+        assert not any("/speckit-specify" in p for p in prompts)
 
         warning_events = [
             e

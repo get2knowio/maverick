@@ -16,8 +16,16 @@ from pydantic import BaseModel, ConfigDict
 
 from maverick.speckit.errors import AmbiguousFeatureError
 
-#: Initially 0.14.x — bump when a new Spec Kit template shape is verified.
-SUPPORTED_SPECKIT_RANGE = ">=0.14,<0.15"
+#: Bump when a new Spec Kit template shape is verified against
+#: :mod:`maverick.speckit.parser`. 0.15 and 0.16 were verified: the
+#: `## Phase N:` headings, `- [ ] T### [P] [US#]` task lines, the
+#: `# Feature Specification:` title, and the `**SC-###**:` bullets this
+#: package parses are all unchanged from 0.14 — the 0.15/0.16 template
+#: deltas are prose and formatting only. What *did* change at 0.14 is
+#: the agent surface (`.claude/commands/speckit.*.md` became
+#: `.claude/skills/speckit-*/SKILL.md`); that is handled in
+#: :mod:`maverick.workflows.spec_chain.steps`, not here.
+SUPPORTED_SPECKIT_RANGE = ">=0.14,<0.17"
 
 _VERSION_RE = re.compile(r"^(\d+)\.(\d+)(?:\.(\d+))?")
 _RANGE_CLAUSE_RE = re.compile(r"^(>=|<=|>|<|==)\s*(.+)$")

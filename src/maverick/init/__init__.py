@@ -506,13 +506,11 @@ async def _maybe_init_runway(project_path: Path, verbose: bool) -> bool:
 # =============================================================================
 
 #: Pinned `specify-cli` version for the install offer's `uvx --from`
-#: invocation. Chosen as the supported range's floor
-#: (`SUPPORTED_SPECKIT_RANGE = ">=0.14,<0.15"`) rather than a guessed
-#: "latest patch" — this sandbox has no way to query PyPI for the true
-#: newest compatible release, and the floor is the one version guaranteed
-#: to satisfy the range. Bump when a newer 0.14.x release is verified
-#: compatible.
-SPECKIT_CLI_PIN = "0.14.0"
+#: invocation. Kept at the newest release verified against
+#: `SUPPORTED_SPECKIT_RANGE` (`>=0.14,<0.17`) rather than left floating,
+#: so an upstream release can never change what `maverick init` installs
+#: without a deliberate bump here.
+SPECKIT_CLI_PIN = "0.16.0"
 
 #: Timeout for the `uvx --from specify-cli==<pin> specify init --here`
 #: installer subprocess.
@@ -532,7 +530,25 @@ async def install_speckit(project_path: Path) -> bool:
 
     runner = CommandRunner(cwd=project_path, timeout=_SPECKIT_INSTALL_TIMEOUT_SECONDS)
     result = await runner.run(
-        ["uvx", "--from", f"specify-cli=={SPECKIT_CLI_PIN}", "specify", "init", "--here"]
+        [
+            "uvx",
+            "--from",
+            f"specify-cli=={SPECKIT_CLI_PIN}",
+            "specify",
+            "init",
+            "--here",
+            # Every flag below exists to keep the installer non-interactive
+            # under `CommandRunner` — a prompt here would block until the
+            # timeout rather than fail. `--here` in a non-empty repo asks
+            # for merge confirmation (`--force`), an omitted integration
+            # opens an arrow-key selector (`--integration`), and a missing
+            # agent CLI triggers a tool check maverick doesn't require —
+            # airframe may be driving any provider (`--ignore-agent-tools`).
+            "--force",
+            "--integration",
+            "claude",
+            "--ignore-agent-tools",
+        ]
     )
     if not result.success:
         logger.warning(

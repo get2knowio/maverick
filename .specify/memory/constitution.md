@@ -796,7 +796,7 @@ Guardrail X.8 (canonical wrappers) intact even inside the exception.
 - Location: `~/.maverick/workspaces/<project-slug>/spec-chain/<feature>/`—per-feature, so
   two features' chains never share (and one can never destroy the other's resumable state).
 - Creation: `JjClient.workspace_add`, from the user's colocated checkout—the shared
-  backing store materializes committed files (`.claude/commands/speckit.*.md`,
+  backing store materializes committed files (`.claude/skills/speckit-*/SKILL.md`,
   `.specify/**`, existing `specs/**`) into the workspace. The PRD file (often untracked)
   is copied in explicitly.
 - Reuse and cleanup: a resumable chain (`status` `halted`/`running`) reuses its workspace
