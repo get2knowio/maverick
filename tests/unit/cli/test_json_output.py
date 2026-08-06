@@ -38,7 +38,7 @@ from maverick.exceptions.beads import BeadQueryError
 
 
 class TestErrorKind:
-    """The 12-value ErrorKind registry is frozen per the contract."""
+    """The 13-value ErrorKind registry is frozen per the contract."""
 
     def test_exact_registry_values(self) -> None:
         expected = {
@@ -54,6 +54,7 @@ class TestErrorKind:
             "curation-failed",
             "vcs",
             "internal",
+            "delivery-failed",
         }
         actual = {member.value for member in ErrorKind}
         assert actual == expected
@@ -61,6 +62,11 @@ class TestErrorKind:
     def test_is_str_enum(self) -> None:
         assert ErrorKind.VALIDATION == "validation"
         assert isinstance(ErrorKind.VALIDATION, str)
+
+    def test_delivery_failed_value(self) -> None:
+        """054's ``notify`` verb maps ``DeliveryFailedError`` to this kind."""
+        assert ErrorKind.DELIVERY_FAILED == "delivery-failed"
+        assert isinstance(ErrorKind.DELIVERY_FAILED, str)
 
 
 # =============================================================================

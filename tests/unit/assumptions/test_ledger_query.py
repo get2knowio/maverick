@@ -7,7 +7,11 @@ from unittest.mock import patch
 
 import pytest
 
-from maverick.assumptions.ledger import open_blocking_entries, open_high_entries_before
+from maverick.assumptions.ledger import (
+    open_blocking_entries,
+    open_high_entries_before,
+    report_entries,
+)
 from maverick.assumptions.models import (
     ASSUMPTION_LABEL,
     ASSUMPTION_REVIEW_LABEL,
@@ -32,7 +36,11 @@ def _summary(bead_id: str, status: str = "open") -> BeadSummary:
 
 
 def _entry(
-    bead_id: str, severity: str, status: str = STATUS_OPEN, owner_spec: str = ""
+    bead_id: str,
+    severity: str,
+    status: str = STATUS_OPEN,
+    owner_spec: str = "",
+    created_at: str | None = None,
 ) -> BeadDetails:
     return BeadDetails(
         id=bead_id,
@@ -42,10 +50,11 @@ def _entry(
         status="closed" if status != STATUS_OPEN else "open",
         labels=[ASSUMPTION_LABEL, ASSUMPTION_REVIEW_LABEL, NEEDS_HUMAN_REVIEW_LABEL],
         state={KEY_SEVERITY: severity, KEY_STATUS: status, KEY_OWNER_SPEC: owner_spec},
+        created_at=created_at,
     )
 
 
-def _legacy_entry(bead_id: str) -> BeadDetails:
+def _legacy_entry(bead_id: str, created_at: str | None = None) -> BeadDetails:
     return BeadDetails(
         id=bead_id,
         title="Review: legacy",
@@ -54,6 +63,7 @@ def _legacy_entry(bead_id: str) -> BeadDetails:
         status="open",
         labels=[ASSUMPTION_REVIEW_LABEL, NEEDS_HUMAN_REVIEW_LABEL],
         state={"source_bead": "b-1", "flight_plan": "legacy-plan"},
+        created_at=created_at,
     )
 
 
@@ -176,3 +186,68 @@ class TestOpenHighEntriesBefore:
             result = await open_high_entries_before(client, epic_id="epic-1")
 
         assert result == ()
+
+
+class TestReportEntriesCreatedAt:
+    """``created_at`` propagation (spec 054 research R1) via ``report_entries``."""
+
+    @pytest.mark.asyncio
+    async def test_copies_created_at_from_bead_details(self) -> None:
+        client = _client()
+        details = _entry("dea-1", "medium", created_at="2026-08-05T22:09:49Z")
+
+        async def fake_query(self: BeadClient, filter_expr: str) -> list[BeadSummary]:
+            return [_summary("dea-1")]
+
+        async def fake_show(self: BeadClient, bead_id: str) -> BeadDetails:
+            return details
+
+        with (
+            patch.object(BeadClient, "query", new=fake_query),
+            patch.object(BeadClient, "show", new=fake_show),
+        ):
+            result = await report_entries(client)
+
+        assert len(result) == 1
+        assert result[0].record.created_at == "2026-08-05T22:09:49Z"
+
+    @pytest.mark.asyncio
+    async def test_created_at_none_when_bead_omits_it(self) -> None:
+        client = _client()
+        details = _entry("dea-1", "medium")
+
+        async def fake_query(self: BeadClient, filter_expr: str) -> list[BeadSummary]:
+            return [_summary("dea-1")]
+
+        async def fake_show(self: BeadClient, bead_id: str) -> BeadDetails:
+            return details
+
+        with (
+            patch.object(BeadClient, "query", new=fake_query),
+            patch.object(BeadClient, "show", new=fake_show),
+        ):
+            result = await report_entries(client)
+
+        assert len(result) == 1
+        assert result[0].record.created_at is None
+
+    @pytest.mark.asyncio
+    async def test_legacy_entry_copies_created_at(self) -> None:
+        client = _client()
+        details = _legacy_entry("legacy-1", created_at="2026-08-01T00:00:00Z")
+
+        async def fake_query(self: BeadClient, filter_expr: str) -> list[BeadSummary]:
+            return [_summary("legacy-1")]
+
+        async def fake_show(self: BeadClient, bead_id: str) -> BeadDetails:
+            return details
+
+        with (
+            patch.object(BeadClient, "query", new=fake_query),
+            patch.object(BeadClient, "show", new=fake_show),
+        ):
+            result = await report_entries(client)
+
+        assert len(result) == 1
+        assert result[0].record.is_legacy is True
+        assert result[0].record.created_at == "2026-08-01T00:00:00Z"

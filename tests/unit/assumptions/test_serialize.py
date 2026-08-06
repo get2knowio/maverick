@@ -34,6 +34,7 @@ def _record(
     question: str = "Q?",
     adopted_answer: str = "A.",
     alternatives: tuple[str, ...] = (),
+    created_at: str | None = None,
 ) -> AssumptionRecord:
     return AssumptionRecord(
         bead_id=bead_id,
@@ -47,6 +48,7 @@ def _record(
         source_bead=source_bead,
         change_ids=change_ids,
         is_legacy=is_legacy,
+        created_at=created_at,
     )
 
 
@@ -64,6 +66,7 @@ def _entry(
     reconciled_answer: str | None = None,
     reconcile_change_id: str | None = None,
     reconcile_reason: str | None = None,
+    created_at: str | None = None,
 ) -> AssumptionReportEntry:
     return AssumptionReportEntry(
         record=_record(
@@ -74,6 +77,7 @@ def _entry(
             is_legacy=is_legacy,
             owner_spec=owner_spec,
             change_ids=change_ids,
+            created_at=created_at,
         ),
         final_answer="Yes." if status == STATUS_ANSWERED else None,
         waived_by="alice" if status == STATUS_WAIVED else None,
@@ -194,6 +198,20 @@ class TestEntryToDictNewFields:
         entry = _entry(status=STATUS_WAIVED)
         row = entry_to_dict(entry)
         assert row["blocks_landing"] is False
+
+
+class TestEntryToDictCreatedAt:
+    """``created_at`` (spec 054 research R1) — additive, shared with the land report."""
+
+    def test_created_at_present(self) -> None:
+        entry = _entry(created_at="2026-08-05T22:09:49Z")
+        row = entry_to_dict(entry)
+        assert row["created_at"] == "2026-08-05T22:09:49Z"
+
+    def test_created_at_none_when_absent(self) -> None:
+        entry = _entry()
+        row = entry_to_dict(entry)
+        assert row["created_at"] is None
 
 
 class TestNullOmissionRule:

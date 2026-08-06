@@ -63,6 +63,7 @@ def entry_to_dict(entry: AssumptionReportEntry) -> dict[str, object]:
         "severity_defaulted": record.severity_defaulted,
         "is_legacy": record.is_legacy,
         "source_bead": record.source_bead,
+        "created_at": record.created_at,
         "affected_change_ids": list(entry.affected_change_ids),
         "waiver": waiver,
         "reconcile": {

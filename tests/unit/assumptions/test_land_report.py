@@ -31,6 +31,7 @@ def _record(
     is_legacy: bool = False,
     owner_spec: str = "052-conditional-landing",
     change_ids: tuple[str, ...] = (),
+    created_at: str | None = None,
 ) -> AssumptionRecord:
     return AssumptionRecord(
         bead_id=bead_id,
@@ -44,6 +45,7 @@ def _record(
         source_bead="dea-0",
         change_ids=change_ids,
         is_legacy=is_legacy,
+        created_at=created_at,
     )
 
 
@@ -58,6 +60,7 @@ def _entry(
     owner_spec: str = "052-conditional-landing",
     change_ids: tuple[str, ...] = (),
     reconcile_change_id: str | None = None,
+    created_at: str | None = None,
 ) -> AssumptionReportEntry:
     return AssumptionReportEntry(
         record=_record(
@@ -67,6 +70,7 @@ def _entry(
             is_legacy=is_legacy,
             owner_spec=owner_spec,
             change_ids=change_ids,
+            created_at=created_at,
         ),
         final_answer="Yes." if status == STATUS_ANSWERED else None,
         waived_by="alice" if status == STATUS_WAIVED else None,
@@ -267,6 +271,22 @@ class TestBuildReportSchema:
         report = build_report((entry,), LandVerification.BLOCKED, run_id="r1", dry_run=False)
         row = report.to_dict()["specs"][0]["entries"][0]
         assert "pending reconcile" in row["annotations"]
+
+    def test_created_at_present_value_flows_into_row(self) -> None:
+        from maverick.assumptions.land_report import build_report
+
+        entry = _entry(bead_id="dea-1", created_at="2026-07-24T14:00:00+00:00")
+        report = build_report((entry,), LandVerification.VERIFIED, run_id="r1", dry_run=False)
+        row = report.to_dict()["specs"][0]["entries"][0]
+        assert row["created_at"] == "2026-07-24T14:00:00+00:00"
+
+    def test_created_at_absent_is_none_in_row(self) -> None:
+        from maverick.assumptions.land_report import build_report
+
+        entry = _entry(bead_id="dea-1", created_at=None)
+        report = build_report((entry,), LandVerification.VERIFIED, run_id="r1", dry_run=False)
+        row = report.to_dict()["specs"][0]["entries"][0]
+        assert row["created_at"] is None
 
     def test_degraded_flag_and_omitted_verification(self) -> None:
         from maverick.assumptions.land_report import build_report

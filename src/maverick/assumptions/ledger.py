@@ -267,6 +267,7 @@ def _record_from_details(details: object) -> AssumptionRecord:
         source_bead=state.get(KEY_SOURCE_BEAD, ""),
         change_ids=change_ids,
         is_legacy=False,
+        created_at=getattr(details, "created_at", None),
     )
 
 
@@ -290,6 +291,7 @@ def _legacy_record_from_details(details: object) -> AssumptionRecord:
         source_bead=state.get(KEY_SOURCE_BEAD, ""),
         change_ids=(),
         is_legacy=True,
+        created_at=getattr(details, "created_at", None),
     )
 
 

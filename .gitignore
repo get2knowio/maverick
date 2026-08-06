@@ -49,3 +49,7 @@ test_bd.sh
 .claude/worktrees/
 .claude/scheduled_tasks.lock
 /.maverick/runs
+# `maverick notify` delivery state + pid lockfile: per-machine, never
+# committed. jj-colocated checkouts auto-snapshot anything not ignored, so
+# leaving these tracked would make every cron fire dirty the working copy.
+/.maverick/notify

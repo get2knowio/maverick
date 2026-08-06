@@ -72,6 +72,7 @@ class ErrorKind(StrEnum):
     CURATION_FAILED = "curation-failed"
     VCS = "vcs"
     INTERNAL = "internal"
+    DELIVERY_FAILED = "delivery-failed"
 
 
 @dataclass(frozen=True, slots=True)
