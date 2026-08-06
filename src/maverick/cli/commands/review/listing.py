@@ -19,11 +19,15 @@ from rich.table import Table
 from maverick.assumptions.models import STATUS_OPEN
 from maverick.cli.console import console
 from maverick.cli.context import ExitCode
+from maverick.logging import get_logger
 
 if TYPE_CHECKING:
     from maverick.assumptions.models import AssumptionReportEntry
+    from maverick.beads.client import BeadClient
 
 __all__ = ["run_list"]
+
+logger = get_logger(__name__)
 
 #: Presentation-order rank — high severity sorts first (data-model.md
 #: "canonical ordering": owner_spec asc, then severity high->low, then
@@ -63,6 +67,47 @@ def _filter_and_sort(
     return [entry for _, entry in selected]
 
 
+async def _backfill_entries(
+    client: BeadClient,
+    entries: list[AssumptionReportEntry],
+) -> list[AssumptionReportEntry]:
+    """Back-fill suggestions for the *open* entries among *entries*.
+
+    Restricted to open entries with no stored suggestion, deliberately:
+    back-fill persists what it computes with a ``bd set-state`` write, and
+    an answered/waived entry will never be reviewed again, so writing a
+    suggestion onto one is pure cost on a read-only verb (the
+    ``maverick-review`` skill calls ``review --list`` on every sweep).
+    Callers pass the already-filtered, already-sorted selection so the
+    write set is exactly what the caller will render.
+
+    Best-effort (FR-021): a runway store that isn't initialized degrades
+    silently inside :func:`backfill_suggestions` itself; any other failure
+    raised at this call site is caught here and also degrades to a
+    debug-logged no-op — the original *entries* are returned unchanged, in
+    their original order.
+    """
+    from maverick.assumptions.suggestions import backfill_suggestions
+    from maverick.runway.store import RunwayStore, runway_path_for
+
+    targets = [e for e in entries if e.record.status == STATUS_OPEN and e.suggestion is None]
+    if not targets:
+        return entries
+
+    # No `is_initialized` short-circuit here: `backfill_suggestions` already
+    # treats an uninitialized store as a debug-logged no-op (FR-021), so
+    # that single check stays in one place.
+    store = RunwayStore(runway_path_for(Path.cwd()))
+    try:
+        updated = await backfill_suggestions(client, store, targets)
+    except Exception:
+        logger.debug("review_list_backfill_failed", exc_info=True)
+        return entries
+
+    by_id = {entry.record.bead_id: entry for entry in updated}
+    return [by_id.get(entry.record.bead_id, entry) for entry in entries]
+
+
 def _build_counts(entries: list[AssumptionReportEntry]) -> dict[str, object]:
     """The ``counts`` object — reflects the filtered selection (contract)."""
     by_status = {"open": 0, "answered": 0, "waived": 0}
@@ -95,6 +140,7 @@ def _render_table(entries: list[AssumptionReportEntry], counts: dict[str, object
     table.add_column("Severity")
     table.add_column("Spec")
     table.add_column("Question")
+    table.add_column("Suggestion")
 
     for entry in entries:
         question = entry.record.question or entry.record.bead_id
@@ -107,6 +153,7 @@ def _render_table(entries: list[AssumptionReportEntry], counts: dict[str, object
             entry.record.severity.value,
             escape(entry.record.owner_spec),
             escape(question),
+            "suggested" if entry.suggestion is not None else "",
         )
 
     console.print(table)
@@ -154,12 +201,16 @@ async def run_list(
             console.print(f"[red]Error:[/] {exc}")
             raise SystemExit(ExitCode.FAILURE) from exc
 
+    # Back-fill runs on the filtered selection, never the whole repo sweep:
+    # it writes what it computes, so evaluating rows the caller filtered out
+    # would turn this read verb into a repo-wide write.
     selected = _filter_and_sort(
         entries,
         statuses=effective_statuses,
         owner_specs=owner_specs,
         severities=severities,
     )
+    selected = await _backfill_entries(client, selected)
     counts = _build_counts(selected)
 
     if json_mode:

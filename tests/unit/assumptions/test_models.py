@@ -251,11 +251,13 @@ def _entry(
     change_ids: tuple[str, ...] = (),
     reconcile_change_id: str | None = None,
     pending_reconcile: bool = False,
+    waived_by: str | None = None,
+    auto_resolved: bool = False,
 ) -> AssumptionReportEntry:
     return AssumptionReportEntry(
         record=_record(status=status, severity=severity, change_ids=change_ids),
         final_answer=None,
-        waived_by=None,
+        waived_by=waived_by,
         waived_at=None,
         waive_reason=None,
         reconcile_status=None,
@@ -263,6 +265,7 @@ def _entry(
         reconcile_change_id=reconcile_change_id,
         reconcile_reason=None,
         pending_reconcile=pending_reconcile,
+        auto_resolved=auto_resolved,
     )
 
 
@@ -276,6 +279,13 @@ class TestLandVerification:
 class TestAssumptionReportEntryBucket:
     def test_waived_status_buckets_waived(self) -> None:
         assert _entry(status=STATUS_WAIVED).bucket == "waived"
+
+    def test_auto_resolved_waived_status_buckets_waived(self) -> None:
+        """055 T030 regression/proof: an auto-resolved entry
+        (``waived_by="maverick-resolver"``, ``auto_resolved=True``) is an
+        ordinary waived entry to ``.bucket`` — no special-casing."""
+        entry = _entry(status=STATUS_WAIVED, waived_by="maverick-resolver", auto_resolved=True)
+        assert entry.bucket == "waived"
 
     def test_answered_status_buckets_resolved(self) -> None:
         assert _entry(status=STATUS_ANSWERED).bucket == "resolved"

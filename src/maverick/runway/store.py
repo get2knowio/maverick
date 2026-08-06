@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeVar
 
 import aiofiles
 
@@ -18,7 +18,9 @@ from maverick.logging import get_logger
 from maverick.runway.models import (
     BeadOutcome,
     CostEntry,
+    DecisionRecord,
     FixAttemptRecord,
+    MatchFeedbackRecord,
     RunwayIndex,
     RunwayPassage,
     RunwayQueryResult,
@@ -27,7 +29,7 @@ from maverick.runway.models import (
 )
 from maverick.utils.atomic import atomic_write_json, atomic_write_text
 
-__all__ = ["RunwayStore", "make_cost_sink"]
+__all__ = ["RunwayStore", "make_cost_sink", "resolve_runway_store", "runway_path_for"]
 
 logger = get_logger(__name__)
 
@@ -41,6 +43,39 @@ _BEAD_OUTCOMES_FILE = "bead-outcomes.jsonl"
 _REVIEW_FINDINGS_FILE = "review-findings.jsonl"
 _FIX_ATTEMPTS_FILE = "fix-attempts.jsonl"
 _COST_ENTRIES_FILE = "cost-entries.jsonl"
+
+# JSONL file names at the store root (NOT under episodic/) — outside
+# consolidate_runway's pruning by design (spec 055 R1). Never rewritten,
+# only appended.
+_DECISIONS_FILE = "decisions.jsonl"
+_MATCH_FEEDBACK_FILE = "match-feedback.jsonl"
+
+#: The store-root record models that :meth:`RunwayStore._parse_root_record`
+#: tolerates schema drift for.
+_RootRecordT = TypeVar("_RootRecordT", DecisionRecord, MatchFeedbackRecord)
+
+
+def runway_path_for(cwd: str | Path | None = None) -> Path:
+    """The conventional runway-store root for *cwd* (``<cwd>/.maverick/runway``).
+
+    One place owns this path convention. ``cwd`` of ``None`` falls back to
+    :func:`Path.cwd` for CLI-boundary callers; workflow layers must always
+    pass an explicit path (Guardrail 7).
+    """
+    base = Path(cwd) if cwd else Path.cwd()
+    return base / ".maverick" / "runway"
+
+
+def resolve_runway_store(cwd: str | Path | None = None) -> RunwayStore | None:
+    """Resolve *cwd*'s runway store, or ``None`` when it isn't initialized.
+
+    The single shared implementation behind every "use the runway store if
+    the project has one, otherwise degrade silently" call site
+    (``library/actions/runway.py``, the review CLI, fly's suggestion
+    attachment). ``None`` means "no store" — callers degrade, never fail.
+    """
+    store = RunwayStore(runway_path_for(cwd))
+    return store if store.is_initialized else None
 
 
 class RunwayStore:
@@ -109,6 +144,13 @@ class RunwayStore:
         if not gitkeep.exists():
             gitkeep.touch()
 
+        # Touch decision-corpus files at the store root (never episodic/ —
+        # they must survive consolidation pruning indefinitely).
+        for fname in (_DECISIONS_FILE, _MATCH_FEEDBACK_FILE):
+            fpath = self._path / fname
+            if not fpath.exists():
+                fpath.touch()
+
         logger.info("runway_initialized", path=str(self._path))
 
     # -----------------------------------------------------------------
@@ -171,6 +213,88 @@ class RunwayStore:
         if limit is not None:
             results = results[-limit:]
         return results
+
+    async def append_decision(self, record: DecisionRecord) -> None:
+        """Append a decision record to the JSONL file.
+
+        Lives at the store root (not ``episodic/``) — never pruned by
+        consolidation (spec 055 R1).
+        """
+        await self._append_jsonl(self._path / _DECISIONS_FILE, record.to_dict())
+
+    async def get_decisions(
+        self,
+        *,
+        source_entry_id: str | None = None,
+    ) -> list[DecisionRecord]:
+        """Read decision records, optionally filtered.
+
+        Args:
+            source_entry_id: Filter by the assumption bead id the decision
+                resolved.
+
+        Returns:
+            List of matching DecisionRecord records, in append order.
+            Schema-invalid rows are skipped with a warning rather than
+            raising — this file is append-only and never rewritten, so it
+            outlives schema changes and a single bad line must not take
+            down every reader (the same tolerance ``_read_jsonl`` already
+            applies to malformed JSON).
+        """
+        records = await self._read_jsonl(self._path / _DECISIONS_FILE)
+        results: list[DecisionRecord] = []
+        for raw in records:
+            decision = self._parse_root_record(DecisionRecord, raw, _DECISIONS_FILE)
+            if decision is None:
+                continue
+            if source_entry_id is not None and decision.source_entry_id != source_entry_id:
+                continue
+            results.append(decision)
+        return results
+
+    async def append_match_feedback(self, record: MatchFeedbackRecord) -> None:
+        """Append a match-feedback record to the JSONL file.
+
+        Lives at the store root (not ``episodic/``) — never pruned by
+        consolidation (spec 055 R1).
+        """
+        await self._append_jsonl(self._path / _MATCH_FEEDBACK_FILE, record.to_dict())
+
+    async def get_match_feedback(self) -> list[MatchFeedbackRecord]:
+        """Read all match-feedback records, in append order.
+
+        Returns:
+            List of MatchFeedbackRecord records, in append order.
+            Schema-invalid rows are skipped with a warning — see
+            :meth:`get_decisions` for the rationale.
+        """
+        records = await self._read_jsonl(self._path / _MATCH_FEEDBACK_FILE)
+        parsed = (
+            self._parse_root_record(MatchFeedbackRecord, raw, _MATCH_FEEDBACK_FILE)
+            for raw in records
+        )
+        return [record for record in parsed if record is not None]
+
+    def _parse_root_record(
+        self, model: type[_RootRecordT], raw: dict[str, Any], filename: str
+    ) -> _RootRecordT | None:
+        """Parse one store-root JSONL row, degrading to ``None`` on schema drift.
+
+        ``decisions.jsonl`` / ``match-feedback.jsonl`` are append-only and
+        never rewritten, so rows written by an older or newer wheel can
+        fail validation long after they were valid. Callers of
+        :meth:`get_decisions` / :meth:`get_match_feedback` document a
+        never-raises contract; this keeps it true.
+        """
+        try:
+            return model.from_dict(raw)
+        except Exception as exc:  # noqa: BLE001 — one bad row must not break every reader
+            logger.warning(
+                "runway_jsonl_schema_error",
+                file=str(self._path / filename),
+                error=str(exc),
+            )
+            return None
 
     # -----------------------------------------------------------------
     # Episodic: Read + filter

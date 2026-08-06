@@ -18,7 +18,7 @@ from maverick.library.actions.types import (
 )
 from maverick.logging import get_logger
 from maverick.runway.models import BeadOutcome, FixAttemptRecord, RunwayReviewFinding
-from maverick.runway.store import RunwayStore
+from maverick.runway.store import RunwayStore, resolve_runway_store
 
 __all__ = [
     "record_bead_outcome",
@@ -31,13 +31,12 @@ logger = get_logger(__name__)
 
 
 def _get_store(cwd: str | Path | None) -> RunwayStore | None:
-    """Resolve runway store from cwd. Returns None if not initialized."""
-    base = Path(cwd) if cwd else Path.cwd()
-    runway_path = base / ".maverick" / "runway"
-    store = RunwayStore(runway_path)
-    if not store.is_initialized:
-        return None
-    return store
+    """Resolve runway store from cwd. Returns None if not initialized.
+
+    Thin alias for :func:`maverick.runway.store.resolve_runway_store`, kept
+    for this module's existing call sites.
+    """
+    return resolve_runway_store(cwd)
 
 
 async def _get_run_store(run_dir: str | Path) -> RunwayStore | None:
