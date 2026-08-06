@@ -486,6 +486,7 @@ Mode is auto-detected from repository shape; `--speckit` forces it.
 | `maverick fly --epic <id>`                           | Implement beads (Burr drain loop)    |
 | `maverick land [--eject\|--finalize] [--status] [--json]` | Curate history and merge, or query the frontier |
 | `maverick reconcile [--dry-run] [--json]`            | Reapply changed human answers into jj history |
+| `maverick notify [--dry-run] [--json]`               | Evaluate and deliver due assumption-ledger notifications |
 | `maverick init`                                      | Initialize a Maverick project (installs the `maverick-review` skill) |
 | `maverick brief [--watch\|--human]`                  | Bead status + assumption counts      |
 | `maverick review <bead-id> [--answer\|--waive] [--json]` | Resolve a human-assigned bead     |
@@ -687,6 +688,83 @@ default `true`) — set `false` to disable and fall back to manual
 `maverick reconcile` runs. See
 `specs/052-conditional-landing/contracts/mid-flight-reconcile.md` and
 `src/maverick/workflows/fly_beads/mid_flight.py`.
+
+### notify (assumption batch scheduler)
+
+`maverick notify [--dry-run] [--json]` (054-assumption-batch-scheduler) is an
+idempotent, daemonless command that reads the assumption ledger, evaluates it
+against a configured delivery schedule, and pushes anything due via ntfy —
+designed to be wired into cron or a systemd timer, not run as a resident
+process (FR-001, FR-017). Severity drives the delivery policy (FR-002):
+`high` interrupts at the next evaluation after recording; `medium` batches
+into the next configured review window; `low` accumulates silently and is
+only counted (never delivered) in a batch summary, surfacing via a review
+sweep or bulk waive. A medium/high entry older than `max_entry_age_hours`
+escalates past the batching rules (FR-006); an unanswered high-severity
+interrupt then re-notifies on a backoff ladder (`renotify_backoff_hours`,
+default `4→8→16→24h`, repeating) rather than on every evaluation (FR-007).
+Legacy entries (no structured severity) are treated as medium — no new
+mapping code, `report_entries` already synthesizes it (research R9). An
+opt-in `auto_waive_low` policy (research R10) waives aged low-severity
+entries through the existing `assumptions.ledger.waive()` path, stamped
+`waived_by="maverick-scheduler"` with a recorded rationale — already
+distinguishable in `review --list`/land reporting via the existing waiver
+object, no ledger schema change.
+
+Configuration lives in two blocks (`contracts/config-schema.md`): the new
+`assumptions.schedule` block (`windows`, `quiet_hours`, `high_overrides_quiet`
+default `true`, `min_batch_size` default 1, `max_entry_age_hours` default 24,
+`renotify_backoff_hours`, `auto_waive_low`) plus the existing `notifications`
+block (`enabled`/`server`/`topic`) for the ntfy endpoint — reused rather than
+duplicated (research R3). No `assumptions.schedule` block means the command
+is strictly inert: exit 0, "not configured", zero deliveries (FR-021) — there
+is no built-in default schedule. A window whose pending batch is under
+`min_batch_size` rolls to the next window (FR-005); quiet hours suppress
+everything except high-severity interrupts unless `high_overrides_quiet` is
+set to make quiet hours absolute (FR-004); a window occurrence inside quiet
+hours shifts its due time to quiet-hours end rather than creating a second
+decision (research R8). Evaluation is a pure function of `(entries, schedule,
+state, now)` with `now` injected at the CLI boundary — the codebase's first
+clock seam (research R6).
+
+Delivery state persists at `.maverick/notify/state.json`
+(`schema_version: 1`, atomic writes) plus a pid-stamped advisory lockfile at
+`.maverick/notify/lock`, mirroring `workflows/reconcile/state.py`'s
+lock pattern byte-for-byte (research R4) — this is what makes re-running the
+same window a no-op (FR-010) and every delivery/skip reconstructible from
+ledger + config + state alone (FR-011). Records are retained while any
+covered entry stays open, plus 90 days past terminal state (FR-023).
+**Lock contention diverges from `reconcile` by design** (research R7):
+overlapping cron fires are expected operation here, not a fault, so a held
+lock is a benign `SUCCESS` exit with `result.skipped: "concurrent-evaluation"`
+and zero evaluation performed — not `reconcile`'s `locked` error kind. `bd`
+unavailability maps to `bd-unavailable`; an unusable `notifications` block
+(disabled or no `topic`) maps to `validation`, naming the exact missing key
+(FR-009). `--dry-run` evaluates and reports every decision with zero ntfy
+calls, zero bd writes, zero state writes.
+
+**JSON verbs**: `notify --json` (verb `notify.run`) and `notify --dry-run
+--json` (verb `notify.dry-run`) emit the shared envelope
+(`src/maverick/cli/json_output.py`) with every delivery and skip tagged by
+the rule that decided it (SC-004). Exhausted ntfy retries map to the new
+additive `ErrorKind.DELIVERY_FAILED` (`"delivery-failed"`, research R11),
+exit 1, with the batch left due — a failed delivery is never recorded as
+delivered (FR-012). See
+`specs/054-assumption-batch-scheduler/contracts/cli-notify-json.md` and
+`config-schema.md`; implementation in `src/maverick/cli/commands/notify.py`
+and `src/maverick/assumptions/schedule/`: `evaluate.py` (the pure entry
+point + orchestration) over four decision engines — `windows.py` (occurrence
+construction, DST-aware localization, quiet hours, window batching),
+`severity.py` (high-severity interrupts), `escalation.py` (max-age
+escalation, renotify backoff, auto-waive), all sharing the table-driven
+`decisions.py` — plus `tracking.py`, `models.py`, `state.py`, `deliver.py`,
+and `clock.py` (stdlib IANA local-zone resolution; the CLI's `now` must
+carry a real zone, not `datetime.now().astimezone()`'s fixed offset, or the
+DST handling is inert). Quiet hours suppress **deliveries**, not bookkeeping,
+and `high_overrides_quiet` governs high severity **only** — a medium
+escalation or a backlogged window batch is always held until quiet hours end
+(FR-004). Zero model calls, zero agents, zero Burr — deterministic library
+and CLI only.
 
 ### Assumption ledger
 

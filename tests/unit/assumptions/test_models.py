@@ -92,6 +92,24 @@ class TestAssumptionRecord:
         assert record.bead_id == "dea-1"
         assert record.change_ids == ()
         assert record.is_legacy is False
+        assert record.created_at is None
+
+    def test_created_at_carries_bd_timestamp(self) -> None:
+        record = AssumptionRecord(
+            bead_id="dea-1",
+            question="Q?",
+            adopted_answer="A.",
+            alternatives=(),
+            severity=Severity.MEDIUM,
+            severity_defaulted=False,
+            status=STATUS_OPEN,
+            owner_spec="054-assumption-batch-scheduler",
+            source_bead="dea-0",
+            change_ids=(),
+            is_legacy=False,
+            created_at="2026-08-05T22:09:49Z",
+        )
+        assert record.created_at == "2026-08-05T22:09:49Z"
 
 
 class TestPerSpecAssumptionCounts:

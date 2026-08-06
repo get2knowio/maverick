@@ -198,6 +198,9 @@ class BeadDetails(BaseModel):
         parent_id: Parent bead ID if any.
         labels: Labels attached to the bead.
         state: Arbitrary key-value state metadata.
+        created_at: bd's UTC ISO-8601 creation timestamp (e.g.
+            ``"2026-08-05T22:09:49Z"``), probe-verified in research R1 of
+            spec 054. ``None`` when bd omits it (malformed/legacy bead).
     """
 
     id: str = Field(min_length=1, description="Bead ID")
@@ -209,6 +212,9 @@ class BeadDetails(BaseModel):
     parent_id: str | None = Field(default=None, description="Parent bead ID")
     labels: list[str] = Field(default_factory=list, description="Labels")
     state: dict[str, str] = Field(default_factory=dict, description="State metadata")
+    created_at: str | None = Field(
+        default=None, description="bd's UTC ISO-8601 creation timestamp"
+    )
 
     model_config = ConfigDict(frozen=True)
 

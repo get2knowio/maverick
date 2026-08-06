@@ -33,6 +33,7 @@ def _entry(
     status: str = STATUS_OPEN,
     pending_reconcile: bool = False,
     question: str = "Q?",
+    created_at: str | None = None,
 ) -> AssumptionReportEntry:
     record = AssumptionRecord(
         bead_id=bead_id,
@@ -46,6 +47,7 @@ def _entry(
         source_bead="src-1",
         change_ids=(),
         is_legacy=False,
+        created_at=created_at,
     )
     return AssumptionReportEntry(
         record=record,
@@ -206,6 +208,46 @@ class TestCounts:
         assert counts["by_status"] == {"open": 2, "answered": 1, "waived": 0}
         assert counts["by_severity"] == {"low": 1, "medium": 1, "high": 1}
         assert counts["pending_reconcile"] == 1
+
+
+class TestCreatedAt:
+    def test_created_at_present_value_flows_into_row(self) -> None:
+        entries = (
+            _entry(
+                "dea-1",
+                owner_spec="049-spec",
+                severity=Severity.MEDIUM,
+                status=STATUS_OPEN,
+                created_at="2026-07-24T14:00:00+00:00",
+            ),
+        )
+        verify, sweep = _patched(entries)
+        runner = CliRunner()
+        with verify, sweep:
+            result = runner.invoke(review, ["--list", "--json"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        row = data["result"]["entries"][0]
+        assert row["created_at"] == "2026-07-24T14:00:00+00:00"
+
+    def test_created_at_absent_is_none_in_row(self) -> None:
+        entries = (
+            _entry(
+                "dea-1",
+                owner_spec="049-spec",
+                severity=Severity.MEDIUM,
+                status=STATUS_OPEN,
+                created_at=None,
+            ),
+        )
+        verify, sweep = _patched(entries)
+        runner = CliRunner()
+        with verify, sweep:
+            result = runner.invoke(review, ["--list", "--json"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        row = data["result"]["entries"][0]
+        assert row["created_at"] is None
 
 
 class TestEmptyQueue:

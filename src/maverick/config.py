@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextvars
+import re
 from pathlib import Path
 from typing import Any, Literal, Self
 
@@ -21,12 +22,16 @@ __all__ = [
     "ActorConfig",
     "AgentBindingConfig",
     "AgentsConfig",
+    "AssumptionScheduleConfig",
+    "AssumptionsConfig",
+    "AutoWaivePolicyConfig",
     "CustomToolConfig",
     "GitHubConfig",
     "MaverickConfig",
     "NotificationConfig",
     "ParallelConfig",
     "PreflightValidationConfig",
+    "QuietHoursConfig",
     "ReconcileConfig",
     "RunwayConfig",
     "RunwayConsolidationConfig",
@@ -46,6 +51,28 @@ logger = get_logger(__name__)
 _project_config_path_var: contextvars.ContextVar[Path | None] = contextvars.ContextVar(
     "_project_config_path", default=None
 )
+
+# HH:MM 24-hour local wall-clock time, e.g. "09:00" or "23:59".
+_HH_MM_PATTERN = re.compile(r"^([01]\d|2[0-3]):([0-5]\d)$")
+
+
+def _validate_hh_mm(value: str, *, field_name: str) -> str:
+    """Validate a ``HH:MM`` 24-hour local-time string.
+
+    Args:
+        value: The candidate time string.
+        field_name: Name to report in the raised error.
+
+    Returns:
+        The validated string, unchanged.
+
+    Raises:
+        ValueError: If ``value`` is not a well-formed ``HH:MM`` string
+            (``00``-``23`` hours, ``00``-``59`` minutes).
+    """
+    if not _HH_MM_PATTERN.match(value):
+        raise ValueError(f"{field_name} must be a 24-hour 'HH:MM' time string (got {value!r})")
+    return value
 
 
 class GitHubConfig(BaseModel):
@@ -421,6 +448,139 @@ class ReconcileConfig(BaseModel):
     )
 
 
+class QuietHoursConfig(BaseModel):
+    """A local wall-clock quiet-hours range for the assumption scheduler.
+
+    ``start``/``end`` are ``HH:MM`` 24-hour local time. ``end`` may be
+    earlier than ``start`` (the range spans midnight, e.g. ``22:00``-
+    ``07:00``); ``start == end`` is rejected as ambiguous (would mean
+    either zero quiet hours or a full day of them).
+
+    Attributes:
+        start: Quiet-hours start, ``HH:MM``.
+        end: Quiet-hours end, ``HH:MM``.
+    """
+
+    start: str
+    end: str
+
+    @field_validator("start", "end")
+    @classmethod
+    def check_hh_mm(cls, v: str, info: Any) -> str:
+        return _validate_hh_mm(v, field_name=str(info.field_name))
+
+    @model_validator(mode="after")
+    def check_start_ne_end(self) -> Self:
+        if self.start == self.end:
+            raise ValueError(
+                f"quiet_hours.start must differ from quiet_hours.end (both were {self.start!r})"
+            )
+        return self
+
+
+class AutoWaivePolicyConfig(BaseModel):
+    """Opt-in policy to auto-waive aged low-severity assumption entries.
+
+    Absent from :class:`AssumptionScheduleConfig` (``auto_waive_low: None``),
+    the scheduler never auto-waives (FR-015). When present, ``enabled``
+    is itself a second explicit opt-in — double opt-in by design.
+
+    Attributes:
+        enabled: Whether auto-waive is active.
+        after_hours: Age threshold in hours before an aged low-severity
+            entry is auto-waived. Default ``168`` (7 days).
+        rationale: Human-readable rationale recorded on the ledger entry.
+            Required (non-empty) when ``enabled`` is ``True``.
+    """
+
+    enabled: bool = False
+    after_hours: int = Field(default=168, ge=1)
+    rationale: str | None = None
+
+    @model_validator(mode="after")
+    def check_rationale_when_enabled(self) -> Self:
+        if self.enabled and not self.rationale:
+            raise ValueError(
+                "auto_waive_low.rationale is required when auto_waive_low.enabled is true"
+            )
+        return self
+
+
+class AssumptionScheduleConfig(BaseModel):
+    """Delivery-policy schedule for the assumption-ledger batch scheduler.
+
+    Drives ``maverick notify`` (spec 054): when medium-severity entries
+    batch into review windows, when high-severity entries interrupt, and
+    the escalation/backoff/auto-waive rules for entries that age out of
+    their normal tier. The ntfy endpoint itself (server/topic) is *not*
+    duplicated here — it comes from the existing :class:`NotificationConfig`
+    (``notifications:`` block).
+
+    Attributes:
+        windows: Review-window times, ``HH:MM`` 24-hour local time.
+            Required, at least one, no duplicates.
+        quiet_hours: Optional quiet-hours range. Absent means no quiet
+            hours are observed.
+        high_overrides_quiet: Whether high-severity interrupts and
+            escalation re-notifications are delivered during quiet hours
+            (FR-004). Default ``True``.
+        min_batch_size: Minimum entries required before a window batch
+            delivers; smaller batches roll forward to the next window
+            (FR-005). Default ``1`` (deliver whatever is due).
+        max_entry_age_hours: Age in hours past which a medium/high entry
+            escalates past normal batching rules (FR-006). Default ``24``.
+        renotify_backoff_hours: Backoff ladder, in hours, for high-severity
+            re-notification spacing (FR-007). Must be non-empty, each value
+            ``> 0``, and non-decreasing; the last value repeats indefinitely.
+            Default ``[4, 8, 16, 24]``.
+        auto_waive_low: Optional opt-in policy to auto-waive aged
+            low-severity entries (FR-015). Absent means never auto-waive.
+    """
+
+    windows: list[str] = Field(..., min_length=1)
+    quiet_hours: QuietHoursConfig | None = None
+    high_overrides_quiet: bool = True
+    min_batch_size: int = Field(default=1, ge=1)
+    max_entry_age_hours: int = Field(default=24, ge=1)
+    renotify_backoff_hours: list[float] = Field(default_factory=lambda: [4.0, 8.0, 16.0, 24.0])
+    auto_waive_low: AutoWaivePolicyConfig | None = None
+
+    @field_validator("windows")
+    @classmethod
+    def check_windows(cls, v: list[str]) -> list[str]:
+        for window in v:
+            _validate_hh_mm(window, field_name="windows")
+        if len(set(v)) != len(v):
+            raise ValueError(f"windows must not contain duplicates (got {v})")
+        return v
+
+    @field_validator("renotify_backoff_hours")
+    @classmethod
+    def check_renotify_backoff_hours(cls, v: list[float]) -> list[float]:
+        if not v:
+            raise ValueError("renotify_backoff_hours must be non-empty")
+        for value in v:
+            if value <= 0:
+                raise ValueError(f"renotify_backoff_hours values must all be > 0 (got {v})")
+        for previous, current in zip(v, v[1:], strict=False):
+            if current < previous:
+                raise ValueError(f"renotify_backoff_hours must be non-decreasing (got {v})")
+        return v
+
+
+class AssumptionsConfig(BaseModel):
+    """Root config block for assumption-ledger behavior.
+
+    Attributes:
+        schedule: Optional batch-scheduler delivery policy for
+            ``maverick notify``. Absent (``None``, the default) means the
+            scheduler is inert — ``maverick notify`` exits 0 as a no-op
+            (FR-021).
+    """
+
+    schedule: AssumptionScheduleConfig | None = None
+
+
 class AgentBindingConfig(BaseModel, frozen=True):
     """One ``(provider, model_id)`` binding for a single agent role.
 
@@ -681,6 +841,13 @@ class MaverickConfig(BaseSettings):
 
     github: GitHubConfig = Field(default_factory=GitHubConfig)
     notifications: NotificationConfig = Field(default_factory=NotificationConfig)
+    assumptions: AssumptionsConfig = Field(
+        default_factory=AssumptionsConfig,
+        description=(
+            "Assumption-ledger behavior, including the optional "
+            "'schedule' batch-delivery policy for `maverick notify`."
+        ),
+    )
     validation: ValidationConfig = Field(default_factory=ValidationConfig)
     preflight: PreflightValidationConfig = Field(default_factory=PreflightValidationConfig)
     parallel: ParallelConfig = Field(default_factory=ParallelConfig)

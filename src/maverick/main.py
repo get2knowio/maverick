@@ -61,6 +61,10 @@ _LAZY_COMMANDS: dict[str, tuple[str, str]] = {
         "maverick.cli.commands.land:land",
         "Curate commit history and apply to local repo.",
     ),
+    "notify": (
+        "maverick.cli.commands.notify:notify",
+        "Evaluate the assumption-ledger delivery schedule and deliver anything due.",
+    ),
     "plan": (
         "maverick.cli.commands.flight_plan:flight_plan",
         "Create and validate flight plan files.",

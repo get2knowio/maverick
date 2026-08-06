@@ -151,6 +151,10 @@ class AssumptionRecord:
         source_bead: The bead this entry was discovered from.
         change_ids: jj change IDs stamping this entry; empty = unstamped.
         is_legacy: True for pre-feature escalation beads without ledger state.
+        created_at: bd's UTC ISO-8601 creation timestamp, copied verbatim
+            from ``BeadDetails.created_at`` (spec 054 research R1). ``None``
+            when bd omitted it; the scheduler falls back to its own
+            persisted ``first_seen`` timestamp in that case.
     """
 
     bead_id: str
@@ -164,6 +168,7 @@ class AssumptionRecord:
     source_bead: str
     change_ids: tuple[str, ...]
     is_legacy: bool
+    created_at: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
