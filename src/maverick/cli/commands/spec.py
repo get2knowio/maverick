@@ -79,6 +79,11 @@ def _render_summary_and_exit(state: object, feature: str) -> None:
     console.print(f"  Feature dir: [bold]{state.feature_dir or '(none)'}[/]")
     console.print(f"  Clarify questions answered: {len(state.clarify_decisions)}")
     console.print(f"  Remediation beads created: {len(state.remediation_bead_ids)}")
+    if state.protection_blocks:
+        console.print(
+            f"  [yellow]Context-file protection events: "
+            f"{len(state.protection_blocks)}[/] (see protection-blocks.json)"
+        )
 
     if state.status == "completed":
         console.print()

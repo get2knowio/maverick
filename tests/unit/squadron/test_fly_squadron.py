@@ -118,13 +118,26 @@ async def test_rotate_for_new_bead_resets_each_runtime(
     config_with_agents: MaverickConfig,
     tmp_path: Path,
 ) -> None:
-    """rotate_for_new_bead calls reset() on every agent's runtime."""
+    """rotate_for_new_bead rotates every agent's session.
+
+    Every squadron now builds a real ``ProtectionPolicy`` at open time
+    (056-context-file-protection), so ``Agent.rotate_session`` is a
+    close-and-reopen of the airframe session rather than
+    ``runtime.reset()`` (research.md R4) — the first session opened at
+    ``open()`` gets closed and a fresh one takes its place.
+    """
     async with FlySquadron(cwd=tmp_path, config=config_with_agents) as squadron:
         await squadron.rotate_for_new_bead()
-    # All three constructed runtimes (coder + correctness + completeness)
-    # had reset() called once during rotate_for_new_bead.
-    reset_counts = [r.reset_calls for r in stub_airframe_runtime["constructed"]]
-    assert all(c >= 1 for c in reset_counts), reset_counts
+        # All three constructed runtimes (coder + correctness + completeness)
+        # opened a session at squadron-open and closed-and-reopened it
+        # during rotate — checked before the `async with` exit closes
+        # everything again.
+        for runtime in stub_airframe_runtime["constructed"]:
+            assert len(runtime.sessions) == 2, runtime.sessions
+            assert runtime.sessions[0].close_calls == 1
+            assert runtime.sessions[1].close_calls == 0
+    # The legacy reset() path is untouched once sessions are in play.
+    assert all(r.reset_calls == 0 for r in stub_airframe_runtime["constructed"])
 
 
 async def test_close_tears_down_all_runtimes(

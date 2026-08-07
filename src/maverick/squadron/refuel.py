@@ -38,6 +38,8 @@ from maverick.squadron.tiers import binding_for_complexity, escalation_ladder
 class RefuelSquadron(Squadron):
     """Squadron for the refuel (PRD → flight plan → decomposed beads) workflow."""
 
+    WORKFLOW_NAME = "refuel-maverick"
+
     generator: GeneratorAgent
     decomposer_pool: DecomposerAgentPool
 
@@ -75,6 +77,7 @@ class RefuelSquadron(Squadron):
             runtime=generator_runtime,
             cwd=cwd,
             cost_sink=self._cost_sink,
+            **self._agent_protection_kwargs(),
         )
         await self.generator.open()
 
@@ -120,6 +123,7 @@ class RefuelSquadron(Squadron):
             detail_session_max_turns=self._detail_session_max_turns,
             fix_session_max_turns=self._fix_session_max_turns,
             tag=f"decomposer.pool.{tier}",
+            **self._agent_protection_kwargs(),
         )
         await agent.open()
         return agent
@@ -144,6 +148,7 @@ class RefuelSquadron(Squadron):
             cost_sink=self._cost_sink,
             agent_name=agent_name,
             result_model=result_model,
+            **self._agent_protection_kwargs(),
         )
         self._briefings.append(agent)
         return agent

@@ -909,6 +909,33 @@ class MaverickConfig(BaseSettings):
         default_factory=dict,
         description="Actor configurations grouped by workflow (plan/refuel/fly/land).",
     )
+    protection: dict[str, Any] | None = Field(
+        default=None,
+        description=(
+            "Context-file protection: 'additional_globs' extends the protected "
+            "set, 'allowlist' exempts paths from it. Absent means defaults only. "
+            "Validated lazily by maverick.protection.config.lookup_protection_config."
+        ),
+    )
+
+    @field_validator("protection", mode="wrap")
+    @classmethod
+    def _protection_lenient_shape(cls, value: Any, handler: Any) -> Any:
+        """Never fail config load on a malformed ``protection:`` shape (FR-012).
+
+        A well-formed ``dict``/``None`` still validates normally through
+        ``handler`` — this preserves pydantic-settings' complex-type env-var
+        JSON decoding for ``MAVERICK_PROTECTION``. Anything else (e.g. a
+        plain scalar from YAML) is passed through unvalidated so
+        ``lookup_protection_config`` — the sole place that validates
+        shape — can degrade it to defaults with a warning instead of
+        pydantic rejecting it during settings construction.
+        """
+        try:
+            return handler(value)
+        except ValidationError:
+            return value
+
     agents: AgentsConfig = Field(
         default_factory=AgentsConfig,
         description=(

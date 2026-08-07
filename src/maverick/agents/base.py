@@ -11,20 +11,50 @@ Subclass requirements:
 
 Lifecycle:
 
-* :meth:`open` — initialise lazy state. No network calls.
-* First :meth:`_execute_via_runtime` call hits the runtime, which
-  opens its underlying session lazily.
-* :meth:`rotate_session` calls :meth:`AgentRuntime.reset` to drop
-  the runtime's scope (used between beads).
-* :meth:`close` calls :meth:`AgentRuntime.close` for full teardown.
+* :meth:`open` — initialise lazy state. No network calls, *unless*
+  ``protection_policy`` is set (see below), in which case it opens an
+  airframe :class:`~airframe.protocol.AgentSession` up front so the
+  session's ``on_permission=`` gate is live before the first send.
+* First :meth:`_execute_via_runtime` call hits the runtime.
+* :meth:`rotate_session` drops the runtime's accumulated scope (used
+  between beads) — ``runtime.reset()`` when no session was opened, or a
+  close-and-reopen of the session otherwise.
+* :meth:`close` tears down the session (if any) then the runtime.
 
 Async context-manager support (``async with Agent(...)``) calls
 :meth:`open` / :meth:`close` for you.
+
+Context-file protection (056-context-file-protection)
+------------------------------------------------------
+
+Passing ``protection_policy=`` (constructed once per run by the owning
+:class:`~maverick.squadron.base.Squadron`, per
+``specs/056-context-file-protection/research.md`` R7) switches this
+agent's execute path onto two enforcement layers:
+
+* **Layer 1 (pre-write)** — :meth:`open` attaches a
+  :class:`~maverick.protection.policy.PermissionGate` to the session's
+  ``on_permission=`` callback, but only when the runtime's adapter
+  advertises :data:`~airframe.features.Feature.PERMISSION_CALLBACK`
+  (:func:`~maverick.runtime.agent_factory.supports_permission_callback`).
+  Providers that decline simply run without it — Layer 2 still covers
+  them.
+* **Layer 2 (backstop)** — every :meth:`_execute_via_runtime` /
+  :meth:`_execute_text_via_runtime` call is bracketed by a
+  :class:`~maverick.protection.snapshot.SnapshotManifest` capture before
+  the send and a :func:`~maverick.protection.snapshot.restore_and_report`
+  pass after, regardless of what channel the model used to mutate files.
+
+``protection_policy=None`` (the default) disables both layers with zero
+behavior change — the agent sends via ``runtime.execute()`` exactly as
+before this feature existed. This keeps every caller that doesn't thread
+protection through (most existing tests) byte-for-byte unaffected.
 """
 
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any, ClassVar, Self
 
 from airframe.cost import CostRecord
@@ -35,6 +65,11 @@ from pydantic import BaseModel, ValidationError
 from maverick.logging import get_logger
 
 if TYPE_CHECKING:
+    from airframe.protocol import AgentSession, RuntimeResult
+
+    from maverick.protection.policy import PermissionGate, ProtectionPolicy
+    from maverick.protection.records import BlockCollector
+    from maverick.protection.snapshot import SnapshotManifest
     from maverick.runtime.registry import CostSink
 
 logger = get_logger(__name__)
@@ -60,15 +95,18 @@ class Agent:
     result_model: ClassVar[type[BaseModel]] = BaseModel
 
     # Provider tier name — used by :func:`runtime_for_agent` to look up
-    # the role's binding. Subclasses set this.
+    # the role's binding. Subclasses set this. Doubles as the
+    # ``agent_role`` recorded on context-file-protection
+    # :class:`~maverick.protection.records.BlockRecord`\\ s.
     provider_tier: ClassVar[str | None] = None
 
     # Optional persona label. Forwarded to airframe adapters as
-    # ``persona=`` (the OpenCode Zen adapter selects a bundled agent
-    # profile from it; others ignore it) and looked up via
-    # :func:`load_persona_system_prompt` to derive ``system=`` — the
-    # universal channel every adapter honours. Subclasses that vary the
-    # persona per instance pass ``persona_name=...`` to ``__init__``.
+    # ``persona=`` (accepted by the protocol; no shipped adapter
+    # currently consumes it — every adapter discards it in favour of
+    # ``system=``) and looked up via :func:`load_persona_system_prompt`
+    # to derive ``system=`` — the universal channel every adapter
+    # honours. Subclasses that vary the persona per instance pass
+    # ``persona_name=...`` to ``__init__``.
     persona_name: ClassVar[str | None] = None
 
     def __init__(
@@ -81,6 +119,10 @@ class Agent:
         tag: str | None = None,
         persona_name: str | None = None,
         result_model: type[BaseModel] | None = None,
+        protection_policy: ProtectionPolicy | None = None,
+        block_collector: BlockCollector | None = None,
+        workflow: str = "",
+        baseline_manifest: SnapshotManifest | None = None,
     ) -> None:
         if not cwd:
             raise ValueError(f"{type(self).__name__} requires 'cwd'")
@@ -100,22 +142,51 @@ class Agent:
         # successful execute. Cleared by :meth:`rotate_session`.
         self._last_cost_record: CostRecord | None = None
 
+        # Context-file protection (056-context-file-protection).
+        # ``protection_policy=None`` keeps every send on the legacy
+        # ``runtime.execute()`` path with zero behavior change.
+        self._protection_policy = protection_policy
+        self._block_collector = block_collector
+        self._workflow = workflow
+        # Fallback manifest for a step whose own pre-send capture fails
+        # (research.md R6) — threaded in once by the owning Squadron,
+        # captured at squadron-open time.
+        self._baseline_manifest = baseline_manifest
+        self._permission_gate: PermissionGate | None = None
+        self._session: AgentSession | None = None
+
     # ------------------------------------------------------------------
     # Public lifecycle
     # ------------------------------------------------------------------
 
     async def open(self) -> None:
-        """No-op hook for symmetry with :meth:`close`.
+        """No-op unless ``protection_policy`` is set.
 
-        The airframe runtime opens its own resources lazily on first
-        :meth:`execute`. Subclasses can override for one-time setup
-        outside the constructor (e.g. opening files).
+        When protection is active, opens an
+        :class:`~airframe.protocol.AgentSession` up front (rather than
+        relying on the runtime's lazy-open-on-first-``execute``
+        behavior) so the ``on_permission=`` gate — when the adapter
+        supports it — is live before the first send. Subclasses can
+        still override for one-time setup outside the constructor.
         """
-        return None
+        if self._protection_policy is None:
+            return None
+        await self._open_session()
 
     async def close(self) -> None:
-        """Tear down the runtime. Idempotent."""
-        await self._runtime.close()
+        """Tear down the session (if any) then the runtime. Idempotent.
+
+        The runtime teardown is in a ``finally``: a session whose
+        ``close()`` misbehaves must not strand the runtime's own
+        resources (subprocess pool, HTTP client). ``Squadron.close``
+        swallows per-agent teardown errors, so a leak here would be
+        completely silent.
+        """
+        try:
+            if self._session is not None:
+                await self._close_session_only()
+        finally:
+            await self._runtime.close()
 
     async def __aenter__(self) -> Self:
         await self.open()
@@ -125,8 +196,22 @@ class Agent:
         await self.close()
 
     async def rotate_session(self) -> None:
-        """Drop accumulated runtime state — called between beads."""
-        await self._runtime.reset()
+        """Drop accumulated runtime state — called between beads.
+
+        With no protection policy active, this is unchanged:
+        ``runtime.reset()``. With protection active, ADR-004's
+        single-active-session-per-runtime means "reset" is a
+        close-and-reopen of the session — the same (reused)
+        :class:`~maverick.protection.policy.PermissionGate` instance
+        re-attaches, since ``agent_role``/``workflow`` never change for
+        a given agent (``bead_id`` is read fresh per call, not baked
+        into the gate — see ``PermissionGate.handle``).
+        """
+        if self._session is None:
+            await self._runtime.reset()
+            return
+        await self._close_session_only()
+        await self._open_session()
 
     @property
     def last_cost_record(self) -> CostRecord | None:
@@ -135,6 +220,54 @@ class Agent:
     @property
     def tag(self) -> str:
         return self._tag
+
+    # ------------------------------------------------------------------
+    # Session management (context-file protection)
+    # ------------------------------------------------------------------
+
+    async def _open_session(self) -> None:
+        """Open a fresh :class:`AgentSession`, attaching the permission gate
+        when the runtime's adapter supports it.
+        """
+        from maverick.agents.system_prompts import load_persona_system_prompt
+        from maverick.runtime.agent_factory import supports_permission_callback
+
+        if self._permission_gate is None:
+            self._permission_gate = self._build_permission_gate()
+
+        on_permission = None
+        if self._permission_gate is not None and supports_permission_callback(self._runtime):
+            on_permission = self._permission_gate
+
+        persona = self._persona_name_instance or self.persona_name
+        self._session = self._runtime.session(
+            system=load_persona_system_prompt(persona),
+            on_permission=on_permission,
+        )
+
+    def _build_permission_gate(self) -> PermissionGate | None:
+        if self._protection_policy is None:
+            return None
+        from maverick.protection.policy import PermissionGate
+        from maverick.protection.records import BlockCollector
+
+        if self._block_collector is None:
+            self._block_collector = BlockCollector()
+        return PermissionGate(
+            policy=self._protection_policy,
+            collector=self._block_collector,
+            agent_role=self.provider_tier or "inline",
+            workflow=self._workflow,
+        )
+
+    async def _close_session_only(self) -> None:
+        session = self._session
+        self._session = None
+        if session is None:
+            return
+        close = getattr(session, "close", None)
+        if close is not None:
+            await close()
 
     # ------------------------------------------------------------------
     # Send path
@@ -152,24 +285,20 @@ class Agent:
         Validates the structured payload against ``schema`` (defaulting
         to the agent's effective result model), captures the cost record
         on ``self._last_cost_record``, and emits the ``agent.cost``
-        structured-log row.
+        structured-log row. When ``protection_policy`` is set, brackets
+        the send with the backstop snapshot/restore pass (Layer 2).
 
         Raises:
             RuntimeStructuredOutputError: when ``result.structured`` is None.
             AgentPayloadValidationError: when the payload fails schema
                 validation.
         """
-        from maverick.agents.system_prompts import load_persona_system_prompt
-
         target = schema or self._effective_result_model()
-        persona = self._persona_name_instance or self.persona_name
-        result = await self._runtime.execute(
-            prompt,
-            schema=target,
-            persona=persona,
-            system=load_persona_system_prompt(persona),
-            timeout=timeout,
-        )
+
+        async def _send() -> RuntimeResult:
+            return await self._dispatch(prompt, schema=target, timeout=timeout)
+
+        result = await self._execute_protected(_send)
         if result.structured is None:
             raise RuntimeStructuredOutputError(
                 f"{self._runtime.label}: structured payload missing",
@@ -203,21 +332,128 @@ class Agent:
         Captures the cost record + emits the ``agent.cost`` row exactly
         like the structured path. Empty text is a legitimate outcome
         (e.g. a tool-only turn that wrote files and finished); callers
-        decide whether empty means failure.
+        decide whether empty means failure. When ``protection_policy`` is
+        set, brackets the send with the backstop snapshot/restore pass
+        (Layer 2), same as :meth:`_execute_via_runtime`.
         """
+
+        async def _send() -> RuntimeResult:
+            return await self._dispatch(prompt, schema=None, timeout=timeout)
+
+        result = await self._execute_protected(_send)
+        self._last_cost_record = result.cost
+        self._emit_cost(result.cost)
+        return result.text
+
+    async def _dispatch(
+        self,
+        prompt: str,
+        *,
+        schema: type[BaseModel] | None,
+        timeout: float,
+    ) -> RuntimeResult:
+        """Issue one send — via the session when protection is active, via
+        the legacy ``runtime.execute()`` sugar otherwise.
+
+        ``persona=``/``system=`` are session-construction-time concerns
+        when a session is open (baked in by :meth:`_open_session`); on
+        the legacy path they're passed per-call exactly as before this
+        feature existed.
+        """
+        if self._session is not None:
+            return await self._session.execute(prompt, schema=schema, timeout=timeout)
+
         from maverick.agents.system_prompts import load_persona_system_prompt
 
         persona = self._persona_name_instance or self.persona_name
-        result = await self._runtime.execute(
+        return await self._runtime.execute(
             prompt,
-            schema=None,
+            schema=schema,
             persona=persona,
             system=load_persona_system_prompt(persona),
             timeout=timeout,
         )
-        self._last_cost_record = result.cost
-        self._emit_cost(result.cost)
-        return result.text
+
+    async def _execute_protected(
+        self, send: Callable[[], Awaitable[RuntimeResult]]
+    ) -> RuntimeResult:
+        """Run ``send()`` (a zero-arg async callable returning ``RuntimeResult``),
+        bracketed by the Layer 2 backstop when ``protection_policy`` is set.
+
+        A snapshot failure never blocks the send (protection must not
+        degrade unprotected work) — it falls back to ``baseline_manifest``
+        (captured once at squadron open and threaded into every agent it
+        builds), per research.md R6. Restore happens even when ``send()``
+        raises, so a mid-turn crash can't leave a mutated protected file
+        behind — and a failure *inside* the restore is logged rather than
+        raised, because raising from a ``finally`` would replace the
+        real error from ``send()`` with a protection-internal one.
+        """
+        policy = self._protection_policy
+        if policy is None:
+            return await send()
+
+        manifest = await self._capture_snapshot(policy)
+        try:
+            return await send()
+        finally:
+            if manifest is not None:
+                await self._restore_after_send(manifest, policy)
+
+    async def _restore_after_send(
+        self, manifest: SnapshotManifest, policy: ProtectionPolicy
+    ) -> None:
+        """Run the post-send restore pass, swallowing its own failures.
+
+        Called from a ``finally`` — see :meth:`_execute_protected`.
+        """
+        from maverick.protection.snapshot import restore_and_report
+
+        try:
+            await restore_and_report(
+                manifest,
+                policy,
+                agent_role=self.provider_tier or "inline",
+                workflow=self._workflow,
+                bead_id=self._current_bead_id(),
+                collector=self._block_collector,
+            )
+        except Exception as exc:  # noqa: BLE001 — must never mask the send's own outcome
+            logger.warning(
+                "protection_restore_pass_failed",
+                agent=self._tag,
+                error=str(exc),
+            )
+
+    async def _capture_snapshot(self, policy: ProtectionPolicy) -> SnapshotManifest | None:
+        """Capture the pre-send manifest, falling back to the squadron-open
+        baseline (``self._baseline_manifest``) when capture itself fails.
+
+        A failed per-step capture must never abort the agent step
+        (FR-011) — the step still runs; the post-step compare simply
+        uses the baseline instead, so protected paths are never left
+        unguarded for a whole step. If no baseline was threaded in
+        either (``baseline_manifest=`` unset), the post-step compare for
+        *this one step* is skipped — the next successful step's own
+        snapshot resumes normal coverage.
+        """
+        from maverick.protection.snapshot import SnapshotManifest
+
+        try:
+            return await SnapshotManifest.capture(policy.root, policy)
+        except Exception as exc:  # noqa: BLE001 — never block the send on a snapshot failure
+            logger.warning(
+                "protection_snapshot_capture_failed",
+                agent=self._tag,
+                error=str(exc),
+            )
+            return self._baseline_manifest
+
+    @staticmethod
+    def _current_bead_id() -> str | None:
+        from maverick.agents.context import current_tags
+
+        return current_tags().get("bead_id") or None
 
     # ------------------------------------------------------------------
     # Schema resolution

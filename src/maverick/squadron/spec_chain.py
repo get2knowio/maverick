@@ -27,6 +27,8 @@ __all__ = ["SpecChainSquadron"]
 class SpecChainSquadron(Squadron):
     """Squadron for the ``maverick spec`` headless chain workflow."""
 
+    WORKFLOW_NAME = "spec-chain"
+
     chain_agent: SpecChainAgent
 
     def __init__(
@@ -44,6 +46,7 @@ class SpecChainSquadron(Squadron):
             runtime=runtime,
             cwd=str(self._cwd),
             cost_sink=self._cost_sink,
+            **self._agent_protection_kwargs(),
         )
         await self.chain_agent.open()
 

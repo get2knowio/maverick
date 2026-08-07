@@ -17,6 +17,9 @@ from maverick.payloads import SubmitCurationPlanPayload
 if TYPE_CHECKING:
     from airframe.protocol import AgentRuntime
 
+    from maverick.protection.policy import ProtectionPolicy
+    from maverick.protection.records import BlockCollector
+    from maverick.protection.snapshot import SnapshotManifest
     from maverick.runtime.registry import CostSink
 
 CONSOLIDATOR_TIMEOUT_SECONDS = 600
@@ -40,8 +43,21 @@ class ConsolidatorAgent(Agent):
         cwd: str,
         cost_sink: CostSink | None = None,
         tag: str | None = None,
+        protection_policy: ProtectionPolicy | None = None,
+        block_collector: BlockCollector | None = None,
+        workflow: str = "",
+        baseline_manifest: SnapshotManifest | None = None,
     ) -> None:
-        super().__init__(runtime=runtime, cwd=cwd, cost_sink=cost_sink, tag=tag)
+        super().__init__(
+            runtime=runtime,
+            cwd=cwd,
+            cost_sink=cost_sink,
+            tag=tag,
+            protection_policy=protection_policy,
+            block_collector=block_collector,
+            workflow=workflow,
+            baseline_manifest=baseline_manifest,
+        )
 
     async def consolidate(self, prompt: str) -> str:
         return await self._execute_text_via_runtime(prompt, timeout=CONSOLIDATOR_TIMEOUT_SECONDS)
@@ -60,8 +76,21 @@ class ValidationFixerAgent(Agent):
         cwd: str,
         cost_sink: CostSink | None = None,
         tag: str | None = None,
+        protection_policy: ProtectionPolicy | None = None,
+        block_collector: BlockCollector | None = None,
+        workflow: str = "",
+        baseline_manifest: SnapshotManifest | None = None,
     ) -> None:
-        super().__init__(runtime=runtime, cwd=cwd, cost_sink=cost_sink, tag=tag)
+        super().__init__(
+            runtime=runtime,
+            cwd=cwd,
+            cost_sink=cost_sink,
+            tag=tag,
+            protection_policy=protection_policy,
+            block_collector=block_collector,
+            workflow=workflow,
+            baseline_manifest=baseline_manifest,
+        )
 
     async def fix(self, prompt: str) -> str:
         return await self._execute_text_via_runtime(prompt, timeout=FIXER_TIMEOUT_SECONDS)
@@ -80,8 +109,21 @@ class RunwaySeedAgent(Agent):
         cwd: str,
         cost_sink: CostSink | None = None,
         tag: str | None = None,
+        protection_policy: ProtectionPolicy | None = None,
+        block_collector: BlockCollector | None = None,
+        workflow: str = "",
+        baseline_manifest: SnapshotManifest | None = None,
     ) -> None:
-        super().__init__(runtime=runtime, cwd=cwd, cost_sink=cost_sink, tag=tag)
+        super().__init__(
+            runtime=runtime,
+            cwd=cwd,
+            cost_sink=cost_sink,
+            tag=tag,
+            protection_policy=protection_policy,
+            block_collector=block_collector,
+            workflow=workflow,
+            baseline_manifest=baseline_manifest,
+        )
 
     async def seed(self, prompt: str, *, timeout: float = SEED_TIMEOUT_SECONDS) -> str:
         return await self._execute_text_via_runtime(prompt, timeout=timeout)
@@ -101,8 +143,21 @@ class CuratorAgent(Agent):
         cwd: str,
         cost_sink: CostSink | None = None,
         tag: str | None = None,
+        protection_policy: ProtectionPolicy | None = None,
+        block_collector: BlockCollector | None = None,
+        workflow: str = "",
+        baseline_manifest: SnapshotManifest | None = None,
     ) -> None:
-        super().__init__(runtime=runtime, cwd=cwd, cost_sink=cost_sink, tag=tag)
+        super().__init__(
+            runtime=runtime,
+            cwd=cwd,
+            cost_sink=cost_sink,
+            tag=tag,
+            protection_policy=protection_policy,
+            block_collector=block_collector,
+            workflow=workflow,
+            baseline_manifest=baseline_manifest,
+        )
 
     async def curate(self, prompt: str) -> SubmitCurationPlanPayload:
         payload = await self._execute_via_runtime(prompt, timeout=CURATOR_TIMEOUT_SECONDS)
@@ -123,8 +178,21 @@ class VerificationPropertiesAgent(Agent):
         cwd: str,
         cost_sink: CostSink | None = None,
         tag: str | None = None,
+        protection_policy: ProtectionPolicy | None = None,
+        block_collector: BlockCollector | None = None,
+        workflow: str = "",
+        baseline_manifest: SnapshotManifest | None = None,
     ) -> None:
-        super().__init__(runtime=runtime, cwd=cwd, cost_sink=cost_sink, tag=tag)
+        super().__init__(
+            runtime=runtime,
+            cwd=cwd,
+            cost_sink=cost_sink,
+            tag=tag,
+            protection_policy=protection_policy,
+            block_collector=block_collector,
+            workflow=workflow,
+            baseline_manifest=baseline_manifest,
+        )
 
     async def derive(self, prompt: str) -> str:
         return await self._execute_text_via_runtime(prompt, timeout=VERIFICATION_TIMEOUT_SECONDS)
@@ -150,8 +218,21 @@ class SpeckitEnrichmentAgent(Agent):
         cwd: str,
         cost_sink: CostSink | None = None,
         tag: str | None = None,
+        protection_policy: ProtectionPolicy | None = None,
+        block_collector: BlockCollector | None = None,
+        workflow: str = "",
+        baseline_manifest: SnapshotManifest | None = None,
     ) -> None:
-        super().__init__(runtime=runtime, cwd=cwd, cost_sink=cost_sink, tag=tag)
+        super().__init__(
+            runtime=runtime,
+            cwd=cwd,
+            cost_sink=cost_sink,
+            tag=tag,
+            protection_policy=protection_policy,
+            block_collector=block_collector,
+            workflow=workflow,
+            baseline_manifest=baseline_manifest,
+        )
 
     async def enrich(self, prompt: str) -> str:
         return await self._execute_text_via_runtime(

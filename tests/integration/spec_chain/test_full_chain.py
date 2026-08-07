@@ -210,6 +210,29 @@ class _CannedSpeckitRuntime:
     def validate_binding(self, _binding: Any) -> bool:
         return True
 
+    def supports(self, feature: Any, model: Any = None) -> bool:
+        return False
+
+    def session(self, **kwargs: Any) -> _CannedSpeckitSession:
+        return _CannedSpeckitSession(self)
+
+
+class _CannedSpeckitSession:
+    """Minimal ``AgentSession`` stand-in — ``Agent.open()`` always routes
+    through ``runtime.session(...)`` when a squadron builds a real
+    ``ProtectionPolicy`` (056-context-file-protection); delegates back to
+    the runtime's own stubbed ``execute()``."""
+
+    def __init__(self, runtime: _CannedSpeckitRuntime) -> None:
+        self.id = "stub-session"
+        self._runtime = runtime
+
+    async def execute(self, prompt: str, **kwargs: Any) -> RuntimeResult:
+        return await self._runtime.execute(prompt, **kwargs)
+
+    async def close(self) -> None:
+        return None
+
 
 @pytest.fixture
 def speckit_repo(tmp_path: Path) -> Path:

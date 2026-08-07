@@ -21,7 +21,7 @@ See constitution Principle XIII and Appendix F.
 
 | Category         | Technology                            | Module / Notes                              |
 | ---------------- | ------------------------------------- | ------------------------------------------- |
-| Language         | Python 3.11+                          | `from __future__ import annotations`        |
+| Language         | Python 3.12+                          | `from __future__ import annotations`        |
 | Package Manager  | uv                                    | reproducible via `uv.lock`                  |
 | Build            | Make                                  | AI-friendly minimal-noise targets           |
 | Agent runtime    | airframe (`airframe.AgentRuntime`)    | `maverick.runtime.agent_factory`            |
@@ -907,6 +907,85 @@ See `src/maverick/assumptions/matching.py`, `assumptions/suggestions.py`,
 `runway/models.py` (`DecisionRecord`, `MatchFeedbackRecord`), and
 `specs/055-learned-assumption-resolution/` (spec/plan/contracts) for
 the full contract.
+
+### Context file protection (056-context-file-protection)
+
+Agents cannot mutate agent-context files — basename `AGENTS.md`/
+`CLAUDE.md` (case-insensitive, any depth) and everything under
+`.specify/memory/**` — regardless of provider or write channel (Write
+tool, Bash `rm`/`mv`, etc.). Two layers, both built from one
+`ProtectionPolicy` constructed once per run in `Squadron.open()`
+(`lookup_protection_config(config)` → `ProtectionPolicy.build(cwd,
+config)`, threaded into every `Agent` the squadron builds):
+
+- **Layer 1 (pre-write, optimization)** — `Agent.open()` opens an
+  airframe `AgentSession`; when the adapter advertises
+  `Feature.PERMISSION_CALLBACK` (`supports_permission_callback()`), a
+  `PermissionGate` (`protection/policy.py`) attaches as
+  `session(on_permission=...)` and denies file-write tool calls
+  targeting a protected path before they execute — the model sees a
+  tool failure with a reason and can recover in the same turn.
+  Providers that decline (OpenCode/OpenRouter family) simply run
+  without it.
+- **Layer 2 (backstop, the guarantee)** — every
+  `Agent._execute_via_runtime`/`_execute_text_via_runtime` call is
+  bracketed by `SnapshotManifest.capture()` before the send and
+  `restore_and_report()` after (`protection/snapshot.py`): any protected
+  file that changed is rewritten byte-identical, any newly-created
+  protected path is deleted. This is provider-blind and channel-blind —
+  it is what makes the guarantee absolute regardless of what wrote the
+  file. A snapshot-capture failure falls back to the baseline manifest
+  captured once at squadron open (`baseline_manifest=`) rather than
+  leaving the step unguarded.
+
+`protection_policy=None` (the default on a bare `Agent(...)`) disables
+both layers with zero behavior change — only agents a `Squadron` builds
+carry a real policy in production. A handful of workflows build one
+`Agent` directly instead of going through a `Squadron` (land curation's
+`CuratorAgent`, `refuel --enrich`'s `SpeckitEnrichmentAgent`, runway
+seed/consolidate, the validation fix loop); these call
+`maverick.protection.build_ad_hoc_protection(cwd, config)` for the same
+one-line wiring.
+
+Every block/restore is a `BlockRecord` (`protection/records.py`),
+appended to a per-squadron `BlockCollector` and drained at each
+workflow's own boundary: fly drains after every agent-calling Burr
+action into the `protection_blocks` state slot (never read by any
+fix-loop action — a separate slot, per Guardrail 10) and emits one
+`ContextFileWriteBlocked` event per record plus a single end-of-run
+warning; spec-chain drains per step into `ChainState.protection_blocks`
+(checkpointed, survives resume) and shows a summary line in `maverick
+spec`'s output; reconcile/refuel-enrich/generate-flight-plan/land route
+through the shared `protection.records.drain_and_report()` helper. A
+non-empty run persists `.maverick/runs/<run-id>/protection-blocks.json`
+(`blocks[*]` is exactly `BlockRecord.to_dict()` — the same projection
+the event stream uses, so the two can never drift); a clean run writes
+nothing and emits nothing (FR-006). Blocks never touch the assumption
+ledger or the land frontier gate (FR-005).
+
+Config (`maverick.yaml` `protection:` block, both fields optional,
+absent block == defaults only):
+
+```yaml
+protection:
+  additional_globs: ["docs/agent-rules/**"] # extends the protected set
+  allowlist: ["AGENTS.md"] # exempts matches from the entire protected set
+```
+
+Compiled with `pathspec` gitwildmatch (never `fnmatch` — wrong on both
+the case-sensitivity and `**`-crossing axes). Allowlist is evaluated
+first, per literal-or-resolved candidate independently (so a symlink
+planted at a protected path, or pointing at one, is still caught either
+way — FR-014). Malformed config
+(`protection/config.py::lookup_protection_config`) degrades to defaults
+plus a warning, never a load failure — misconfiguration can only narrow
+toward the defaults, never widen access. `allowlist: ["**"]` is the
+explicit, auditable full opt-out for repos that want agents maintaining
+their own context files.
+
+See `src/maverick/protection/` (policy, matching, snapshot, records,
+config) and `specs/056-context-file-protection/` (spec/plan/contracts)
+for the full contract.
 
 ## Dependencies
 

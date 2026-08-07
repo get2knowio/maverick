@@ -26,6 +26,7 @@ from maverick.assumptions.suggestions import attach_suggestions
 from maverick.events import (
     AgentCompleted,
     AgentStarted,
+    ContextFileWriteBlocked,
     ProgressEvent,
     StepOutput,
 )
@@ -103,6 +104,48 @@ async def _put_output(
             metadata=metadata,
         )
     )
+
+
+async def _drain_protection_blocks(
+    squadron: FlySquadron,
+    events: asyncio.Queue[ProgressEvent | None],
+    state: State,
+) -> list[dict[str, Any]]:
+    """Drain the squadron's block collector, emit one event per record, and
+    return the extended ``protection_blocks`` list to merge into state.
+
+    Safe to call unconditionally — a squadron whose protection setup
+    degraded (``block_collector is None``, see
+    ``Squadron._build_protection``) is a no-op, matching every agent's own
+    zero-behavior-change fallback (056-context-file-protection).
+    """
+    collector = getattr(squadron, "block_collector", None)
+    if collector is None:
+        return list(state.get("protection_blocks") or [])
+    records = collector.drain()
+    dicts = [r.to_dict() for r in records]
+    for payload in dicts:
+        # ``BlockRecord.to_dict()`` and the event's field set are the
+        # same projection by contract (contracts/block-event.md); splat
+        # rather than restating nine fields the two must agree on.
+        await events.put(ContextFileWriteBlocked(**payload))
+    return [*(state.get("protection_blocks") or []), *dicts]
+
+
+async def _with_protection_drain(
+    result_and_state: tuple[dict[str, Any], State],
+    *,
+    squadron: FlySquadron,
+    events: asyncio.Queue[ProgressEvent | None],
+) -> tuple[dict[str, Any], State]:
+    """Wrap an agent-calling action's ``(result, state)`` return, merging
+    ``protection_blocks`` on top of whatever fields the action's own
+    logic already wrote. One call site per action — see each action's
+    trailing ``return await _with_protection_drain(...)``.
+    """
+    result, new_state = result_and_state
+    blocks = await _drain_protection_blocks(squadron, events, new_state)
+    return result, new_state.update(protection_blocks=blocks)
 
 
 # ---------------------------------------------------------------------------
@@ -296,6 +339,7 @@ async def process_bead_start(state: State) -> tuple[dict[str, Any], State]:
         "current_bead_id",
         "implementer_escalation_level",
         "pending_assumptions",
+        "protection_blocks",
     ],
     writes=[
         "implement_ok",
@@ -303,6 +347,7 @@ async def process_bead_start(state: State) -> tuple[dict[str, Any], State]:
         "bead_aborted",
         "implementer_escalation_level",
         "pending_assumptions",
+        "protection_blocks",
     ],
 )
 async def implement(
@@ -312,6 +357,19 @@ async def implement(
     events: asyncio.Queue[ProgressEvent | None],
 ) -> tuple[dict[str, Any], State]:
     """Run the implementer on the current bead, escalating on transient failures."""
+    return await _with_protection_drain(
+        await _implement_impl(state, squadron=squadron, events=events),
+        squadron=squadron,
+        events=events,
+    )
+
+
+async def _implement_impl(
+    state: State,
+    *,
+    squadron: FlySquadron,
+    events: asyncio.Queue[ProgressEvent | None],
+) -> tuple[dict[str, Any], State]:
     bead = state["current_bead"]
     if bead is None:
         return {"ok": False}, state.update(implement_ok=False, bead_aborted=True)
@@ -398,12 +456,18 @@ async def _run_fix(
 
 
 @action(
-    reads=["current_bead_id", "implementer_escalation_level", "pending_assumptions"],
+    reads=[
+        "current_bead_id",
+        "implementer_escalation_level",
+        "pending_assumptions",
+        "protection_blocks",
+    ],
     writes=[
         "gate_passed",
         "bead_aborted",
         "implementer_escalation_level",
         "pending_assumptions",
+        "protection_blocks",
     ],
 )
 async def gate(
@@ -415,6 +479,27 @@ async def gate(
     validation_commands: dict[str, tuple[str, ...]] | None = None,
 ) -> tuple[dict[str, Any], State]:
     """Run the format/lint/test gate; fix-retry up to ``MAX_GATE_FIX_ATTEMPTS``."""
+    return await _with_protection_drain(
+        await _gate_impl(
+            state,
+            squadron=squadron,
+            events=events,
+            cwd=cwd,
+            validation_commands=validation_commands,
+        ),
+        squadron=squadron,
+        events=events,
+    )
+
+
+async def _gate_impl(
+    state: State,
+    *,
+    squadron: FlySquadron,
+    events: asyncio.Queue[ProgressEvent | None],
+    cwd: str,
+    validation_commands: dict[str, tuple[str, ...]] | None = None,
+) -> tuple[dict[str, Any], State]:
     from maverick.library.actions.validation import run_independent_gate
 
     bead_id = state["current_bead_id"]
@@ -486,8 +571,15 @@ async def gate(
         "current_bead_id",
         "implementer_escalation_level",
         "pending_assumptions",
+        "protection_blocks",
     ],
-    writes=["ac_passed", "bead_aborted", "implementer_escalation_level", "pending_assumptions"],
+    writes=[
+        "ac_passed",
+        "bead_aborted",
+        "implementer_escalation_level",
+        "pending_assumptions",
+        "protection_blocks",
+    ],
 )
 async def ac_check(
     state: State,
@@ -497,6 +589,20 @@ async def ac_check(
     cwd: str,
 ) -> tuple[dict[str, Any], State]:
     """Run the AC (verification commands) check. One fix retry."""
+    return await _with_protection_drain(
+        await _ac_check_impl(state, squadron=squadron, events=events, cwd=cwd),
+        squadron=squadron,
+        events=events,
+    )
+
+
+async def _ac_check_impl(
+    state: State,
+    *,
+    squadron: FlySquadron,
+    events: asyncio.Queue[ProgressEvent | None],
+    cwd: str,
+) -> tuple[dict[str, Any], State]:
     from maverick.runners.command import CommandRunner
     from maverick.workflows.fly_beads.steps import (
         _parse_verification_commands,
@@ -577,12 +683,18 @@ async def ac_check(
 
 
 @action(
-    reads=["current_bead_id", "implementer_escalation_level", "pending_assumptions"],
+    reads=[
+        "current_bead_id",
+        "implementer_escalation_level",
+        "pending_assumptions",
+        "protection_blocks",
+    ],
     writes=[
         "spec_passed",
         "bead_aborted",
         "implementer_escalation_level",
         "pending_assumptions",
+        "protection_blocks",
     ],
 )
 async def spec_check(
@@ -603,6 +715,23 @@ async def spec_check(
     the implementer to fix them and re-run, up to
     ``MAX_SPEC_FIX_ATTEMPTS`` rounds. Abandon the bead on exhaustion.
     """
+    return await _with_protection_drain(
+        await _spec_check_impl(
+            state, squadron=squadron, events=events, cwd=cwd, project_type=project_type
+        ),
+        squadron=squadron,
+        events=events,
+    )
+
+
+async def _spec_check_impl(
+    state: State,
+    *,
+    squadron: FlySquadron,
+    events: asyncio.Queue[ProgressEvent | None],
+    cwd: str,
+    project_type: str = "rust",
+) -> tuple[dict[str, Any], State]:
     from maverick.workflows.fly_beads._spec_check import run_spec_check
 
     bead_id = state["current_bead_id"]
@@ -680,6 +809,7 @@ async def spec_check(
         "reviewer_escalation_level",
         "implementer_escalation_level",
         "pending_assumptions",
+        "protection_blocks",
     ],
     writes=[
         "approved",
@@ -689,6 +819,7 @@ async def spec_check(
         "reviewer_escalation_level",
         "implementer_escalation_level",
         "pending_assumptions",
+        "protection_blocks",
     ],
 )
 async def review(
@@ -712,6 +843,19 @@ async def review(
     been tried and the failure persists, the action sets
     ``needs_human_review=True`` and exits.
     """
+    return await _with_protection_drain(
+        await _review_impl(state, squadron=squadron, events=events),
+        squadron=squadron,
+        events=events,
+    )
+
+
+async def _review_impl(
+    state: State,
+    *,
+    squadron: FlySquadron,
+    events: asyncio.Queue[ProgressEvent | None],
+) -> tuple[dict[str, Any], State]:
     bead = state["current_bead"]
     bead_id = state["current_bead_id"]
     pending = list(state.get("pending_assumptions") or ())
@@ -1596,8 +1740,8 @@ async def reconcile_answers_final(
 
 
 @action(
-    reads=["completed_bead_ids", "bead_events", "succeeded_count"],
-    writes=["aggregate_review_payload"],
+    reads=["completed_bead_ids", "bead_events", "succeeded_count", "protection_blocks"],
+    writes=["aggregate_review_payload", "protection_blocks"],
 )
 async def aggregate_review(
     state: State,
@@ -1615,7 +1759,46 @@ async def aggregate_review(
     cross-bead consistency issues. The findings surface as a single
     warning row when the aggregate review is not approved; they don't
     block the run.
+
+    Also the fly graph's natural loop-exit point (the last action before
+    ``done``) — after draining any final protection blocks, emits one
+    end-of-run ``StepOutput(level="warning", metadata={"block_count": n})``
+    summarizing the whole run's context-file-protection activity
+    (056-context-file-protection); a clean run emits nothing (FR-006).
     """
+    result, new_state = await _with_protection_drain(
+        await _aggregate_review_impl(
+            state, squadron=squadron, events=events, cwd=cwd, epic_id=epic_id
+        ),
+        squadron=squadron,
+        events=events,
+    )
+    block_count = len(new_state.get("protection_blocks") or ())
+    if block_count > 0:
+        await events.put(
+            StepOutput(
+                step_name="aggregate_review",
+                message=(
+                    f"{block_count} context-file protection event(s) this run "
+                    "— see protection-blocks.json"
+                ),
+                display_label="",
+                level="warning",
+                source=_SOURCE,
+                metadata={"block_count": block_count},
+            )
+        )
+    return result, new_state
+
+
+async def _aggregate_review_impl(
+    state: State,
+    *,
+    squadron: FlySquadron,
+    events: asyncio.Queue[ProgressEvent | None],
+    cwd: str,
+    epic_id: str,
+) -> tuple[dict[str, Any], State]:
     completed_ids: list[str] = list(state.get("completed_bead_ids") or ())
     if len(completed_ids) < AGGREGATE_REVIEW_THRESHOLD:
         return {"ran": False, "reason": "below_threshold"}, state.update(

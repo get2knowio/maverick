@@ -11,9 +11,13 @@ from __future__ import annotations
 import json
 import shutil
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from maverick.logging import get_logger
 from maverick.workflows.spec_chain.constants import ChainStep
+
+if TYPE_CHECKING:
+    from maverick.config import MaverickConfig
 
 __all__ = ["land_step_artifacts", "resolve_feature_dir", "verify_step_artifacts"]
 
@@ -86,7 +90,45 @@ def verify_step_artifacts(*, workspace: Path, feature_dir: str, step: ChainStep)
     return [name for name in _STEP_ARTIFACTS[step] if (feature_path / name).is_file()]
 
 
-def land_step_artifacts(*, workspace: Path, checkout: Path, feature_dir: str) -> None:
+def _strip_protected_paths(
+    *, staged: Path, checkout: Path, feature_dir: str, config: MaverickConfig | None
+) -> list[str]:
+    """Delete any staged file that would land at a protected checkout path.
+
+    Belt-and-braces (research.md R10): the default protected set lies
+    outside ``specs/**``, so this only ever bites on a configured
+    ``additional_globs`` pattern reaching under ``specs/**`` — but it
+    turns "landing happens not to touch protected paths today" into a
+    contract rather than an accident of scope. ``config=None`` still
+    applies the default protected set (never "no protection") — only the
+    config-driven ``additional_globs``/``allowlist`` layer is skipped.
+
+    Returns:
+        Feature-dir-relative posix paths that were stripped, for logging.
+    """
+    from maverick.protection.policy import ProtectionPolicy
+
+    protection_config = None
+    if config is not None:
+        from maverick.protection.config import lookup_protection_config
+
+        protection_config = lookup_protection_config(config)
+    policy = ProtectionPolicy.build(checkout, protection_config)
+    stripped: list[str] = []
+    for path in list(staged.rglob("*")):
+        if not path.is_file():
+            continue
+        rel_within_feature = path.relative_to(staged).as_posix()
+        dest_relpath = f"specs/{feature_dir}/{rel_within_feature}"
+        if policy.decide(dest_relpath, "create").blocked:
+            path.unlink()
+            stripped.append(rel_within_feature)
+    return stripped
+
+
+def land_step_artifacts(
+    *, workspace: Path, checkout: Path, feature_dir: str, config: MaverickConfig | None = None
+) -> None:
     """Atomically sync ``specs/<feature_dir>/**`` from the workspace to the
     user's checkout, and nothing else.
 
@@ -94,7 +136,10 @@ def land_step_artifacts(*, workspace: Path, checkout: Path, feature_dir: str) ->
     step's new file) so steps that touch earlier artifacts (e.g. clarify
     rewriting ``spec.md``) land correctly too. Uses a staged
     copy-then-rename so a crash mid-sync never leaves a half-written
-    directory in the checkout.
+    directory in the checkout. Any staged file that would land at a
+    protected checkout path is stripped before the swap (research.md R10)
+    — ``config=None`` degrades to defaults-only protection, never "no
+    protection".
 
     Raises:
         OSError: The workspace feature dir is missing or the filesystem
@@ -111,6 +156,16 @@ def land_step_artifacts(*, workspace: Path, checkout: Path, feature_dir: str) ->
     if staged.exists():
         shutil.rmtree(staged)
     shutil.copytree(src_dir, staged)
+
+    stripped = _strip_protected_paths(
+        staged=staged, checkout=checkout, feature_dir=feature_dir, config=config
+    )
+    if stripped:
+        logger.warning(
+            "spec_chain_landing_stripped_protected_paths",
+            feature_dir=feature_dir,
+            paths=stripped,
+        )
 
     if dest_dir.exists():
         backup = dest_dir.with_name(f"{dest_dir.name}.landing-prev")

@@ -401,10 +401,12 @@ class RefuelMaverickWorkflow(PythonWorkflow):
             try:
                 from maverick.agents.personas import VerificationPropertiesAgent
                 from maverick.config import load_config
+                from maverick.protection import build_ad_hoc_protection
                 from maverick.runtime.agent_factory import runtime_for_agent
 
                 config = load_config()
                 runtime, _ = runtime_for_agent("generate", agents_config=config.agents)
+                policy, collector = build_ad_hoc_protection(ws_cwd, config)
                 sc_text = "\n".join(
                     f"SC-{i + 1:03d}: {sc.text}"
                     for i, sc in enumerate(flight_plan.success_criteria)
@@ -426,7 +428,11 @@ class RefuelMaverickWorkflow(PythonWorkflow):
                 )
                 try:
                     async with VerificationPropertiesAgent(
-                        runtime=runtime, cwd=str(ws_cwd)
+                        runtime=runtime,
+                        cwd=str(ws_cwd),
+                        protection_policy=policy,
+                        block_collector=collector,
+                        workflow="refuel-maverick",
                     ) as agent:
                         vp_text = await agent.derive(vp_prompt)
                 except Exception as vp_exec_err:

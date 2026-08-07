@@ -538,6 +538,51 @@ class AgentCompleted:
         return _event_to_dict(self)
 
 
+@dataclass(frozen=True, slots=True)
+class ContextFileWriteBlocked:
+    """Event emitted once per blocked write attempt or backstop restore
+    (056-context-file-protection).
+
+    See ``specs/056-context-file-protection/contracts/block-event.md`` —
+    this is the event-stream projection of a
+    ``maverick.protection.records.BlockRecord``; the same fields also
+    appear verbatim (via ``BlockRecord.to_dict()``) in the
+    ``protection-blocks.json`` run artifact, so the two can never drift.
+
+    Attributes:
+        agent_role: Role of the agent that attempted the write, e.g.
+            ``"implement"``, ``"review"``, ``"generate"``.
+        workflow: Name of the owning workflow, e.g. ``"fly-beads"``,
+            ``"spec-chain"``, ``"reconcile"``.
+        operation: The write operation attempted or undone. ``"restore"``
+            means the backstop undid a mutation that slipped past layer
+            1; ``detail`` names the inferred original operation.
+        path: Repo-relative posix path (resolved).
+        destination_path: Destination path for a rename; ``None`` otherwise.
+        layer: Which enforcement layer acted — ``"pre-write"`` (the
+            permission callback) or ``"backstop"`` (the post-step
+            snapshot/restore pass).
+        bead_id: The bead this happened inside of, if any.
+        detail: Reason / inferred-operation note. Agent-authored strings
+            are escaped at render time, not here.
+        timestamp: Unix timestamp of the event.
+    """
+
+    agent_role: str
+    workflow: str
+    operation: Literal["create", "edit", "delete", "rename", "restore"]
+    path: str
+    layer: Literal["pre-write", "backstop"]
+    destination_path: str | None = None
+    bead_id: str | None = None
+    detail: str | None = None
+    timestamp: float = field(default_factory=time.time)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize to a JSON-compatible dictionary."""
+        return _event_to_dict(self)
+
+
 # Type alias for all progress events
 ProgressEvent = (
     PreflightStarted
@@ -562,6 +607,7 @@ ProgressEvent = (
     | AgentStarted
     | AgentCompleted
     | StepOutput
+    | ContextFileWriteBlocked
 )
 
 
@@ -596,6 +642,7 @@ _EVENT_CLASSES: dict[str, type] = {
     "AgentStarted": AgentStarted,
     "AgentCompleted": AgentCompleted,
     "StepOutput": StepOutput,
+    "ContextFileWriteBlocked": ContextFileWriteBlocked,
 }
 
 # Fields that _event_to_dict() converts from tuple → list and must be restored

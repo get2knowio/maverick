@@ -124,3 +124,95 @@ class TestStepOutputMarkupSafety:
     async def test_closing_tag_in_message_does_not_raise(self) -> None:
         out = await self._render(["first interim", "T002: handle the `[/]` route"])
         assert "[/]" in out
+
+
+class TestContextFileWriteBlockedRendering:
+    """056-context-file-protection T022: block events render as yellow
+    warnings; agent-authored ``detail``/paths are escaped."""
+
+    @staticmethod
+    async def _render(events: list[Any]) -> str:
+        import io
+
+        from rich.console import Console
+
+        from maverick.cli.workflow_executor import render_workflow_events
+
+        async def _events() -> AsyncIterator[Any]:
+            for event in events:
+                yield event
+
+        buf = io.StringIO()
+        await render_workflow_events(_events(), Console(file=buf, width=200, no_color=True))
+        return buf.getvalue()
+
+    async def test_renders_path_and_layer(self) -> None:
+        from maverick.events import ContextFileWriteBlocked
+
+        out = await self._render(
+            [
+                ContextFileWriteBlocked(
+                    agent_role="implement",
+                    workflow="fly-beads",
+                    operation="edit",
+                    path="CLAUDE.md",
+                    layer="pre-write",
+                    detail="matched default rule",
+                )
+            ]
+        )
+        assert "CLAUDE.md" in out
+        assert "pre-write" in out
+        assert "matched default rule" in out
+
+    async def test_restore_operation_says_restored(self) -> None:
+        from maverick.events import ContextFileWriteBlocked
+
+        out = await self._render(
+            [
+                ContextFileWriteBlocked(
+                    agent_role="implement",
+                    workflow="fly-beads",
+                    operation="restore",
+                    path="AGENTS.md",
+                    layer="backstop",
+                )
+            ]
+        )
+        assert "Restored" in out
+
+    async def test_agent_authored_detail_with_markup_tokens_does_not_raise(self) -> None:
+        from maverick.events import ContextFileWriteBlocked
+
+        out = await self._render(
+            [
+                ContextFileWriteBlocked(
+                    agent_role="implement",
+                    workflow="fly-beads",
+                    operation="edit",
+                    path="CLAUDE.md",
+                    layer="pre-write",
+                    detail="agent said `[/]` and `[bold]` in its reasoning",
+                )
+            ]
+        )
+        assert "[/]" in out
+        assert "[bold]" in out
+
+    async def test_rename_shows_destination_arrow(self) -> None:
+        from maverick.events import ContextFileWriteBlocked
+
+        out = await self._render(
+            [
+                ContextFileWriteBlocked(
+                    agent_role="implement",
+                    workflow="fly-beads",
+                    operation="rename",
+                    path="notes.txt",
+                    destination_path="AGENTS.md",
+                    layer="pre-write",
+                )
+            ]
+        )
+        assert "notes.txt" in out
+        assert "AGENTS.md" in out

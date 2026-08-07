@@ -656,6 +656,7 @@ class SpeckitRefuelWorkflow(PythonWorkflow):
         try:
             from maverick.agents.personas import SpeckitEnrichmentAgent
             from maverick.config import load_config
+            from maverick.protection import build_ad_hoc_protection
             from maverick.runtime.agent_factory import runtime_for_agent
             from maverick.speckit.enrichment import (
                 apply_enrichment,
@@ -665,14 +666,36 @@ class SpeckitRefuelWorkflow(PythonWorkflow):
 
             config = load_config()
             runtime, _ = runtime_for_agent("generate", agents_config=config.agents)
+            policy, collector = build_ad_hoc_protection(cwd, config)
             prompt = build_enrichment_prompt(plan.new_tasks)
-            async with SpeckitEnrichmentAgent(runtime=runtime, cwd=str(cwd)) as agent:
+            async with SpeckitEnrichmentAgent(
+                runtime=runtime,
+                cwd=str(cwd),
+                protection_policy=policy,
+                block_collector=collector,
+                workflow="refuel-speckit",
+            ) as agent:
                 response_text = await agent.enrich(prompt)
             commands_by_task = parse_enrichment_response(response_text)
             enriched_plan = apply_enrichment(plan, commands_by_task)
             # Count tasks that actually received commands — a model may
             # return commands for only a subset of the requested task IDs.
             applied = sum(1 for pb in plan.new_tasks if commands_by_task.get(pb.task_id))
+
+            # 056-context-file-protection T025: drain + persist, one
+            # end-of-run warning when non-empty.
+            from maverick.protection.records import drain_and_report
+
+            blocked = await drain_and_report(
+                collector, cwd=cwd, run_id=uuid.uuid4().hex[:8], workflow=WORKFLOW_NAME
+            )
+            if blocked:
+                await self.emit_output(
+                    ENRICH,
+                    f"{len(blocked)} context-file protection event(s) — see "
+                    "protection-blocks.json",
+                    level="warning",
+                )
         except Exception as exc:
             logger.warning("speckit_enrichment_failed", error=str(exc))
             warning = f"enrichment failed (non-fatal): {exc}"

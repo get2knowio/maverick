@@ -14,9 +14,43 @@ from typing import Any
 from atomicwrites import atomic_write  # type: ignore[import-untyped]
 
 __all__ = [
+    "atomic_write_bytes",
     "atomic_write_json",
     "atomic_write_text",
 ]
+
+
+def atomic_write_bytes(
+    path: Path | str,
+    content: bytes,
+    *,
+    mkdir: bool = True,
+) -> None:
+    """Write raw bytes to a file atomically.
+
+    Byte-exact counterpart to :func:`atomic_write_text` — no encoding,
+    no newline translation. Use this whenever the write must reproduce
+    the source bytes exactly (e.g. restoring a captured file snapshot);
+    a decode/encode round-trip through ``str`` cannot, because
+    ``surrogateescape``-decoded bytes are not re-encodable as strict
+    UTF-8 and text mode translates newlines.
+
+    Args:
+        path: Destination file path (Path or str).
+        content: Raw bytes to write.
+        mkdir: If True, create parent directories if they don't exist.
+            Defaults to True.
+
+    Raises:
+        OSError: If the write or rename operation fails.
+    """
+    file_path = Path(path)
+
+    if mkdir:
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+
+    with atomic_write(str(file_path), mode="wb", overwrite=True) as f:
+        f.write(content)
 
 
 def atomic_write_text(

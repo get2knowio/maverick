@@ -72,9 +72,6 @@ from maverick.exceptions.github import (
     GitHubToolsError,
 )
 
-# Hook-related exceptions
-from maverick.exceptions.hooks import HookConfigError, HookError, SafetyHookError
-
 # Init-related exceptions
 from maverick.exceptions.init import (
     AnthropicAPIError,
@@ -186,10 +183,6 @@ __all__ = [
     "GitHubCLINotFoundError",
     "GitHubError",
     "GitHubToolsError",
-    # Hooks
-    "HookConfigError",
-    "HookError",
-    "SafetyHookError",
     # Jj
     "JjCloneError",
     "JjConflictError",

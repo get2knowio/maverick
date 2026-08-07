@@ -315,6 +315,57 @@ class TestHappyPathSingleAnswer:
         assert kwargs["change_id"] == "target-1"
         mocks["mark_needs_interactive_review"].assert_not_called()
 
+    async def test_protection_blocks_drained_and_persisted(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """056-context-file-protection T025: the squadron's block collector
+        is drained at workflow end and, when non-empty, persisted to
+        protection-blocks.json + one end-of-run warning."""
+        import json
+
+        from maverick.protection.records import BlockCollector, BlockRecord
+
+        _patch_jj_client(monkeypatch, files_changed=0)
+        answer = _changed_answer()
+        _patch_common(monkeypatch, changed_answers=(answer,))
+
+        original_init = _FakeSquadron.__init__
+
+        def _init_with_collector(self: _FakeSquadron, **kwargs: Any) -> None:
+            original_init(self, **kwargs)
+            self.block_collector = BlockCollector()
+            self.block_collector.append(
+                BlockRecord(
+                    agent_role="implement",
+                    workflow="reconcile",
+                    operation="restore",
+                    path="CLAUDE.md",
+                    layer="backstop",
+                )
+            )
+
+        monkeypatch.setattr(_FakeSquadron, "__init__", _init_with_collector)
+
+        workflow = _workflow()
+        events = []
+        async for event in workflow.execute({"run_id": "run-1", "cwd": str(tmp_path)}):
+            events.append(event)
+
+        from maverick.events import StepOutput
+
+        warnings = [
+            e
+            for e in events
+            if isinstance(e, StepOutput) and e.level == "warning" and "protection" in e.message
+        ]
+        assert len(warnings) == 1
+
+        artifact_path = tmp_path / ".maverick" / "runs" / "run-1" / "protection-blocks.json"
+        assert artifact_path.is_file()
+        data = json.loads(artifact_path.read_text())
+        assert data["workflow"] == "reconcile"
+        assert data["blocks"][0]["path"] == "CLAUDE.md"
+
     async def test_rotate_for_new_bead_called_once(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

@@ -231,6 +231,7 @@ async def _synthesize_summary(
     to_consolidate_outcomes: list[dict[str, Any]],
     to_consolidate_findings: list[dict[str, Any]],
     to_consolidate_attempts: list[dict[str, Any]],
+    project_root: Path,
 ) -> bool:
     """Run the ``maverick.consolidator`` persona to produce an updated summary.
 
@@ -245,6 +246,7 @@ async def _synthesize_summary(
     """
     from maverick.agents.personas import ConsolidatorAgent
     from maverick.config import load_config
+    from maverick.protection import build_ad_hoc_protection
     from maverick.runtime.agent_factory import runtime_for_agent
 
     existing_summary = await store.read_semantic_file(_INSIGHTS_FILE)
@@ -258,8 +260,19 @@ async def _synthesize_summary(
 
     config = load_config()
     runtime, _ = runtime_for_agent("briefing", agents_config=config.agents)
+    # Root the policy at the *project*, not the runway store: the
+    # consolidator's cwd is the store, but nothing stops it writing
+    # elsewhere in the checkout, and a policy rooted at the store can
+    # neither match nor scan the repo's own CLAUDE.md / .specify/memory.
+    policy, collector = build_ad_hoc_protection(project_root, config)
     try:
-        async with ConsolidatorAgent(runtime=runtime, cwd=str(store.path)) as agent:
+        async with ConsolidatorAgent(
+            runtime=runtime,
+            cwd=str(store.path),
+            protection_policy=policy,
+            block_collector=collector,
+            workflow="runway-consolidate",
+        ) as agent:
             raw = await agent.consolidate(user_prompt)
     except Exception as exc:
         logger.warning("consolidator_execution_failed", error=str(exc))
@@ -392,6 +405,8 @@ async def consolidate_runway(
                     synthesis_outcomes,
                     synthesis_findings,
                     synthesis_attempts,
+                    # ``store.path`` is ``<project>/.maverick/runway``.
+                    store.path.parent.parent,
                 )
             except Exception as exc:
                 logger.warning(

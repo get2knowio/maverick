@@ -254,6 +254,26 @@ def _install_bd_compat_shims(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(BeadClient, "query", _bd_query_compat)
 
 
+class _StubSession:
+    """Minimal ``AgentSession`` stand-in shared by every stub runtime in this
+    file: ``Agent.open()`` now always routes through ``runtime.session(...)``
+    when a squadron builds a real ``ProtectionPolicy``
+    (056-context-file-protection), so each fake runtime's ``session()``
+    must return something whose ``execute()`` delegates back to the
+    runtime's own (stubbed) ``execute()``.
+    """
+
+    def __init__(self, runtime: Any, **kwargs: Any) -> None:
+        self.id = "stub-session"
+        self._runtime = runtime
+
+    async def execute(self, prompt: str, **kwargs: Any) -> RuntimeResult:
+        return await self._runtime.execute(prompt, **kwargs)
+
+    async def close(self) -> None:
+        return None
+
+
 class _ReconcileCorrectionRuntime:
     """Fake airframe runtime for ``ReconcilerAgent.correct`` (Scenario 1).
 
@@ -324,6 +344,12 @@ class _ReconcileCorrectionRuntime:
 
     def validate_binding(self, _binding: object) -> bool:
         return True
+
+    def supports(self, feature: Any, model: Any = None) -> bool:
+        return False
+
+    def session(self, **kwargs: Any) -> _StubSession:
+        return _StubSession(self, **kwargs)
 
 
 def _stub_reconcile_runtime_factory(
@@ -454,6 +480,12 @@ class _Scenario2CorrectionRuntime:
 
     def validate_binding(self, _binding: object) -> bool:
         return True
+
+    def supports(self, feature: Any, model: Any = None) -> bool:
+        return False
+
+    def session(self, **kwargs: Any) -> _StubSession:
+        return _StubSession(self, **kwargs)
 
 
 def _stub_scenario2_runtime_factory(
@@ -1123,6 +1155,12 @@ class _Scenario3ReconcilerRuntime:
     def validate_binding(self, _binding: object) -> bool:
         return True
 
+    def supports(self, feature: Any, model: Any = None) -> bool:
+        return False
+
+    def session(self, **kwargs: Any) -> _StubSession:
+        return _StubSession(self, **kwargs)
+
 
 def _stub_scenario3_runtime_factory(
     monkeypatch: pytest.MonkeyPatch,
@@ -1560,6 +1598,12 @@ class _Scenario4ReconcilerRuntime:
     def validate_binding(self, _binding: object) -> bool:
         return True
 
+    def supports(self, feature: Any, model: Any = None) -> bool:
+        return False
+
+    def session(self, **kwargs: Any) -> _StubSession:
+        return _StubSession(self, **kwargs)
+
 
 def _stub_scenario4_runtime_factory(
     monkeypatch: pytest.MonkeyPatch,
@@ -1863,6 +1907,12 @@ class _Scenario5ReconcilerRuntime:
 
     def validate_binding(self, _binding: object) -> bool:
         return True
+
+    def supports(self, feature: Any, model: Any = None) -> bool:
+        return False
+
+    def session(self, **kwargs: Any) -> _StubSession:
+        return _StubSession(self, **kwargs)
 
 
 def _stub_scenario5_runtime_factory(

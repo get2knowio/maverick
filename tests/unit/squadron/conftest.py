@@ -24,6 +24,30 @@ import pytest
 from maverick.config import AgentBindingConfig, AgentsConfig, MaverickConfig
 
 
+class _StubSession:
+    """Minimal :class:`airframe.protocol.AgentSession` stand-in.
+
+    Squadrons now build a real :class:`~maverick.protection.policy.ProtectionPolicy`
+    at open time (056-context-file-protection), which routes every
+    agent's :meth:`~maverick.agents.base.Agent.open` through
+    ``runtime.session(...)`` rather than lazily on first execute. These
+    squadron-wiring tests never send a prompt, so ``execute`` staying
+    unimplemented (matching :class:`StubAirframeRuntime`'s own
+    ``execute``) is fine.
+    """
+
+    def __init__(self, **kwargs: Any) -> None:
+        self.kwargs = kwargs
+        self.id = "stub-session"
+        self.close_calls = 0
+
+    async def execute(self, prompt: str, **kwargs: Any) -> Any:  # pragma: no cover
+        raise NotImplementedError("_StubSession is not meant to execute prompts")
+
+    async def close(self) -> None:
+        self.close_calls += 1
+
+
 class StubAirframeRuntime:
     """In-memory stand-in for an :class:`airframe.AgentRuntime`.
 
@@ -40,6 +64,7 @@ class StubAirframeRuntime:
         self.execute_calls: list[dict[str, Any]] = []
         self.reset_calls = 0
         self.close_calls = 0
+        self.sessions: list[_StubSession] = []
 
     async def execute(self, prompt: str, **kwargs: Any) -> Any:  # pragma: no cover
         self.execute_calls.append({"prompt": prompt, **kwargs})
@@ -53,6 +78,17 @@ class StubAirframeRuntime:
 
     def validate_binding(self, _binding: Any) -> bool:
         return True
+
+    def supports(self, feature: Any, model: Any = None) -> bool:
+        # No provider capabilities needed for squadron-wiring tests —
+        # Layer 1 (pre-write) simply never attaches; these tests aren't
+        # exercising context-file-protection behavior at all.
+        return False
+
+    def session(self, **kwargs: Any) -> _StubSession:
+        sess = _StubSession(**kwargs)
+        self.sessions.append(sess)
+        return sess
 
 
 @pytest.fixture

@@ -36,7 +36,11 @@ from maverick.config import AgentBindingConfig, AgentsConfig
 if TYPE_CHECKING:
     from airframe.protocol import AgentRuntime, ProviderModel
 
-__all__ = ["runtime_for_agent", "binding_for_role"]
+__all__ = [
+    "binding_for_role",
+    "runtime_for_agent",
+    "supports_permission_callback",
+]
 
 
 #: Canonical role names — must match each agent's
@@ -135,3 +139,26 @@ def runtime_for_agent(
             f"Check ``agents.{role}`` in maverick.yaml."
         )
     return runtime, provider_model
+
+
+def supports_permission_callback(runtime: AgentRuntime) -> bool:
+    """Whether ``runtime`` advertises ``Feature.PERMISSION_CALLBACK``.
+
+    The context-file-protection backstop (Layer 2,
+    :mod:`maverick.protection.snapshot`) is universal and provider-blind;
+    the pre-write layer (Layer 1, :class:`maverick.protection.policy.PermissionGate`)
+    is an optimization that only attaches when the adapter can honour
+    ``session(on_permission=...)`` — providers that decline (the
+    OpenCode/OpenRouter family, per airframe's capability matrix) simply
+    skip it rather than tripping ``UnsupportedFeatureError``.
+
+    Args:
+        runtime: The constructed airframe runtime to probe.
+
+    Returns:
+        ``True`` when ``runtime.session(on_permission=...)`` will honour
+        the callback rather than declining it.
+    """
+    from airframe.features import Feature
+
+    return runtime.supports(Feature.PERMISSION_CALLBACK)

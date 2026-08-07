@@ -27,6 +27,8 @@ if TYPE_CHECKING:
 class PlanSquadron(Squadron):
     """Squadron for the plan-generation workflow."""
 
+    WORKFLOW_NAME = "generate-flight-plan"
+
     generator: GeneratorAgent
 
     def __init__(
@@ -48,6 +50,7 @@ class PlanSquadron(Squadron):
             runtime=generator_runtime,
             cwd=str(self._cwd),
             cost_sink=self._cost_sink,
+            **self._agent_protection_kwargs(),
         )
         await self.generator.open()
 
@@ -65,6 +68,7 @@ class PlanSquadron(Squadron):
             cost_sink=self._cost_sink,
             agent_name=agent_name,
             result_model=result_model,
+            **self._agent_protection_kwargs(),
         )
         self._briefings.append(agent)
         return agent
