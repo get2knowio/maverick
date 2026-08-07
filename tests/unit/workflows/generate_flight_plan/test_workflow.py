@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import shutil
 from pathlib import Path
 from typing import Any
@@ -393,3 +394,82 @@ class TestGenerateFlightPlanWorkflowErrors:
                         "skip_briefing": True,
                     },
                 )
+
+
+class TestProtectionArtifactRunId:
+    """The protection artifact must land somewhere the user can find.
+
+    This workflow has no run-metadata concept, so an earlier revision minted
+    a throwaway ``uuid4()`` — the artifact landed in a
+    ``.maverick/runs/<random>/`` named after nothing and holding nothing
+    else. The id is now derived from the plan name instead.
+    """
+
+    @pytest.mark.asyncio
+    async def test_artifact_lands_under_plan_scoped_run_id(
+        self, mock_config: MagicMock, tmp_path: Path
+    ) -> None:
+        import json
+
+        from maverick.protection.records import BlockCollector, BlockRecord
+
+        collector = BlockCollector()
+        collector.append(
+            BlockRecord(
+                agent_role="generate",
+                workflow=WORKFLOW_NAME,
+                operation="edit",
+                path="CLAUDE.md",
+                layer="backstop",
+            )
+        )
+
+        squadron = MagicMock()
+        squadron.block_collector = collector
+        squadron.__aenter__ = AsyncMock(return_value=squadron)
+        squadron.__aexit__ = AsyncMock(return_value=False)
+
+        driver = MagicMock()
+
+        async def _events() -> Any:
+            return
+            yield  # pragma: no cover — empty async generator
+
+        driver.events = _events
+        driver.result = (None, None, {"flight_plan_path": str(tmp_path / "fp.md")})
+
+        workflow = GenerateFlightPlanWorkflow(config=mock_config)
+        # `_generate_plan` is normally reached through `execute()`, which
+        # creates the queue; this test drives the method directly.
+        workflow._event_queue = asyncio.Queue()
+        with (
+            patch("maverick.squadron.plan.PlanSquadron", return_value=squadron),
+            patch(
+                "maverick.workflows.generate_flight_plan.burr_graph.build_plan_application",
+                return_value=MagicMock(),
+            ),
+            patch("maverick.burr.BurrWorkflowDriver", return_value=driver),
+            patch(
+                "maverick.workflows.fly_beads.workflow._cost_sink_for_cwd",
+                return_value=MagicMock(),
+            ),
+        ):
+            await workflow._generate_plan(
+                prd_content="# PRD",
+                name="my-plan",
+                plan_dir=tmp_path / "plans" / "my-plan",
+                skip_briefing=True,
+                cwd=str(tmp_path),
+            )
+
+        artifact = tmp_path / ".maverick" / "runs" / "plan-my-plan" / "protection-blocks.json"
+        assert artifact.is_file()
+        body = json.loads(artifact.read_text(encoding="utf-8"))
+        assert body["run_id"] == "plan-my-plan"
+        assert body["workflow"] == WORKFLOW_NAME
+
+        # The directory carries no run metadata, so `find_latest_run` and
+        # `find_run_for_epic` skip it and refuel's "Next:" hint is unaffected.
+        from maverick.runway.run_metadata import find_latest_run
+
+        assert find_latest_run("my-plan", base=tmp_path) is None

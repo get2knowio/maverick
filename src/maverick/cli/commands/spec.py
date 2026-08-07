@@ -82,7 +82,8 @@ def _render_summary_and_exit(state: object, feature: str) -> None:
     if state.protection_blocks:
         console.print(
             f"  [yellow]Context-file protection events: "
-            f"{len(state.protection_blocks)}[/] (see protection-blocks.json)"
+            f"{len(state.protection_blocks)}[/] "
+            f"(see .maverick/runs/{state.run_id}/protection-blocks.json)"
         )
 
     if state.status == "completed":

@@ -613,13 +613,12 @@ async def _agent_curate(
         # end-of-run warning when non-empty.
         from maverick.protection.records import drain_and_report
 
-        blocked = await drain_and_report(
-            collector, cwd=cwd, run_id=run_id or "land", workflow="land"
-        )
+        blocks_run_id = run_id or "land"
+        blocked = await drain_and_report(collector, cwd=cwd, run_id=blocks_run_id, workflow="land")
         if blocked:
             out.print(
                 f"[yellow]{len(blocked)} context-file protection event(s) this run "
-                f"— see protection-blocks.json[/]"
+                f"— see .maverick/runs/{blocks_run_id}/protection-blocks.json[/]"
             )
     except SystemExit:
         raise

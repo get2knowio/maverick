@@ -93,6 +93,11 @@ class SpeckitRefuelWorkflow(PythonWorkflow):
         enrich: bool = bool(inputs.get("enrich", False))
         auto_commit: bool = bool(inputs.get("auto_commit", False))
         warnings: list[str] = []
+        # One id for the whole run, minted before any artifact is written.
+        # ``_record_run`` and ``_run_enrichment``'s protection artifact both
+        # take it, so ``protection-blocks.json`` lands next to the run's own
+        # ``metadata.json`` instead of in a directory nothing else references.
+        run_id = uuid.uuid4().hex[:8]
 
         # ------------------------------------------------------------
         # Step 1: Resolve feature
@@ -219,7 +224,9 @@ class SpeckitRefuelWorkflow(PythonWorkflow):
 
             await self.emit_step_started(RECORD_RUN, display_label="Recording run")
             if not dry_run and existing_epic_id:
-                await self._record_run(cwd, feature_name, existing_epic_id, "refueled")
+                await self._record_run(
+                    cwd, feature_name, existing_epic_id, "refueled", run_id=run_id
+                )
             await self.emit_output(
                 RECORD_RUN,
                 f"No new tasks to ingest for {feature_name} (epic {existing_epic_id} up to date).",
@@ -242,7 +249,7 @@ class SpeckitRefuelWorkflow(PythonWorkflow):
         # ------------------------------------------------------------
         enriched = False
         if enrich:
-            plan, enrich_warning = await self._run_enrichment(plan, cwd=cwd)
+            plan, enrich_warning = await self._run_enrichment(plan, cwd=cwd, run_id=run_id)
             if enrich_warning:
                 warnings.append(enrich_warning)
             else:
@@ -379,7 +386,7 @@ class SpeckitRefuelWorkflow(PythonWorkflow):
         # Step 10: Record run metadata (skipped on dry-run)
         # ------------------------------------------------------------
         if not dry_run:
-            await self._record_run(cwd, feature_name, epic_id, "refueled")
+            await self._record_run(cwd, feature_name, epic_id, "refueled", run_id=run_id)
 
         # ------------------------------------------------------------
         # Step 11 (optional): Auto-commit
@@ -594,10 +601,21 @@ class SpeckitRefuelWorkflow(PythonWorkflow):
         await self.emit_step_completed(ADOPT_REMEDIATION, output={"adopted": len(adopted)})
         return tuple(adopted)
 
-    async def _record_run(self, cwd: Path, feature_name: str, epic_id: str, status: str) -> None:
+    async def _record_run(
+        self, cwd: Path, feature_name: str, epic_id: str, status: str, *, run_id: str
+    ) -> None:
+        """Write ``metadata.json`` for this run.
+
+        Args:
+            cwd: Repository root; the run directory hangs off it.
+            feature_name: Spec Kit feature directory name.
+            epic_id: The bd epic this run created or updated.
+            status: Run status recorded in the metadata.
+            run_id: The run's id, minted once in :meth:`_run` so every
+                artifact this run writes shares one directory.
+        """
         from maverick.runway.run_metadata import RunMetadata, write_metadata
 
-        run_id = uuid.uuid4().hex[:8]
         run_dir = cwd / ".maverick" / "runs" / run_id
         meta = RunMetadata(
             run_id=run_id,
@@ -638,6 +656,7 @@ class SpeckitRefuelWorkflow(PythonWorkflow):
         plan: IngestionPlan,
         *,
         cwd: Path,
+        run_id: str,
     ) -> tuple[IngestionPlan, str | None]:
         """Attach model-supplied verification commands to new task beads.
 
@@ -645,6 +664,13 @@ class SpeckitRefuelWorkflow(PythonWorkflow):
         D9). Any failure degrades to a warning — ingestion proceeds
         unenriched (FR-011). Nothing here imports agent/runtime
         machinery unless this method actually runs (FR-010).
+
+        Args:
+            plan: The ingestion plan whose new tasks get enriched.
+            cwd: Repository root.
+            run_id: This run's id, shared with :meth:`_record_run` so a
+                ``protection-blocks.json`` written here lands in the same
+                run directory as the run's ``metadata.json``.
 
         Returns:
             ``(plan, warning)`` — *plan* is unchanged (with augmented
@@ -687,13 +713,13 @@ class SpeckitRefuelWorkflow(PythonWorkflow):
             from maverick.protection.records import drain_and_report
 
             blocked = await drain_and_report(
-                collector, cwd=cwd, run_id=uuid.uuid4().hex[:8], workflow=WORKFLOW_NAME
+                collector, cwd=cwd, run_id=run_id, workflow=WORKFLOW_NAME
             )
             if blocked:
                 await self.emit_output(
                     ENRICH,
                     f"{len(blocked)} context-file protection event(s) — see "
-                    "protection-blocks.json",
+                    f".maverick/runs/{run_id}/protection-blocks.json",
                     level="warning",
                 )
         except Exception as exc:

@@ -273,20 +273,30 @@ class GenerateFlightPlanWorkflow(PythonWorkflow):
 
         # 056-context-file-protection T025: drain + persist, one
         # end-of-run warning when non-empty.
-        import uuid
-
+        #
+        # This workflow has no run-metadata concept of its own, so there is
+        # no run id to reuse. A random one would put the artifact in a
+        # directory holding nothing else and named after nothing — the user
+        # is told to read a file they cannot find. Derive a stable id from
+        # the plan name instead (``name`` already names a directory under
+        # ``output_dir``, so it is filesystem-safe), matching ``land``'s
+        # fixed ``"land"`` fallback. The directory carries no
+        # ``metadata.json``, so ``find_latest_run``/``find_run_for_epic``
+        # skip it and refuel's "Next:" hint is unaffected.
         from maverick.protection.records import drain_and_report
 
+        run_id = f"plan-{name}"
         blocked = await drain_and_report(
             getattr(squadron, "block_collector", None),
             cwd=Path(cwd),
-            run_id=uuid.uuid4().hex[:8],
+            run_id=run_id,
             workflow=WORKFLOW_NAME,
         )
         if blocked:
             await self.emit_output(
                 GENERATE,
-                f"{len(blocked)} context-file protection event(s) — see protection-blocks.json",
+                f"{len(blocked)} context-file protection event(s) — see "
+                f".maverick/runs/{run_id}/protection-blocks.json",
                 level="warning",
             )
 
