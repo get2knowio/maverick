@@ -413,7 +413,7 @@ class ReconcileWorkflow(PythonWorkflow):
                 await self.emit_output(
                     "reconcile",
                     f"{len(blocked)} context-file protection event(s) this run "
-                    "— see protection-blocks.json",
+                    f"— see .maverick/runs/{run_id}/protection-blocks.json",
                     level="warning",
                 )
 

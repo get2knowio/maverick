@@ -191,6 +191,7 @@ def build_fly_application(
                 events=event_queue,
                 cwd=cwd,
                 epic_id=epic_id,
+                fly_run_id=fly_run_id,
             ),
             done=_done,
         )

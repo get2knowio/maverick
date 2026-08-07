@@ -1750,6 +1750,7 @@ async def aggregate_review(
     events: asyncio.Queue[ProgressEvent | None],
     cwd: str,
     epic_id: str,
+    fly_run_id: str = "",
 ) -> tuple[dict[str, Any], State]:
     """Run the epic-level cross-bead review after the bead loop ends.
 
@@ -1765,6 +1766,8 @@ async def aggregate_review(
     end-of-run ``StepOutput(level="warning", metadata={"block_count": n})``
     summarizing the whole run's context-file-protection activity
     (056-context-file-protection); a clean run emits nothing (FR-006).
+    ``fly_run_id`` is only used to name the artifact path in that warning
+    — the workflow, not this action, writes it.
     """
     result, new_state = await _with_protection_drain(
         await _aggregate_review_impl(
@@ -1775,12 +1778,16 @@ async def aggregate_review(
     )
     block_count = len(new_state.get("protection_blocks") or ())
     if block_count > 0:
+        artifact = (
+            f".maverick/runs/{fly_run_id}/protection-blocks.json"
+            if fly_run_id
+            else "protection-blocks.json"
+        )
         await events.put(
             StepOutput(
                 step_name="aggregate_review",
                 message=(
-                    f"{block_count} context-file protection event(s) this run "
-                    "— see protection-blocks.json"
+                    f"{block_count} context-file protection event(s) this run — see {artifact}"
                 ),
                 display_label="",
                 level="warning",

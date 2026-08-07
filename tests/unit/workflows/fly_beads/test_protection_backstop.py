@@ -334,3 +334,77 @@ class TestDegradesGracefullyWithoutCollector:
             events=events,  # type: ignore[arg-type]
         )
         assert new_state.get("protection_blocks") == []
+
+
+class TestSummaryNamesArtifactPath:
+    """The end-of-run warning must name a path the user can actually open.
+
+    Fly persists ``protection-blocks.json`` under its own run directory, so
+    the summary quotes that exact path rather than a bare filename.
+    """
+
+    async def test_warning_names_run_scoped_artifact_path(self) -> None:
+        squadron = _ProtectedStubSquadron()
+        squadron.block_collector.append(_block("CLAUDE.md"))
+        events: asyncio.Queue[ProgressEvent | None] = asyncio.Queue()
+        state = State(
+            {
+                "completed_bead_ids": ["b-1"],
+                "bead_events": [],
+                "succeeded_count": 1,
+                "protection_blocks": [],
+            }
+        )
+
+        await actions.aggregate_review(
+            state,
+            squadron=squadron,  # type: ignore[arg-type]
+            events=events,
+            cwd="/tmp",
+            epic_id="e-1",
+            fly_run_id="abc12345",
+        )
+
+        emitted = await _drain_queue(events)
+        summary = next(
+            e
+            for e in emitted
+            if isinstance(e, StepOutput)
+            and e.level == "warning"
+            and e.metadata is not None
+            and "block_count" in e.metadata
+        )
+        assert ".maverick/runs/abc12345/protection-blocks.json" in summary.message
+
+    async def test_falls_back_to_bare_filename_without_a_run_id(self) -> None:
+        squadron = _ProtectedStubSquadron()
+        squadron.block_collector.append(_block("CLAUDE.md"))
+        events: asyncio.Queue[ProgressEvent | None] = asyncio.Queue()
+        state = State(
+            {
+                "completed_bead_ids": ["b-1"],
+                "bead_events": [],
+                "succeeded_count": 1,
+                "protection_blocks": [],
+            }
+        )
+
+        await actions.aggregate_review(
+            state,
+            squadron=squadron,  # type: ignore[arg-type]
+            events=events,
+            cwd="/tmp",
+            epic_id="e-1",
+        )
+
+        emitted = await _drain_queue(events)
+        summary = next(
+            e
+            for e in emitted
+            if isinstance(e, StepOutput)
+            and e.level == "warning"
+            and e.metadata is not None
+            and "block_count" in e.metadata
+        )
+        assert "protection-blocks.json" in summary.message
+        assert ".maverick/runs/" not in summary.message

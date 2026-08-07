@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -223,3 +224,82 @@ class TestDryRunWithEnrich:
         mock_client.create_bead.assert_not_called()
         mock_client.add_dependency.assert_not_called()
         mock_client.set_state.assert_not_called()
+
+
+class TestEnrichmentProtectionArtifactSharesRunDir:
+    """``protection-blocks.json`` must land in *this* run's directory.
+
+    An earlier revision minted a throwaway ``uuid4()`` for the artifact, so
+    it landed in a ``.maverick/runs/<random>/`` holding nothing else — while
+    ``_record_run`` wrote ``metadata.json`` under a *different* random id.
+    The warning told the user to read a file they could not locate.
+    """
+
+    @pytest.mark.asyncio
+    async def test_artifact_lands_beside_run_metadata(
+        self, mock_config: MagicMock, tmp_path: Path
+    ) -> None:
+        from maverick.protection.records import BlockCollector, BlockRecord
+
+        feature_dir = make_feature_dir(tmp_path)
+        mock_client = make_mock_bead_client()
+
+        mock_agent = MagicMock()
+        mock_agent.__aenter__ = AsyncMock(return_value=mock_agent)
+        mock_agent.__aexit__ = AsyncMock(return_value=False)
+        mock_agent.enrich = AsyncMock(return_value=_ENRICH_RESPONSE)
+
+        # A collector that already holds a block, so the drain has
+        # something to persist without needing a real protected write.
+        collector = BlockCollector()
+        collector.append(
+            BlockRecord(
+                agent_role="generate",
+                workflow="refuel-speckit",
+                operation="edit",
+                path="CLAUDE.md",
+                layer="backstop",
+            )
+        )
+
+        with (
+            patch(_PATCH_CLIENT, return_value=mock_client),
+            patch("maverick.config.load_config", return_value=mock_config),
+            patch(
+                "maverick.runtime.agent_factory.runtime_for_agent",
+                return_value=(MagicMock(), MagicMock()),
+            ),
+            patch(
+                "maverick.agents.personas.SpeckitEnrichmentAgent",
+                return_value=mock_agent,
+            ),
+            patch(
+                "maverick.protection.build_ad_hoc_protection",
+                return_value=(MagicMock(), collector),
+            ),
+        ):
+            workflow = SpeckitRefuelWorkflow(config=mock_config)
+            events, result = await collect_events(
+                workflow, make_inputs(feature_dir, tmp_path, enrich=True)
+            )
+
+        assert result is not None and result.success
+
+        runs_dir = tmp_path / ".maverick" / "runs"
+        run_dirs = sorted(p for p in runs_dir.iterdir() if p.is_dir())
+        # Exactly one run directory — not one for metadata and a second,
+        # orphaned one for the protection artifact.
+        assert len(run_dirs) == 1
+        run_dir = run_dirs[0]
+        assert (run_dir / "metadata.json").is_file()
+        artifact = run_dir / "protection-blocks.json"
+        assert artifact.is_file()
+
+        # The artifact's own run_id agrees with the directory it sits in.
+        body = json.loads(artifact.read_text(encoding="utf-8"))
+        assert body["run_id"] == run_dir.name
+
+        # And the warning points at that exact path.
+        messages = [getattr(e, "message", "") for e in events if hasattr(e, "message")]
+        expected = f".maverick/runs/{run_dir.name}/protection-blocks.json"
+        assert any(expected in m for m in messages)
