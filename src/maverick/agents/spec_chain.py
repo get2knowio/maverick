@@ -15,6 +15,9 @@ if TYPE_CHECKING:
     from airframe.protocol import AgentRuntime
 
     from maverick.executor.config import StepConfig
+    from maverick.protection.policy import ProtectionPolicy
+    from maverick.protection.records import BlockCollector
+    from maverick.protection.snapshot import SnapshotManifest
     from maverick.runtime.registry import CostSink
 
 __all__ = ["SpecChainAgent"]
@@ -48,6 +51,10 @@ class SpecChainAgent(Agent):
         step_config: StepConfig | dict[str, object] | None = None,
         cost_sink: CostSink | None = None,
         tag: str | None = None,
+        protection_policy: ProtectionPolicy | None = None,
+        block_collector: BlockCollector | None = None,
+        workflow: str = "",
+        baseline_manifest: SnapshotManifest | None = None,
     ) -> None:
         super().__init__(
             runtime=runtime,
@@ -55,6 +62,10 @@ class SpecChainAgent(Agent):
             step_config=step_config,
             cost_sink=cost_sink,
             tag=tag,
+            protection_policy=protection_policy,
+            block_collector=block_collector,
+            workflow=workflow,
+            baseline_manifest=baseline_manifest,
         )
 
     async def run_step(self, prompt: str) -> StepReport:

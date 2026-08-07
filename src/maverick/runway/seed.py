@@ -331,6 +331,7 @@ async def run_seed(
     """
     from maverick.agents.personas import SEED_TIMEOUT_SECONDS, RunwaySeedAgent
     from maverick.config import load_config
+    from maverick.protection import build_ad_hoc_protection
     from maverick.runtime.agent_factory import runtime_for_agent
     from maverick.runway.store import RunwayStore
 
@@ -366,10 +367,17 @@ async def run_seed(
     # Run the seed persona — it writes semantic files via tools.
     config = load_config()
     runtime, _ = runtime_for_agent("briefing", agents_config=config.agents)
+    policy, collector = build_ad_hoc_protection(project_path, config)
 
     user_prompt = build_seed_prompt(context)
     try:
-        async with RunwaySeedAgent(runtime=runtime, cwd=str(project_path)) as agent:
+        async with RunwaySeedAgent(
+            runtime=runtime,
+            cwd=str(project_path),
+            protection_policy=policy,
+            block_collector=collector,
+            workflow="runway-seed",
+        ) as agent:
             await agent.seed(user_prompt, timeout=SEED_TIMEOUT_SECONDS)
     except Exception as exc:
         logger.warning("seed_execution_error", error=str(exc))

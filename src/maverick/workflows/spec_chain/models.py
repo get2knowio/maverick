@@ -17,7 +17,7 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -129,6 +129,15 @@ class ChainState(BaseModel):
     )
     remediation_bead_ids: list[str] = Field(
         default_factory=list, description="Created remediation-finding bead ids"
+    )
+    protection_blocks: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description=(
+            "056-context-file-protection: serialized BlockRecord dicts "
+            "(BlockRecord.to_dict()), drained from the squadron's collector "
+            "after every step. Checkpointed like every other field, so "
+            "blocks survive a mid-chain resume."
+        ),
     )
     started_at: datetime
     updated_at: datetime

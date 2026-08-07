@@ -43,6 +43,8 @@ if TYPE_CHECKING:
 class FlySquadron(Squadron):
     """Squadron for the bead-implementing ``fly`` workflow."""
 
+    WORKFLOW_NAME = "fly-beads"
+
     coders: dict[str, CodingAgent]
     correctness_reviewers: dict[str, ReviewerAgent]
     completeness_reviewers: dict[str, ReviewerAgent]
@@ -84,6 +86,7 @@ class FlySquadron(Squadron):
             cost_sink=self._cost_sink,
             step_config=step_config,
             tag=f"coder{suffix}",
+            **self._agent_protection_kwargs(),
         )
 
     def _build_reviewer_pair(self, tier_name: str, step_config: Any, override: Any = None) -> None:
@@ -107,6 +110,7 @@ class FlySquadron(Squadron):
             review_kind="correctness",
             persona_name="maverick.correctness-reviewer",
             tag=f"correctness-reviewer{suffix}",
+            **self._agent_protection_kwargs(),
         )
         self.completeness_reviewers[tier_name] = ReviewerAgent(
             runtime=completeness_runtime,
@@ -116,6 +120,7 @@ class FlySquadron(Squadron):
             review_kind="completeness",
             persona_name="maverick.completeness-reviewer",
             tag=f"completeness-reviewer{suffix}",
+            **self._agent_protection_kwargs(),
         )
 
     async def _build_agents(self) -> None:

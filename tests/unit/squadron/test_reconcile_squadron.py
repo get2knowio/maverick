@@ -90,11 +90,20 @@ async def test_rotate_for_new_bead_resets_both_runtimes(
     config_with_agents: MaverickConfig,
     tmp_path: Path,
 ) -> None:
+    """Every squadron now builds a real ``ProtectionPolicy`` at open time
+    (056-context-file-protection), so ``Agent.rotate_session`` is a
+    close-and-reopen of the airframe session rather than
+    ``runtime.reset()`` (research.md R4).
+    """
     async with ReconcileSquadron(cwd=tmp_path, config=config_with_agents) as squadron:
         await squadron.rotate_for_new_bead()
-    reset_counts = [r.reset_calls for r in stub_airframe_runtime["constructed"]]
-    assert len(reset_counts) == 2
-    assert all(c >= 1 for c in reset_counts), reset_counts
+        constructed = stub_airframe_runtime["constructed"]
+        assert len(constructed) == 2
+        for runtime in constructed:
+            assert len(runtime.sessions) == 2, runtime.sessions
+            assert runtime.sessions[0].close_calls == 1
+            assert runtime.sessions[1].close_calls == 0
+    assert all(r.reset_calls == 0 for r in stub_airframe_runtime["constructed"])
 
 
 async def test_requires_agents_config(tmp_path: Path) -> None:

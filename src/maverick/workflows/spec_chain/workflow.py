@@ -310,8 +310,26 @@ class SpecChainWorkflow(PythonWorkflow):
                 cwd=cwd, feature=feature, jj_client=JjClient(cwd=cwd), home=home
             )
 
+        await self._persist_protection_blocks_artifact(state, cwd=cwd)
+
         logger.info("spec_chain_finished", run_id=run_id, feature=feature, status=state.status)
         return _build_report(state).to_dict()
+
+    async def _persist_protection_blocks_artifact(self, state: ChainState, *, cwd: Path) -> None:
+        """Write ``protection-blocks.json`` beside ``spec-chain.json`` when
+        the run produced any blocks (056-context-file-protection). No-op
+        on an empty list; a write failure degrades to a warning, never
+        fails the run.
+        """
+        if not state.protection_blocks:
+            return
+        from maverick.protection.records import BlockRecord, persist_blocks_artifact
+
+        run_dir = cwd / ".maverick" / "runs" / state.run_id
+        records = [BlockRecord.from_dict(d) for d in state.protection_blocks]
+        await persist_blocks_artifact(
+            run_dir=run_dir, run_id=state.run_id, workflow=WORKFLOW_NAME, records=records
+        )
 
     async def _sweep_stale_workspaces(
         self, *, cwd: Path, feature: str, jj_client: JjClient, home: Path | None
@@ -556,7 +574,10 @@ class SpecChainWorkflow(PythonWorkflow):
                     report = await squadron.chain_agent.run_step(prompt)
         except Exception as exc:  # noqa: BLE001 - any runtime failure halts this step
             logger.warning("spec_chain_step_run_failed", step=step.value, error=str(exc))
+            state = await self._drain_protection_blocks(state, squadron=squadron)
             return await self._fail_step(state, step, checkout, started_at, str(exc), display)
+
+        state = await self._drain_protection_blocks(state, squadron=squadron)
 
         # The filesystem is ground truth for *success* (R9) — a
         # well-formed "completed" report with no artifacts is still a
@@ -623,7 +644,10 @@ class SpecChainWorkflow(PythonWorkflow):
 
         try:
             land_step_artifacts(
-                workspace=workspace, checkout=checkout, feature_dir=feature_dir_name
+                workspace=workspace,
+                checkout=checkout,
+                feature_dir=feature_dir_name,
+                config=self._config,
             )
         except OSError as exc:
             return await self._fail_step(
@@ -833,6 +857,32 @@ class SpecChainWorkflow(PythonWorkflow):
                 ]
             }
         )
+
+    async def _drain_protection_blocks(
+        self, state: ChainState, *, squadron: SpecChainSquadron
+    ) -> ChainState:
+        """Drain the squadron's block collector into ``state.protection_blocks``,
+        emitting one ``ContextFileWriteBlocked`` event per record.
+
+        Called once per step, right after the agent call, on both the
+        success and failure paths — a mutation may have happened (and
+        been restored) even on a step whose call ultimately raised.
+        Safe when protection setup degraded (``block_collector is None``).
+        """
+        from maverick.events import ContextFileWriteBlocked
+
+        collector = getattr(squadron, "block_collector", None)
+        if collector is None:
+            return state
+        records = collector.drain()
+        if not records:
+            return state
+        dicts = [r.to_dict() for r in records]
+        for payload in dicts:
+            # ``BlockRecord.to_dict()`` and the event's field set are the
+            # same projection by contract (contracts/block-event.md).
+            await self._event_queue.put(ContextFileWriteBlocked(**payload))
+        return state.model_copy(update={"protection_blocks": [*state.protection_blocks, *dicts]})
 
     async def _fail_step(
         self,

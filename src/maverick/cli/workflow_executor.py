@@ -193,6 +193,7 @@ async def render_workflow_events(
         AgentStarted,
         AgentStreamChunk,
         CheckpointSaved,
+        ContextFileWriteBlocked,
         LoopIterationCompleted,
         LoopIterationStarted,
         PreflightCheckFailed,
@@ -438,6 +439,17 @@ async def render_workflow_events(
                     _ensure_header()
                     style = _level_styles.get(event.level, "[cyan]")
                     console_obj.print(f"  {style}∟[/] {escape(event.message)}")
+
+        elif isinstance(event, ContextFileWriteBlocked):
+            # Agent-influenced text (path/detail) is escaped — never trust
+            # a model to not accidentally emit Rich markup.
+            verb = "Restored" if event.operation == "restore" else "Blocked"
+            arrow = f" -> {escape(event.destination_path)}" if event.destination_path else ""
+            detail_suffix = f": {escape(event.detail)}" if event.detail else ""
+            console_obj.print(
+                f"  [yellow]⚠ {verb} protected-file write[/] "
+                f"[bold]{escape(event.path)}{arrow}[/] ({event.layer}){detail_suffix}"
+            )
 
         elif isinstance(event, RollbackStarted):
             console_obj.print(f"[yellow]  ↩ Rolling back: {event.step_name}...[/]")

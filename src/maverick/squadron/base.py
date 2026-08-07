@@ -22,6 +22,19 @@ The :func:`maverick.runtime.agent_factory.runtime_for_agent` factory
 dispatches via :func:`airframe.runtime_for`, so a missing
 ``[<extra>]`` install surfaces as ``ImportError`` at squadron open
 with the right pip hint, and a typo'd provider as ``ValueError``.
+
+Context-file protection (056-context-file-protection)
+------------------------------------------------------
+
+:meth:`open` builds one :class:`~maverick.protection.policy.ProtectionPolicy`
+and one :class:`~maverick.protection.records.BlockCollector` for the whole
+run — before :meth:`_build_agents` runs — and every subclass's
+``_build_*`` helper threads ``protection_policy``/``block_collector``/
+``workflow``/``baseline_manifest`` into each :class:`Agent` it
+constructs (research.md R7's single DI seam). Subclasses name themselves
+via :attr:`WORKFLOW_NAME` — the ``workflow`` field recorded on every
+:class:`~maverick.protection.records.BlockRecord` this run's agents
+produce.
 """
 
 from __future__ import annotations
@@ -30,7 +43,7 @@ import abc
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Self
+from typing import TYPE_CHECKING, Any, ClassVar, Self
 
 from maverick.agents.base import Agent
 from maverick.agents.context import tagged
@@ -38,6 +51,9 @@ from maverick.logging import get_logger
 
 if TYPE_CHECKING:
     from maverick.config import MaverickConfig
+    from maverick.protection.policy import ProtectionPolicy
+    from maverick.protection.records import BlockCollector
+    from maverick.protection.snapshot import SnapshotManifest
     from maverick.runtime.registry import CostSink
 
 logger = get_logger(__name__)
@@ -50,6 +66,11 @@ class Squadron(abc.ABC):
     :meth:`_build_agents` and expose them as attributes.
     """
 
+    #: Recorded as the ``workflow`` field on every
+    #: :class:`~maverick.protection.records.BlockRecord` this squadron's
+    #: agents produce. Subclasses override.
+    WORKFLOW_NAME: ClassVar[str] = ""
+
     def __init__(
         self,
         *,
@@ -61,6 +82,9 @@ class Squadron(abc.ABC):
         self._config = config
         self._cost_sink = cost_sink
         self._opened = False
+        self._protection_policy: ProtectionPolicy | None = None
+        self._block_collector: BlockCollector | None = None
+        self._baseline_manifest: SnapshotManifest | None = None
 
     @property
     def cwd(self) -> Path:
@@ -74,6 +98,24 @@ class Squadron(abc.ABC):
     def cost_sink(self) -> CostSink | None:
         return self._cost_sink
 
+    @property
+    def protection_policy(self) -> ProtectionPolicy | None:
+        """The run's :class:`~maverick.protection.policy.ProtectionPolicy`.
+
+        ``None`` until :meth:`open` has run.
+        """
+        return self._protection_policy
+
+    @property
+    def block_collector(self) -> BlockCollector | None:
+        """The run's :class:`~maverick.protection.records.BlockCollector`.
+
+        ``None`` until :meth:`open` has run. Workflows drain this at
+        their reporting boundaries — see
+        ``specs/056-context-file-protection/data-model.md``.
+        """
+        return self._block_collector
+
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
@@ -86,18 +128,68 @@ class Squadron(abc.ABC):
         await self.close()
 
     async def open(self) -> None:
-        """Build the squadron's agents.
+        """Build the run's protection policy, then the squadron's agents.
 
-        Each agent's airframe runtime is constructed via
-        :func:`runtime_for_agent`. A missing ``agents.<role>`` binding
-        in :class:`MaverickConfig.agents` surfaces here as
-        :class:`ValueError`; a missing adapter SDK surfaces as
-        :class:`ImportError` with the right pip-extra hint.
+        The :class:`~maverick.protection.policy.ProtectionPolicy` and
+        :class:`~maverick.protection.records.BlockCollector` are built
+        first (research.md R7) so every ``_build_*`` helper can thread
+        them into the agents it constructs. Each agent's airframe
+        runtime is constructed via :func:`runtime_for_agent`. A missing
+        ``agents.<role>`` binding in :class:`MaverickConfig.agents`
+        surfaces here as :class:`ValueError`; a missing adapter SDK
+        surfaces as :class:`ImportError` with the right pip-extra hint.
         """
         if self._opened:
             return
+        await self._build_protection()
         await self._build_agents()
         self._opened = True
+
+    async def _build_protection(self) -> None:
+        """Build this run's :class:`ProtectionPolicy` + collector + baseline.
+
+        Best-effort: a failure here degrades to "protection off for this
+        run" (``protection_policy`` stays ``None``, so every agent falls
+        back to the pre-056 zero-behavior-change path) with a warning,
+        rather than taking the whole squadron open down — an
+        unavailable protection subsystem must never block real work.
+        """
+        from maverick.protection.config import lookup_protection_config
+        from maverick.protection.policy import ProtectionPolicy
+        from maverick.protection.records import BlockCollector
+        from maverick.protection.snapshot import SnapshotManifest
+
+        try:
+            config = lookup_protection_config(self._config)
+            policy = ProtectionPolicy.build(self._cwd, config)
+            self._protection_policy = policy
+            self._block_collector = BlockCollector()
+            self._baseline_manifest = await SnapshotManifest.capture(policy.root, policy)
+        except Exception as exc:  # noqa: BLE001 — protection setup must not block a run
+            logger.warning(
+                "squadron.protection_setup_failed",
+                squadron=type(self).__name__,
+                error=str(exc),
+            )
+            self._protection_policy = None
+            self._block_collector = None
+            self._baseline_manifest = None
+
+    def _agent_protection_kwargs(self) -> dict[str, Any]:
+        """DI bundle to splat into every ``Agent(...)`` this squadron builds.
+
+        ``self._protection_policy`` is ``None`` until :meth:`open` calls
+        :meth:`_build_protection` (or if it degraded on failure) — every
+        subclass's ``_build_*`` helper runs from inside :meth:`_build_agents`,
+        which :meth:`open` only calls afterward, so this is always safe to
+        call from there.
+        """
+        return {
+            "protection_policy": self._protection_policy,
+            "block_collector": self._block_collector,
+            "workflow": self.WORKFLOW_NAME,
+            "baseline_manifest": self._baseline_manifest,
+        }
 
     async def close(self) -> None:
         """Close all agents (which in turn closes their airframe runtimes)."""

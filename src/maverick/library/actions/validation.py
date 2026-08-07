@@ -359,11 +359,19 @@ async def _invoke_fixer_agent(
     try:
         from maverick.agents.personas import ValidationFixerAgent
         from maverick.config import load_config
+        from maverick.protection import build_ad_hoc_protection
         from maverick.runtime.agent_factory import runtime_for_agent
 
         config = load_config()
         runtime, _ = runtime_for_agent("implement", agents_config=config.agents)
-        async with ValidationFixerAgent(runtime=runtime, cwd=str(cwd)) as agent:
+        policy, collector = build_ad_hoc_protection(cwd, config)
+        async with ValidationFixerAgent(
+            runtime=runtime,
+            cwd=str(cwd),
+            protection_policy=policy,
+            block_collector=collector,
+            workflow="validation",
+        ) as agent:
             changes = await agent.fix(fix_prompt)
         return {
             "success": True,

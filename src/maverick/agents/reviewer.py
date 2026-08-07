@@ -21,6 +21,9 @@ if TYPE_CHECKING:
     from airframe.protocol import AgentRuntime
 
     from maverick.executor.config import StepConfig
+    from maverick.protection.policy import ProtectionPolicy
+    from maverick.protection.records import BlockCollector
+    from maverick.protection.snapshot import SnapshotManifest
     from maverick.runtime.registry import CostSink
 
 REVIEW_PROMPT_TIMEOUT_SECONDS = 600
@@ -46,6 +49,10 @@ class ReviewerAgent(Agent):
         step_config: StepConfig | dict[str, Any] | None = None,
         cost_sink: CostSink | None = None,
         tag: str | None = None,
+        protection_policy: ProtectionPolicy | None = None,
+        block_collector: BlockCollector | None = None,
+        workflow: str = "",
+        baseline_manifest: SnapshotManifest | None = None,
     ) -> None:
         if review_kind not in ("correctness", "completeness"):
             raise ValueError(
@@ -59,6 +66,10 @@ class ReviewerAgent(Agent):
             cost_sink=cost_sink,
             tag=tag or f"reviewer.{review_kind}",
             persona_name=persona_name,
+            protection_policy=protection_policy,
+            block_collector=block_collector,
+            workflow=workflow,
+            baseline_manifest=baseline_manifest,
         )
         self._review_kind: ReviewKind = review_kind
         self._review_count = 0

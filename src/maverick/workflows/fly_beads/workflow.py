@@ -378,8 +378,24 @@ class FlyBeadsWorkflow(PythonWorkflow):
         human_review_items = tuple(human_review_items)
         beads_processed = beads_succeeded + beads_failed + beads_skipped
 
-        # Update run metadata with final status
+        # 056-context-file-protection: persist protection-blocks.json when
+        # this run produced any blocks — no-op (returns None) on an empty
+        # list, and a write failure degrades to a warning, never fails
+        # the run.
         if run_dir:
+            from maverick.protection.records import BlockRecord, persist_blocks_artifact
+
+            protection_records = [
+                BlockRecord.from_dict(d) for d in burr_result.get("protection_blocks", [])
+            ]
+            await persist_blocks_artifact(
+                run_dir=run_dir,
+                run_id=run_id,
+                workflow=WORKFLOW_NAME,
+                records=protection_records,
+            )
+
+            # Update run metadata with final status
             final_meta = read_metadata(run_dir)
             if final_meta:
                 from datetime import datetime as _dt
@@ -509,4 +525,7 @@ async def _run_bead_loop(
             for e in bead_events
             if e.get("tag") == "needs-human-review"
         ),
+        # 056-context-file-protection: serialized BlockRecord dicts
+        # accumulated across the whole run, for the caller to persist.
+        "protection_blocks": list(state.get("protection_blocks") or ()),
     }

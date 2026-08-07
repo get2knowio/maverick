@@ -29,6 +29,7 @@ from maverick.runtime.agent_factory import (
     KNOWN_ROLES,
     binding_for_role,
     runtime_for_agent,
+    supports_permission_callback,
 )
 
 # ---------------------------------------------------------------------------
@@ -241,3 +242,27 @@ def test_runtime_for_agent_raises_when_adapter_rejects_binding(
     assert "github-copilot" in msg
     assert "claude-sonnet-4-6" in msg
     assert "agents.implement" in msg
+
+
+# ---------------------------------------------------------------------------
+# supports_permission_callback
+# ---------------------------------------------------------------------------
+
+
+def test_supports_permission_callback_true_when_feature_declared() -> None:
+    from airframe.features import Feature
+
+    runtime = MagicMock()
+    runtime.supports.side_effect = lambda feature, model=None: (
+        feature == Feature.PERMISSION_CALLBACK
+    )
+
+    assert supports_permission_callback(runtime) is True
+    runtime.supports.assert_called_with(Feature.PERMISSION_CALLBACK)
+
+
+def test_supports_permission_callback_false_when_feature_absent() -> None:
+    runtime = MagicMock()
+    runtime.supports.return_value = False
+
+    assert supports_permission_callback(runtime) is False

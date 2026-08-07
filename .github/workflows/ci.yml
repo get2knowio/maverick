@@ -1,13 +1,20 @@
 name: CI
 
 on:
-  # No paths-ignore. "CI (Python 3.11)" and "CI (Python 3.12)" are required
+  # No paths-ignore. "CI (Python 3.12)" and "CI (Python 3.13)" are required
   # status checks on main and enforce_admins is on, so any path this workflow
   # skips is a path whose PRs can never merge — the required checks simply
   # never report and nobody, including an admin, can override. A docs-only
   # PR deadlocked exactly this way. Skipping ~3 minutes of CI is not worth
   # an unmergeable PR; if that trade changes, add a companion workflow that
   # reports these same two check names instead of narrowing the trigger.
+  #
+  # 056-context-file-protection: the matrix dropped "3.11" and gained
+  # "3.13" here (airframe-agents>=0.9.2 requires Python>=3.12, matching
+  # pyproject.toml's requires-python bump). Branch protection's required
+  # status checks list the *old* names ("CI (Python 3.11)" / "CI (Python
+  # 3.12)") — a repo admin must update that list to "CI (Python 3.12)" /
+  # "CI (Python 3.13)" or PRs may be unmergeable until they do.
   push:
     branches: [main]
   pull_request:
@@ -24,7 +31,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.11", "3.12"]
+        python-version: ["3.12", "3.13"]
     steps:
       - uses: actions/checkout@v7
 
@@ -72,7 +79,7 @@ jobs:
         run: make ci-coverage
 
       - name: Upload coverage to Codecov
-        if: matrix.python-version == '3.11' && always()
+        if: matrix.python-version == '3.12' && always()
         uses: codecov/codecov-action@v7
         with:
           files: ./coverage.xml

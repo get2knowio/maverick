@@ -316,6 +316,7 @@ async def land(
             auto_approve=yes,
             cwd=cwd,
             json_mode=json_output,
+            run_id=run_id,
         )
         curation = _curation_summary(
             "agent", executed_count=agent_executed, total_count=agent_total
@@ -553,6 +554,7 @@ async def _agent_curate(
     cwd: Path,
     *,
     json_mode: bool = False,
+    run_id: str = "",
 ) -> tuple[int, int]:
     """Run agent-driven curation with interactive approval.
 
@@ -576,11 +578,19 @@ async def _agent_curate(
             build_curator_prompt,
             ensure_refs_trailers,
         )
+        from maverick.protection import build_ad_hoc_protection
         from maverick.runtime.agent_factory import runtime_for_agent
 
         config = load_config()
         runtime, _ = runtime_for_agent("review", agents_config=config.agents)
-        async with CuratorAgent(runtime=runtime, cwd=str(cwd)) as agent:
+        policy, collector = build_ad_hoc_protection(cwd, config)
+        async with CuratorAgent(
+            runtime=runtime,
+            cwd=str(cwd),
+            protection_policy=policy,
+            block_collector=collector,
+            workflow="land",
+        ) as agent:
             payload = await agent.curate(
                 build_curator_prompt(
                     {
@@ -598,6 +608,19 @@ async def _agent_curate(
         # state even if the curator skipped the prompt instruction
         # (FUTURE.md §3.9).
         plan = ensure_refs_trailers(plan, curation_ctx["commits"])
+
+        # 056-context-file-protection T025: drain + persist, one
+        # end-of-run warning when non-empty.
+        from maverick.protection.records import drain_and_report
+
+        blocked = await drain_and_report(
+            collector, cwd=cwd, run_id=run_id or "land", workflow="land"
+        )
+        if blocked:
+            out.print(
+                f"[yellow]{len(blocked)} context-file protection event(s) this run "
+                f"— see protection-blocks.json[/]"
+            )
     except SystemExit:
         raise
     except Exception as e:

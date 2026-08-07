@@ -25,6 +25,8 @@ from maverick.squadron.base import Squadron
 class ReconcileSquadron(Squadron):
     """Squadron for the reconcile workflow: reconciler + semantic-dependents agents."""
 
+    WORKFLOW_NAME = "reconcile"
+
     reconciler: ReconcilerAgent
     semantic: SemanticDependentsAgent
 
@@ -34,6 +36,7 @@ class ReconcileSquadron(Squadron):
             runtime=reconciler_runtime,
             cwd=str(self._cwd),
             cost_sink=self._cost_sink,
+            **self._agent_protection_kwargs(),
         )
         await self.reconciler.open()
 
@@ -42,6 +45,7 @@ class ReconcileSquadron(Squadron):
             runtime=semantic_runtime,
             cwd=str(self._cwd),
             cost_sink=self._cost_sink,
+            **self._agent_protection_kwargs(),
         )
         await self.semantic.open()
 

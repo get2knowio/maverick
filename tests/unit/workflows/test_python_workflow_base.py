@@ -50,6 +50,7 @@ def _make_workflow(
 
     mock_config = MagicMock(spec=MaverickConfig)
     mock_config.actors = actors_override or {}
+    mock_config.protection = None
 
     return ConcreteTestWorkflow(
         run_fn=run_fn,

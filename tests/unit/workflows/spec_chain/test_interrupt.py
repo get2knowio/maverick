@@ -24,6 +24,26 @@ from maverick.workflows.spec_chain.workflow import SpecChainWorkflow
 from tests.integration.spec_chain.conftest import FEATURE, build_speckit_repo
 
 
+class _HangingSession:
+    """A session whose ``execute()`` never returns until cancelled — the
+    same hang :class:`_HangingRuntime` provides on its own legacy
+    ``execute()``, but via the session path every squadron now routes
+    through (056-context-file-protection builds a real
+    ``ProtectionPolicy`` at squadron-open, so ``Agent.open()`` always
+    opens a session)."""
+
+    def __init__(self, entered: asyncio.Event) -> None:
+        self.id = "hanging-session"
+        self._entered = entered
+
+    async def execute(self, prompt: str, **kwargs: Any) -> Any:
+        self._entered.set()
+        await asyncio.sleep(999)
+
+    async def close(self) -> None:
+        return None
+
+
 class _HangingRuntime:
     """Never returns from `execute()` until cancelled — lets the test
     control exactly when mid-step cancellation happens."""
@@ -46,6 +66,12 @@ class _HangingRuntime:
 
     def validate_binding(self, _binding: Any) -> bool:
         return True
+
+    def supports(self, feature: Any, model: Any = None) -> bool:
+        return False
+
+    def session(self, **kwargs: Any) -> _HangingSession:
+        return _HangingSession(self.entered)
 
 
 def _make_config() -> MaverickConfig:

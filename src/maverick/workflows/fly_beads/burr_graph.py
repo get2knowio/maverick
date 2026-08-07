@@ -237,6 +237,12 @@ def build_fly_application(
             # each new bead.
             reviewer_escalation_level=0,
             implementer_escalation_level=0,
+            # 056-context-file-protection: serialized BlockRecord dicts,
+            # drained from the squadron's collector after every
+            # agent-calling action and never read by any fix-loop action
+            # (Guardrail 10 corollary — a separate slot from every
+            # fixer-feeding slot above).
+            protection_blocks=[],
         )
         .with_hooks(hook)
         .with_entrypoint("init_state")

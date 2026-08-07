@@ -271,6 +271,25 @@ class GenerateFlightPlanWorkflow(PythonWorkflow):
                 await self._event_queue.put(evt)
             _, _result, state = driver.result
 
+        # 056-context-file-protection T025: drain + persist, one
+        # end-of-run warning when non-empty.
+        import uuid
+
+        from maverick.protection.records import drain_and_report
+
+        blocked = await drain_and_report(
+            getattr(squadron, "block_collector", None),
+            cwd=Path(cwd),
+            run_id=uuid.uuid4().hex[:8],
+            workflow=WORKFLOW_NAME,
+        )
+        if blocked:
+            await self.emit_output(
+                GENERATE,
+                f"{len(blocked)} context-file protection event(s) — see protection-blocks.json",
+                level="warning",
+            )
+
         flight_plan_path = state.get("flight_plan_path")
         if not flight_plan_path:
             raise WorkflowError(

@@ -11,8 +11,10 @@ import time
 import pytest
 
 from maverick.events import (
+    _EVENT_CLASSES,
     AgentStreamChunk,
     CheckpointSaved,
+    ContextFileWriteBlocked,
     LoopConditionChecked,
     LoopIterationCompleted,
     LoopIterationStarted,
@@ -962,6 +964,98 @@ class TestAgentStreamChunkInteraction:
         for event in events:
             assert event.step_name == "complex_step"
             assert event.agent_name == "ThinkingAgent"
+
+
+class TestContextFileWriteBlocked:
+    """056-context-file-protection: the protection-block event contract.
+
+    See specs/056-context-file-protection/contracts/block-event.md — the
+    field set here must match ``BlockRecord.to_dict()`` exactly (one
+    projection shared by the event stream and ``protection-blocks.json``).
+    """
+
+    def test_field_set_matches_contract(self) -> None:
+        event = ContextFileWriteBlocked(
+            agent_role="implement",
+            workflow="fly-beads",
+            operation="edit",
+            path="CLAUDE.md",
+            layer="pre-write",
+            destination_path=None,
+            bead_id="bd-1234",
+            detail="matched default rule: basename CLAUDE.md",
+            timestamp=1786121809.412,
+        )
+        assert event.agent_role == "implement"
+        assert event.workflow == "fly-beads"
+        assert event.operation == "edit"
+        assert event.path == "CLAUDE.md"
+        assert event.layer == "pre-write"
+        assert event.destination_path is None
+        assert event.bead_id == "bd-1234"
+        assert event.detail == "matched default rule: basename CLAUDE.md"
+        assert event.timestamp == 1786121809.412
+
+    def test_optional_fields_default(self) -> None:
+        event = ContextFileWriteBlocked(
+            agent_role="implement",
+            workflow="fly-beads",
+            operation="restore",
+            path="AGENTS.md",
+            layer="backstop",
+        )
+        assert event.destination_path is None
+        assert event.bead_id is None
+        assert event.detail is None
+        assert isinstance(event.timestamp, float)
+
+    def test_rename_carries_destination_path(self) -> None:
+        event = ContextFileWriteBlocked(
+            agent_role="implement",
+            workflow="fly-beads",
+            operation="rename",
+            path="notes.txt",
+            destination_path="AGENTS.md",
+            layer="pre-write",
+        )
+        assert event.destination_path == "AGENTS.md"
+
+    def test_to_dict_round_trip(self) -> None:
+        event = ContextFileWriteBlocked(
+            agent_role="review",
+            workflow="spec-chain",
+            operation="delete",
+            path=".specify/memory/constitution.md",
+            layer="backstop",
+            bead_id=None,
+            detail="restored after backstop-detected mutation",
+            timestamp=42.0,
+        )
+        data = event.to_dict()
+        assert data["event"] == "ContextFileWriteBlocked"
+        assert data["agent_role"] == "review"
+        assert data["workflow"] == "spec-chain"
+        assert data["operation"] == "delete"
+        assert data["path"] == ".specify/memory/constitution.md"
+        assert data["layer"] == "backstop"
+        assert data["bead_id"] is None
+        assert data["detail"] == "restored after backstop-detected mutation"
+        assert data["timestamp"] == 42.0
+        assert event_from_dict(data) == event
+
+    def test_registered_in_event_classes(self) -> None:
+        assert _EVENT_CLASSES["ContextFileWriteBlocked"] is ContextFileWriteBlocked
+
+    def test_is_frozen(self) -> None:
+        event = ContextFileWriteBlocked(
+            agent_role="implement",
+            workflow="fly-beads",
+            operation="edit",
+            path="CLAUDE.md",
+            layer="pre-write",
+        )
+        with pytest.raises(Exception):  # noqa: B017, PT011 — frozen dataclass
+            event.blocked = True  # type: ignore[attr-defined]
 
 
 class TestEventFromDict:

@@ -399,6 +399,24 @@ class ReconcileWorkflow(PythonWorkflow):
             except Exception as exc:  # noqa: BLE001 - completion checkpoint is best-effort
                 logger.warning("reconcile_completion_checkpoint_failed", error=str(exc))
 
+            # 056-context-file-protection T025: drain + persist, one
+            # end-of-run warning when non-empty.
+            from maverick.protection.records import drain_and_report
+
+            blocked = await drain_and_report(
+                getattr(squadron, "block_collector", None),
+                cwd=cwd,
+                run_id=run_id,
+                workflow=WORKFLOW_NAME,
+            )
+            if blocked:
+                await self.emit_output(
+                    "reconcile",
+                    f"{len(blocked)} context-file protection event(s) this run "
+                    "— see protection-blocks.json",
+                    level="warning",
+                )
+
             report = ReconcileReport(
                 run_id=run_id,
                 outcomes=tuple(outcomes),
