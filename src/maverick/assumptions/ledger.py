@@ -21,6 +21,7 @@ from maverick.assumptions.models import (
     EPIC_KEY_FLIGHT_PLAN_NAME,
     EPIC_KEY_SPECKIT_FEATURE,
     KEY_ANSWER,
+    KEY_AUTO_RESOLVED,
     KEY_CHANGE_IDS,
     KEY_OWNER_SPEC,
     KEY_RECONCILE_CHANGE_ID,
@@ -33,6 +34,7 @@ from maverick.assumptions.models import (
     KEY_SOURCE_BEAD,
     KEY_SOURCE_REF,
     KEY_STATUS,
+    KEY_SUGGESTION,
     KEY_WAIVE_REASON,
     KEY_WAIVED_AT,
     KEY_WAIVED_BY,
@@ -51,6 +53,7 @@ from maverick.assumptions.models import (
     coerce_severity,
     nnn_prefix,
     normalize_answer,
+    suggestion_from_json,
 )
 from maverick.exceptions.beads import BeadError
 from maverick.logging import get_logger
@@ -1074,6 +1077,10 @@ def report_entry_from_details(details: object) -> AssumptionReportEntry | None:
     state: dict[str, str] = dict(getattr(details, "state", None) or {})
 
     if ASSUMPTION_LABEL in labels:
+        raw_suggestion = state.get(KEY_SUGGESTION)
+        suggestion = suggestion_from_json(raw_suggestion) if raw_suggestion is not None else None
+        if raw_suggestion is not None and suggestion is None:
+            logger.debug("suggestion_unparseable", bead_id=getattr(details, "id", None))
         return AssumptionReportEntry(
             record=_record_from_details(details),
             final_answer=state.get(KEY_ANSWER),
@@ -1085,6 +1092,8 @@ def report_entry_from_details(details: object) -> AssumptionReportEntry | None:
             reconcile_change_id=state.get(KEY_RECONCILE_CHANGE_ID),
             reconcile_reason=state.get(KEY_RECONCILE_REASON),
             pending_reconcile=is_answered_unreconciled(details),
+            suggestion=suggestion,
+            auto_resolved=state.get(KEY_AUTO_RESOLVED) == "true",
         )
     is_open_legacy = getattr(details, "status", None) not in _CLOSED_STATUSES
     if ASSUMPTION_REVIEW_LABEL in labels and is_open_legacy:

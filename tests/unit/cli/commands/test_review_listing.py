@@ -34,6 +34,8 @@ def _entry(
     pending_reconcile: bool = False,
     question: str = "Q?",
     created_at: str | None = None,
+    waived_by: str = "alice",
+    auto_resolved: bool = False,
 ) -> AssumptionReportEntry:
     record = AssumptionRecord(
         bead_id=bead_id,
@@ -52,7 +54,7 @@ def _entry(
     return AssumptionReportEntry(
         record=record,
         final_answer="A." if status == STATUS_ANSWERED else None,
-        waived_by="alice" if status == STATUS_WAIVED else None,
+        waived_by=waived_by if status == STATUS_WAIVED else None,
         waived_at="2026-01-01T00:00:00+00:00" if status == STATUS_WAIVED else None,
         waive_reason="n/a" if status == STATUS_WAIVED else None,
         reconcile_status=None,
@@ -60,6 +62,7 @@ def _entry(
         reconcile_change_id=None,
         reconcile_reason=None,
         pending_reconcile=pending_reconcile,
+        auto_resolved=auto_resolved,
     )
 
 
@@ -208,6 +211,35 @@ class TestCounts:
         assert counts["by_status"] == {"open": 2, "answered": 1, "waived": 0}
         assert counts["by_severity"] == {"low": 1, "medium": 1, "high": 1}
         assert counts["pending_reconcile"] == 1
+
+    def test_auto_resolved_entry_counts_in_waived_bucket(self) -> None:
+        """055 T030 regression/proof: an auto-resolved entry
+        (``waived_by="maverick-resolver"``, ``auto_resolved=True``) counts
+        in the "waived" bucket in `_build_counts` exactly like any human
+        waive — no special-casing needed, since counting keys off
+        ``entry.record.status`` (equivalently ``entry.bucket``), which is
+        ``STATUS_WAIVED`` regardless of who waived it."""
+        entries = (
+            _entry(
+                "dea-1",
+                owner_spec="055-spec",
+                severity=Severity.LOW,
+                status=STATUS_WAIVED,
+                waived_by="maverick-resolver",
+                auto_resolved=True,
+            ),
+        )
+        verify, sweep = _patched(entries)
+        runner = CliRunner()
+        with verify, sweep:
+            result = runner.invoke(review, ["--list", "--status", "waived", "--json"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        counts = data["result"]["counts"]
+        assert counts["by_status"]["waived"] == 1
+        row = data["result"]["entries"][0]
+        assert row["bucket"] == "waived"
+        assert row["auto_resolved"] is True
 
 
 class TestCreatedAt:

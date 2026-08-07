@@ -223,3 +223,111 @@ class TestFileClarifyDecisionsIdempotency:
 
         assert len(new_state.clarify_decisions) == 1
         assert new_state.clarify_decisions[0].ledger_bead_id == "dea-1"
+
+
+class TestFileClarifyDecisionsCallsAttachSuggestions:
+    """055-learned-assumption-resolution T014 (US2): after filing each
+    parsed clarify/assumptions-section decision as a standalone ledger
+    entry, ``_file_clarify_decisions`` hands the newly filed entries to
+    ``assumptions.suggestions.attach_suggestions`` — non-fatally, and
+    against the user's checkout (never the hidden workspace), matching
+    the existing ``BeadClient(cwd=checkout)`` construction (research R5,
+    T020).
+    """
+
+    def _spec_md(self) -> str:
+        return (
+            "# Spec\n\n## Clarifications\n\n### Session 2026-07-24\n\n"
+            "- Q: Should exports include archived widgets? "
+            "→ A: No, exclude archived widgets.\n"
+        )
+
+    async def test_calls_attach_suggestions_with_filed_entries_against_checkout(
+        self, tmp_path: Path
+    ) -> None:
+        feature_dir = "001-widget-export"
+        workspace = tmp_path / "workspace"
+        spec_dir = workspace / "specs" / feature_dir
+        spec_dir.mkdir(parents=True)
+        (spec_dir / "spec.md").write_text(self._spec_md(), encoding="utf-8")
+        checkout = tmp_path / "checkout"
+        checkout.mkdir()
+
+        state = _base_state(feature_dir=f"specs/{feature_dir}", clarify_decisions=[])
+
+        created = type("Record", (), {"bead_id": "dea-1", "severity": None})()
+        with (
+            patch(
+                "maverick.workflows.spec_chain.workflow.record_standalone_assumption",
+                new=AsyncMock(return_value=created),
+            ),
+            patch(
+                "maverick.workflows.spec_chain.workflow.attach_suggestions",
+                new=AsyncMock(),
+            ) as mock_attach,
+        ):
+            new_state = await _workflow()._file_clarify_decisions(
+                state, workspace=workspace, checkout=checkout, feature_dir_name=feature_dir
+            )
+
+        assert len(new_state.clarify_decisions) == 1
+        mock_attach.assert_awaited_once()
+        call_args = list(mock_attach.await_args.args) + list(
+            mock_attach.await_args.kwargs.values()
+        )
+
+        # The client/store passed must be rooted at the user's checkout,
+        # never the hidden spec-chain workspace (Guardrail 0's one
+        # exception still must not leak into where ledger/runway state is
+        # written).
+        client_like = next((a for a in call_args if hasattr(a, "_cwd")), None)
+        assert client_like is not None, f"expected a BeadClient-like argument among {call_args!r}"
+        assert Path(client_like._cwd) == checkout
+        assert Path(client_like._cwd) != workspace
+
+        store_like = next((a for a in call_args if hasattr(a, "path")), None)
+        if store_like is not None:
+            assert checkout in Path(store_like.path).parents or Path(store_like.path) == checkout
+            assert workspace not in Path(store_like.path).parents
+
+        records_arg = next((a for a in call_args if isinstance(a, (list, tuple))), None)
+        assert records_arg is not None, (
+            f"expected a list/tuple of newly filed entries among {call_args!r}"
+        )
+        # Must be `AssumptionReportEntry`s, not bare `AssumptionRecord`s:
+        # `attach_suggestions` reads `entry.record.*`, so handing it a raw
+        # record raises `AttributeError` inside its own best-effort handler
+        # and silently disables suggestions on this path.
+        assert {item.record.bead_id for item in records_arg} == {"dea-1"}
+
+    async def test_attach_suggestions_failure_is_non_fatal(self, tmp_path: Path) -> None:
+        feature_dir = "001-widget-export"
+        workspace = tmp_path / "workspace"
+        spec_dir = workspace / "specs" / feature_dir
+        spec_dir.mkdir(parents=True)
+        (spec_dir / "spec.md").write_text(self._spec_md(), encoding="utf-8")
+        checkout = tmp_path / "checkout"
+        checkout.mkdir()
+
+        state = _base_state(feature_dir=f"specs/{feature_dir}", clarify_decisions=[])
+
+        created = type("Record", (), {"bead_id": "dea-1", "severity": None})()
+        with (
+            patch(
+                "maverick.workflows.spec_chain.workflow.record_standalone_assumption",
+                new=AsyncMock(return_value=created),
+            ),
+            patch(
+                "maverick.workflows.spec_chain.workflow.attach_suggestions",
+                new=AsyncMock(side_effect=RuntimeError("runway unavailable")),
+            ),
+        ):
+            # Must not raise even though attach_suggestions blows up.
+            new_state = await _workflow()._file_clarify_decisions(
+                state, workspace=workspace, checkout=checkout, feature_dir_name=feature_dir
+            )
+
+        # The decision-filing result is unaffected by the suggestion
+        # attachment failure.
+        assert len(new_state.clarify_decisions) == 1
+        assert new_state.clarify_decisions[0].ledger_bead_id == "dea-1"

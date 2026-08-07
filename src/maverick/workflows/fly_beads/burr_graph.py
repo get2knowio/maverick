@@ -169,6 +169,7 @@ def build_fly_application(
                 cwd=cwd,
                 epic_id=epic_id,
                 events=event_queue,
+                config=reconcile_config,
             ),
             commit=fly_actions.commit.bind(cwd=cwd, events=event_queue),
             abandon_bead=fly_actions.abandon_bead.bind(events=event_queue),

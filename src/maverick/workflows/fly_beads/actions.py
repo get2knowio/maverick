@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from burr.core import State, action
 
+from maverick.assumptions.suggestions import attach_suggestions
 from maverick.events import (
     AgentCompleted,
     AgentStarted,
@@ -1255,6 +1256,7 @@ async def record_assumptions(
     cwd: str,
     epic_id: str,
     events: asyncio.Queue[ProgressEvent | None],
+    config: MaverickConfig | None = None,
 ) -> tuple[dict[str, Any], State]:
     """Create ledger entries for assumptions accumulated during this bead.
 
@@ -1262,11 +1264,23 @@ async def record_assumptions(
     pattern (FR-012 / research R4): a ledger write failure never blocks
     commit. Runs between review/create_human_bead and commit so the
     same bead's commit can stamp the entries moments later.
+
+    After recording, hands the newly recorded entries to
+    ``assumptions.suggestions.attach_suggestions`` so a matching prior
+    resolution can be surfaced later (055-learned-assumption-resolution
+    T019, research R5) — also non-fatal, and skipped entirely when
+    nothing was recorded or no runway store is initialized. ``config``
+    (bound from the workflow's ``MaverickConfig``, same threading as
+    ``reconcile_answers``) supplies the optional
+    ``assumptions.resolution.auto_resolve_low`` policy so a matching
+    resolution can be auto-applied (055 T033).
     """
     from maverick.assumptions.errors import AssumptionLedgerError
     from maverick.assumptions.ledger import record_assumption
+    from maverick.assumptions.models import AssumptionRecord, report_entry_from_record
     from maverick.beads.client import BeadClient
     from maverick.payloads import AssumptionPayload
+    from maverick.runway.store import resolve_runway_store
 
     bead_id = state["current_bead_id"]
     pending: list[dict[str, Any]] = list(state.get("pending_assumptions") or ())
@@ -1275,6 +1289,7 @@ async def record_assumptions(
 
     client = BeadClient(cwd=Path(cwd))
     recorded_ids: list[str] = []
+    recorded_records: list[AssumptionRecord] = []
     for raw in pending:
         try:
             payload = AssumptionPayload.model_validate(raw)
@@ -1300,6 +1315,7 @@ async def record_assumptions(
             continue
         if record is not None:
             recorded_ids.append(record.bead_id)
+            recorded_records.append(record)
 
     if recorded_ids:
         await _put_output(
@@ -1308,6 +1324,35 @@ async def record_assumptions(
             f"Recorded {len(recorded_ids)} assumption(s) for {bead_id}",
             metadata={"recorded_assumption_ids": recorded_ids},
         )
+
+        store = resolve_runway_store(cwd)
+        if store is not None:
+            # No bd re-read here: `record_assumption` already returned the
+            # full `AssumptionRecord` for each entry, and that carries
+            # everything suggestion matching reads (bead_id, question,
+            # adopted_answer, severity, owner_spec). The remaining
+            # `AssumptionReportEntry` fields are answer/waiver/reconcile
+            # state a just-created entry cannot have yet, which is exactly
+            # what `report_entry_from_record` fills in.
+            entries = [report_entry_from_record(record) for record in recorded_records]
+
+            if entries:
+                resolution_config = config.assumptions.resolution if config else None
+                auto_resolve = resolution_config.auto_resolve_low if resolution_config else None
+                try:
+                    await attach_suggestions(
+                        client,
+                        store,
+                        entries,
+                        auto_resolve=auto_resolve,
+                    )
+                except Exception as exc:  # noqa: BLE001 — non-fatal (research R5)
+                    await _put_output(
+                        events,
+                        "fly",
+                        f"Failed to attach suggestions for {bead_id}: {exc}",
+                        level="warning",
+                    )
 
     return {"recorded": len(recorded_ids)}, state.update(recorded_assumption_ids=recorded_ids)
 

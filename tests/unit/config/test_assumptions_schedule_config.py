@@ -1,11 +1,16 @@
-"""Tests for the ``assumptions.schedule`` config block.
+"""Tests for the ``assumptions.schedule`` and ``assumptions.resolution`` config blocks.
 
 See specs/054-assumption-batch-scheduler/data-model.md section 2 and
 specs/054-assumption-batch-scheduler/contracts/config-schema.md for the
-full contract. ``assumptions.schedule`` is the delivery-policy block for
-``maverick notify``; the ntfy endpoint itself continues to come from the
-existing ``NotificationConfig`` (``notifications:`` block) — deliberately
-not duplicated here.
+full ``schedule`` contract. ``assumptions.schedule`` is the delivery-policy
+block for ``maverick notify``; the ntfy endpoint itself continues to come
+from the existing ``NotificationConfig`` (``notifications:`` block) —
+deliberately not duplicated here.
+
+``assumptions.resolution`` (spec 055-learned-assumption-resolution) is a
+sibling block gating auto-resolution of low-severity assumption entries;
+see specs/055-learned-assumption-resolution/contracts/config-schema.md and
+data-model.md's "Config" section for its full contract.
 """
 
 from __future__ import annotations
@@ -16,14 +21,18 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
+from maverick.assumptions import matching
 from maverick.config import (
+    AssumptionResolutionConfig,
     AssumptionScheduleConfig,
     AssumptionsConfig,
+    AutoResolvePolicyConfig,
     AutoWaivePolicyConfig,
     MaverickConfig,
     QuietHoursConfig,
     load_config,
 )
+from maverick.exceptions import ConfigError
 
 
 class TestAssumptionsConfigDefaults:
@@ -33,10 +42,16 @@ class TestAssumptionsConfigDefaults:
         config = AssumptionsConfig()
         assert config.schedule is None
 
+    def test_resolution_defaults_to_none(self) -> None:
+        """New (055): ``resolution`` absent means auto-resolution is inert."""
+        config = AssumptionsConfig()
+        assert config.resolution is None
+
     def test_maverick_config_wires_assumptions_with_default_factory(self) -> None:
         config = MaverickConfig()
         assert isinstance(config.assumptions, AssumptionsConfig)
         assert config.assumptions.schedule is None
+        assert config.assumptions.resolution is None
 
     def test_maverick_config_assumptions_instances_are_independent(self) -> None:
         """``default_factory`` must not share mutable state across instances."""
@@ -241,6 +256,105 @@ class TestAutoWaivePolicyConfig:
             )
 
 
+class TestAutoResolvePolicyConfig:
+    """``assumptions.resolution.auto_resolve_low`` (055): double opt-in.
+
+    ``enabled`` defaults to ``False`` and ``confidence_threshold`` defaults
+    to ``0.9``, bounded ``[0.75, 1.0]``. The lower bound is pinned to
+    ``matching.PRESENTATION_THRESHOLD`` — "auto must be at least as strict
+    as presentation" (clarify Q3) — see research.md R8.
+    """
+
+    def test_defaults(self) -> None:
+        policy = AutoResolvePolicyConfig()
+        assert policy.enabled is False
+        assert policy.confidence_threshold == 0.9
+
+    def test_enabled_override(self) -> None:
+        policy = AutoResolvePolicyConfig(enabled=True)
+        assert policy.enabled is True
+        # confidence_threshold keeps its default even when enabled is overridden.
+        assert policy.confidence_threshold == 0.9
+
+    def test_confidence_threshold_override(self) -> None:
+        policy = AutoResolvePolicyConfig(confidence_threshold=0.92)
+        assert policy.confidence_threshold == 0.92
+
+    def test_confidence_threshold_below_lower_bound_rejected(self) -> None:
+        with pytest.raises(ValidationError):
+            AutoResolvePolicyConfig(confidence_threshold=0.5)
+
+    def test_confidence_threshold_lower_boundary_accepted(self) -> None:
+        policy = AutoResolvePolicyConfig(confidence_threshold=0.75)
+        assert policy.confidence_threshold == 0.75
+
+    def test_confidence_threshold_upper_boundary_accepted(self) -> None:
+        policy = AutoResolvePolicyConfig(confidence_threshold=1.0)
+        assert policy.confidence_threshold == 1.0
+
+    def test_confidence_threshold_above_upper_bound_rejected(self) -> None:
+        with pytest.raises(ValidationError):
+            AutoResolvePolicyConfig(confidence_threshold=1.1)
+
+    def test_confidence_threshold_lower_bound_pinned_to_presentation_threshold(self) -> None:
+        """Drift-pin (research.md R8): the ``ge`` bound must equal
+        ``matching.PRESENTATION_THRESHOLD`` exactly — not merely near it.
+
+        Two-sided check: the constant's own value must be accepted (proves
+        the lower bound is not *stricter* than the constant), and one cent
+        below it must be rejected (proves the lower bound is not *looser*
+        than the constant). Together these pin ``ge=`` to the constant
+        without introspecting Pydantic's internal constraint metadata.
+        """
+        # At-the-constant value is accepted (bound is not stricter than 0.75).
+        policy = AutoResolvePolicyConfig(confidence_threshold=matching.PRESENTATION_THRESHOLD)
+        assert policy.confidence_threshold == matching.PRESENTATION_THRESHOLD
+
+        # Just below the constant is rejected (bound is not looser than 0.75).
+        with pytest.raises(ValidationError):
+            AutoResolvePolicyConfig(confidence_threshold=matching.PRESENTATION_THRESHOLD - 0.01)
+
+
+class TestAssumptionResolutionConfig:
+    """``assumptions.resolution``: ``auto_resolve_low`` absent by default."""
+
+    def test_auto_resolve_low_defaults_to_none(self) -> None:
+        config = AssumptionResolutionConfig()
+        assert config.auto_resolve_low is None
+
+    def test_auto_resolve_low_wired(self) -> None:
+        config = AssumptionResolutionConfig(
+            auto_resolve_low=AutoResolvePolicyConfig(enabled=True, confidence_threshold=0.92)
+        )
+        assert config.auto_resolve_low is not None
+        assert config.auto_resolve_low.enabled is True
+        assert config.auto_resolve_low.confidence_threshold == 0.92
+
+    def test_auto_resolve_low_invalid_threshold_rejected_via_resolution(self) -> None:
+        with pytest.raises(ValidationError):
+            AssumptionResolutionConfig(auto_resolve_low={"confidence_threshold": 0.5})
+
+    def test_resolution_wired_on_assumptions_config(self) -> None:
+        config = AssumptionsConfig(
+            resolution=AssumptionResolutionConfig(
+                auto_resolve_low=AutoResolvePolicyConfig(enabled=True)
+            )
+        )
+        assert config.resolution is not None
+        assert config.resolution.auto_resolve_low is not None
+        assert config.resolution.auto_resolve_low.enabled is True
+
+    def test_schedule_and_resolution_independent(self) -> None:
+        """Sibling blocks: setting one leaves the other at its own default."""
+        config = AssumptionsConfig(
+            resolution=AssumptionResolutionConfig(
+                auto_resolve_low=AutoResolvePolicyConfig(enabled=True)
+            )
+        )
+        assert config.schedule is None
+        assert config.resolution is not None
+
+
 class TestYamlAndEnvOverrides:
     """Loading through ``load_config`` / env-var precedence."""
 
@@ -297,6 +411,108 @@ notifications:
 
         config = load_config()
         assert config.assumptions.schedule is None
+
+    def test_yaml_full_resolution_round_trips(self, clean_env: None, temp_dir: Path) -> None:
+        os.chdir(temp_dir)
+        config_path = temp_dir / "maverick.yaml"
+        config_path.write_text(
+            """
+assumptions:
+  resolution:
+    auto_resolve_low:
+      enabled: true
+      confidence_threshold: 0.92
+"""
+        )
+
+        config = load_config()
+        resolution = config.assumptions.resolution
+        assert resolution is not None
+        assert resolution.auto_resolve_low is not None
+        assert resolution.auto_resolve_low.enabled is True
+        assert resolution.auto_resolve_low.confidence_threshold == 0.92
+
+    def test_yaml_absent_resolution_stays_none(self, clean_env: None, temp_dir: Path) -> None:
+        """Absent ``assumptions.resolution`` block ⇒ ``config.assumptions.resolution is None``.
+
+        Suggestions remain fully functional (they require no config);
+        only auto-resolution is inert.
+        """
+        os.chdir(temp_dir)
+        config_path = temp_dir / "maverick.yaml"
+        config_path.write_text(
+            """
+notifications:
+  enabled: false
+"""
+        )
+
+        config = load_config()
+        assert config.assumptions.resolution is None
+
+    def test_yaml_resolution_block_present_auto_resolve_low_absent_stays_none(
+        self, clean_env: None, temp_dir: Path
+    ) -> None:
+        """Block present but ``auto_resolve_low`` omitted behaves like absent."""
+        os.chdir(temp_dir)
+        config_path = temp_dir / "maverick.yaml"
+        config_path.write_text(
+            """
+assumptions:
+  resolution: {}
+"""
+        )
+
+        config = load_config()
+        resolution = config.assumptions.resolution
+        assert resolution is not None
+        assert resolution.auto_resolve_low is None
+
+    def test_yaml_invalid_confidence_threshold_fails_config_load(
+        self, clean_env: None, temp_dir: Path
+    ) -> None:
+        """FR-016: violating the ``confidence_threshold`` bounds fails config load.
+
+        ``load_config`` wraps every Pydantic ``ValidationError`` into a
+        ``ConfigError`` at the CLI boundary (see
+        ``tests/unit/test_config.py::test_invalid_config_raises_config_error``
+        for the established, codebase-wide contract) — this block is no
+        exception.
+        """
+        os.chdir(temp_dir)
+        config_path = temp_dir / "maverick.yaml"
+        config_path.write_text(
+            """
+assumptions:
+  resolution:
+    auto_resolve_low:
+      enabled: true
+      confidence_threshold: 0.5
+"""
+        )
+
+        with pytest.raises(ConfigError):
+            load_config()
+
+    def test_env_override_auto_resolve_low_enabled(
+        self, clean_env: None, temp_dir: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        os.chdir(temp_dir)
+        config_path = temp_dir / "maverick.yaml"
+        config_path.write_text(
+            """
+assumptions:
+  resolution:
+    auto_resolve_low:
+      enabled: false
+"""
+        )
+        monkeypatch.setenv("MAVERICK_ASSUMPTIONS__RESOLUTION__AUTO_RESOLVE_LOW__ENABLED", "true")
+
+        config = load_config()
+        assert config.assumptions.resolution is not None
+        assert config.assumptions.resolution.auto_resolve_low is not None
+        assert config.assumptions.resolution.auto_resolve_low.enabled is True
 
     def test_env_override_min_batch_size(
         self, clean_env: None, temp_dir: Path, monkeypatch: pytest.MonkeyPatch
@@ -364,6 +580,8 @@ class TestExports:
             "AssumptionScheduleConfig",
             "QuietHoursConfig",
             "AutoWaivePolicyConfig",
+            "AssumptionResolutionConfig",
+            "AutoResolvePolicyConfig",
         ):
             assert name in config_module.__all__
             assert hasattr(config_module, name)

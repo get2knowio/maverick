@@ -709,7 +709,9 @@ opt-in `auto_waive_low` policy (research R10) waives aged low-severity
 entries through the existing `assumptions.ledger.waive()` path, stamped
 `waived_by="maverick-scheduler"` with a recorded rationale — already
 distinguishable in `review --list`/land reporting via the existing waiver
-object, no ledger schema change.
+object, no ledger schema change. Sibling machine actor: `maverick-resolver`,
+stamped by 055-learned-assumption-resolution's auto-resolution policy (see
+below) via the same `ledger.waive()` path.
 
 Configuration lives in two blocks (`contracts/config-schema.md`): the new
 `assumptions.schedule` block (`windows`, `quiet_hours`, `high_overrides_quiet`
@@ -829,6 +831,82 @@ the sweep — runs `reconcile --json`, reports the frontier via
 confirmation. The skill never touches jj/git/bd or files directly; see
 `specs/053-assumption-review-console/contracts/skill-review-console.md`
 for its full behavioral contract.
+
+### Learned assumption resolution (055-learned-assumption-resolution)
+
+Every terminal *human* resolution of a ledger entry — `maverick review
+<id> --answer/--waive`, and bulk waive — persists a `DecisionRecord`
+to `.maverick/runway/decisions.jsonl` (`assumptions.suggestions.record_decision`,
+called from `cli/commands/review/entry_actions.py`). Best-effort per
+FR-004: a store write failure warns and never blocks the ledger write
+that triggered it. Re-answering an entry writes a new record; reads
+collapse to one record per `source_entry_id` by latest `resolved_at`
+(`suggestions.collapse_decisions`), so history survives
+(`.maverick/runway/decisions.jsonl`) while matching only sees the
+latest. `decisions.jsonl` and `.maverick/runway/match-feedback.jsonl`
+(below) live at the runway store root, deliberately **outside**
+`episodic/` — `runway consolidate` never prunes them (`runway/store.py`'s
+`_DECISIONS_FILE`/`_MATCH_FEEDBACK_FILE`). Machine-initiated waives —
+the notification scheduler's `auto_waive_low` and this feature's own
+auto-resolution below — are structurally excluded from the corpus
+(FR-005): only the human CLI surfaces call `record_decision`.
+
+When a new assumption is recorded (fly's `record_assumptions`, and the
+spec-chain's standalone-entry recording), it's matched against the
+decision corpus by a pure, deterministic, zero-model-call formula
+(`assumptions/matching.py`): a 50/50 blend of `difflib.SequenceMatcher`
+ratio and token-set Jaccard overlap over `normalize_question`-normalized
+text (casefold, strip punctuation, collapse whitespace), penalized by
+`REJECTION_PENALTY = 0.30` per net rejection and gated at
+`PRESENTATION_THRESHOLD = 0.75` — both fixed contract constants, not
+configurable. `0.30` is sized so a single net rejection always suppresses
+even a perfect match (`1.0 - 0.30 = 0.70 < 0.75`). A match at or above
+threshold persists as a `Suggestion` (`assumptions/models.py`, one
+JSON-encoded bd state key, `KEY_SUGGESTION` = `assumption_suggestion`)
+carrying provenance (source entry/spec/resolved-at/confidence);
+`assumptions.suggestions.attach_suggestions` computes it at recording
+time, `backfill_suggestions` fills it in lazily for entries listed
+before a relevant decision existed — an existing stored suggestion is
+never replaced. The `suggestion`/`auto_resolved` fields ride the single
+shared row projection (`assumptions/serialize.py`'s `entry_to_dict`),
+so `review --list --json` and the land report can never drift; the
+`maverick-review` skill presents the suggestion as the default
+recommended option in its sweep, ahead of the entry's own adopted
+answer (`skills/review_console/SKILL.md`).
+
+Resolving an entry differently than its presented suggestion — a
+different answer, or a waive where an answer was suggested — records
+a `MatchFeedbackRecord` (`.maverick/runway/match-feedback.jsonl`,
+`suggestions.classify_feedback` + `record_feedback`) that lowers that
+exact (normalized question text, source decision id) pairing's future
+effective confidence (`matching.effective_confidence`); accepting a
+suggestion as-is records the opposite outcome and can restore it.
+
+An opt-in `assumptions.resolution.auto_resolve_low` config block
+(`config.AssumptionResolutionConfig` / `AutoResolvePolicyConfig` —
+double opt-in: the block must be present AND `enabled: true`;
+`confidence_threshold` defaults `0.9` and is bounded `>= 0.75` so it
+can never be looser than `PRESENTATION_THRESHOLD`) auto-waives
+low-severity entries at recording time once effective confidence
+clears the threshold — via the *existing* `ledger.waive()` path,
+stamped `waived_by="maverick-resolver"` (`suggestions._AUTO_RESOLVE_ACTOR`)
+with a rationale citing the matched decision, plus `KEY_AUTO_RESOLVED`
+(`assumption_auto_resolved`) on the bead. Because it's an ordinary
+waive, `classify()`/the land frontier gate need zero changes — an
+auto-resolved entry reads as any other waived entry: `land` renders it
+at most `CONDITIONALLY_VERIFIED`, never `VERIFIED`. Auto-resolution
+never applies above low severity and never writes an answer, so a
+machine decision can never enter reconcile's answered-entry detection.
+A human re-answering an auto-resolved entry
+(`cli/commands/review/entry_actions.py`) bypasses the normal
+`ALREADY_RESOLVED` refusal — scoped to `current_entry.auto_resolved`,
+never a human waive — and the override records a rejection against the
+pairing that auto-resolved it.
+
+See `src/maverick/assumptions/matching.py`, `assumptions/suggestions.py`,
+`runway/models.py` (`DecisionRecord`, `MatchFeedbackRecord`), and
+`specs/055-learned-assumption-resolution/` (spec/plan/contracts) for
+the full contract.
 
 ## Dependencies
 

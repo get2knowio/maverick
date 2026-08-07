@@ -14,6 +14,7 @@ from pydantic_settings import (
     SettingsConfigDict,
 )
 
+from maverick.assumptions.matching import PRESENTATION_THRESHOLD
 from maverick.exceptions import ConfigError
 from maverick.logging import get_logger
 
@@ -22,8 +23,10 @@ __all__ = [
     "ActorConfig",
     "AgentBindingConfig",
     "AgentsConfig",
+    "AssumptionResolutionConfig",
     "AssumptionScheduleConfig",
     "AssumptionsConfig",
+    "AutoResolvePolicyConfig",
     "AutoWaivePolicyConfig",
     "CustomToolConfig",
     "GitHubConfig",
@@ -568,6 +571,44 @@ class AssumptionScheduleConfig(BaseModel):
         return v
 
 
+class AutoResolvePolicyConfig(BaseModel):
+    """Opt-in policy to auto-resolve (waive) high-confidence low-severity entries.
+
+    Absent from :class:`AssumptionResolutionConfig`
+    (``auto_resolve_low: None``), auto-resolution never fires. When
+    present, ``enabled`` is itself a second explicit opt-in — double
+    opt-in by design, mirroring :class:`AutoWaivePolicyConfig`.
+
+    Attributes:
+        enabled: Whether auto-resolution is active.
+        confidence_threshold: Minimum effective confidence required
+            before an entry is auto-resolved. Lower-bounded by
+            :data:`maverick.assumptions.matching.PRESENTATION_THRESHOLD`
+            itself (imported, not duplicated), so auto-resolution can
+            never be configured looser than presentation even if that
+            contract constant moves. Default ``0.9``.
+    """
+
+    enabled: bool = False
+    confidence_threshold: float = Field(default=0.9, ge=PRESENTATION_THRESHOLD, le=1.0)
+
+
+class AssumptionResolutionConfig(BaseModel):
+    """Root config block for opt-in automated assumption resolution.
+
+    Sibling to :class:`AssumptionScheduleConfig` under
+    ``assumptions:`` — independent of it (setting one leaves the other
+    at its own default).
+
+    Attributes:
+        auto_resolve_low: Optional policy to auto-waive high-confidence
+            low-severity entries at recording time. Absent (``None``,
+            the default) means auto-resolution is inert.
+    """
+
+    auto_resolve_low: AutoResolvePolicyConfig | None = None
+
+
 class AssumptionsConfig(BaseModel):
     """Root config block for assumption-ledger behavior.
 
@@ -576,9 +617,13 @@ class AssumptionsConfig(BaseModel):
             ``maverick notify``. Absent (``None``, the default) means the
             scheduler is inert — ``maverick notify`` exits 0 as a no-op
             (FR-021).
+        resolution: Optional automated-resolution policy block. Absent
+            (``None``, the default) means auto-resolution is inert;
+            suggestions remain fully functional regardless.
     """
 
     schedule: AssumptionScheduleConfig | None = None
+    resolution: AssumptionResolutionConfig | None = None
 
 
 class AgentBindingConfig(BaseModel, frozen=True):
@@ -845,7 +890,8 @@ class MaverickConfig(BaseSettings):
         default_factory=AssumptionsConfig,
         description=(
             "Assumption-ledger behavior, including the optional "
-            "'schedule' batch-delivery policy for `maverick notify`."
+            "'schedule' batch-delivery policy for `maverick notify` and "
+            "the optional 'resolution' automated-resolution policy."
         ),
     )
     validation: ValidationConfig = Field(default_factory=ValidationConfig)

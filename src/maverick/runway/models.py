@@ -7,14 +7,16 @@ Follows the pattern from ``maverick.models.review_models``.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
 __all__ = [
     "BeadOutcome",
     "CostEntry",
+    "DecisionRecord",
     "FixAttemptRecord",
+    "MatchFeedbackRecord",
     "RunwayIndex",
     "RunwayPassage",
     "RunwayQueryResult",
@@ -186,6 +188,101 @@ class CostEntry(BaseModel):
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> CostEntry:
         """Create CostEntry from dictionary."""
+        return cls.model_validate(data)
+
+
+class DecisionRecord(BaseModel):
+    """Append-only record of one terminal human resolution of an assumption.
+
+    Lives in ``.maverick/runway/decisions.jsonl`` (store root, not
+    ``episodic/`` — never pruned by consolidation; see
+    ``specs/055-learned-assumption-resolution/data-model.md``). Written only
+    by the human review surfaces (``maverick review``, single and bulk
+    waive) — never by scheduler auto-waives or auto-resolution (FR-005).
+
+    Collapse rule (read side): group by ``source_entry_id``, latest
+    ``resolved_at`` wins as the authoritative version; earlier lines remain
+    as history (FR-003).
+
+    Attributes:
+        source_entry_id: Assumption bead id the decision resolved — the
+            decision's stable identity.
+        question: Original question text (from the entry's ``## Question``
+            section).
+        normalized_question: ``matching.normalize_question(question)`` at
+            the time of writing, carried by the JSONL schema
+            (contracts/decision-records.md) so the corpus is greppable and
+            diffable on its own. Deliberately **not** a matching input:
+            ``evaluate_suggestion`` re-normalizes ``question`` on every
+            comparison instead, so rows written before a normalizer change
+            can never silently score against stale text. Treat this field
+            as derived output, and don't optimize matching to read it.
+        adopted_answer: What the agent had adopted.
+        resolution_type: ``"answered"`` or ``"waived"``.
+        resolution: Answer text, or waive reason.
+        severity: Entry severity at resolution (``low``/``medium``/``high``).
+        owner_spec: Owning spec of the resolved entry.
+        resolved_by: Git user name (same source as ``waived_by`` today).
+        resolved_at: UTC ISO-8601 timestamp.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    source_entry_id: str
+    question: str
+    normalized_question: str
+    adopted_answer: str
+    resolution_type: Literal["answered", "waived"]
+    resolution: str
+    severity: str
+    owner_spec: str
+    resolved_by: str
+    resolved_at: str
+
+    def to_dict(self) -> dict[str, Any]:
+        """Alias for ``model_dump()``."""
+        return self.model_dump()
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> DecisionRecord:
+        """Create DecisionRecord from dictionary."""
+        return cls.model_validate(data)
+
+
+class MatchFeedbackRecord(BaseModel):
+    """Append-only record of a human's accept/reject decision on one
+    presented suggestion — the feedback loop that penalizes a pairing's
+    future match confidence (User Story 3, 055-learned-assumption-resolution).
+
+    Lives in ``.maverick/runway/match-feedback.jsonl`` (store root, same
+    never-pruned placement as ``decisions.jsonl`` — spec 055 R1). Written
+    only by the human review surfaces, mirroring :class:`DecisionRecord`.
+
+    Attributes:
+        normalized_question: ``matching.normalize_question(question)`` of
+            the entry the suggestion was presented against — paired with
+            ``source_entry_id`` to identify which (entry, candidate)
+            pairing this feedback penalizes/rewards.
+        source_entry_id: The decision-corpus entry the presented suggestion
+            matched.
+        outcome: ``"accepted"`` or ``"rejected"``.
+        recorded_at: UTC ISO-8601 timestamp the feedback was recorded.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    normalized_question: str
+    source_entry_id: str
+    outcome: Literal["accepted", "rejected"]
+    recorded_at: str
+
+    def to_dict(self) -> dict[str, Any]:
+        """Alias for ``model_dump()``."""
+        return self.model_dump()
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> MatchFeedbackRecord:
+        """Create MatchFeedbackRecord from dictionary."""
         return cls.model_validate(data)
 
 

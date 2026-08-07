@@ -9,19 +9,38 @@ and stamps recorded entries non-fatally.
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from burr.core import State
 
 from maverick.assumptions.errors import AssumptionLedgerError
-from maverick.assumptions.models import AssumptionRecord, Severity, StampResult
+from maverick.assumptions.models import (
+    AssumptionRecord,
+    AssumptionReportEntry,
+    Severity,
+    StampResult,
+)
 from maverick.events import ProgressEvent
 from maverick.payloads import SubmitFixResultPayload, SubmitImplementationPayload
+from maverick.runway.store import RunwayStore
 from maverick.workflows.fly_beads import actions as fly_actions
 from tests.unit.agents.airframe_stubs import StubCodingAgent
 
 pytestmark = pytest.mark.asyncio
+
+
+async def _initialized_runway_cwd(tmp_path: Path) -> str:
+    """Create a tmp checkout with an initialized runway store at ``cwd``.
+
+    Mirrors ``library.actions.runway._get_store``'s ``is_initialized``
+    contract so production code building a store from ``cwd`` finds one
+    regardless of exactly how it locates it.
+    """
+    store = RunwayStore(tmp_path / ".maverick" / "runway")
+    await store.initialize()
+    return str(tmp_path)
 
 
 class _NullCM:
@@ -184,6 +203,124 @@ class TestRecordAssumptionsAction:
             )
         # Non-fatal: no exception propagates, entry just isn't recorded.
         assert new_state["recorded_assumption_ids"] == []
+
+
+class TestRecordAssumptionsCallsAttachSuggestions:
+    """055-learned-assumption-resolution T014 (US2): after the recording
+    loop, ``record_assumptions`` hands the newly recorded entries to
+    ``assumptions.suggestions.attach_suggestions`` so a matching prior
+    resolution can be surfaced later — non-fatally (research R5, T019).
+    """
+
+    async def test_calls_attach_suggestions_with_recorded_entries(self, tmp_path: Path) -> None:
+        cwd = await _initialized_runway_cwd(tmp_path)
+        state = State(
+            {
+                "current_bead_id": "b-1",
+                "pending_assumptions": [dict(_ASSUMPTION_DICT)],
+            }
+        )
+        record = AssumptionRecord(
+            bead_id="dea-1",
+            question="Q?",
+            adopted_answer="A.",
+            alternatives=(),
+            severity=Severity.MEDIUM,
+            severity_defaulted=False,
+            status="open",
+            owner_spec="epic-1",
+            source_bead="b-1",
+            change_ids=(),
+            is_legacy=False,
+        )
+        with (
+            patch(
+                "maverick.assumptions.ledger.record_assumption",
+                new=AsyncMock(return_value=record),
+            ),
+            patch(
+                "maverick.workflows.fly_beads.actions.attach_suggestions",
+                new=AsyncMock(),
+            ) as mock_attach,
+        ):
+            _, new_state = await fly_actions.record_assumptions(
+                state, cwd=cwd, epic_id="epic-1", events=_queue()
+            )
+
+        assert new_state["recorded_assumption_ids"] == ["dea-1"]
+        mock_attach.assert_awaited_once()
+        call_args = list(mock_attach.await_args.args) + list(
+            mock_attach.await_args.kwargs.values()
+        )
+        records_arg = next((a for a in call_args if isinstance(a, (list, tuple))), None)
+        assert records_arg is not None, (
+            "expected attach_suggestions to be called with a list/tuple of "
+            f"newly recorded entries; got call args {call_args!r}"
+        )
+        # Must be `AssumptionReportEntry`s, not bare `AssumptionRecord`s:
+        # `attach_suggestions` reads `entry.record.*`, so handing it a raw
+        # record raises `AttributeError` inside its own best-effort handler
+        # and silently disables suggestions on this path.
+        assert all(isinstance(item, AssumptionReportEntry) for item in records_arg), (
+            f"expected AssumptionReportEntry instances; got {records_arg!r}"
+        )
+        assert {item.record.bead_id for item in records_arg} == {"dea-1"}
+
+    async def test_attach_suggestions_failure_is_non_fatal(self, tmp_path: Path) -> None:
+        cwd = await _initialized_runway_cwd(tmp_path)
+        state = State(
+            {
+                "current_bead_id": "b-1",
+                "pending_assumptions": [dict(_ASSUMPTION_DICT)],
+            }
+        )
+        record = AssumptionRecord(
+            bead_id="dea-1",
+            question="Q?",
+            adopted_answer="A.",
+            alternatives=(),
+            severity=Severity.MEDIUM,
+            severity_defaulted=False,
+            status="open",
+            owner_spec="epic-1",
+            source_bead="b-1",
+            change_ids=(),
+            is_legacy=False,
+        )
+        with (
+            patch(
+                "maverick.assumptions.ledger.record_assumption",
+                new=AsyncMock(return_value=record),
+            ),
+            patch(
+                "maverick.workflows.fly_beads.actions.attach_suggestions",
+                new=AsyncMock(side_effect=RuntimeError("runway unavailable")),
+            ),
+        ):
+            result_dict, new_state = await fly_actions.record_assumptions(
+                state, cwd=cwd, epic_id="epic-1", events=_queue()
+            )
+
+        # The action must still complete normally and preserve its
+        # existing return shape even though attach_suggestions blew up.
+        assert result_dict == {"recorded": 1}
+        assert new_state["recorded_assumption_ids"] == ["dea-1"]
+
+    async def test_no_pending_assumptions_does_not_call_attach_suggestions(
+        self, tmp_path: Path
+    ) -> None:
+        cwd = await _initialized_runway_cwd(tmp_path)
+        state = State({"current_bead_id": "b-1", "pending_assumptions": []})
+        with patch(
+            "maverick.workflows.fly_beads.actions.attach_suggestions",
+            new=AsyncMock(),
+        ) as mock_attach:
+            _, new_state = await fly_actions.record_assumptions(
+                state, cwd=cwd, epic_id="epic-1", events=_queue()
+            )
+
+        assert new_state["recorded_assumption_ids"] == []
+        mock_attach.assert_not_awaited()
 
 
 class TestCommitCapturesChangeIdAndStamps:

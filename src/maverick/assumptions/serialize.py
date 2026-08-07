@@ -10,6 +10,8 @@ share one projection instead of maintaining two copies. ``land_report``'s
 
 from __future__ import annotations
 
+from dataclasses import asdict
+
 from maverick.assumptions.models import (
     RECONCILE_STATUS_NEEDS_REVIEW,
     AssumptionReportEntry,
@@ -34,6 +36,8 @@ def _annotations(entry: AssumptionReportEntry) -> tuple[str, ...]:
         tags.append(f"reconcile: {entry.reconcile_status}")
     if entry.pending_reconcile:
         tags.append("pending reconcile")
+    if entry.auto_resolved:
+        tags.append("auto-resolved")
     return tuple(tags)
 
 
@@ -73,5 +77,7 @@ def entry_to_dict(entry: AssumptionReportEntry) -> dict[str, object]:
             "reason": entry.reconcile_reason,
         },
         "pending_reconcile": entry.pending_reconcile,
+        "suggestion": asdict(entry.suggestion) if entry.suggestion is not None else None,
+        "auto_resolved": entry.auto_resolved,
         "annotations": list(_annotations(entry)),
     }

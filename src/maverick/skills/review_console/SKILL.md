@@ -60,19 +60,42 @@ Never re-sort or re-group it yourself; present it exactly as returned.
      (`severity_defaulted`).
    - The affected change ids (`affected_change_ids`), so the human knows
      what this decision touches.
+   - When the entry row carries a non-null `suggestion` object, its
+     provenance — source spec (`suggestion.source_spec`) and resolved-at
+     date (`suggestion.resolved_at`) — in the question context, and, when
+     present, its `confidence` as a plain number (e.g. "confidence:
+     0.87"; do not editorialize or describe it beyond the number). Never
+     present a suggested default without saying where it came from.
 
    Build the options in this order:
-   - The adopted answer (`adopted_answer`) first, its label suffixed
-     with "(Recommended)".
+   - **Leading option(s)** depend on whether the entry carries a
+     non-null `suggestion`:
+     - When `suggestion` is present:
+       1. The suggested resolution first, marked recommended:
+          - Answer-sourced (`suggestion.resolution_type == "answered"`):
+            the option text is `suggestion.resolution`, suffixed
+            `"(Recommended — prior decision from <source_spec>,
+            <resolved_at date>)"`.
+          - Waive-sourced (`suggestion.resolution_type == "waived"`): the
+            option is `"Waive this entry (Recommended — prior decision
+            from <source_spec>, <resolved_at date>)"`; choosing it uses
+            `suggestion.resolution` as the waive reason directly — no
+            second prompt.
+       2. The adopted answer (`adopted_answer`) second, **without** the
+          "(Recommended)" suffix — that suffix now belongs to the
+          suggestion; exactly one option is ever marked recommended.
+     - When `suggestion` is `null`: render exactly as before — the
+       adopted answer (`adopted_answer`) first, its label suffixed with
+       "(Recommended)".
    - Each recorded alternative from `alternatives[]`, up to however many
-     the option surface can hold alongside the recommended answer and a
+     the option surface can hold alongside the leading option(s) and a
      waive/skip route.
    - If there are more alternatives than fit, add a "Waive / more…"
      option as the last slot. Choosing it opens a **follow-up question**
      listing the remaining alternatives plus explicit "Waive this entry"
      and "Skip for now" choices. Never drop an alternative silently — if
      a follow-up itself overflows, chain another follow-up the same way.
-   - When all alternatives fit alongside the recommended answer, still
+   - When all alternatives fit alongside the leading option(s), still
      include explicit "Waive this entry" and "Skip for now" options
      directly (no need for the "Waive / more…" indirection in that
      case).
@@ -81,8 +104,17 @@ Never re-sort or re-group it yourself; present it exactly as returned.
 
 6. Map the human's decision to a verb call, applied **immediately** (no
    batching, no deferral):
-   - Confirms the recommended answer → `maverick review <bead_id>
-     --answer "<adopted_answer>" --json`.
+   - Chooses the suggested answer (only present when `suggestion` is
+     non-null and `resolution_type == "answered"`) → `maverick review
+     <bead_id> --answer "<suggestion.resolution>" --json`.
+   - Chooses the suggested waive (only present when `suggestion` is
+     non-null and `resolution_type == "waived"`) → `maverick review
+     <bead_id> --waive "<suggestion.resolution>" --json` — the
+     suggestion's text is the waive reason directly; do not ask for a
+     second reason.
+   - Confirms the adopted answer (`adopted_answer` — the recommended
+     option when `suggestion` is `null`, otherwise the second option) →
+     `maverick review <bead_id> --answer "<adopted_answer>" --json`.
    - Picks a recorded alternative → `maverick review <bead_id> --answer
      "<alternative text>" --json`.
    - Free-form via "Other" → if the text is empty or whitespace-only,
@@ -92,6 +124,11 @@ Never re-sort or re-group it yourself; present it exactly as returned.
      `maverick review <bead_id> --waive "<reason>" --json`.
    - Chooses "Skip for now" → make no invocation; the entry stays open;
      move on to the next entry.
+
+   In every branch above, you never mark acceptance or rejection of a
+   suggestion yourself — that judgment is derived server-side, inside the
+   CLI verbs, by comparing the applied resolution against the stored
+   suggestion.
 
 7. Handle the verb's result before moving to the next entry:
    - `ok: true` → briefly acknowledge the recorded decision (answered or
@@ -215,17 +252,39 @@ Never re-sort or re-group it yourself; present it exactly as returned.
     - The frontier state from step 12.
     - The landing result, if any action was taken in steps 13-14.
 
+## Revisiting auto-resolved entries
+
+This is an on-demand branch, not part of the default Preflight → Sweep
+flow above — enter it only when the human explicitly asks to revisit
+waived or auto-resolved entries (e.g. "show me what got auto-waived",
+"let's look at the auto-resolved ones").
+
+Entries with `auto_resolved: true` were waived automatically and sit
+outside the default open-only listing used in Preflight and Sweep. To
+surface them, re-list with `maverick review --list --status waived
+--json`. For each auto-resolved entry:
+
+- Present its provenance the same way a suggestion is presented above:
+  the resolution text, `resolution_type`, `source_spec`, and
+  `resolved_at` date.
+- Offer to re-answer it — the CLI already permits re-answering an
+  auto-resolved entry. A re-answer uses the same verb as any other
+  answer: `maverick review <bead_id> --answer "<text>" --json`.
+- Handle the result exactly as step 7 describes (`ok: true`,
+  `already-resolved`, or any other `error.kind`).
+
 ## Prohibitions
 
 These apply to every section above — Identity, Preflight, Sweep, Batched
-reconcile, and Frontier report & landing alike:
+reconcile, Frontier report & landing, and Revisiting auto-resolved
+entries alike:
 
 - Never run `jj`, `git`, or `bd` directly, and never edit files
   yourself. Your only effect channel is the verbs already named in this
-  document: `maverick review --list/--answer/--waive`, `maverick review
-  --spec <spec> --waive <reason>`, `maverick reconcile [--dry-run]`,
-  `maverick land --status`, and `maverick land --yes`. Never invoke any
-  other verb or flag combination.
+  document: `maverick review --list [--status <status>]/--answer/
+  --waive`, `maverick review --spec <spec> --waive <reason>`, `maverick
+  reconcile [--dry-run]`, `maverick land --status`, and `maverick land
+  --yes`. Never invoke any other verb or flag combination.
 - Never blindly retry a failed invocation. Every failure branch in this
   document ends in reporting to the human, not in trying again — a
   failed verb is only re-invoked if the human explicitly asks you to.

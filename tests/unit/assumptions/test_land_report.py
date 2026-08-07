@@ -61,6 +61,9 @@ def _entry(
     change_ids: tuple[str, ...] = (),
     reconcile_change_id: str | None = None,
     created_at: str | None = None,
+    waived_by: str = "alice",
+    waive_reason: str = "n/a",
+    auto_resolved: bool = False,
 ) -> AssumptionReportEntry:
     return AssumptionReportEntry(
         record=_record(
@@ -73,14 +76,15 @@ def _entry(
             created_at=created_at,
         ),
         final_answer="Yes." if status == STATUS_ANSWERED else None,
-        waived_by="alice" if status == STATUS_WAIVED else None,
+        waived_by=waived_by if status == STATUS_WAIVED else None,
         waived_at="2026-07-24T14:00:00Z" if status == STATUS_WAIVED else None,
-        waive_reason="n/a" if status == STATUS_WAIVED else None,
+        waive_reason=waive_reason if status == STATUS_WAIVED else None,
         reconcile_status=reconcile_status,
         reconciled_answer=None,
         reconcile_change_id=reconcile_change_id,
         reconcile_reason=None,
         pending_reconcile=pending_reconcile,
+        auto_resolved=auto_resolved,
     )
 
 
@@ -121,6 +125,14 @@ class TestFrontier:
         result = frontier((entry,))
         assert result.is_empty is True
 
+    def test_auto_resolved_waived_entry_does_not_block(self) -> None:
+        """055 T030 regression/proof (data-model.md invariant 5): an
+        auto-resolved entry is an ordinary waived entry to `frontier()` —
+        `waived_by="maverick-resolver"` needs no special-casing."""
+        entry = _entry(status=STATUS_WAIVED, waived_by="maverick-resolver", auto_resolved=True)
+        result = frontier((entry,))
+        assert result.is_empty is True
+
     def test_answered_entry_does_not_block(self) -> None:
         entry = _entry(status=STATUS_ANSWERED)
         result = frontier((entry,))
@@ -150,6 +162,20 @@ class TestClassify:
         answered = _entry(bead_id="dea-answered", status=STATUS_ANSWERED)
         waived = _entry(bead_id="dea-waived", status=STATUS_WAIVED)
         assert classify((answered, waived)) == LandVerification.CONDITIONALLY_VERIFIED
+
+    def test_auto_resolved_waived_only_is_conditionally_verified(self) -> None:
+        """055 T030 regression/proof (data-model.md invariant 5): `classify()`
+        needed zero changes for User Story 4 — the only waived entry being
+        auto-resolved (`waived_by="maverick-resolver"`) still classifies as
+        conditionally-verified, identically to a human waive."""
+        answered = _entry(bead_id="dea-answered", status=STATUS_ANSWERED)
+        auto_resolved = _entry(
+            bead_id="dea-auto",
+            status=STATUS_WAIVED,
+            waived_by="maverick-resolver",
+            auto_resolved=True,
+        )
+        assert classify((answered, auto_resolved)) == LandVerification.CONDITIONALLY_VERIFIED
 
     def test_all_answered_is_verified(self) -> None:
         e1 = _entry(bead_id="dea-1", status=STATUS_ANSWERED)
@@ -351,6 +377,33 @@ class TestRenderMarkdown:
         md = render_markdown(report)
         assert "alice" in md
         assert "n/a" in md
+
+    def test_auto_resolved_row_shows_resolver_actor_and_annotation(self) -> None:
+        """055 T030 regression/proof (research R7): the existing
+        ``"Waived by {waived_by} at {waived_at}: {waive_reason}"`` template
+        is actor-agnostic — it renders ``waived_by="maverick-resolver"``
+        verbatim, no special formatting needed. The row also carries the
+        "auto-resolved" annotation (`serialize._annotations`, landed by a
+        prior User Story 2 agent) unchanged."""
+        from maverick.assumptions.land_report import build_report, render_markdown
+
+        entries = (
+            _entry(
+                bead_id="dea-1",
+                status=STATUS_WAIVED,
+                waived_by="maverick-resolver",
+                waive_reason=(
+                    "Matched prior decision dea-142 (052-conditional-landing) at 0.87 confidence"
+                ),
+                auto_resolved=True,
+            ),
+        )
+        report = build_report(
+            entries, LandVerification.CONDITIONALLY_VERIFIED, run_id="r1", dry_run=False
+        )
+        md = render_markdown(report)
+        assert "Waived by maverick-resolver at 2026-07-24T14:00:00Z" in md
+        assert "auto-resolved" in md
 
     def test_zero_entries_prints_no_assumptions_adopted(self) -> None:
         from maverick.assumptions.land_report import build_report, render_markdown

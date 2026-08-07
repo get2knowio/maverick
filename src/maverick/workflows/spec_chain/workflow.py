@@ -29,12 +29,15 @@ from tenacity import (
 )
 
 from maverick.assumptions.ledger import record_standalone_assumption
+from maverick.assumptions.models import AssumptionRecord, report_entry_from_record
+from maverick.assumptions.suggestions import attach_suggestions
 from maverick.beads.client import BeadClient
 from maverick.exceptions import WorkflowError
 from maverick.jj.client import JjClient
 from maverick.library.actions.beads import create_remediation_beads
 from maverick.logging import get_logger
 from maverick.payloads import AssumptionPayload
+from maverick.runway.store import RunwayStore, runway_path_for
 from maverick.squadron.spec_chain import SpecChainSquadron
 from maverick.workflows.base import PythonWorkflow
 from maverick.workflows.spec_chain.clarify import (
@@ -694,6 +697,7 @@ class SpecChainWorkflow(PythonWorkflow):
 
         bead_client = BeadClient(cwd=checkout)
         filed: list[ClarifyDecision] = []
+        filed_records: list[AssumptionRecord] = []
         for decision in parsed_decisions:
             payload = AssumptionPayload(
                 question=decision.question,
@@ -723,12 +727,48 @@ class SpecChainWorkflow(PythonWorkflow):
                 continue
             bead_id = record.bead_id if record is not None else None
             filed.append(replace(decision, ledger_bead_id=bead_id))
+            if record is not None:
+                filed_records.append(record)
 
         logger.info(
             "spec_chain_clarify_decisions_filed",
             count=len(filed),
             ledger_entries=sum(1 for d in filed if d.ledger_bead_id),
         )
+
+        if filed_records:
+            # No ``store.is_initialized`` gate here (unlike
+            # ``library.actions.runway._get_store``): ``attach_suggestions``
+            # already treats an uninitialized store as a silent no-op
+            # (research R5), so gating a second time here would just be a
+            # redundant check that can drift out of sync with it.
+            store = RunwayStore(runway_path_for(checkout))
+            # No bd re-read here: the ledger already returned the full
+            # `AssumptionRecord` for each filed entry, and that carries
+            # everything suggestion matching reads (bead_id, question,
+            # adopted_answer, severity, owner_spec). The remaining
+            # `AssumptionReportEntry` fields are answer/waiver/reconcile
+            # state a just-created entry cannot have yet, which is exactly
+            # what `report_entry_from_record` fills in.
+            entries = [report_entry_from_record(record) for record in filed_records]
+
+            if entries:
+                resolution_config = self._config.assumptions.resolution
+                auto_resolve = resolution_config.auto_resolve_low if resolution_config else None
+                try:
+                    await attach_suggestions(
+                        bead_client,
+                        store,
+                        entries,
+                        auto_resolve=auto_resolve,
+                    )
+                except Exception as exc:  # noqa: BLE001 — suggestions are advisory, never fatal
+                    logger.warning(
+                        "spec_chain_clarify_suggestion_attachment_failed",
+                        count=len(entries),
+                        error=str(exc),
+                    )
+
         # Merge by normalized question rather than blindly appending: on a
         # resume that re-runs clarify (e.g. it halted after filing but
         # before the next step landed), `state.clarify_decisions` already
