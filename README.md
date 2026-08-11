@@ -65,7 +65,7 @@ correction tasks all live in the same dependency graph.
 
 ### Prerequisites
 
-- Python 3.11+
+- Python 3.12+
 - [uv](https://docs.astral.sh/uv/) — Fast Python package manager
 - [GitHub CLI](https://cli.github.com/) (`gh`)
 - [Jujutsu](https://martinvonz.github.io/jj/) (`jj`)
@@ -376,7 +376,7 @@ doing work; the `StructuredOutput` tool is for reporting results.
 
 | Category | Technology |
 |----------|-----------|
-| Language | Python 3.11+ |
+| Language | Python 3.12+ |
 | Package Manager | uv |
 | Agent Runtime | [airframe](https://github.com/get2knowio/airframe) — one `AgentRuntime` per role, vendor SDKs behind a uniform protocol |
 | Workflow Engine | [Apache Burr](https://github.com/apache/burr) — state machines of `@action`-decorated async functions |

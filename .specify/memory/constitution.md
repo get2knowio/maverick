@@ -1,6 +1,23 @@
 <!--
 Sync Impact Report
 ==================
+Version change: 2.0.0 to 2.0.1 (PATCH)
+
+Bump rationale: factual correction to the Technology Stack table only -- the
+language floor is Python 3.12+, not 3.11+. No principle, guardrail, or appendix
+changed, so PATCH ("clarifications, wording improvements") applies.
+
+Corrected drift:
+  - Technology Stack: Python 3.11+ -> Python 3.12+. airframe-agents >= 0.9.2
+    requires Python >= 3.12, so 056-context-file-protection raised
+    pyproject.toml's requires-python and the CI matrix (3.12 / 3.13) to match.
+    README.md and CLAUDE.md carried the same stale floor and were corrected in
+    the same change.
+
+Source: post-merge sweep after 056-context-file-protection (PRs #184, #185).
+
+--- Previous amendment (2.0.0) -------------------------------------------------
+
 Version change: 1.11.0 to 2.0.0 (MAJOR)
 
 Bump rationale: Principle II is redefined (its TUI display-only and streaming-first
@@ -450,7 +467,7 @@ These technology choices are non-negotiable constraints for all Maverick develop
 
 | Category | Technology | Notes |
 |----------|------------|-------|
-| Language | Python 3.11+ | Use `from __future__ import annotations` |
+| Language | Python 3.12+ | Use `from __future__ import annotations` |
 | Package manager | uv | Reproducible via `uv.lock` |
 | Build | Make | AI-friendly minimal-noise targets |
 | Agent runtime | airframe (`airframe.AgentRuntime`) | `maverick.runtime.agent_factory` |
@@ -606,7 +623,7 @@ MUST comply with these principles.
   Appendix F). Adding a model call to the deterministic path requires explicit
   justification in the PR description.
 
-**Version**: 2.0.0 | **Ratified**: 2025-12-12 | **Last Amended**: 2026-07-27
+**Version**: 2.0.1 | **Ratified**: 2025-12-12 | **Last Amended**: 2026-08-11
 
 ## Appendix B: Canonical Third-Party Libraries
 
