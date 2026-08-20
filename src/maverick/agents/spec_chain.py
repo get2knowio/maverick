@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-import asyncio
-import os
-from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar
 
 from maverick.agents.base import Agent
 from maverick.workflows.spec_chain.constants import STEP_TIMEOUT_SECONDS
 from maverick.workflows.spec_chain.models import StepReport
+from maverick.workspace.cwd_scope import chdir_scope
 
 if TYPE_CHECKING:
     from airframe.protocol import AgentRuntime
@@ -21,17 +19,6 @@ if TYPE_CHECKING:
     from maverick.runtime.registry import CostSink
 
 __all__ = ["SpecChainAgent"]
-
-#: Serializes the `os.chdir()`-scoped step execution below across every
-#: `SpecChainAgent` instance in this process. airframe-agents 0.9.0rc1 has
-#: no per-call (or per-runtime) cwd parameter for the `claude` provider —
-#: `ClaudeOptions` carries no `working_directory` field, unlike
-#: Copilot/Kimi/OpenCodeServer (research.md R1, an adapter gap, not an SDK
-#: limitation). `os.chdir()` is process-wide state; this lock keeps two
-#: chain-step calls from racing on it. Safe in practice because chain
-#: steps already run strictly sequentially (FR-002) and one Maverick CLI
-#: invocation runs exactly one workflow per process.
-_CWD_BIND_LOCK = asyncio.Lock()
 
 
 class SpecChainAgent(Agent):
@@ -73,14 +60,10 @@ class SpecChainAgent(Agent):
 
         Binds the process working directory to this agent's ``cwd`` (the
         hidden workspace) for the duration of the call — see
-        ``_CWD_BIND_LOCK`` for why this is necessary and how it stays safe.
+        ``workspace.cwd_scope`` for why this is necessary and how it stays
+        safe.
         """
-        async with _CWD_BIND_LOCK:
-            previous = Path.cwd()
-            os.chdir(self._cwd)
-            try:
-                report = await self._execute_via_runtime(prompt, timeout=STEP_TIMEOUT_SECONDS)
-            finally:
-                os.chdir(previous)
+        async with chdir_scope(self._cwd):
+            report = await self._execute_via_runtime(prompt, timeout=STEP_TIMEOUT_SECONDS)
         assert isinstance(report, StepReport)
         return report

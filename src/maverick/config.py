@@ -47,6 +47,7 @@ __all__ = [
     "load_config",
     "lookup_actor_config",
     "lookup_tiers_config",
+    "lookup_workspace_config",
 ]
 
 logger = get_logger(__name__)
@@ -363,21 +364,34 @@ class SessionLogConfig(BaseModel):
 
 
 class WorkspaceConfig(BaseModel):
-    """Settings for hidden jj workspaces.
+    """Settings for the isolated-execution primitive
+    (057-isolated-bead-workspaces).
 
     Attributes:
-        root: Base directory for workspace clones.
-        setup: Shell command to run after cloning (e.g. ``uv sync``).
-        teardown: Shell command to run before removal.
-        reuse: If True (default), reuse existing workspace instead of re-cloning.
-        env_files: Files to copy from user repo into workspace during bootstrap.
+        root: Base directory for isolated jj workspaces.
+        enabled: Opt-in for `maverick fly --isolated`'s default (FR-030,
+            SC-011) — off by default; `--isolated`/`--no-isolated` override
+            this at the CLI boundary.
+
+    ``setup``/``teardown``/``env_files`` (the clone-era bootstrap hooks)
+    were removed here (research.md R10): nothing has read them since the
+    clone-based isolation architecture was retired, and introducing a
+    second workspace-shaped config block beside a dead one would be worse
+    than deleting the dead fields.
+
+    No ``reuse`` field: whether a workspace is reused is a correctness-
+    critical decision each consumer's `IsolationPolicy` sets programmatically
+    (spec-chain: `reuse=True`, one workspace shared across all five steps;
+    fly: `reuse=False`, one fresh workspace per bead — load-bearing for its
+    isolation guarantees, contract `fly-isolated-mode.md` G1-G9). A prior
+    revision exposed `reuse` here as if a user could safely flip it; neither
+    consumer ever read it from config (each hardcodes its own value), so it
+    was dead — and user-settable, it would have been actively dangerous for
+    fly (a reused, possibly-dirty workspace breaks G2/G3).
     """
 
     root: Path = Field(default_factory=lambda: Path.home() / ".maverick" / "workspaces")
-    setup: str | None = None
-    teardown: str | None = None
-    reuse: bool = True
-    env_files: list[str] = Field(default_factory=lambda: [".env"])
+    enabled: bool = False
 
 
 class RunwayConsolidationConfig(BaseModel):
@@ -837,6 +851,34 @@ def lookup_tiers_config(
         return None
 
 
+def lookup_workspace_config(config: MaverickConfig) -> WorkspaceConfig:
+    """Parse ``config.workspace`` into its typed :class:`WorkspaceConfig`.
+
+    Follows the ``protection:`` field's idiom exactly (057-isolated-bead-
+    workspaces, R10): malformed input degrades to defaults (``enabled``
+    left at ``False``) with a ``logger.warning`` rather than raising — a
+    typo in the ``workspace:`` block must not take down workflow startup.
+
+    Args:
+        config: Loaded :class:`MaverickConfig`.
+
+    Returns:
+        The parsed :class:`WorkspaceConfig` when ``config.workspace`` is
+        present and valid; ``WorkspaceConfig()`` (defaults) otherwise.
+    """
+    raw = config.workspace
+    if raw is None:
+        return WorkspaceConfig()
+    if not isinstance(raw, dict):
+        logger.warning("workspace_config_invalid_shape", got=type(raw).__name__)
+        return WorkspaceConfig()
+    try:
+        return WorkspaceConfig.model_validate(raw)
+    except ValidationError as exc:
+        logger.warning("workspace_config_parse_failed", error=str(exc))
+        return WorkspaceConfig()
+
+
 class YamlConfigSource(PydanticBaseSettingsSource):
     """Custom settings source that loads from YAML files."""
 
@@ -899,7 +941,34 @@ class MaverickConfig(BaseSettings):
     parallel: ParallelConfig = Field(default_factory=ParallelConfig)
     tui_metrics: TuiMetricsConfig = Field(default_factory=TuiMetricsConfig)
     session_log: SessionLogConfig = Field(default_factory=SessionLogConfig)
-    workspace: WorkspaceConfig = Field(default_factory=WorkspaceConfig)
+    workspace: dict[str, Any] | None = Field(
+        default=None,
+        description=(
+            "Isolated-execution primitive (057): 'enabled' opts "
+            "`maverick fly` into isolated mode by default, 'root' controls "
+            "the workspace root. Absent means defaults only (isolation "
+            "off). Validated lazily by maverick.config.lookup_workspace_config."
+        ),
+    )
+
+    @field_validator("workspace", mode="wrap")
+    @classmethod
+    def _workspace_lenient_shape(cls, value: Any, handler: Any) -> Any:
+        """Never fail config load on a malformed ``workspace:`` shape.
+
+        Follows the ``protection:`` field's idiom exactly (T017): a
+        well-formed ``dict``/``None`` still validates normally through
+        ``handler``; anything else (e.g. a plain scalar from YAML) passes
+        through unvalidated so ``lookup_workspace_config`` — the sole
+        place that validates shape — can degrade it to defaults with a
+        warning instead of pydantic rejecting it during settings
+        construction.
+        """
+        try:
+            return handler(value)
+        except ValidationError:
+            return value
+
     runway: RunwayConfig = Field(default_factory=RunwayConfig)
     reconcile: ReconcileConfig = Field(
         default_factory=ReconcileConfig,

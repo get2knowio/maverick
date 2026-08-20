@@ -29,6 +29,7 @@ from maverick.logging import get_logger
 if TYPE_CHECKING:
     from maverick.beads.client import BeadClient
     from maverick.workflows.spec_chain.models import AnalyzeFinding
+    from maverick.workspace import CheckoutPath
 
 logger = get_logger(__name__)
 
@@ -37,7 +38,7 @@ async def create_beads(
     epic_definition: dict[str, Any],
     work_definitions: list[dict[str, Any]],
     *,
-    cwd: Path | str,
+    cwd: CheckoutPath,
     dry_run: bool = False,
 ) -> BeadCreationResult:
     """Create epic and work beads via the bd CLI.
@@ -45,13 +46,16 @@ async def create_beads(
     Args:
         epic_definition: Serialized BeadDefinition for the epic.
         work_definitions: Serialized BeadDefinitions for work beads.
-        cwd: Workspace directory whose ``.beads/`` receives the writes.
+        cwd: Checkout directory whose ``.beads/`` receives the writes.
             Required — see module docstring.
         dry_run: If True, return synthetic IDs without calling bd.
 
     Returns:
         BeadCreationResult with created beads and any errors.
     """
+    from maverick.workspace import assert_checkout
+
+    assert_checkout(cwd)
     from maverick.beads.client import BeadClient
     from maverick.beads.models import BeadDefinition
 
@@ -118,7 +122,7 @@ async def wire_dependencies(
     tasks_content: str,
     extracted_deps: str,
     *,
-    cwd: Path | str,
+    cwd: CheckoutPath,
     dry_run: bool = False,
 ) -> DependencyWiringResult:
     """Compute and wire dependencies between created beads.
@@ -133,13 +137,16 @@ async def wire_dependencies(
         tasks_content: Raw tasks.md content (used for structural dep context).
         extracted_deps: JSON string from DependencyExtractor, e.g.
             '[["US3","US1"],["US7","US1"]]'.
-        cwd: Workspace directory whose ``.beads/`` receives the writes.
+        cwd: Checkout directory whose ``.beads/`` receives the writes.
             Required — see module docstring.
         dry_run: If True, compute dependencies without calling bd.
 
     Returns:
         DependencyWiringResult with dependencies and any errors.
     """
+    from maverick.workspace import assert_checkout
+
+    assert_checkout(cwd)
     from maverick.beads.client import BeadClient
     from maverick.beads.models import (
         BeadCategory,
@@ -264,12 +271,12 @@ async def wire_dependencies(
 async def select_next_bead(
     epic_id: str = "",
     *,
-    cwd: Path | str,
+    cwd: CheckoutPath,
 ) -> SelectNextBeadResult:
     """Select the next ready bead.
 
     Args:
-        cwd: Workspace directory whose ``.beads/`` is queried. Required —
+        cwd: Checkout directory whose ``.beads/`` is queried. Required —
             see module docstring.
         epic_id: Epic bead ID to query. When empty, queries any ready bead
             across all epics.
@@ -277,6 +284,9 @@ async def select_next_bead(
     Returns:
         SelectNextBeadResult with bead info or done=True if none left.
     """
+    from maverick.workspace import assert_checkout
+
+    assert_checkout(cwd)
     from maverick.beads.client import BeadClient
 
     client = BeadClient(cwd=Path(cwd))
@@ -377,20 +387,23 @@ async def select_next_bead(
 async def mark_bead_complete(
     bead_id: str,
     *,
-    cwd: Path | str,
+    cwd: CheckoutPath,
     reason: str = "",
 ) -> MarkBeadCompleteResult:
     """Close a bead, marking it as complete.
 
     Args:
         bead_id: ID of the bead to close.
-        cwd: Workspace directory whose ``.beads/`` is updated. Required —
+        cwd: Checkout directory whose ``.beads/`` is updated. Required —
             see module docstring.
         reason: Optional reason for closing.
 
     Returns:
         MarkBeadCompleteResult with success status.
     """
+    from maverick.workspace import assert_checkout
+
+    assert_checkout(cwd)
     from maverick.beads.client import BeadClient
 
     client = BeadClient(cwd=Path(cwd))
@@ -414,17 +427,20 @@ async def mark_bead_complete(
 async def defer_bead(
     bead_id: str,
     *,
-    cwd: Path | str,
+    cwd: CheckoutPath,
     reason: str = "",
 ) -> None:
     """Defer a bead so it no longer appears in ``bd ready``.
 
     Args:
         bead_id: ID of the bead to defer.
-        cwd: Workspace directory whose ``.beads/`` is updated. Required —
+        cwd: Checkout directory whose ``.beads/`` is updated. Required —
             see module docstring.
         reason: Reason for deferral (logged, not passed to bd).
     """
+    from maverick.workspace import assert_checkout
+
+    assert_checkout(cwd)
     from maverick.runners.command import CommandRunner
 
     runner = CommandRunner(cwd=Path(cwd))
@@ -473,7 +489,7 @@ async def _existing_remediation_fingerprints(client: BeadClient) -> set[str]:
 async def create_remediation_beads(
     findings: Sequence[AnalyzeFinding],
     *,
-    cwd: Path | str,
+    cwd: CheckoutPath,
 ) -> RemediationBeadsResult:
     """Create one standalone ``spec-remediation`` bead per analyze finding (R6).
 
@@ -486,12 +502,15 @@ async def create_remediation_beads(
 
     Args:
         findings: Analyze findings to convert into remediation beads.
-        cwd: Workspace directory whose ``.beads/`` receives the writes.
+        cwd: Checkout directory whose ``.beads/`` receives the writes.
             Required — see module docstring.
 
     Returns:
         RemediationBeadsResult.
     """
+    from maverick.workspace import assert_checkout
+
+    assert_checkout(cwd)
     from maverick.beads.client import BeadClient
     from maverick.beads.models import BeadCategory, BeadDefinition, BeadType
     from maverick.workflows.spec_chain.constants import (

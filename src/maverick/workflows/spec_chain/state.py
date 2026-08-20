@@ -44,12 +44,70 @@ async def save_chain_state(state: ChainState, base: Path) -> None:
 
 
 async def load_chain_state(run_id: str, base: Path) -> ChainState | None:
-    """Load a persisted chain state by run id. ``None`` if not found."""
+    """Load a persisted chain state by run id. ``None`` if not found.
+
+    057-isolated-bead-workspaces (FR-043, contracts/spec-chain-migration.md
+    "Checkpoint compatibility"): a checkpoint written before this feature
+    carries no ``schema_version`` key at all — ``ChainState``'s own
+    ``default=1`` would otherwise silently treat that absence as the
+    current schema, exactly the "resume must never silently misbehave"
+    failure this guards against. An absent key is read as version 0 and
+    verified before being trusted; see :func:`_verify_pre_migration_checkpoint`.
+    """
     path = _state_path(base, run_id)
     if not await asyncio.to_thread(path.is_file):
         return None
     text = await asyncio.to_thread(path.read_text, encoding="utf-8")
-    return ChainState.model_validate(json.loads(text))
+    raw = json.loads(text)
+    state = ChainState.model_validate(raw)
+    if "schema_version" not in raw:
+        await _verify_pre_migration_checkpoint(state, base)
+    return state
+
+
+async def _verify_pre_migration_checkpoint(state: ChainState, base: Path) -> None:
+    """Verify a schema-version-0 (pre-057) checkpoint before resume trusts
+    it (FR-043).
+
+    Rule: resume either succeeds correctly or fails with an explicit,
+    actionable message — never silently. Accepted only when every
+    ``landed`` step's claimed artifacts still verify on disk; a
+    pre-migration checkpoint's other fields (e.g. ``workspace_path``, a
+    hidden-workspace path the new primitive doesn't necessarily reuse
+    the same way) are not otherwise re-validated here, so this is the one
+    signal available to decide whether the rest of the checkpoint is
+    trustworthy.
+
+    Raises:
+        WorkflowError: A landed step's artifacts no longer verify.
+    """
+    if state.feature_dir is None:
+        return  # nothing landed yet -- nothing to verify
+    feature_dir_name = Path(state.feature_dir).name
+    feature_path = base / "specs" / feature_dir_name
+
+    def _find_missing() -> list[tuple[str, list[str]]]:
+        problems: list[tuple[str, list[str]]] = []
+        for step, record in state.steps.items():
+            if record.status != "succeeded" or not record.landed:
+                continue
+            missing = [a for a in record.artifacts if not (feature_path / a).is_file()]
+            if missing:
+                problems.append((step.value, missing))
+        return problems
+
+    problems = await asyncio.to_thread(_find_missing)
+    if problems:
+        from maverick.exceptions import WorkflowError
+
+        detail = "; ".join(f"{step}: missing {missing}" for step, missing in problems)
+        raise WorkflowError(
+            f"checkpoint for run {state.run_id!r} (feature {state.feature!r}) predates "
+            f"057-isolated-bead-workspaces and its landed artifacts no longer verify on "
+            f"disk ({detail}). Re-run 'maverick spec {state.feature} --from-prd <file>' "
+            "to start fresh.",
+            workflow_name="spec-chain",
+        )
 
 
 async def discover_resumable(feature: str, base: Path) -> ChainState | None:
@@ -105,8 +163,18 @@ async def _load_all_states(base: Path) -> list[ChainState]:
             continue
         try:
             text = await asyncio.to_thread(state_path.read_text, encoding="utf-8")
-            states.append(ChainState.model_validate(json.loads(text)))
+            raw = json.loads(text)
+            state = ChainState.model_validate(raw)
+            if "schema_version" not in raw:
+                await _verify_pre_migration_checkpoint(state, base)
+            states.append(state)
         except Exception as exc:
+            # A pre-migration checkpoint that fails verification lands
+            # here too (WorkflowError is an Exception) -- unlike
+            # load_chain_state's direct-by-run-id lookup, discovery
+            # degrades an unverifiable checkpoint to "not a candidate"
+            # rather than raising, matching every other corrupt-sibling
+            # case this function already tolerates.
             logger.debug("spec_chain_state_unreadable", path=str(state_path), error=str(exc))
             continue
     return states

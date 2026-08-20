@@ -140,6 +140,38 @@ async def test_rotate_for_new_bead_resets_each_runtime(
     assert all(r.reset_calls == 0 for r in stub_airframe_runtime["constructed"])
 
 
+async def test_retarget_protection_for_isolation_rebinds_every_agent(
+    stub_airframe_runtime: dict[str, Any],
+    config_with_agents: MaverickConfig,
+    tmp_path: Path,
+) -> None:
+    """057-isolated-bead-workspaces: retargeting re-roots every agent's
+    protection policy at the workspace and rotates its session (research.md
+    R11) — the same close-and-reopen `rotate_for_new_bead` already exercises."""
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    async with FlySquadron(cwd=tmp_path, config=config_with_agents) as squadron:
+        agents = list(squadron._all_agents())
+        assert all(a._protection_policy is not None for a in agents)
+        assert all(a._protection_policy.root == tmp_path.resolve() for a in agents)
+
+        await squadron.retarget_protection_for_isolation(workspace)
+
+        assert all(a._protection_policy is not None for a in agents)
+        assert all(a._protection_policy.root == workspace.resolve() for a in agents)
+        # Every agent rotated its session so Layer 1's gate rebuilds
+        # against the new policy immediately (Agent.rebind_protection's
+        # own contract — it doesn't reopen on its own).
+        for runtime in stub_airframe_runtime["constructed"]:
+            assert len(runtime.sessions) == 2
+
+        await squadron.retarget_protection_for_isolation(None)
+        assert all(a._protection_policy.root == tmp_path.resolve() for a in agents)
+        for runtime in stub_airframe_runtime["constructed"]:
+            assert len(runtime.sessions) == 3
+
+
 async def test_close_tears_down_all_runtimes(
     stub_airframe_runtime: dict[str, Any],
     config_with_agents: MaverickConfig,

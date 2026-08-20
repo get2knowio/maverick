@@ -1189,6 +1189,7 @@ async def create_beads(
     from maverick.library.actions.beads import create_beads as create_beads_action
     from maverick.library.actions.beads import wire_dependencies
     from maverick.workflows.refuel_maverick.models import WorkUnitSpec
+    from maverick.workspace import CheckoutPath
 
     raw_specs = state["specs"]
     if not raw_specs:
@@ -1219,7 +1220,7 @@ async def create_beads(
     creation = await create_beads_action(
         epic_definition=epic_def,
         work_definitions=work_defs,
-        cwd=cwd,
+        cwd=CheckoutPath(Path(cwd)),
     )
 
     extracted_deps = _extract_deps(specs)
@@ -1230,7 +1231,7 @@ async def create_beads(
             created_map=creation.created_map,
             tasks_content="",
             extracted_deps=json.dumps(extracted_deps),
-            cwd=cwd,
+            cwd=CheckoutPath(Path(cwd)),
         )
 
     epic_dict = creation.epic if isinstance(creation.epic, dict) else None

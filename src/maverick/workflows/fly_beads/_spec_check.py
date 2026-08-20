@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import subprocess
 from dataclasses import dataclass
+from pathlib import Path
 
 # (grep_pattern, description, severity) — Rust-specific anti-patterns.
 # Patterns are passed to ``grep -F`` (fixed string) so no regex escapes
@@ -109,7 +110,24 @@ def run_spec_check(*, cwd: str, project_type: str = "rust") -> SpecCheckResult:
 
 
 def _get_changed_files(cwd: str) -> list[str]:
-    """Return paths the working copy has changed since ``HEAD``."""
+    """Return paths the working copy has changed since its parent.
+
+    Uses ``git diff`` when *cwd* is a git working tree (the historical,
+    well-tested path — unchanged). A `fly --isolated` bead's workspace
+    (``jj workspace add``) has no ``.git`` of its own — confirmed against
+    real jj 0.44, only ``.jj`` exists there — so ``git diff`` used to fail
+    there with a non-zero exit that this function silently swallowed,
+    making every isolated bead's spec check permanently report "no
+    changed files" regardless of what the bead actually changed. Falls
+    back to ``jj diff --name-only`` (the jj-native equivalent) whenever
+    *cwd* isn't a git checkout.
+    """
+    if (Path(cwd) / ".git").exists():
+        return _git_changed_files(cwd)
+    return _jj_changed_files(cwd)
+
+
+def _git_changed_files(cwd: str) -> list[str]:
     try:
         result = subprocess.run(
             ["git", "diff", "HEAD", "--name-only", "--diff-filter=ACMR"],
@@ -123,6 +141,35 @@ def _get_changed_files(cwd: str) -> list[str]:
         if result.returncode == 0:
             return [f.strip() for f in result.stdout.strip().split("\n") if f.strip()]
     except Exception:  # noqa: BLE001 — git can fail many ways; treat as "no diff"
+        pass
+    return []
+
+
+def _jj_changed_files(cwd: str) -> list[str]:
+    """``jj diff --name-only`` against the working copy's parent — the
+    jj-native equivalent of ``_git_changed_files`` for a workspace with no
+    ``.git``. jj has no ``--diff-filter`` flag, so a deleted path (which
+    git's ``ACMR`` filter excludes) is dropped here by checking it still
+    exists on disk — deleted files have nothing left to grep anyway.
+    """
+    try:
+        result = subprocess.run(
+            ["jj", "diff", "--name-only"],
+            capture_output=True,
+            text=True,
+            cwd=cwd,
+            timeout=10,
+            start_new_session=True,
+            check=False,
+        )
+        if result.returncode == 0:
+            base = Path(cwd)
+            return [
+                f.strip()
+                for f in result.stdout.strip().split("\n")
+                if f.strip() and (base / f.strip()).is_file()
+            ]
+    except Exception:  # noqa: BLE001 — jj can fail many ways; treat as "no diff"
         pass
     return []
 

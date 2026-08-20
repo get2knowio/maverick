@@ -27,13 +27,6 @@ class SpecChainStepError(SpecChainError):
         super().__init__(f"Step '{step}' failed: {message}")
 
 
-class SpecChainWorkspaceError(SpecChainError):
-    """The hidden jj workspace could not be created, reused, or torn down."""
-
-    def __init__(self, message: str) -> None:
-        super().__init__(message)
-
-
 class SpecChainStateError(SpecChainError):
     """Chain state could not be persisted, loaded, or resolved for resume."""
 

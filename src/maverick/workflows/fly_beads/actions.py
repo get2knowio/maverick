@@ -36,6 +36,7 @@ from maverick.squadron.tiers import DEFAULT_TIER as _DEFAULT_TIER
 if TYPE_CHECKING:
     from maverick.config import MaverickConfig
     from maverick.squadron.fly import FlySquadron
+    from maverick.workspace import CheckoutPath
 
 
 __all__ = [
@@ -177,7 +178,7 @@ async def init_state(state: State) -> tuple[dict[str, Any], State]:
 
 
 @action(
-    reads=["completed_bead_ids", "processed_count", "idle_polls"],
+    reads=["completed_bead_ids", "processed_count", "idle_polls", "isolation_halt_reason"],
     writes=[
         "current_bead",
         "current_bead_id",
@@ -204,13 +205,17 @@ async def select_next_bead(
 ) -> tuple[dict[str, Any], State]:
     """Pick the next ready bead — or signal end-of-stream.
 
-    Four conditions terminate the loop:
+    Five conditions terminate the loop:
 
     1. Graceful-stop flag has been set (Ctrl-C between beads).
     2. ``max_beads`` cap reached (``0`` means unlimited).
     3. No ready bead is available AND ``watch`` is false.
     4. No ready bead is available AND ``watch`` is true but the
        ``max_idle_polls`` cap is reached.
+    5. Isolated mode (057) hit an undo failure — ``isolation_halt_reason``
+       is set. This is the worst state the isolation primitive can
+       produce (FR-018); no further bead may start, full stop, never
+       cleared once set.
 
     In watch mode (case 4), when ``bd`` reports no ready bead and the
     idle cap hasn't been hit yet, the action sleeps ``watch_interval``
@@ -221,6 +226,15 @@ async def select_next_bead(
     from maverick.workflows.fly_beads.graceful_stop import (
         is_graceful_stop_requested,
     )
+    from maverick.workspace import CheckoutPath
+
+    if state.get("isolation_halt_reason"):
+        return {"loop_done": True, "loop_done_reason": "isolation_halt"}, state.update(
+            loop_done=True,
+            loop_done_reason="isolation_halt",
+            current_bead=None,
+            current_bead_id="",
+        )
 
     if is_graceful_stop_requested():
         await _put_output(
@@ -244,7 +258,7 @@ async def select_next_bead(
             current_bead_id="",
         )
 
-    result = await bd_select(epic_id=epic_id, cwd=cwd)
+    result = await bd_select(epic_id=epic_id, cwd=CheckoutPath(Path(cwd)))
     bead_dict = result.to_dict()
     if not bead_dict.get("found"):
         idle_polls = int(state.get("idle_polls", 0))
@@ -340,6 +354,8 @@ async def process_bead_start(state: State) -> tuple[dict[str, Any], State]:
         "implementer_escalation_level",
         "pending_assumptions",
         "protection_blocks",
+        "isolated",
+        "workspace_path",
     ],
     writes=[
         "implement_ok",
@@ -356,12 +372,19 @@ async def implement(
     squadron: FlySquadron,
     events: asyncio.Queue[ProgressEvent | None],
 ) -> tuple[dict[str, Any], State]:
-    """Run the implementer on the current bead, escalating on transient failures."""
-    return await _with_protection_drain(
-        await _implement_impl(state, squadron=squadron, events=events),
-        squadron=squadron,
-        events=events,
-    )
+    """Run the implementer on the current bead, escalating on transient failures.
+
+    Isolated mode (057): the entire call is scoped to the bead's workspace
+    (FR-032) — delegation only, see `_isolation.agent_step_scope`.
+    """
+    from maverick.workflows.fly_beads._isolation import agent_step_scope
+
+    async with agent_step_scope(state):
+        return await _with_protection_drain(
+            await _implement_impl(state, squadron=squadron, events=events),
+            squadron=squadron,
+            events=events,
+        )
 
 
 async def _implement_impl(
@@ -461,6 +484,7 @@ async def _run_fix(
         "implementer_escalation_level",
         "pending_assumptions",
         "protection_blocks",
+        "isolated",
     ],
     writes=[
         "gate_passed",
@@ -468,6 +492,8 @@ async def _run_fix(
         "implementer_escalation_level",
         "pending_assumptions",
         "protection_blocks",
+        "gate_failure_summary",
+        "unverified_in_checkout",
     ],
 )
 async def gate(
@@ -478,7 +504,25 @@ async def gate(
     cwd: str,
     validation_commands: dict[str, tuple[str, ...]] | None = None,
 ) -> tuple[dict[str, Any], State]:
-    """Run the format/lint/test gate; fix-retry up to ``MAX_GATE_FIX_ATTEMPTS``."""
+    """Run the format/lint/test gate.
+
+    Non-isolated: fix-retry up to ``MAX_GATE_FIX_ATTEMPTS`` internally
+    (unchanged, FR-035 — byte-identical to before this feature).
+
+    Isolated mode (057): **always** bound to the checkout, never the
+    workspace (T074 — needs the installed toolchain, which is gitignored
+    and does not travel into a workspace). Single-shot: retries are
+    graph-level (``fold_back -> gate -> undo_fold_back -> gate_fix ->
+    fold_back -> gate ...``, see ``burr_graph.py`` and ``_isolation.py``),
+    not an internal loop here, because a retry needs the checkout undone
+    and the fix applied in the workspace before the gate can run again.
+    """
+    if state.get("isolated"):
+        return await _with_protection_drain(
+            await _gate_impl_isolated(state, cwd=cwd, validation_commands=validation_commands),
+            squadron=squadron,
+            events=events,
+        )
     return await _with_protection_drain(
         await _gate_impl(
             state,
@@ -490,6 +534,35 @@ async def gate(
         squadron=squadron,
         events=events,
     )
+
+
+async def _gate_impl_isolated(
+    state: State,
+    *,
+    cwd: str,
+    validation_commands: dict[str, tuple[str, ...]] | None = None,
+) -> tuple[dict[str, Any], State]:
+    """Isolated mode's single-shot gate check — see ``gate``'s docstring
+    for why retries live in the graph instead of here."""
+    from maverick.library.actions.validation import run_independent_gate
+
+    result = await run_independent_gate(
+        stages=["format", "lint", "test"],
+        cwd=cwd,
+        validation_commands=validation_commands,
+    )
+    if result.get("passed"):
+        # The checkout's folded-back delta just passed the gate — reset
+        # unverified_in_checkout here (not only in undo_fold_back's
+        # success path), so it doesn't stay stuck True through the rest
+        # of this bead and into the next one on the common happy path
+        # (fold_back -> gate passes first try, no undo round).
+        return {"passed": True}, state.update(
+            gate_passed=True, gate_failure_summary="", unverified_in_checkout=False
+        )
+
+    summary = result.get("summary") or "gate failed"
+    return {"passed": False}, state.update(gate_passed=False, gate_failure_summary=summary)
 
 
 async def _gate_impl(
@@ -572,6 +645,8 @@ async def _gate_impl(
         "implementer_escalation_level",
         "pending_assumptions",
         "protection_blocks",
+        "isolated",
+        "workspace_path",
     ],
     writes=[
         "ac_passed",
@@ -588,12 +663,22 @@ async def ac_check(
     events: asyncio.Queue[ProgressEvent | None],
     cwd: str,
 ) -> tuple[dict[str, Any], State]:
-    """Run the AC (verification commands) check. One fix retry."""
-    return await _with_protection_drain(
-        await _ac_check_impl(state, squadron=squadron, events=events, cwd=cwd),
-        squadron=squadron,
-        events=events,
-    )
+    """Run the AC (verification commands) check. One fix retry.
+
+    Isolated mode (057): artifact-level — runs against the bead's
+    workspace, not the checkout (research.md R6) — and any fix round
+    stays there too (FR-032). Delegation only, see
+    ``_isolation.effective_check_cwd``/``agent_step_scope``.
+    """
+    from maverick.workflows.fly_beads._isolation import agent_step_scope, effective_check_cwd
+
+    effective_cwd = effective_check_cwd(state, cwd)
+    async with agent_step_scope(state):
+        return await _with_protection_drain(
+            await _ac_check_impl(state, squadron=squadron, events=events, cwd=effective_cwd),
+            squadron=squadron,
+            events=events,
+        )
 
 
 async def _ac_check_impl(
@@ -688,6 +773,8 @@ async def _ac_check_impl(
         "implementer_escalation_level",
         "pending_assumptions",
         "protection_blocks",
+        "isolated",
+        "workspace_path",
     ],
     writes=[
         "spec_passed",
@@ -714,14 +801,26 @@ async def spec_check(
     Mirrors the legacy ``SpecCheckActor`` fix-loop: on findings, ask
     the implementer to fix them and re-run, up to
     ``MAX_SPEC_FIX_ATTEMPTS`` rounds. Abandon the bead on exhaustion.
+
+    Isolated mode (057): artifact-level — runs against the bead's
+    workspace, not the checkout (research.md R6) — and any fix round
+    stays there too (FR-032). Delegation only.
     """
-    return await _with_protection_drain(
-        await _spec_check_impl(
-            state, squadron=squadron, events=events, cwd=cwd, project_type=project_type
-        ),
-        squadron=squadron,
-        events=events,
-    )
+    from maverick.workflows.fly_beads._isolation import agent_step_scope, effective_check_cwd
+
+    effective_cwd = effective_check_cwd(state, cwd)
+    async with agent_step_scope(state):
+        return await _with_protection_drain(
+            await _spec_check_impl(
+                state,
+                squadron=squadron,
+                events=events,
+                cwd=effective_cwd,
+                project_type=project_type,
+            ),
+            squadron=squadron,
+            events=events,
+        )
 
 
 async def _spec_check_impl(
@@ -810,6 +909,8 @@ async def _spec_check_impl(
         "implementer_escalation_level",
         "pending_assumptions",
         "protection_blocks",
+        "isolated",
+        "workspace_path",
     ],
     writes=[
         "approved",
@@ -842,12 +943,19 @@ async def review(
     back to a reviewer we just learned is unreliable. If every tier has
     been tried and the failure persists, the action sets
     ``needs_human_review=True`` and exits.
+
+    Isolated mode (057): the entire call, including every fix round, is
+    scoped to the bead's workspace (FR-032) — delegation only, see
+    ``_isolation.agent_step_scope``.
     """
-    return await _with_protection_drain(
-        await _review_impl(state, squadron=squadron, events=events),
-        squadron=squadron,
-        events=events,
-    )
+    from maverick.workflows.fly_beads._isolation import agent_step_scope
+
+    async with agent_step_scope(state):
+        return await _with_protection_drain(
+            await _review_impl(state, squadron=squadron, events=events),
+            squadron=squadron,
+            events=events,
+        )
 
 
 async def _review_impl(
@@ -1521,6 +1629,7 @@ async def commit(
     """Commit the bead's changes, mark it complete, and stamp any ledger entries."""
     from maverick.library.actions.beads import mark_bead_complete
     from maverick.library.actions.jj import jj_commit_bead
+    from maverick.workspace import CheckoutPath
 
     bead = state["current_bead"]
     if bead is None:
@@ -1536,7 +1645,7 @@ async def commit(
     message = "\n".join(message_parts)
 
     try:
-        commit_result = await jj_commit_bead(message, cwd=cwd)
+        commit_result = await jj_commit_bead(message, cwd=CheckoutPath(Path(cwd)))
     except Exception as exc:  # noqa: BLE001
         await _put_output(events, "commit", f"Commit failed: {exc}", level="error")
         return {"committed": False, "error": str(exc)}, state.update(commit_ok=False)
@@ -1544,7 +1653,7 @@ async def commit(
     change_id = commit_result.get("change_id") or ""
 
     try:
-        await mark_bead_complete(bead_id, cwd=cwd)
+        await mark_bead_complete(bead_id, cwd=CheckoutPath(Path(cwd)))
     except Exception as exc:  # noqa: BLE001
         await _put_output(
             events,
@@ -1601,6 +1710,7 @@ async def abandon_bead(
         "current_bead_id",
         "commit_ok",
         "bead_failed",
+        "bead_aborted",
         "needs_human_review",
         "review_rounds",
         "completed_bead_ids",
@@ -1608,6 +1718,9 @@ async def abandon_bead(
         "processed_count",
         "succeeded_count",
         "failed_count",
+        "isolated",
+        "workspace_path",
+        "isolation_halt_reason",
     ],
     writes=[
         "completed_bead_ids",
@@ -1615,10 +1728,37 @@ async def abandon_bead(
         "processed_count",
         "succeeded_count",
         "failed_count",
+        "workspace_path",
     ],
 )
-async def record_outcome(state: State) -> tuple[dict[str, Any], State]:
-    """Append a per-bead summary and advance counters before the loop cycles."""
+async def record_outcome(
+    state: State,
+    *,
+    isolation_policy: Any = None,
+    checkout: CheckoutPath | None = None,
+    jj_client: Any = None,
+    squadron: Any = None,
+) -> tuple[dict[str, Any], State]:
+    """Append a per-bead summary and advance counters before the loop cycles.
+
+    Isolated mode (057): also the universal per-bead boundary for tearing
+    down (or retaining) this bead's workspace — every path (commit or
+    abandonment) funnels through here exactly once, before
+    ``reconcile_answers`` (contract C7). Delegation only, see
+    ``_isolation.teardown_workspace``.
+    """
+    if state.get("isolated"):
+        from maverick.workflows.fly_beads._isolation import teardown_workspace
+
+        assert checkout is not None, "record_outcome(isolated=True) requires checkout"
+        _, state = await teardown_workspace(
+            state,
+            checkout=checkout,
+            policy=isolation_policy,
+            jj_client=jj_client,
+            squadron=squadron,
+        )
+
     bead = state["current_bead"] or {}
     bead_id = state["current_bead_id"]
     succeeded = bool(state.get("commit_ok")) and not state.get("bead_failed")

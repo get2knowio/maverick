@@ -151,6 +151,7 @@ class FlyBeadsWorkflow(PythonWorkflow):
         watch: bool = bool(inputs.get("watch", False))
         watch_interval: int = int(inputs.get("watch_interval", 30))
         skip_preflight: bool = bool(inputs.get("skip_preflight", False))
+        isolated: bool = bool(inputs.get("isolated", False))
 
         # Load checkpoint to get previously completed beads.
         checkpoint = await self.load_checkpoint()
@@ -358,7 +359,31 @@ class FlyBeadsWorkflow(PythonWorkflow):
             watch=watch,
             watch_interval=watch_interval,
             run_id=run_id,
+            isolated=isolated,
         )
+
+        # 057-isolated-bead-workspaces (FR-018): an undo failure is the
+        # worst state this feature can produce — halt the run loudly with
+        # recovery instructions rather than let it read as an ordinary
+        # bead failure. Checked before any of the summary/metadata work
+        # below, which still assumes a normal (non-halted) outcome.
+        isolation_halt_reason = str(burr_result.get("isolation_halt_reason") or "")
+        if isolation_halt_reason:
+            from maverick.cli.console import err_console
+
+            err_console.print(
+                "[red]Isolated run halted: an isolation undo failed.[/red]\n"
+                f"{isolation_halt_reason}\n\n"
+                "[yellow]No further beads were started.[/yellow] The checkout may hold "
+                "an unverified fold-back delta. Inspect it by hand (`jj status`, "
+                "`jj op log`), then remove the isolation journal at "
+                f"{cwd / '.maverick' / 'runs' / 'isolation-journal.json'} before retrying."
+            )
+            raise WorkflowError(
+                f"isolated fly run halted: {isolation_halt_reason}",
+                workflow_name=WORKFLOW_NAME,
+            )
+
         beads_succeeded = int(burr_result.get("beads_completed", 0))
         beads_failed = int(burr_result.get("beads_failed", 0))
         beads_skipped = int(burr_result.get("beads_skipped", 0))
@@ -446,6 +471,7 @@ async def _run_bead_loop(
     watch: bool = False,
     watch_interval: int = 30,
     run_id: str = "",
+    isolated: bool = False,
 ) -> dict[str, Any]:
     """Drive the fly Burr application; return the aggregate bead counts.
 
@@ -458,8 +484,15 @@ async def _run_bead_loop(
             threaded to the mid-flight reconcile actions
             (052-conditional-landing) so a triggered ``ReconcileWorkflow``
             pass can exclude this run from its own concurrent-fly guard.
+        isolated: 057-isolated-bead-workspaces — run every bead's agent
+            steps in its own workspace. ``IsolationSession``'s lock
+            (contract C1) and stale-journal refusal (contract C2) span
+            this whole function, not just one bead — that is what "held
+            for the whole isolated run" means (research.md R8).
     """
     import asyncio as _asyncio
+    from datetime import UTC as _UTC
+    from datetime import datetime as _datetime
 
     from maverick.burr import BurrWorkflowDriver
     from maverick.config import lookup_tiers_config
@@ -471,17 +504,69 @@ async def _run_bead_loop(
     )
 
     cost_sink = _cost_sink_for_cwd(cwd)
-    async with FlySquadron(
-        cwd=cwd,
-        config=workflow._config,
-        cost_sink=cost_sink,
-        # ``actors.fly.{implementer,reviewer}.tiers`` was parsed by the
-        # supervisors the Burr migration deleted, which left the whole
-        # tier surface inert (#135). The squadron has always accepted
-        # these; nothing was passing them.
-        implementer_tiers=lookup_tiers_config(workflow._config, "fly-beads", "implementer"),
-        reviewer_tiers=lookup_tiers_config(workflow._config, "fly-beads", "reviewer"),
-    ) as squadron:
+
+    def _isolation_now() -> _datetime:
+        # UTC-aware, matching spec-chain's `_utcnow` — both consumers feed
+        # the same shared ApplicationRecord.started_at/IsolationLease.created_at
+        # fields, which must carry a consistent, comparable clock.
+        return _datetime.now(_UTC)
+
+    isolation_session: Any = None
+    isolation_policy: Any = None
+    if isolated:
+        from maverick.config import lookup_workspace_config
+        from maverick.jj.client import JjClient
+        from maverick.protection.config import lookup_protection_config
+        from maverick.workflows.fly_beads._isolation import build_isolation_policy
+        from maverick.workspace import CheckoutPath, IsolationSession
+
+        workspace_config = lookup_workspace_config(workflow._config)
+        protection_config = lookup_protection_config(workflow._config)
+        # Best-effort second protection layer (research.md R11) — the
+        # protection policy re-rooted at the workspace (T075) is the
+        # primary defense; this fixed set plus the user's own configured
+        # globs is a belt-and-braces exclusion on the fold-back fileset
+        # itself. Does not attempt to replicate the protected set's
+        # basename-anywhere matching for AGENTS.md/CLAUDE.md at arbitrary
+        # depth — only the common top-level case.
+        fold_exclusions = (
+            ".specify/memory",
+            "AGENTS.md",
+            "CLAUDE.md",
+            *protection_config.additional_globs,
+        )
+        isolation_policy = build_isolation_policy(
+            root=workspace_config.root, fold_exclusions=fold_exclusions
+        )
+        isolation_session = IsolationSession(
+            checkout=CheckoutPath(cwd),
+            policy=isolation_policy,
+            jj_client=JjClient(cwd=cwd),
+            run_id=run_id,
+            now=_isolation_now,
+        )
+
+    async with (
+        _isolation_session_scope(isolation_session),
+        FlySquadron(
+            cwd=cwd,
+            config=workflow._config,
+            cost_sink=cost_sink,
+            # ``actors.fly.{implementer,reviewer}.tiers`` was parsed by the
+            # supervisors the Burr migration deleted, which left the whole
+            # tier surface inert (#135). The squadron has always accepted
+            # these; nothing was passing them.
+            implementer_tiers=lookup_tiers_config(workflow._config, "fly-beads", "implementer"),
+            reviewer_tiers=lookup_tiers_config(workflow._config, "fly-beads", "reviewer"),
+        ) as squadron,
+    ):
+        if isolation_session is not None:
+            # No workspace is ever meant to survive across runs (fly's
+            # policy is reuse=False) — sweep clears anything an
+            # interrupted prior run left behind before this one's own
+            # bead loop starts (FR-028, T092).
+            await isolation_session.sweep(keep=set())
+
         event_queue: _asyncio.Queue[ProgressEvent | None] = _asyncio.Queue()
         app = build_fly_application(
             squadron=squadron,
@@ -497,6 +582,10 @@ async def _run_bead_loop(
             watch_interval=watch_interval,
             reconcile_config=workflow._config,
             fly_run_id=run_id,
+            isolated=isolated,
+            isolation_session=isolation_session,
+            isolation_policy=isolation_policy,
+            isolation_now=_isolation_now if isolated else None,
         )
         driver = BurrWorkflowDriver(
             app,
@@ -528,4 +617,17 @@ async def _run_bead_loop(
         # 056-context-file-protection: serialized BlockRecord dicts
         # accumulated across the whole run, for the caller to persist.
         "protection_blocks": list(state.get("protection_blocks") or ()),
+        # 057-isolated-bead-workspaces: set only when an undo failed
+        # (FR-018) — the caller halts and prints recovery instructions.
+        "isolation_halt_reason": state.get("isolation_halt_reason") or "",
     }
+
+
+def _isolation_session_scope(session: Any) -> Any:
+    """``async with session:`` when isolated, a no-op otherwise — keeps
+    ``_run_bead_loop`` from branching its whole body on ``isolated``."""
+    import contextlib
+
+    if session is None:
+        return contextlib.nullcontext()
+    return session

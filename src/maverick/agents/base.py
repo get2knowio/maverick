@@ -195,6 +195,41 @@ class Agent:
     async def __aexit__(self, *exc: Any) -> None:
         await self.close()
 
+    def rebind_protection(
+        self,
+        policy: ProtectionPolicy | None,
+        *,
+        baseline_manifest: SnapshotManifest | None = None,
+    ) -> None:
+        """Re-root this agent's context-file protection at a new *policy*.
+
+        For 057-isolated-bead-workspaces' isolated `maverick fly`: a
+        squadron is built once per run, but each bead's agent steps must
+        be protected against the *bead's own workspace* root, not the
+        checkout root the squadron was opened against (research.md R11) —
+        rebuilding the `CodingAgent`/`ReviewerAgent` objects per bead would
+        defeat the point of building a squadron once. This lets the
+        *same* agent instance be re-pointed between beads instead.
+
+        Only re-arms Layer 2 (the snapshot backstop, which re-reads
+        ``self._protection_policy`` fresh on every send) immediately.
+        Layer 1 (the pre-write `PermissionGate`) is cached on the open
+        session and is only rebuilt the next time a session is opened —
+        callers that need Layer 1 re-rooted immediately must follow this
+        with :meth:`rotate_session`.
+
+        Args:
+            policy: The new policy, or ``None`` to disable protection
+                (mirrors a bare ``Agent(protection_policy=None)``).
+            baseline_manifest: Fallback manifest for a step whose own
+                pre-send capture fails (mirrors the constructor's
+                ``baseline_manifest``); ``None`` is valid — Layer 2
+                degrades gracefully.
+        """
+        self._protection_policy = policy
+        self._baseline_manifest = baseline_manifest
+        self._permission_gate = None
+
     async def rotate_session(self) -> None:
         """Drop accumulated runtime state — called between beads.
 
@@ -205,7 +240,9 @@ class Agent:
         :class:`~maverick.protection.policy.PermissionGate` instance
         re-attaches, since ``agent_role``/``workflow`` never change for
         a given agent (``bead_id`` is read fresh per call, not baked
-        into the gate — see ``PermissionGate.handle``).
+        into the gate — see ``PermissionGate.handle``) — *unless*
+        :meth:`rebind_protection` cleared it since the last open, in
+        which case a fresh gate is built against the rebound policy.
         """
         if self._session is None:
             await self._runtime.reset()

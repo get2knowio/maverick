@@ -22,6 +22,7 @@ from maverick.agents.base import Agent
 from maverick.agents.coding import CodingAgent
 from maverick.agents.reviewer import ReviewerAgent
 from maverick.config import AgentBindingConfig
+from maverick.logging import get_logger
 from maverick.runtime.agent_factory import runtime_for_agent
 from maverick.squadron.base import Squadron
 from maverick.squadron.tiers import (
@@ -38,6 +39,8 @@ _merge_tier_config = merge_tier_config
 if TYPE_CHECKING:
     from maverick.config import MaverickConfig
     from maverick.runtime.registry import CostSink
+
+logger = get_logger(__name__)
 
 
 class FlySquadron(Squadron):
@@ -198,6 +201,59 @@ class FlySquadron(Squadron):
         yield from self.coders.values()
         yield from self.correctness_reviewers.values()
         yield from self.completeness_reviewers.values()
+
+    async def retarget_protection_for_isolation(self, root: Path | None) -> None:
+        """Re-root every agent's context-file protection at *root*.
+
+        `Squadron._build_protection` builds one `ProtectionPolicy` at
+        `cwd` (the checkout) once, at squadron-open time, for every
+        agent's whole lifetime — correct for non-isolated fly, wrong for
+        isolated mode, where each bead's agent steps write inside their
+        own workspace, not the checkout (research.md R11): rooted at the
+        checkout, Layer 2's backstop would guard files the agent cannot
+        reach and ignore the copies it can.
+
+        Called once per bead: `root=<lease.workspace_path>` when
+        provisioning, `root=None` (back to the checkout) at teardown, so
+        an agent object never carries a stale isolated-mode policy into
+        whatever runs next. The `BlockCollector` is untouched — it lives
+        on the squadron, not the policy, so `protection_blocks` drains
+        unchanged regardless of which root produced a block (R11).
+
+        A failure here degrades to "protection off for this bead" (mirrors
+        `_build_protection`'s own failure handling) — an unavailable
+        protection subsystem must never block real work.
+        """
+        from maverick.protection.config import lookup_protection_config
+        from maverick.protection.policy import ProtectionPolicy
+        from maverick.protection.snapshot import SnapshotManifest
+
+        target = root if root is not None else self._cwd
+        try:
+            config = lookup_protection_config(self._config)
+            policy = ProtectionPolicy.build(target, config)
+            baseline = await SnapshotManifest.capture(policy.root, policy)
+        except Exception as exc:  # noqa: BLE001 — protection setup must not block a run
+            logger.warning(
+                "squadron.isolated_protection_retarget_failed",
+                squadron=type(self).__name__,
+                root=str(target),
+                error=str(exc),
+            )
+            policy = None
+            baseline = None
+
+        for agent in self._all_agents():
+            agent.rebind_protection(policy, baseline_manifest=baseline)
+            try:
+                await agent.rotate_session()
+            except Exception as exc:  # noqa: BLE001 — rotation is best-effort, mirrors rotate_for_new_bead
+                logger.debug(
+                    "squadron.isolated_protection_rotate_failed",
+                    squadron=type(self).__name__,
+                    agent=agent.tag,
+                    error=str(exc),
+                )
 
 
 __all__ = ["DEFAULT_TIER", "TIER_ORDER", "FlySquadron"]
