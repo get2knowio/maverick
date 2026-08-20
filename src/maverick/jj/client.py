@@ -71,6 +71,22 @@ _LOG_SEPARATOR = "\x1f"
 _TMPL_SEP = ' ++ "\\x1f" ++ '
 
 
+def _clean_workspace_root(rendered: str) -> str:
+    """Normalize one ``self.root()`` rendering into a path, or ``""``.
+
+    jj renders a failed template expression inline, wrapped in
+    ``<Error: ...>``, rather than failing the command. jj 0.43 does exactly
+    that for a workspace whose directory is missing ("Failed to resolve
+    workspace root"), where 0.44 renders empty. Both mean the same thing —
+    no location on disk — so both normalize to ``""`` here, and callers
+    need no version knowledge of their own.
+    """
+    value = rendered.strip()
+    if not value or value.startswith("<Error:"):
+        return ""
+    return value
+
+
 class JjClient:
     """Async wrapper around the ``jj`` CLI for VCS operations.
 
@@ -326,12 +342,26 @@ class JjClient:
         sources rather than trusting the directory listing alone (FR-028).
 
         Uses an explicit ``-T`` template (``self.root()``) rather than the
-        human-readable default: the default form omits the path entirely
-        for a workspace whose directory is currently missing — but so does
-        ``self.root()`` (verified against real jj 0.44; it isn't a stable
-        historical record, just optional), so a missing directory always
-        parses as ``path=""`` here rather than accidentally consuming the
-        next field (the change id) as if it were a path.
+        human-readable default, whose shape is not stable across jj
+        versions: 0.44 renders a path column, 0.43 renders none at all, so
+        positional parsing of the default form would silently consume the
+        change id as if it were a path on the older version.
+
+        How ``self.root()`` reports a workspace whose directory is
+        *missing* also differs by version, and both forms are handled here
+        (verified against real jj 0.43 and 0.44):
+
+        * **0.44** renders it empty, so it parses straight to ``path=""``.
+        * **0.43** renders jj's inline template-error marker in its place
+          — ``<Error: Failed to resolve workspace root: ...>``. Taken
+          literally that is a non-empty "path", and a caller filtering
+          candidates by location would silently drop the workspace
+          entirely. :func:`_clean_workspace_root` normalizes it back to
+          ``""`` so both versions reach the same FR-028 fallback.
+
+        A directory-less workspace is precisely the case sweep exists to
+        collect, so mis-parsing it is not a cosmetic difference: it leaves
+        the registration orphaned in the user's repo forever.
 
         Returns:
             :class:`JjWorkspaceListResult`. An entry's ``path`` is ``""``
@@ -353,7 +383,7 @@ class JjClient:
             if not line.strip():
                 continue
             name, _, path = line.partition(_LOG_SEPARATOR)
-            workspaces.append(JjWorkspaceInfo(name=name, path=path))
+            workspaces.append(JjWorkspaceInfo(name=name, path=_clean_workspace_root(path)))
         return JjWorkspaceListResult(success=True, workspaces=tuple(workspaces))
 
     async def workspace_update_stale(self) -> None:
