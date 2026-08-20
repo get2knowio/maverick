@@ -275,6 +275,130 @@ async def test_load_chain_state_missing_runs_dir_returns_none(temp_dir: Path) ->
 
 
 # ---------------------------------------------------------------------------
+# Pre-migration checkpoint compatibility (057-isolated-bead-workspaces,
+# T100, FR-043, contracts/spec-chain-migration.md "Checkpoint compatibility")
+# ---------------------------------------------------------------------------
+
+
+def _write_raw_state(base: Path, run_id: str, raw: dict) -> None:
+    path = base / RUNS_SUBDIR / run_id / STATE_FILENAME
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(raw), encoding="utf-8")
+
+
+@pytest.mark.asyncio
+async def test_load_chain_state_absent_schema_version_accepted_when_artifacts_verify(
+    temp_dir: Path,
+) -> None:
+    """A pre-migration checkpoint (no `schema_version` key at all) with a
+    landed step whose artifacts genuinely exist on disk is accepted."""
+    raw = _raw_state_json(
+        run_id="run-pre-migration-ok",
+        feature="widget-export",
+        status="halted",
+        updated_at="2026-07-01T12:00:00+00:00",
+    )
+    del raw["schema_version"]
+    _write_raw_state(temp_dir, "run-pre-migration-ok", raw)
+    feature_dir = temp_dir / "specs" / "050-widget-export"
+    feature_dir.mkdir(parents=True)
+    (feature_dir / "spec.md").write_text("# spec\n", encoding="utf-8")
+
+    loaded = await load_chain_state("run-pre-migration-ok", temp_dir)
+
+    assert loaded is not None
+    assert loaded.run_id == "run-pre-migration-ok"
+
+
+@pytest.mark.asyncio
+async def test_load_chain_state_absent_schema_version_refuses_when_artifacts_missing(
+    temp_dir: Path,
+) -> None:
+    """A pre-migration checkpoint claiming a landed step whose artifact
+    is actually gone refuses explicitly rather than silently misbehaving."""
+    from maverick.exceptions import WorkflowError
+
+    raw = _raw_state_json(
+        run_id="run-pre-migration-bad",
+        feature="widget-export",
+        status="halted",
+        updated_at="2026-07-01T12:00:00+00:00",
+    )
+    del raw["schema_version"]
+    _write_raw_state(temp_dir, "run-pre-migration-bad", raw)
+    # deliberately no specs/050-widget-export/spec.md on disk
+
+    with pytest.raises(WorkflowError, match="predates 057-isolated-bead-workspaces"):
+        await load_chain_state("run-pre-migration-bad", temp_dir)
+
+
+@pytest.mark.asyncio
+async def test_load_chain_state_absent_schema_version_no_feature_dir_needs_no_verification(
+    temp_dir: Path,
+) -> None:
+    """Nothing has landed yet (feature_dir is None) -- there is nothing to
+    verify, so an absent schema_version is trivially accepted."""
+    raw = _raw_state_json(
+        run_id="run-pre-migration-fresh",
+        feature="widget-export",
+        status="running",
+        updated_at="2026-07-01T12:00:00+00:00",
+    )
+    del raw["schema_version"]
+    raw["feature_dir"] = None
+    raw["steps"] = {}
+    _write_raw_state(temp_dir, "run-pre-migration-fresh", raw)
+
+    loaded = await load_chain_state("run-pre-migration-fresh", temp_dir)
+
+    assert loaded is not None
+
+
+@pytest.mark.asyncio
+async def test_load_chain_state_present_schema_version_skips_verification(
+    temp_dir: Path,
+) -> None:
+    """A checkpoint that DOES carry `schema_version` (current-schema) is
+    trusted without the pre-migration artifact re-verification, even if
+    its claimed artifacts are missing -- that's `_verify_landed_or_reset`'s
+    job at resume time, a silent-reset case, not a hard refusal."""
+    raw = _raw_state_json(
+        run_id="run-current-schema",
+        feature="widget-export",
+        status="halted",
+        updated_at="2026-07-01T12:00:00+00:00",
+    )
+    _write_raw_state(temp_dir, "run-current-schema", raw)
+    # deliberately no specs/050-widget-export/spec.md on disk
+
+    loaded = await load_chain_state("run-current-schema", temp_dir)
+
+    assert loaded is not None
+
+
+@pytest.mark.asyncio
+async def test_discover_resumable_skips_unverifiable_pre_migration_checkpoint(
+    temp_dir: Path,
+) -> None:
+    """An unverifiable pre-migration checkpoint degrades to 'not a
+    resumable candidate' during discovery, matching every other
+    corrupt-sibling case discover_resumable already tolerates."""
+    raw = _raw_state_json(
+        run_id="run-pre-migration-scan",
+        feature="widget-export",
+        status="halted",
+        updated_at="2026-07-01T12:00:00+00:00",
+    )
+    del raw["schema_version"]
+    _write_raw_state(temp_dir, "run-pre-migration-scan", raw)
+    # deliberately no specs/050-widget-export/spec.md on disk
+
+    found = await discover_resumable("widget-export", temp_dir)
+
+    assert found is None
+
+
+# ---------------------------------------------------------------------------
 # discover_resumable
 # ---------------------------------------------------------------------------
 

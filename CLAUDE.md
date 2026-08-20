@@ -33,7 +33,7 @@ See constitution Principle XIII and Appendix F.
 | Lint / Type      | ruff / mypy (strict)                  | —                                           |
 | VCS writes       | Jujutsu (jj)                          | `maverick.jj.client.JjClient`               |
 | VCS reads        | GitPython                             | `maverick.git`                              |
-| Workspaces       | spec-chain only                       | `maverick.workspace.spec_chain`             |
+| Workspaces       | spec-chain, fly --isolated             | `maverick.workspace` (`IsolationSession`)   |
 | GitHub API       | PyGithub                              | `maverick.utils.github_client`              |
 | Logging          | structlog                             | `maverick.logging.get_logger`               |
 | Retry            | tenacity                              | `AsyncRetrying`                             |
@@ -71,7 +71,7 @@ src/maverick/
 ├── agents/              # Agent subclasses: prompts + role (HOW)
 ├── executor/            # StepConfig resolution
 ├── jj/ vcs/             # JjClient + VcsRepository protocol
-├── workspace/           # spec-chain workspace (Guardrail 0's one exception)
+├── workspace/           # shared isolation primitive (Guardrail 0) — spec-chain + fly --isolated
 ├── workflows/           # generate_flight_plan / refuel_maverick / fly_beads / ...
 │                        #   each: actions.py (@action fns) + burr_graph.py (wiring)
 ├── runners/             # CommandRunner, process_group, provider_health
@@ -325,14 +325,26 @@ Never `click.echo()` or `print()`.
 
 If a change would violate any item, stop and refactor the design first.
 
-### 0. Single-repo (CWD) workflow model, jj-colocated
+### 0. Single-repo (CWD) workflow model, jj-colocated — bd stays out of isolation
 
 All long-running ops (`plan generate`, `refuel`, `fly`, `land`)
 operate directly in the user's checkout under `Path.cwd()`. There
-is no hidden workspace, no clone bridge, no `WorkspaceManager`.
-Plans, beads, runway, and per-run metadata land in
-`<cwd>/.maverick/{plans, runs, runway}/` and survive across runs
-without any sync step.
+is no clone bridge, no `WorkspaceManager`. Plans, beads, runway, and
+per-run metadata land in `<cwd>/.maverick/{plans, runs, runway}/`
+and survive across runs without any sync step.
+
+The load-bearing invariant is not "no hidden workspace exists" — it
+is **bd, the assumption ledger, and every commit-graph mutation MUST
+target the checkout, never an isolated workspace**. A workflow MAY
+run an agent step inside a short-lived, per-unit isolated jj
+workspace via the shared primitive at `src/maverick/workspace/`
+(`IsolationSession`), provided it never lets bd, the ledger, or a
+commit target that workspace — enforced structurally via
+`assert_checkout`/`CheckoutPath`, not by convention. See
+`### spec`/`### fly` below for the two consumers and
+`.specify/memory/constitution.md` Appendix E for the full mechanism
+(provision / fold-back / conflict-detect / undo / teardown, all
+jj-native).
 
 **Shape** (every long-running op):
 1. `maverick init` runs `jj git init --colocate` if `.jj/` is
@@ -372,23 +384,36 @@ The full pull-work-push architecture in
 `.claude/scratchpads/architecture-pull-work-push.md` solves it via bd
 federation; until that lands, single-repo is the contract.
 
-**Scoped exception — `maverick spec` (spec 050-headless-spec-chain)**:
-the headless Spec Kit chain (`specify → clarify → plan → tasks →
-analyze`) runs inside a hidden jj workspace at
-`~/.maverick/workspaces/<project-slug>/spec-chain/<feature>/`
-(`src/maverick/workspace/spec_chain.py`), one exception to the model
-above. Rationale: each step mutates `specs/` and `.specify/` state over
-a multi-minute model call, and only a completed step's artifacts may
-land in the user's checkout — running in-checkout would expose
-half-written files mid-run. The bd/`embeddeddolt/` impedance mismatch
-that retired the general-purpose workspace above does **not** apply
-here: the chain never runs `bd` inside the workspace — all bead/ledger
-writes (assumption-ledger entries, remediation beads) happen in the
-user's checkout via the workflow, never the agent. Landing is per-step
-and atomic (`src/maverick/workflows/spec_chain/landing.py`); see
+**The shared isolation primitive (057-isolated-bead-workspaces)** —
+`src/maverick/workspace/` (`IsolationSession`, `IsolationPolicy`,
+`IsolationLease`, `FoldBackResult`) — is the one implementation of
+provision → agent step → fold-back → undo/teardown, used by two
+consumers:
+
+- **`maverick spec`** (spec 050-headless-spec-chain): each chain step
+  (`specify → clarify → plan → tasks → analyze`) mutates `specs/` and
+  `.specify/` state over a multi-minute model call, and only a
+  completed step's artifacts may land in the user's checkout — running
+  in-checkout would expose half-written files mid-run. One workspace
+  per feature slug, shared across all five steps (`reuse=True`),
+  retained on failure (`retain_on_failure=True` — it is the only copy
+  of a halted step's partial output), fold-back scoped to
+  `specs/<feature-dir>`. See `### spec` below.
+- **`maverick fly --isolated`** (opt-in, off by default): each bead
+  gets its own workspace, never reused, never retained on failure.
+  See `### fly` below.
+
+The bd/`embeddeddolt/` impedance mismatch that retired the
+general-purpose workspace above does **not** apply to either consumer:
+neither runs `bd` inside a workspace — all bead/ledger writes
+(assumption-ledger entries, remediation beads, bead commits) happen in
+the user's checkout via the workflow, never the agent, enforced by
+`assert_checkout`/`CheckoutPath` (mypy-strict at authoring time, a
+runtime guard, and a repository-wide test — three layers). See
 `.specify/memory/constitution.md` Appendix E and
-`specs/050-headless-spec-chain/research.md` R3 for the full mechanism.
-Every other command still follows the single-repo model unchanged.
+`specs/057-isolated-bead-workspaces/research.md` for the full
+mechanism. Every command not opted into isolation still follows the
+single-repo model unchanged.
 
 ### 1. Async-first means no blocking on the event loop
 
@@ -483,7 +508,7 @@ Mode is auto-detected from repository shape; `--speckit` forces it.
 
 | Command                                              | Purpose                              |
 | ---------------------------------------------------- | ------------------------------------ |
-| `maverick fly --epic <id>`                           | Implement beads (Burr drain loop)    |
+| `maverick fly --epic <id> [--isolated]`               | Implement beads (Burr drain loop)    |
 | `maverick land [--eject\|--finalize] [--status] [--json]` | Curate history and merge, or query the frontier |
 | `maverick reconcile [--dry-run] [--json]`            | Reapply changed human answers into jj history |
 | `maverick notify [--dry-run] [--json]`               | Evaluate and deliver due assumption-ledger notifications |
@@ -498,8 +523,9 @@ Mode is auto-detected from repository shape; `--speckit` forces it.
 
 `maverick spec <feature> --from-prd <file>` runs the target repository's
 own Spec Kit chain — specify → clarify → plan → tasks → analyze —
-headlessly, inside a hidden jj workspace (the one documented exception to
-Guardrail 0; see above), invoking the repo's own Spec Kit command surface
+headlessly, inside an isolated jj workspace provisioned via the shared
+primitive (`src/maverick/workspace/`, `IsolationSession`; see Guardrail 0
+above), invoking the repo's own Spec Kit command surface
 via an airframe `SpecChainAgent`. That surface is resolved per step from
 the workspace rather than hardcoded — `.claude/skills/speckit-<step>/SKILL.md`
 (invoked `/speckit-<step>`) on Spec Kit >= 0.14, falling back to the
@@ -550,9 +576,29 @@ Iterates over ready beads. Drain loop is Burr-driven end to end
 the state machine: `Implementer → Gate → Reviewer → (fix loop if
 needed) → Commit`. Implementer + reviewer share a persistent runtime
 scope across fix rounds (rotated per bead via `rotate_session()`). Options:
-`--epic`, `--max-beads` (default 30), `--auto-commit`. Ctrl-C is a
-two-stage signal: first sets a graceful stop flag (finishes current
-bead, exits cleanly); second cancels the run.
+`--epic`, `--max-beads` (default 0 — unlimited, drains the queue),
+`--auto-commit`. Ctrl-C is a two-stage signal: first sets a graceful
+stop flag (finishes current bead, exits cleanly); second cancels the
+run.
+
+**Isolated mode (057-isolated-bead-workspaces)**: `--isolated` /
+`--no-isolated` (overrides `workspace.enabled`, off by default — see
+Guardrail 0) runs each bead's agent steps inside its own workspace via
+the shared primitive rather than directly in the checkout. The
+non-isolated path above is unaffected — no flag, no config, no
+behavior change. Isolated mode reorders the per-bead pipeline to
+`Implementer → AC/spec check → Reviewer (all in the workspace) →
+fold-back → Gate (checkout, needs the toolchain) → Commit`, since the
+format/lint/test gate needs `.venv`/`uv`, which never travel into a
+workspace; a gate failure undoes the fold-back, fixes in the
+workspace, and re-folds, bounded by the same fix-attempt budget the
+non-isolated path already had. An undo failure halts the run outright
+(the worst state this primitive can produce) rather than being
+silently retried. New `_isolation.py` module in `fly_beads/` holds the
+isolation-specific actions — `actions.py` was already past the
+1,000-line modularization hard stop, so every change there is
+delegation only. See `.specify/memory/constitution.md` Appendix E and
+`specs/057-isolated-bead-workspaces/contracts/fly-isolated-mode.md`.
 
 At every bead boundary (`record_outcome → reconcile_answers →
 select_next_bead`) and once more at loop-exit before the aggregate

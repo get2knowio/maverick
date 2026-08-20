@@ -108,6 +108,34 @@ class GitBranchResult:
     error: str | None = None
 
 
+@dataclass(frozen=True)
+class JjFoldBackResult:
+    """Result of ``jj_fold_back`` — a cross-workspace ``jj squash``.
+
+    Thin and mechanical by design (057-isolated-bead-workspaces Foundational
+    phase): this action only performs the squash itself. Conflict
+    detection, conflicting-path extraction, and restore-on-conflict are
+    orchestration owned by ``workspace/foldback.py``, which composes this
+    action with ``jj_list_conflicts`` and ``jj_restore_operation``.
+    """
+
+    success: bool
+    error: str | None = None
+
+
+@dataclass(frozen=True)
+class JjWorkspaceSnapshotResult:
+    """Result of ``jj_workspace_snapshot``.
+
+    Exists for its side effect (forcing jj to snapshot a workspace's
+    working copy before a cross-workspace fold-back — research.md R3), not
+    its data. See :meth:`JjClient.snapshot_working_copy`.
+    """
+
+    success: bool
+    error: str | None = None
+
+
 __all__ = [
     "GitBranchResult",
     "GitCommitResult",
@@ -115,6 +143,8 @@ __all__ = [
     "GitOperationResult",
     "GitPushResult",
     "GitStatusResult",
+    "JjFoldBackResult",
+    "JjWorkspaceSnapshotResult",
     "SnapshotDiffStats",
     "SnapshotResult",
 ]

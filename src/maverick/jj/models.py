@@ -297,3 +297,35 @@ class JjAbsorbResult:
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
+
+
+@dataclass(frozen=True, slots=True)
+class JjWorkspaceInfo:
+    """One entry from ``jj workspace list``.
+
+    Attributes:
+        name: The workspace's registered name (its directory basename, by
+            jj's default naming).
+        path: The workspace's path as jj reports it — relative to the
+            client's ``cwd`` unless jj chose to render it absolute.
+    """
+
+    name: str
+    path: str
+
+    def to_dict(self) -> dict[str, object]:
+        return asdict(self)
+
+
+@dataclass(frozen=True, slots=True)
+class JjWorkspaceListResult:
+    """Result of ``jj workspace list``."""
+
+    success: bool = True
+    workspaces: tuple[JjWorkspaceInfo, ...] = ()
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "success": self.success,
+            "workspaces": [w.to_dict() for w in self.workspaces],
+        }

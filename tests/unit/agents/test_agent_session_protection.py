@@ -187,6 +187,65 @@ class TestRotateSessionClosesAndReopens:
         assert runtime.session_calls == []
 
 
+class TestRebindProtection:
+    """057-isolated-bead-workspaces: re-rooting an agent's protection at a
+    new policy between beads (isolated `maverick fly`, research.md R11) —
+    without rebuilding the agent object itself."""
+
+    async def test_rebind_then_rotate_builds_a_fresh_gate_for_the_new_policy(
+        self, policy: ProtectionPolicy, tmp_path: Path
+    ) -> None:
+        runtime = _FakeRuntime(supports_permission_callback=True)
+        agent = Agent(runtime=runtime, cwd="/tmp", protection_policy=policy, workflow="fly-beads")
+        await agent.open()
+        original_gate = runtime.session_calls[0]["on_permission"]
+
+        workspace_root = tmp_path / "workspace"
+        new_policy = ProtectionPolicy.build(workspace_root)
+        agent.rebind_protection(new_policy)
+        await agent.rotate_session()
+
+        rebound_gate = runtime.session_calls[1]["on_permission"]
+        assert rebound_gate is not original_gate
+        assert isinstance(rebound_gate, PermissionGate)
+        assert rebound_gate.policy.root == new_policy.root
+        assert rebound_gate.policy.root != policy.root
+
+    async def test_rebind_does_not_itself_reopen_the_session(
+        self, policy: ProtectionPolicy, tmp_path: Path
+    ) -> None:
+        """`rebind_protection` is pure state — Layer 1 only re-arms once
+        the caller explicitly rotates (its own docstring's contract)."""
+        runtime = _FakeRuntime(supports_permission_callback=True)
+        agent = Agent(runtime=runtime, cwd="/tmp", protection_policy=policy)
+        await agent.open()
+
+        agent.rebind_protection(ProtectionPolicy.build(tmp_path / "workspace"))
+
+        assert len(runtime.session_calls) == 1  # unchanged -- no rotate() yet
+
+    async def test_rebind_to_none_disables_protection_until_rebound_again(
+        self, policy: ProtectionPolicy
+    ) -> None:
+        runtime = _FakeRuntime(supports_permission_callback=True)
+        agent = Agent(runtime=runtime, cwd="/tmp", protection_policy=policy)
+        await agent.open()
+
+        agent.rebind_protection(None)
+        await agent.rotate_session()
+
+        assert runtime.session_calls[1]["on_permission"] is None
+
+    async def test_rebind_replaces_the_baseline_manifest(
+        self, policy: ProtectionPolicy, tmp_path: Path
+    ) -> None:
+        runtime = _FakeRuntime(supports_permission_callback=True)
+        agent = Agent(runtime=runtime, cwd="/tmp", protection_policy=policy)
+        manifest = SnapshotManifest(root=tmp_path, entries={})
+        agent.rebind_protection(policy, baseline_manifest=manifest)
+        assert agent._baseline_manifest is manifest
+
+
 class TestCloseClosesSessionThenRuntime:
     async def test_close_order_session_before_runtime(self, policy: ProtectionPolicy) -> None:
         runtime = _FakeRuntime(supports_permission_callback=True)

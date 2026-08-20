@@ -43,8 +43,8 @@ sync: install ## Alias for install
 
 PYTEST_FILTER := 2>&1 | grep -vE "^(===|---|platform|rootdir|plugins|collected|.*passed|warnings summary|bringing up|$$)" || true
 
-test: ## Run tests (errors only, parallel)
-	$(Q)uv run pytest $(PYTEST_ARGS) -n auto --dist loadscope tests/ $(PYTEST_FILTER)
+test: ## Run tests (errors only, parallel). ARGS="<path/flags>" to scope, e.g. ARGS="tests/unit/foo -x"
+	$(Q)uv run pytest $(PYTEST_ARGS) -n auto --dist loadscope $(if $(ARGS),$(ARGS),tests/) $(PYTEST_FILTER)
 
 test-fast: ## Run unit tests only (fastest feedback loop)
 	$(Q)uv run pytest $(PYTEST_ARGS) -n auto --dist loadscope -m "not slow" tests/unit/ $(PYTEST_FILTER)
@@ -52,8 +52,8 @@ test-fast: ## Run unit tests only (fastest feedback loop)
 test-cov: ## Run tests with coverage report
 	$(Q)uv run pytest $(PYTEST_ARGS) --cov=maverick --cov-report=term-missing tests/ $(PYTEST_FILTER)
 
-test-integration: ## Run integration tests only
-	$(Q)uv run pytest $(PYTEST_ARGS) tests/integration/ $(PYTEST_FILTER)
+test-integration: ## Run integration tests only. ARGS="<path/flags>" to scope.
+	$(Q)uv run pytest $(PYTEST_ARGS) $(if $(ARGS),$(ARGS),tests/integration/) $(PYTEST_FILTER)
 
 lint: ## Run ruff linter (errors only)
 	$(Q)uv run ruff check $(RUFF_ARGS) src/ tests/ 2>&1 || true

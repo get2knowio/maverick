@@ -24,7 +24,12 @@ from maverick.jj.errors import JjError
 from maverick.logging import get_logger
 
 if TYPE_CHECKING:
-    from maverick.library.actions.git_models import SnapshotResult
+    from maverick.library.actions.git_models import (
+        JjFoldBackResult,
+        JjWorkspaceSnapshotResult,
+        SnapshotResult,
+    )
+    from maverick.workspace import CheckoutPath
 
 logger = get_logger(__name__)
 
@@ -322,6 +327,92 @@ async def jj_check_mutability(
         }
 
 
+# =============================================================================
+# Isolation primitive support (057-isolated-bead-workspaces)
+#
+# Thin, mechanical wrappers by design — Foundational-phase actions. Conflict
+# detection, conflicting-path extraction, and restore-on-conflict are
+# orchestration owned by workspace/foldback.py, which composes these with
+# jj_list_conflicts and jj_restore_operation.
+# =============================================================================
+
+
+async def jj_fold_back(
+    workspace_name: str,
+    into: str = "@",
+    filesets: tuple[str, ...] = (),
+    cwd: CheckoutPath | None = None,
+) -> JjFoldBackResult:
+    """Move a workspace's working-copy delta into the checkout.
+
+    ``jj squash --from '<workspace_name>@' --into <into> <filesets>``,
+    executed from the checkout (research.md R2). Callers must have already
+    forced a snapshot of the *workspace's* working copy via
+    :func:`jj_workspace_snapshot` bound to the workspace path — skipping
+    that step yields a successful, silently empty fold-back (research.md
+    R3).
+
+    This is the primitive's actual commit-graph-mutating step (the squash
+    that lands a workspace's delta into the checkout), so it carries the
+    same checkout-boundary guard as ``jj_commit_bead``: *cwd* is resolved
+    and asserted against the live workspace registry before anything runs.
+
+    Args:
+        workspace_name: jj workspace name — the ``<name>@`` revset read as
+            the fold-back's source.
+        into: Target revision in the checkout (default: working copy ``@``).
+        filesets: jj fileset arguments bounding what the squash moves.
+        cwd: Checkout working directory. Defaults to ``Path.cwd()``.
+
+    Returns:
+        :class:`JjFoldBackResult`.
+    """
+    from maverick.library.actions.git_models import JjFoldBackResult
+    from maverick.workspace import assert_checkout
+
+    resolved_cwd = Path(cwd) if cwd else Path.cwd()
+    assert_checkout(resolved_cwd)
+    try:
+        client = _make_client(resolved_cwd)
+        await client.squash(from_=f"{workspace_name}@", into=into, filesets=filesets)
+        return JjFoldBackResult(success=True, error=None)
+    except (JjError, OSError, ValueError) as e:
+        logger.debug(
+            "jj_fold_back_failed",
+            workspace_name=workspace_name,
+            into=into,
+            filesets=filesets,
+            error=str(e),
+        )
+        return JjFoldBackResult(success=False, error=str(e))
+
+
+async def jj_workspace_snapshot(
+    cwd: Path | str | None = None,
+) -> JjWorkspaceSnapshotResult:
+    """Force jj to snapshot the working copy at *cwd*.
+
+    Must be called with *cwd* bound to the **workspace** path (never the
+    checkout) immediately before a cross-workspace fold-back — see
+    :meth:`JjClient.snapshot_working_copy` and research.md R3.
+
+    Args:
+        cwd: Working directory to snapshot. Defaults to ``Path.cwd()``.
+
+    Returns:
+        :class:`JjWorkspaceSnapshotResult`.
+    """
+    from maverick.library.actions.git_models import JjWorkspaceSnapshotResult
+
+    try:
+        client = _make_client(cwd)
+        await client.snapshot_working_copy()
+        return JjWorkspaceSnapshotResult(success=True, error=None)
+    except (JjError, OSError) as e:
+        logger.debug("jj_workspace_snapshot_failed", cwd=str(cwd), error=str(e))
+        return JjWorkspaceSnapshotResult(success=False, error=str(e))
+
+
 async def jj_log(
     revset: str = "@",
     limit: int = 10,
@@ -389,7 +480,7 @@ async def jj_diff(
 
 async def jj_commit_bead(
     message: str,
-    cwd: str | Path | None = None,
+    cwd: CheckoutPath | None = None,
 ) -> dict[str, Any]:
     """Finalise the current change and start a fresh one.
 
@@ -412,8 +503,17 @@ async def jj_commit_bead(
         - change_id: Stable change ID of the finalized change (or None)
         - error: Error message if failed
     """
+    # Resolve *before* asserting — a caller that omits cwd still commits
+    # against Path.cwd(), which must be checked too. Skipping the guard
+    # whenever cwd is None would leave the checkout-boundary guarantee
+    # dependent on every caller remembering to pass cwd explicitly, exactly
+    # the "by convention" failure mode the guard exists to rule out.
+    from maverick.workspace import assert_checkout
+
+    resolved_cwd = Path(cwd) if cwd else Path.cwd()
+    assert_checkout(resolved_cwd)
     try:
-        client = _make_client(Path(cwd) if cwd else None)
+        client = _make_client(resolved_cwd)
         commit_result = await client.commit(message)
         return {
             "success": True,

@@ -1,6 +1,38 @@
 <!--
 Sync Impact Report
 ==================
+Version change: 2.0.1 to 3.0.0 (MAJOR)
+
+Bump rationale: Guardrail X.0 is redefined. Its stated rule changes from "there
+is no hidden workspace, one documented exception" to the invariant that
+actually matters and is now enforced structurally: bd, the assumption ledger,
+and every commit-graph mutation must target the checkout, never an isolated
+workspace. Isolated agent-side execution moves from "one documented exception"
+to a permitted general capability bounded by that invariant. A guardrail
+redefinition is a backward-incompatible governance change under the amendment
+policy, which requires MAJOR.
+
+Modified guardrails:
+  - Guardrail X.0 (Single-repo CWD model) -> redefined as "Single-repo (CWD)
+    workflow model, jj-colocated -- bd stays out of isolation". States the
+    bd-stays-out invariant directly; removes the "one documented exception"
+    framing; names the shared primitive (`src/maverick/workspace/`) and its
+    structural enforcement (`assert_checkout`/`CheckoutPath`).
+
+Rewritten sections:
+  - Appendix E: Workspace Isolation Architecture -> rewritten around the
+    general primitive (provision / fold-back / conflict-detect / undo /
+    teardown, all jj-native) and its two consumers (`maverick spec`,
+    `maverick fly --isolated`), replacing the spec-chain-only "scoped
+    exception" framing. Carries forward the `os.chdir` seam (now shared via
+    `workspace/cwd_scope.py` rather than spec-chain-private) and its exit
+    criterion (airframe growing a universal working-directory parameter).
+
+Source: 057-isolated-bead-workspaces (generalizes the spec chain's hidden jj
+workspace into a shared primitive; adds `maverick fly --isolated`).
+
+--- Previous amendment (2.0.1) -------------------------------------------------
+
 Version change: 2.0.0 to 2.0.1 (PATCH)
 
 Bump rationale: factual correction to the Technology Stack table only -- the
@@ -283,14 +315,22 @@ caught in code review. If a change would violate any item below, stop and refact
 design before proceeding. **Guardrail numbers here match CLAUDE.md's guardrail numbers**;
 cite them as `X.<n>`.
 
-0. **Single-repo (CWD) workflow model, jj-colocated**: `plan`, `refuel`, `fly`, `land`,
-   `reconcile`, and every other long-running command operate directly in the user's
-   checkout under `Path.cwd()`, resolved once at the CLI boundary. There is no hidden
-   workspace and no clone bridge. Artifacts land in `<cwd>/.maverick/{plans,runs,runway}/`
-   and survive across runs with no sync step. All commit-graph mutations go through
-   `JjClient` or `library/actions/jj.py`. **One documented exception**: `maverick spec`
-   runs the Spec Kit chain in a hidden jj workspace (see Appendix E). (Enforces
-   Principles II and VII)
+0. **Single-repo (CWD) workflow model, jj-colocated — bd stays out of isolation**:
+   `plan`, `refuel`, `fly`, `land`, `reconcile`, and every other long-running command
+   operate directly in the user's checkout under `Path.cwd()`, resolved once at the CLI
+   boundary. Artifacts land in `<cwd>/.maverick/{plans,runs,runway}/` and survive across
+   runs with no sync step. The load-bearing invariant is not "no hidden workspace exists"
+   — it is **bd, the assumption ledger, and every commit-graph mutation MUST target the
+   checkout, never an isolated workspace**, enforced through `JjClient` /
+   `library/actions/jj.py` and (for the primitive below) `assert_checkout`/`CheckoutPath`.
+   A workflow MAY run an agent step inside a short-lived, per-unit isolated jj workspace
+   — provisioned, folded back, and torn down via the shared primitive at
+   `src/maverick/workspace/` — provided it never lets bd, the ledger, or a commit
+   target that workspace (057-isolated-bead-workspaces; see Appendix E for the primitive
+   and its two consumers, `maverick spec` and `maverick fly --isolated`). This supersedes
+   this guardrail's earlier single-named-carve-out framing: isolation is a permitted,
+   general capability bounded by the bd-stays-out invariant, not one exceptional case.
+   (Enforces Principles II and VII)
 
 1. **Async-first means no blocking on the event loop**: never call `subprocess.run` from
    an `async def` path. Prefer `CommandRunner` (`src/maverick/runners/command.py`) for
@@ -623,7 +663,7 @@ MUST comply with these principles.
   Appendix F). Adding a model call to the deterministic path requires explicit
   justification in the PR description.
 
-**Version**: 2.0.1 | **Ratified**: 2025-12-12 | **Last Amended**: 2026-08-11
+**Version**: 3.0.0 | **Ratified**: 2025-12-12 | **Last Amended**: 2026-08-20
 
 ## Appendix B: Canonical Third-Party Libraries
 
@@ -783,70 +823,121 @@ confusion can occur when working across multiple repositories.
 **Default: single-repo CWD model (Guardrail X.0).** `fly`, `refuel`, `land`, `reconcile`,
 and every other long-running command operate directly in the user's checkout under
 `Path.cwd()` (resolved once at the CLI boundary and threaded explicitly through every
-layer beneath it—see Guardrails X.0 and X.7). There is no hidden workspace, no clone
-bridge, and no `WorkspaceManager` for these commands. Two implementations of a
-general-purpose hidden-workspace model were tried and retired before this model was
-adopted (`jj git clone`—drifted on bd state, gone in `cf11db4`; `jj workspace add`—bd's
-gitignored `embeddeddolt/` didn't travel into the workspace). See CLAUDE.md Guardrail 0
-for the full history.
+layer beneath it—see Guardrails X.0 and X.7). There is no clone bridge and no
+`WorkspaceManager`. Two implementations of a general-purpose hidden-workspace model were
+tried and retired before the shared primitive below was built (`jj git clone`—drifted on
+bd state, gone in `cf11db4`; an earlier `jj workspace add` attempt—bd's gitignored
+`embeddeddolt/` didn't travel into the workspace). See CLAUDE.md Guardrail 0 for the full
+history. The invariant those two attempts actually violated—**bd never runs inside a
+workspace**—is what Guardrail X.0 now states directly, rather than the weaker "no hidden
+workspace exists" framing this appendix carried before 057-isolated-bead-workspaces.
 
-### The scoped exception: spec-chain's hidden jj workspace
+### The shared isolation primitive
 
-`maverick spec` (spec 050-headless-spec-chain) is a **documented exception** to the
-single-repo model. Each chain step (specify → clarify → plan → tasks → analyze) mutates
-`specs/`, `.specify/feature.json`, and agent scratch state over a multi-minute model call;
-the user's checkout must stay untouched until each step's artifacts are verified complete,
-and only completed-step artifacts may land. Running steps directly in the user's checkout
-would expose half-written spec artifacts mid-run and make atomic landing impossible
-without ad-hoc staging.
+`src/maverick/workspace/` (`IsolationSession`, `IsolationPolicy`, `IsolationLease`,
+`FoldBackResult`) is the one implementation of provision → agent step → fold-back →
+undo/teardown available to any workflow that needs to run an agent step against an
+isolated copy of the repository rather than the checkout directly. It is **jj-native**:
 
-The historic reason general-purpose workspaces were retired—bd's gitignored
-`embeddeddolt/` not traveling into `jj workspace add`—does **not** apply here: the spec
-chain never runs `bd` inside the workspace. All bead and ledger writes (assumption-ledger
-entries from clarify, remediation beads from analyze) happen in the user's checkout via
-the workflow (`src/maverick/workflows/spec_chain/workflow.py`), never the agent and never
-the workspace. This keeps Guardrail X.2 (agents never own deterministic side effects) and
-Guardrail X.8 (canonical wrappers) intact even inside the exception.
+- **Provision**: `jj workspace add -r @ <dir>`, so the workspace's working-copy commit is
+  a child of the checkout's `@`—the agent sees the checkout's uncommitted work, and two
+  units (beads, chain steps) never share a directory.
+- **Fold-back**: a workspace snapshot (a jj command run *inside* the workspace—skipping
+  this yields a silently empty fold-back, the sharpest edge in the mechanism) followed by
+  `jj squash --from '<workspace>@' --into @ <fileset>` from the checkout. The fileset
+  argument bounds what travels (`~.maverick` is always excluded; a consumer may narrow
+  further, e.g. the spec chain scopes to `specs/<feature-dir>`) and gives ignored-path
+  exclusion for free—jj never tracks gitignored paths.
+- **Conflict detection**: jj materializes conflicts rather than failing the squash: the
+  `conflicts()` revset, not the exit code, is the signal. A conflict restores the checkout
+  before returning and fails exactly the one unit in flight.
+- **Undo**: `jj op restore` to a pre-fold-back operation snapshot—restores the checkout
+  byte-identically (including unrelated uncommitted work the user had there) and rewinds
+  the workspace's working-copy commit too, so a rejected delta is still there for a fix
+  round. An undo failure is the worst state this primitive can produce (unverified work
+  possibly stranded in the checkout) and halts the calling workflow rather than being
+  silently retried.
+- **Teardown**: `workspace_forget` always precedes `rmtree`—reversing them leaves jj
+  tracking the name and strands an anonymous head in the user's `jj log` forever. A sweep
+  reconciles the on-disk directory listing against jj's own workspace registry (the two
+  can diverge after an interrupted run) so no workspace outlives its usefulness.
 
-**Mechanism** (`src/maverick/workspace/spec_chain.py`, `research.md` R3):
+**The bd-stays-out invariant is enforced structurally, not by convention** (three layers):
+a `CheckoutPath` `NewType` distinct from a workspace `Path`, so mypy strict rejects a
+workspace path passed where a checkout is required, at authoring time; a runtime guard
+(`assert_checkout`), resolved against the session's actual live workspace roots, that
+every bd, ledger, and commit-graph entry point calls; and a repository-wide test asserting
+every such call site takes its directory from the checkout. Agents themselves never see
+the checkout path at all under a lease—only the workspace path.
 
-- Location: `~/.maverick/workspaces/<project-slug>/spec-chain/<feature>/`—per-feature, so
-  two features' chains never share (and one can never destroy the other's resumable state).
-- Creation: `JjClient.workspace_add`, from the user's colocated checkout—the shared
-  backing store materializes committed files (`.claude/skills/speckit-*/SKILL.md`,
-  `.specify/**`, existing `specs/**`) into the workspace. The PRD file (often untracked)
-  is copied in explicitly.
-- Reuse and cleanup: a resumable chain (`status` `halted`/`running`) reuses its workspace
-  on resume; a fresh or completed chain forgets and recreates it, so runs start clean.
-- Landing: after each step succeeds (verified against the filesystem, never the agent's
-  self-report—research.md R9), `src/maverick/workflows/spec_chain/landing.py` syncs
-  `specs/<feature-dir>/**` from the workspace into the user's checkout via an atomic
-  staged copy (temp sibling + rename). This is what makes "only completed artifacts land"
-  and "resume never regenerates a landed step" both hold.
+**Verification splits by placement**, not by consumer: a check that only needs state
+already present in committed history plus the produced files (no toolchain) runs
+artifact-level, inside the workspace, before fold-back; a check that needs an installed
+toolchain (`.venv`, `uv`—gitignored, so it never travels into a workspace) runs
+environment-level, against the checkout, after fold-back, with undo on failure.
 
-### CWD contract inside the exception
+### Consumer 1: `maverick spec` (spec 050-headless-spec-chain)
 
-Within the spec-chain workflow itself, the ordinary Guardrail X.7 rules still apply one
-level down: `SpecChainWorkflow._run()` resolves the workspace path once (via
-`prepare_workspace`) and threads it explicitly to every step (`build_step_prompt`,
-`verify_step_artifacts`, `land_step_artifacts`) and to `SpecChainSquadron`—no step
-re-derives or defaults it. The one deliberate deviation is `SpecChainAgent.run_step`,
-which binds the OS process working directory via a locked `os.chdir()`/restore pair for
-the duration of a single airframe `execute()` call—a workaround for airframe 0.9.0rc1
-exposing no `cwd`/`working_directory` parameter on the `claude` provider's runtime
-(research.md R1; the field exists on `CopilotOptions`/`KimiOptions`/
-`OpenCodeServerOptions` but not `ClaudeOptions`, an adapter gap worth upstreaming later).
-Because chain steps run strictly sequentially and one Maverick CLI invocation runs one
-workflow per process, the exposure window is a single in-process critical section, not
-cross-workflow concurrency.
+Each chain step (specify → clarify → plan → tasks → analyze) mutates `specs/`,
+`.specify/feature.json`, and agent scratch state over a multi-minute model call; the
+user's checkout must stay untouched until each step's artifacts are verified complete,
+and only completed-step artifacts may land. The chain's checks are entirely
+artifact-level (`verify_step_artifacts` reads produced files, no toolchain needed), so
+fold-back happens only after a step is verified complete—the "nothing lands until it is
+complete" guarantee that is this workflow's whole reason to exist survives on the shared
+primitive unchanged. Policy: one workspace per feature slug, shared and reused across all
+five steps (`reuse=True`), retained on failure since it is the only copy of a halted
+step's partial output (`retain_on_failure=True`), fold-back scoped to
+`specs/<feature-dir>`. All bead and ledger writes (assumption-ledger entries from
+clarify, remediation beads from analyze) happen in the user's checkout via the workflow
+(`src/maverick/workflows/spec_chain/workflow.py`), never the agent and never the
+workspace—this is what keeps Guardrail X.2 (agents never own deterministic side effects)
+intact.
+
+### Consumer 2: `maverick fly --isolated` (057-isolated-bead-workspaces)
+
+Opt-in (`workspace.enabled` / `--isolated`, off by default—the non-isolated path is
+byte-identical to before this capability existed). Each bead gets its own workspace,
+never reused, never retained on failure (a failed bead is simply retried from the
+checkout on the next run): implement, the artifact-level `ac_check`/`spec_check`, and
+review all run inside it; fold-back moves the delta to the checkout; the environment-level
+format/lint/test gate runs there, with a failure undoing the fold-back, fixing in the
+workspace, and re-folding, bounded by the same fix-attempt budget the non-isolated path
+already had. bd, the assumption ledger, and the commit all still target the checkout only,
+via the same actions the non-isolated path uses—the isolation boundary changes *where
+the agent writes*, never *where the deterministic side effects land*.
+
+### The `os.chdir` seam—shared, not duplicated
+
+Both consumers point an agent step at a workspace via `src/maverick/workspace/cwd_scope.py`:
+a locked `os.chdir()`/restore pair around a single airframe `execute()` call, serialized
+process-wide by one `asyncio.Lock`. This is a workaround for airframe 0.9.2 exposing no
+`cwd`/`working_directory` parameter on the `claude` provider's runtime (the field exists
+on `CopilotOptions`/`OpenCodeServerOptions` but not `ClaudeOptions`, an adapter gap worth
+upstreaming). It was originally scoped to `SpecChainAgent.run_step` alone;
+057-isolated-bead-workspaces hoisted it into the shared primitive so `fly`'s isolated
+agent steps use the identical mechanism rather than a second implementation. Because
+agent execution is process-serialized by this lock, and both consumers already require
+serial units (chain steps run strictly sequentially; isolated beads remain strictly
+serial with one isolated run per checkout), the lock costs nothing today—but it is the
+hard blocker for a future concurrent dispatcher, which needs airframe to grow a universal
+working-directory parameter first. **Exit criterion**: once that lands, `cwd_scope.py`
+becomes a one-line adapter call and the lock disappears.
+
+### CWD contract inside an isolated workspace
+
+The ordinary Guardrail X.7 rules still apply one level down inside either consumer: the
+workspace path is resolved once per unit and threaded explicitly to every step that needs
+it—no step re-derives or defaults it, and nothing in `workflows/` may default to
+`Path.cwd()`.
 
 **Rationale**: The workspace isolation debugging session (2026-02-20) that originally
 motivated this appendix revealed that an implementer agent can silently write to the wrong
 directory when no step passes `cwd` explicitly—the bug is invisible until downstream steps
-find nothing to work with. That lesson generalizes to both models above: whether the
-working directory is the user's checkout (the default) or a hidden workspace (this scoped
-exception), every step must receive it explicitly, and nothing in `workflows/` may default
-to `Path.cwd()`.
+find nothing to work with. That lesson generalizes across both models: whether the working
+directory is the user's checkout (the default) or an isolated workspace (either consumer
+above), every step must receive it explicitly, and the one invariant that may never bend
+is that bd, the ledger, and the commit graph see only the checkout.
 
 ## Appendix F: Decomposition Entry Paths
 

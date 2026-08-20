@@ -82,6 +82,16 @@ from maverick.exceptions.init import (
     PrerequisiteError,
 )
 
+# Isolation primitive exceptions
+from maverick.exceptions.isolation import (
+    IsolationBoundaryError,
+    IsolationError,
+    IsolationLockedError,
+    IsolationProvisioningError,
+    IsolationRecoveryRequiredError,
+    IsolationUndoFailedError,
+)
+
 # Jj-related exceptions
 from maverick.exceptions.jj import (
     JjCloneError,
@@ -119,7 +129,6 @@ from maverick.exceptions.spec_chain import (
     SpecChainPreflightError,
     SpecChainStateError,
     SpecChainStepError,
-    SpecChainWorkspaceError,
 )
 
 # Validation-related exceptions
@@ -197,6 +206,13 @@ __all__ = [
     "DetectionError",
     "InitError",
     "PrerequisiteError",
+    # Isolation
+    "IsolationBoundaryError",
+    "IsolationError",
+    "IsolationLockedError",
+    "IsolationProvisioningError",
+    "IsolationRecoveryRequiredError",
+    "IsolationUndoFailedError",
     # Preflight
     "PreflightValidationError",
     # Quota
@@ -233,7 +249,6 @@ __all__ = [
     "SpecChainPreflightError",
     "SpecChainStateError",
     "SpecChainStepError",
-    "SpecChainWorkspaceError",
     # Flight
     "FlightError",
     "FlightPlanNotFoundError",

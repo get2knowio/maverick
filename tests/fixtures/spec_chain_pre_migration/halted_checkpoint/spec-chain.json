@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "run_id": "baseline-halt-resume",
+  "feature": "widget-export",
+  "feature_dir": "specs/001-widget-export",
+  "prd_path": "/tmp/spec_chain_baseline_capture/resumed/repo/docs/prd.md",
+  "prd_digest": "9f3114e4d687cf8254d9511b7597de82b7558bfdb902e334448fbc003d399172",
+  "workspace_path": "/tmp/spec_chain_baseline_capture/resumed/fake-home/.maverick/workspaces/repo/spec-chain/widget-export",
+  "status": "halted",
+  "steps": {
+    "specify": {
+      "step": "specify",
+      "status": "succeeded",
+      "attempts": 1,
+      "artifacts": [
+        "spec.md"
+      ],
+      "landed": true,
+      "error": null,
+      "started_at": "2026-08-20T18:49:30.244587Z",
+      "finished_at": "2026-08-20T18:49:30.251234Z"
+    },
+    "clarify": {
+      "step": "clarify",
+      "status": "failed",
+      "attempts": 1,
+      "artifacts": [],
+      "landed": false,
+      "error": "Cannot form a defensible default for a critical question.",
+      "started_at": "2026-08-20T18:49:30.252301Z",
+      "finished_at": "2026-08-20T18:49:30.257058Z"
+    },
+    "plan": {
+      "step": "plan",
+      "status": "skipped",
+      "attempts": 0,
+      "artifacts": [],
+      "landed": false,
+      "error": null,
+      "started_at": null,
+      "finished_at": null
+    },
+    "tasks": {
+      "step": "tasks",
+      "status": "skipped",
+      "attempts": 0,
+      "artifacts": [],
+      "landed": false,
+      "error": null,
+      "started_at": null,
+      "finished_at": null
+    },
+    "analyze": {
+      "step": "analyze",
+      "status": "skipped",
+      "attempts": 0,
+      "artifacts": [],
+      "landed": false,
+      "error": null,
+      "started_at": null,
+      "finished_at": null
+    }
+  },
+  "clarify_decisions": [],
+  "remediation_bead_ids": [],
+  "protection_blocks": [],
+  "started_at": "2026-08-20T18:49:30.241499Z",
+  "updated_at": "2026-08-20T18:49:30.257058Z"
+}

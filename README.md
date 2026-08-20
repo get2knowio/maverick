@@ -208,6 +208,75 @@ per-bead events and `ACTION REQUIRED` for any `needs-human-review` beads.
 | `--skip-review` | false | Skip code review step |
 | `--dry-run` | false | Preview mode |
 
+#### Isolated Mode
+
+By default, `fly` implements each bead directly in your checkout — as soon
+as the agent writes changes, they're visible in your working copy, even
+though nothing is committed until the bead passes review. `--isolated` runs
+each bead's implement/review/fix work in its own throwaway jj workspace
+instead, and only folds the finished result into the checkout once it has
+passed review and the gate — so the checkout never shows a partial,
+in-flight bead.
+
+```bash
+maverick fly --epic <id> --isolated       # force on for this run
+maverick fly --epic <id> --no-isolated    # force off, overrides config
+```
+
+To make isolated mode the default for a project, set it in `maverick.yaml`:
+
+```yaml
+workspace:
+  enabled: true                    # default: false
+  root: ~/.maverick/workspaces     # default
+```
+
+`--isolated`/`--no-isolated` always take priority over `workspace.enabled`;
+with neither the flag nor the config key set, `fly` behaves exactly as it
+does today.
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `workspace.enabled` | `false` | Turn isolated mode on by default (still overridable per invocation with `--isolated`/`--no-isolated`) |
+| `workspace.root` | `~/.maverick/workspaces` | Base directory for per-bead workspaces |
+
+`fly` always provisions a fresh workspace per bead and never reuses one —
+that's load-bearing for its isolation guarantees, not a user-tunable
+setting, so there's no `workspace.reuse` key.
+
+Before starting, `--isolated` checks a few preconditions and refuses with
+an actionable message and a non-zero exit — never a silent fallback to
+non-isolated mode:
+
+- the checkout must be jj-colocated (`.jj/` present — run `maverick init`
+  if it isn't)
+- the `jj` binary must be on `PATH`
+- no other isolated `fly` run may already hold this checkout's lock
+  (isolated runs are exclusive per checkout — two running at once could
+  destroy each other's in-flight work)
+- no stale application journal may be left over from a prior run that died
+  mid-operation (see below)
+
+**Recovering from a stale journal.** If a previous isolated run was killed
+while folding a bead's changes into the checkout, or while undoing a
+rejected one, it leaves behind a durable "in progress" marker at
+`.maverick/runs/isolation-journal.json`. The next `--isolated` run refuses
+to start until that marker is cleared, and its message tells you exactly
+what you need to recover: which bead was mid-application, which operation
+was interrupted (fold-back or undo), where that bead's workspace still
+lives, and which jj operation to restore to if you want to unwind it.
+Maverick never rewinds the checkout for you here — an automatic rollback
+could discard other work you've done in the checkout since the crash. To
+recover:
+
+1. Inspect the workspace path named in the message to see what state the
+   bead's changes are in.
+2. If you want the checkout back the way it was before the interrupted
+   operation, run `jj op restore <operation-id>` by hand, using the
+   operation ID from the message.
+3. Delete `.maverick/runs/isolation-journal.json` and re-run `maverick fly
+   --isolated`.
+
 ### `maverick land` — Curate and Merge
 
 AI curator reorganizes commits — squashes fix commits, strips bead IDs,

@@ -51,7 +51,6 @@ from maverick.workflows.spec_chain.constants import (
     ChainStep,
 )
 from maverick.workflows.spec_chain.landing import (
-    land_step_artifacts,
     resolve_feature_dir,
     verify_step_artifacts,
 )
@@ -71,11 +70,17 @@ from maverick.workflows.spec_chain.state import (
     save_chain_state,
 )
 from maverick.workflows.spec_chain.steps import build_step_prompt
-from maverick.workspace.spec_chain import (
-    prepare_workspace,
-    sweep_stale_workspaces,
-    teardown_workspace,
+from maverick.workspace import (
+    CheckoutPath,
+    FoldBackOutcome,
+    IsolationLease,
+    IsolationPolicy,
+    IsolationSession,
+    UnitOfWork,
+    register_live_workspace,
+    unregister_live_workspace,
 )
+from maverick.workspace import lifecycle as workspace_lifecycle
 
 __all__ = ["WORKFLOW_NAME", "SpecChainWorkflow"]
 
@@ -192,6 +197,66 @@ class SpecChainWorkflow(PythonWorkflow):
             kwargs["workflow_name"] = WORKFLOW_NAME
         super().__init__(**kwargs)
 
+    def _isolation_policy(self, *, home: Path | None) -> IsolationPolicy:
+        """The spec-chain-flavored `IsolationPolicy` (research.md R7's
+        table, contracts/spec-chain-migration.md "Unit mapping"): one
+        workspace per feature slug, shared across all five steps
+        (`reuse=True`), retained on failure — it is the only copy of a
+        halted step's partial output (`retain_on_failure=True`).
+        `fold_scope` is left empty here and supplied per `fold_back()`
+        call once the `specify` step resolves the feature directory
+        (`IsolationSession.fold_back`'s `fold_scope` override).
+
+        `fold_exclusions` supersedes `landing.py`'s old
+        `_strip_protected_paths` (T103, research.md R10/R11): mostly
+        redundant with `fold_scope` itself (the default protected set
+        lies outside `specs/**`, so `fold_scope` already excludes it),
+        this only ever bites on a configured `additional_globs` pattern
+        reaching under `specs/**` — the one case `fold_scope` alone
+        wouldn't catch.
+        """
+        from maverick.config import lookup_workspace_config
+        from maverick.protection.config import lookup_protection_config
+
+        workspace_config = lookup_workspace_config(self._config)
+        root = (home / ".maverick" / "workspaces") if home is not None else workspace_config.root
+        protection_config = lookup_protection_config(self._config)
+        fold_exclusions = (
+            ".specify/memory",
+            "AGENTS.md",
+            "CLAUDE.md",
+            *protection_config.additional_globs,
+        )
+        return IsolationPolicy(
+            workflow="spec-chain",
+            root=root,
+            reuse=True,
+            retain_on_failure=True,
+            fold_exclusions=fold_exclusions,
+        )
+
+    async def _protected_applied_paths(
+        self, applied_paths: tuple[str, ...], checkout: Path
+    ) -> tuple[str, ...]:
+        """Which of *applied_paths* (already folded into `checkout`) match
+        the full, checkout-rooted `ProtectionPolicy` — the environment-
+        level check `_run_one_step` runs after every successful fold-back
+        (see its docstring). Best-effort: a policy-build failure degrades
+        to "nothing protected" rather than failing an otherwise-successful
+        step (mirrors every other protection-setup failure mode).
+        """
+        if not applied_paths:
+            return ()
+        try:
+            from maverick.protection.config import lookup_protection_config
+            from maverick.protection.policy import ProtectionPolicy
+
+            policy = ProtectionPolicy.build(checkout, lookup_protection_config(self._config))
+        except Exception as exc:  # noqa: BLE001 — protection setup must not block a run
+            logger.warning("spec_chain_fold_back_protection_policy_build_failed", error=str(exc))
+            return ()
+        return tuple(path for path in applied_paths if policy.protects_relpath(path)[0])
+
     async def _run(self, inputs: dict[str, Any]) -> dict[str, Any]:
         """Execute the spec chain — fresh, or resumed from a halted/running
         checkpoint (contracts/chain-state.md "Resume resolution").
@@ -207,18 +272,17 @@ class SpecChainWorkflow(PythonWorkflow):
                 fresh run, optional when resuming (the persisted state
                 already has the original PRD path/digest). Optional:
                 ``home`` (str) — override for ``~`` (tests only;
-                production never sets this, so ``prepare_workspace`` uses
-                the real home directory).
+                production never sets this).
 
         Returns:
             :meth:`SpecChainReport.to_dict`.
         """
         feature: str = inputs["feature"]
-        # Validate the slug BEFORE any path is built from it: the hidden
-        # workspace dir is derived from `feature` (prepare_workspace) well
-        # before ChainState's model-level validator runs, so a value like
-        # "../../x" would otherwise traverse outside the workspace root and
-        # create a stray jj workspace before validation ever fires.
+        # Validate the slug BEFORE any path is built from it: the
+        # workspace dir is derived from `feature` well before ChainState's
+        # model-level validator runs, so a value like "../../x" would
+        # otherwise traverse outside the workspace root and create a
+        # stray jj workspace before validation ever fires.
         if not is_valid_feature_slug(feature):
             raise WorkflowError(
                 f"invalid feature name {feature!r}: must be a non-empty, "
@@ -238,77 +302,127 @@ class SpecChainWorkflow(PythonWorkflow):
             "running",
             "halted",
         )
+        if not resuming and not prd_path_str:
+            raise WorkflowError("'prd_path' input is required for a fresh spec-chain run")
 
-        if resuming:
-            assert existing_state is not None  # narrows for type checkers
-            state, run_id, prd_content, workspace_path = await self._resume(
-                existing_state, feature=feature, cwd=cwd, prd_path_str=prd_path_str, home=home
-            )
-        else:
-            if not prd_path_str:
-                raise WorkflowError("'prd_path' input is required for a fresh spec-chain run")
-            state, run_id, prd_content, workspace_path = await self._start_fresh(
-                run_id_input, feature=feature, cwd=cwd, prd_path_str=prd_path_str, home=home
-            )
-
-        async def _checkpoint_halted_on_cancel() -> None:
-            """Graceful-interrupt rollback (T032): flip status to `halted`
-            on the freshest on-disk checkpoint. Re-loads from disk rather
-            than an in-memory snapshot since `_run_one_step` checkpoints
-            *before* every cancellable await — the on-disk state is
-            always current up to the last safe boundary. A hard crash
-            (kill -9) never runs this and leaves `status="running"`,
-            which resume treats as stale-resumable (contracts/chain-state.md).
-            """
-            current = await load_chain_state(run_id, cwd)
-            if current is not None and current.status == "running":
-                halted = current.model_copy(update={"status": "halted", "updated_at": _utcnow()})
-                await save_chain_state(halted, cwd)
-                logger.info("spec_chain_checkpointed_halted_on_interrupt", run_id=run_id)
-
-        self.register_rollback("spec_chain_checkpoint_on_interrupt", _checkpoint_halted_on_cancel)
-
-        checkout_specs_before = await _list_dir_names(cwd / "specs")
-        await self.emit_step_completed("prepare", output={"workspace_path": str(workspace_path)})
-        logger.info(
-            "spec_chain_workspace_prepared",
+        run_id = (
+            existing_state.run_id
+            if resuming and existing_state
+            else (run_id_input or uuid4().hex[:8])
+        )
+        jj_client = JjClient(cwd=cwd)
+        policy = self._isolation_policy(home=home)
+        session = IsolationSession(
+            checkout=CheckoutPath(cwd),
+            policy=policy,
+            jj_client=jj_client,
             run_id=run_id,
-            feature=feature,
-            workspace_path=str(workspace_path),
-            resumed=resuming,
+            now=_utcnow,
+            home=home,
         )
 
-        async with SpecChainSquadron(cwd=workspace_path, config=self._config) as squadron:
-            for step in CHAIN_STEP_ORDER:
-                existing_record = state.steps.get(step)
-                if existing_record is not None and existing_record.status == "succeeded":
-                    continue  # resume: never regenerate a landed step (FR-020)
-                state = await self._run_one_step(
-                    step,
-                    state=state,
-                    squadron=squadron,
-                    workspace=workspace_path,
-                    checkout=cwd,
-                    checkout_specs_before=checkout_specs_before,
-                    prd_content=prd_content,
-                )
-                if state.status != "running":
-                    break
+        async with session:
+            await self._sweep_stale_workspaces(session=session, cwd=cwd, feature=feature)
 
-        if state.status == "running":
-            state = state.model_copy(update={"status": "completed", "updated_at": _utcnow()})
-            await save_chain_state(state, cwd)
-            # Completed only. A halted or interrupted chain keeps its
-            # workspace: it holds the failing step's partial output, and
-            # resume reuses it. A completed chain's cannot even be resumed —
-            # re-running the feature hits the CLI's spec-dir collision check —
-            # so it is pure garbage, and left alone it would strand a stray
-            # anonymous head in the user's own commit graph forever.
-            # Checkpointed first: cleanup is best-effort and must never be
-            # able to lose the record that the chain finished.
-            await teardown_workspace(
-                cwd=cwd, feature=feature, jj_client=JjClient(cwd=cwd), home=home
-            )
+            if resuming:
+                assert existing_state is not None  # narrows for type checkers
+                state, prd_content, workspace_path = await self._resume(
+                    existing_state,
+                    feature=feature,
+                    cwd=cwd,
+                    prd_path_str=prd_path_str,
+                    policy=policy,
+                    jj_client=jj_client,
+                )
+            else:
+                state, prd_content, workspace_path = await self._start_fresh(
+                    run_id,
+                    feature=feature,
+                    cwd=cwd,
+                    prd_path_str=prd_path_str,
+                    policy=policy,
+                    jj_client=jj_client,
+                )
+
+            register_live_workspace(workspace_path)
+            try:
+
+                async def _checkpoint_halted_on_cancel() -> None:
+                    """Graceful-interrupt rollback (T032): flip status to
+                    `halted` on the freshest on-disk checkpoint. Re-loads
+                    from disk rather than an in-memory snapshot since
+                    `_run_one_step` checkpoints *before* every cancellable
+                    await — the on-disk state is always current up to the
+                    last safe boundary. A hard crash (kill -9) never runs
+                    this and leaves `status="running"`, which resume
+                    treats as stale-resumable (contracts/chain-state.md).
+                    """
+                    current = await load_chain_state(run_id, cwd)
+                    if current is not None and current.status == "running":
+                        halted = current.model_copy(
+                            update={"status": "halted", "updated_at": _utcnow()}
+                        )
+                        await save_chain_state(halted, cwd)
+                        logger.info("spec_chain_checkpointed_halted_on_interrupt", run_id=run_id)
+
+                self.register_rollback(
+                    "spec_chain_checkpoint_on_interrupt", _checkpoint_halted_on_cancel
+                )
+
+                checkout_specs_before = await _list_dir_names(cwd / "specs")
+                await self.emit_step_completed(
+                    "prepare", output={"workspace_path": str(workspace_path)}
+                )
+                logger.info(
+                    "spec_chain_workspace_prepared",
+                    run_id=run_id,
+                    feature=feature,
+                    workspace_path=str(workspace_path),
+                    resumed=resuming,
+                )
+
+                async with SpecChainSquadron(cwd=workspace_path, config=self._config) as squadron:
+                    for step in CHAIN_STEP_ORDER:
+                        existing_record = state.steps.get(step)
+                        if existing_record is not None and existing_record.status == "succeeded":
+                            continue  # resume: never regenerate a landed step (FR-020)
+                        state = await self._run_one_step(
+                            step,
+                            state=state,
+                            squadron=squadron,
+                            workspace=workspace_path,
+                            checkout=cwd,
+                            checkout_specs_before=checkout_specs_before,
+                            prd_content=prd_content,
+                            session=session,
+                        )
+                        if state.status != "running":
+                            break
+
+                if state.status == "running":
+                    state = state.model_copy(
+                        update={"status": "completed", "updated_at": _utcnow()}
+                    )
+                    await save_chain_state(state, cwd)
+            finally:
+                unregister_live_workspace(workspace_path)
+                unit = UnitOfWork(key=feature, label=feature)
+                if state.status == "completed":
+                    # Completed only. A halted or interrupted chain keeps
+                    # its workspace: it holds the failing step's partial
+                    # output, and resume reuses it. A completed chain's
+                    # cannot even be resumed — re-running the feature hits
+                    # the CLI's spec-dir collision check — so it is pure
+                    # garbage, and left alone it would strand a stray
+                    # anonymous head in the user's own commit graph
+                    # forever. Checkpointed first (above): cleanup is
+                    # best-effort and must never be able to lose the
+                    # record that the chain finished.
+                    await workspace_lifecycle.teardown(
+                        checkout=cwd, policy=policy, unit=unit, jj_client=jj_client
+                    )
+                else:
+                    await workspace_lifecycle.retain(checkout=cwd, policy=policy, unit=unit)
 
         await self._persist_protection_blocks_artifact(state, cwd=cwd)
 
@@ -332,7 +446,7 @@ class SpecChainWorkflow(PythonWorkflow):
         )
 
     async def _sweep_stale_workspaces(
-        self, *, cwd: Path, feature: str, jj_client: JjClient, home: Path | None
+        self, *, session: IsolationSession, cwd: Path, feature: str
     ) -> None:
         """Collect workspaces left behind by chains that never completed.
 
@@ -343,8 +457,8 @@ class SpecChainWorkflow(PythonWorkflow):
         The keep-set is this layer's policy call, which is why it is computed
         here rather than inside ``workspace/``: resumability is a property of
         ``.maverick/runs`` state, not of the filesystem. *feature* is always
-        kept — on a fresh run ``prepare_workspace`` is about to recreate it,
-        on a resume it is in active use.
+        kept — on a fresh run provisioning is about to recreate it, on a
+        resume it is in active use.
         """
         try:
             keep = await resumable_features(cwd)
@@ -352,33 +466,31 @@ class SpecChainWorkflow(PythonWorkflow):
             logger.warning("spec_chain_workspace_sweep_skipped", error=str(exc))
             return
         keep.add(feature)
-        await sweep_stale_workspaces(cwd=cwd, jj_client=jj_client, keep=keep, home=home)
+        await session.sweep(keep=keep)
 
     async def _start_fresh(
         self,
-        run_id_input: str | None,
+        run_id: str,
         *,
         feature: str,
         cwd: Path,
         prd_path_str: str,
-        home: Path | None,
-    ) -> tuple[ChainState, str, str, Path]:
-        run_id = run_id_input or uuid4().hex[:8]
+        policy: IsolationPolicy,
+        jj_client: JjClient,
+    ) -> tuple[ChainState, str, Path]:
         prd_path = Path(prd_path_str)
         prd_content = await _read_text(prd_path)
         prd_digest = hashlib.sha256(prd_content.encode("utf-8")).hexdigest()
 
-        jj_client = JjClient(cwd=cwd)
-        await self._sweep_stale_workspaces(
-            cwd=cwd, feature=feature, jj_client=jj_client, home=home
-        )
-        workspace_path = await prepare_workspace(
-            cwd=cwd,
-            feature=feature,
-            prd_path=prd_path,
-            reuse=False,
-            jj_client=jj_client,
-            home=home,
+        # A fresh run always starts clean, regardless of anything already
+        # on disk for this feature — unlike resume, which reuses
+        # (`policy.reuse=True`). `replace()` rather than a new policy
+        # object so every other field (root, retain_on_failure, workflow)
+        # stays identical.
+        fresh_policy = replace(policy, reuse=False)
+        unit = UnitOfWork(key=feature, label=feature, seed_inputs=(prd_path,))
+        workspace_path = await workspace_lifecycle.provision(
+            checkout=cwd, policy=fresh_policy, unit=unit, jj_client=jj_client
         )
 
         now = _utcnow()
@@ -397,7 +509,7 @@ class SpecChainWorkflow(PythonWorkflow):
             updated_at=now,
         )
         await save_chain_state(state, cwd)
-        return state, run_id, prd_content, workspace_path
+        return state, prd_content, workspace_path
 
     async def _resume(
         self,
@@ -406,10 +518,10 @@ class SpecChainWorkflow(PythonWorkflow):
         feature: str,
         cwd: Path,
         prd_path_str: str,
-        home: Path | None,
-    ) -> tuple[ChainState, str, str, Path]:
+        policy: IsolationPolicy,
+        jj_client: JjClient,
+    ) -> tuple[ChainState, str, Path]:
         state = existing_state
-        run_id = state.run_id
         prd_path = Path(state.prd_path)
 
         if prd_path_str and Path(prd_path_str).resolve() != prd_path.resolve():
@@ -431,17 +543,9 @@ class SpecChainWorkflow(PythonWorkflow):
                     level="warning",
                 )
 
-        jj_client = JjClient(cwd=cwd)
-        await self._sweep_stale_workspaces(
-            cwd=cwd, feature=feature, jj_client=jj_client, home=home
-        )
-        workspace_path = await prepare_workspace(
-            cwd=cwd,
-            feature=feature,
-            prd_path=prd_path,
-            reuse=True,
-            jj_client=jj_client,
-            home=home,
+        unit = UnitOfWork(key=feature, label=feature, seed_inputs=(prd_path,))
+        workspace_path = await workspace_lifecycle.provision(
+            checkout=cwd, policy=policy, unit=unit, jj_client=jj_client
         )
 
         state = state.model_copy(
@@ -454,7 +558,7 @@ class SpecChainWorkflow(PythonWorkflow):
         state = await self._verify_landed_or_reset(state, checkout=cwd)
         self._reseed_workspace_from_checkout(state, workspace=workspace_path, checkout=cwd)
         await save_chain_state(state, cwd)
-        return state, run_id, prd_content, workspace_path
+        return state, prd_content, workspace_path
 
     async def _verify_landed_or_reset(self, state: ChainState, *, checkout: Path) -> ChainState:
         """Resume guarantee (contracts/chain-state.md): verify each
@@ -540,6 +644,7 @@ class SpecChainWorkflow(PythonWorkflow):
         checkout: Path,
         checkout_specs_before: set[str],
         prd_content: str,
+        session: IsolationSession,
     ) -> ChainState:
         display = step.value.title()
         await self.emit_step_started(step.value, display_label=display)
@@ -554,6 +659,16 @@ class SpecChainWorkflow(PythonWorkflow):
             feature=state.feature,
             prd_content=prd_content if step is ChainStep.SPECIFY else None,
         )
+
+        # The workspace is reused across every step in the chain
+        # (`policy.reuse=True`) — sync it to the repo's current jj
+        # operation *right before* the agent writes. A prior step's
+        # fold-back already resynced it once, but any jj command anywhere
+        # in the repo since then (including that same fold-back's own
+        # squash) can restale it again; recovering from staleness after
+        # the agent has already written discards the write (see
+        # `sync_workspace`'s docstring).
+        await session.sync_workspace(workspace)
 
         try:
             async for attempt in AsyncRetrying(
@@ -629,6 +744,66 @@ class SpecChainWorkflow(PythonWorkflow):
                 display,
             )
 
+        if step is ChainStep.ANALYZE:
+            state = await self._create_remediation_beads(
+                state, checkout=checkout, feature_dir_name=feature_dir_name, report=report
+            )
+
+        lease = IsolationLease(
+            unit=UnitOfWork(key=state.feature, label=state.feature),
+            workspace_path=workspace,
+            workspace_name=workspace.name,
+            checkout=CheckoutPath(checkout),
+            created_at=_utcnow(),
+        )
+        try:
+            fold_result = await session.fold_back(lease, fold_scope=(f"specs/{feature_dir_name}",))
+        except Exception as exc:  # noqa: BLE001 — a landing failure fails this step, not the run
+            return await self._fail_step(
+                state, step, checkout, started_at, f"landing failed: {exc}", display
+            )
+        if fold_result.outcome is FoldBackOutcome.CONFLICT:
+            return await self._fail_step(
+                state,
+                step,
+                checkout,
+                started_at,
+                f"landing conflict: {fold_result.diagnostic}",
+                display,
+            )
+
+        # Environment-level protected-path check (belt and braces beyond
+        # `_isolation_policy`'s narrow `fold_exclusions` fileset — that
+        # fileset only ever excludes an exact top-level path; it cannot
+        # replicate `ProtectionPolicy`'s recursive, case-insensitive,
+        # allowlist-aware matching). Best-effort: a policy-build failure
+        # degrades to "no post-fold-back protection check" rather than
+        # failing an otherwise-successful step.
+        blocked_paths = await self._protected_applied_paths(fold_result.applied_paths, checkout)
+        if blocked_paths:
+            await session.undo(lease, fold_result)
+            return await self._fail_step(
+                state,
+                step,
+                checkout,
+                started_at,
+                f"landing rejected — protected path(s) folded back: {', '.join(blocked_paths)}",
+                display,
+            )
+
+        logger.info(
+            "spec_chain_step_landed",
+            step=step.value,
+            feature_dir=state.feature_dir,
+            artifacts=artifacts,
+        )
+
+        # Filed only after a successful fold-back (APPLIED/EMPTY, never
+        # CONFLICT): _file_clarify_decisions reads spec.md's clarify
+        # content and stamps it into the checkout's assumption ledger — if
+        # it ran before fold-back and fold-back then conflicted (restoring
+        # the checkout to its pre-squash state), the ledger would carry
+        # entries for clarify content that was never actually landed.
         if step is ChainStep.CLARIFY:
             state = await self._file_clarify_decisions(
                 state,
@@ -636,29 +811,6 @@ class SpecChainWorkflow(PythonWorkflow):
                 checkout=checkout,
                 feature_dir_name=feature_dir_name,
             )
-
-        if step is ChainStep.ANALYZE:
-            state = await self._create_remediation_beads(
-                state, checkout=checkout, feature_dir_name=feature_dir_name, report=report
-            )
-
-        try:
-            land_step_artifacts(
-                workspace=workspace,
-                checkout=checkout,
-                feature_dir=feature_dir_name,
-                config=self._config,
-            )
-        except OSError as exc:
-            return await self._fail_step(
-                state, step, checkout, started_at, f"landing failed: {exc}", display
-            )
-        logger.info(
-            "spec_chain_step_landed",
-            step=step.value,
-            feature_dir=state.feature_dir,
-            artifacts=artifacts,
-        )
 
         finished_at = _utcnow()
         state = _set_step(
@@ -837,7 +989,7 @@ class SpecChainWorkflow(PythonWorkflow):
         ]
 
         try:
-            result = await create_remediation_beads(findings, cwd=checkout)
+            result = await create_remediation_beads(findings, cwd=CheckoutPath(checkout))
         except Exception as exc:  # noqa: BLE001 — analyze findings must never block the chain
             logger.warning("spec_chain_remediation_bead_creation_failed", error=str(exc))
             return state

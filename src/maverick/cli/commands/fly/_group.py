@@ -102,6 +102,36 @@ _FLY_BEADS_STEPS = [
 ]
 
 
+def _verify_isolation_ready(cwd: Path) -> None:
+    """The two isolated-mode preconditions cheap and useful to check
+    before any bead is selected (contract fly-isolated-mode.md).
+
+    ``.jj/`` and the ``jj`` binary fail fast here with a friendly
+    message; a held run lock or a stale application journal are instead
+    left to surface naturally as ``IsolationLockedError`` /
+    ``IsolationRecoveryRequiredError`` once the run actually starts (see
+    the caller's comment — same non-zero-exit guarantee, no duplicate
+    check to keep in sync).
+    """
+    if not (cwd / ".jj").is_dir():
+        console.print(
+            "[red]Error:[/red] --isolated needs a jj-colocated checkout, "
+            f"but no [bold].jj/[/bold] directory was found in {cwd}.\n"
+            "Run [cyan]maverick init[/cyan] first."
+        )
+        raise SystemExit(ExitCode.FAILURE)
+
+    import shutil
+
+    if shutil.which("jj") is None:
+        console.print(
+            "[red]Error:[/red] --isolated requires the [bold]jj[/bold] binary "
+            "on PATH, but it was not found.\n"
+            "Install jj: https://jj-vcs.github.io/jj/latest/install-and-setup/"
+        )
+        raise SystemExit(ExitCode.FAILURE)
+
+
 @click.command()
 @click.option(
     "--epic",
@@ -155,6 +185,17 @@ _FLY_BEADS_STEPS = [
         "Testing only — runtime failures will surface mid-flight instead."
     ),
 )
+@click.option(
+    "--isolated/--no-isolated",
+    "isolated_flag",
+    default=None,
+    help=(
+        "Run each bead's agent steps in its own isolated jj workspace "
+        "(057-isolated-bead-workspaces). Overrides the maverick.yaml "
+        "'workspace.enabled' config key; omit to use that config's value "
+        "(default: off)."
+    ),
+)
 @click.pass_context
 @async_command
 async def fly(
@@ -167,6 +208,7 @@ async def fly(
     watch: bool,
     watch_interval: int,
     skip_preflight: bool,
+    isolated_flag: bool | None,
 ) -> None:
     """Run a bead-driven development workflow.
 
@@ -181,11 +223,16 @@ async def fly(
     queue is empty. This enables concurrent plan/refuel in another
     terminal while fly continuously drains work.
 
+    With --isolated, every bead's agent steps run in their own isolated
+    jj workspace rather than directly in the checkout
+    (057-isolated-bead-workspaces) — see the project README for details.
+
     Examples:
         maverick fly
         maverick fly --epic my-epic
         maverick fly --max-beads 5
         maverick fly --watch
+        maverick fly --isolated
     """
     if list_steps:
         console.print(f"[bold]Workflow: {WORKFLOW_NAME}[/]")
@@ -217,6 +264,31 @@ async def fly(
     # the user's current branch.
     cwd = Path.cwd().resolve()
 
+    # 057-isolated-bead-workspaces: --isolated/--no-isolated overrides
+    # workspace.enabled; absent both, behavior is unchanged (FR-035,
+    # SC-011). Preconditions are checked here, before any bead is
+    # selected (contract fly-isolated-mode.md) — .jj/ and the jj binary
+    # fail fast and cheaply; a held lock or a stale application journal
+    # instead surface naturally as IsolationLockedError /
+    # IsolationRecoveryRequiredError once the run actually starts (both
+    # MaverickError subclasses with an actionable .message, already
+    # rendered as a non-zero-exit refusal by cli_error_handler — no
+    # separate check needed here to get the same "no silent fallback"
+    # guarantee).
+    from maverick.config import lookup_workspace_config
+
+    config = (ctx.obj or {}).get("config") if ctx.obj else None
+    if config is None:
+        from maverick.config import load_config
+
+        config = load_config()
+    isolated = (
+        isolated_flag if isolated_flag is not None else lookup_workspace_config(config).enabled
+    )
+
+    if isolated:
+        _verify_isolation_ready(cwd)
+
     async with _graceful_sigint():
         await execute_python_workflow(
             ctx,
@@ -230,6 +302,7 @@ async def fly(
                     "watch_interval": watch_interval,
                     "skip_preflight": skip_preflight,
                     "cwd": str(cwd),
+                    "isolated": isolated,
                 },
                 session_log_path=session_log,
             ),

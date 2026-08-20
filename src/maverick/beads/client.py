@@ -141,6 +141,9 @@ class BeadClient:
         Raises:
             BeadCreationError: If ``bd create`` fails.
         """
+        from maverick.workspace import assert_checkout
+
+        assert_checkout(self._cwd)
         cmd: list[str] = [
             "bd",
             "create",
@@ -212,6 +215,9 @@ class BeadClient:
         Raises:
             BeadDependencyError: If ``bd dep add`` fails.
         """
+        from maverick.workspace import assert_checkout
+
+        assert_checkout(self._cwd)
         cmd = [
             "bd",
             "dep",
@@ -310,6 +316,9 @@ class BeadClient:
         Raises:
             BeadCloseError: If ``bd close`` fails.
         """
+        from maverick.workspace import assert_checkout
+
+        assert_checkout(self._cwd)
         cmd = ["bd", "close", bead_id, "--json"]
         if reason:
             cmd.extend(["--reason", reason])
@@ -487,6 +496,9 @@ class BeadClient:
                 ``assumption_status`` last, so a mid-loop failure leaves
                 the entry still open rather than answered-but-stale).
         """
+        from maverick.workspace import assert_checkout
+
+        assert_checkout(self._cwd)
         # `bd set-state` only accepts one `dimension=value` pair per
         # invocation — one call per key, each its own event bead.
         applied: list[str] = []

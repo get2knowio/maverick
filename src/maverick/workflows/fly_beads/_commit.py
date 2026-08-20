@@ -19,6 +19,7 @@ from maverick.workflows.fly_beads._vcs_queries import (
 )
 from maverick.workflows.fly_beads.constants import COMMIT, MAX_ESCALATION_DEPTH
 from maverick.workflows.fly_beads.models import BeadContext
+from maverick.workspace import CheckoutPath
 
 if TYPE_CHECKING:
     from maverick.workflows.fly_beads.workflow import FlyBeadsWorkflow
@@ -43,7 +44,7 @@ async def commit_bead(wf: FlyBeadsWorkflow, ctx: BeadContext) -> None:
     await wf.emit_step_started(COMMIT)
     commit_result = await jj_commit_bead(
         message=build_bead_commit_message(ctx.bead_id, ctx.title),
-        cwd=ctx.cwd,
+        cwd=CheckoutPath(ctx.cwd) if ctx.cwd is not None else None,
     )
     await wf.emit_step_completed(COMMIT, commit_result)
 
@@ -52,7 +53,7 @@ async def commit_bead(wf: FlyBeadsWorkflow, ctx: BeadContext) -> None:
 
     if ctx.cwd is None:
         raise RuntimeError("commit_bead requires ctx.cwd to be set")
-    await mark_bead_complete(bead_id=ctx.bead_id, cwd=ctx.cwd)
+    await mark_bead_complete(bead_id=ctx.bead_id, cwd=CheckoutPath(ctx.cwd))
     await record_runway_outcome(wf, ctx, files_changed=files_changed)
     await wf.emit_output(
         COMMIT,
@@ -435,7 +436,7 @@ async def _defer_dependent_beads(
                         try:
                             await defer_bead(
                                 bead_id=blocked_id,
-                                cwd=cwd,
+                                cwd=CheckoutPath(cwd),
                                 reason=f"Blocked by stuck chain: {' → '.join(chain)}",
                             )
                             deferred.add(blocked_id)

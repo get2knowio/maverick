@@ -39,6 +39,8 @@ from maverick.jj.models import (
     JjSnapshotResult,
     JjSquashResult,
     JjStatusResult,
+    JjWorkspaceInfo,
+    JjWorkspaceListResult,
 )
 from maverick.logging import get_logger
 from maverick.runners.command import CommandRunner
@@ -67,6 +69,22 @@ JJ_NETWORK_RETRIES: int = 3
 _LOG_SEPARATOR = "\x1f"
 #: jj template expression that emits the separator between fields.
 _TMPL_SEP = ' ++ "\\x1f" ++ '
+
+
+def _clean_workspace_root(rendered: str) -> str:
+    """Normalize one ``self.root()`` rendering into a path, or ``""``.
+
+    jj renders a failed template expression inline, wrapped in
+    ``<Error: ...>``, rather than failing the command. jj 0.43 does exactly
+    that for a workspace whose directory is missing ("Failed to resolve
+    workspace root"), where 0.44 renders empty. Both mean the same thing —
+    no location on disk — so both normalize to ``""`` here, and callers
+    need no version knowledge of their own.
+    """
+    value = rendered.strip()
+    if not value or value.startswith("<Error:"):
+        return ""
+    return value
 
 
 class JjClient:
@@ -251,7 +269,7 @@ class JjClient:
         )
         logger.info("jj_git_init_completed", cwd=str(self._cwd), colocate=colocate)
 
-    async def workspace_add(self, target: Path) -> Path:
+    async def workspace_add(self, target: Path, revision: str | None = None) -> Path:
         """Create a new working copy backed by the same repo via
         ``jj workspace add``.
 
@@ -267,6 +285,12 @@ class JjClient:
         Args:
             target: Filesystem path for the new working copy. Parent
                 must exist; target itself must not.
+            revision: Revision to base the new workspace's working-copy
+                commit on (``-r``). ``None`` omits the flag, letting jj
+                use its own default — backward compatible with callers
+                that don't care. The isolation primitive (057) passes
+                ``"@"`` explicitly so the workspace sees the checkout's
+                uncommitted work (FR-003).
 
         Returns:
             The resolved target path.
@@ -276,14 +300,19 @@ class JjClient:
                 (typically: target exists, or cwd is not a jj repo).
         """
         target.parent.mkdir(parents=True, exist_ok=True)
+        cmd: list[str] = ["jj", "workspace", "add"]
+        if revision is not None:
+            cmd.extend(["-r", revision])
+        cmd.append(str(target))
         await self._run_jj(
-            ["jj", "workspace", "add", str(target)],
+            cmd,
             error_msg=f"jj workspace add failed for {target}",
         )
         logger.info(
             "jj_workspace_add_completed",
             cwd=str(self._cwd),
             target=str(target),
+            revision=revision,
         )
         return target.resolve()
 
@@ -301,6 +330,80 @@ class JjClient:
             error_msg=f"jj workspace forget failed for {name}",
         )
         logger.info("jj_workspace_forget_completed", name=name)
+
+    async def workspace_list(self) -> JjWorkspaceListResult:
+        """List every workspace jj has registered for this repo, via
+        ``jj workspace list``.
+
+        Needed because a workspace's on-disk directory and its jj-side
+        registration can diverge — the directory may be gone (a user
+        cleared it by hand, or an interrupted run left no directory at
+        all) while jj still tracks the name. Sweep must reconcile both
+        sources rather than trusting the directory listing alone (FR-028).
+
+        Uses an explicit ``-T`` template (``self.root()``) rather than the
+        human-readable default, whose shape is not stable across jj
+        versions: 0.44 renders a path column, 0.43 renders none at all, so
+        positional parsing of the default form would silently consume the
+        change id as if it were a path on the older version.
+
+        How ``self.root()`` reports a workspace whose directory is
+        *missing* also differs by version, and both forms are handled here
+        (verified against real jj 0.43 and 0.44):
+
+        * **0.44** renders it empty, so it parses straight to ``path=""``.
+        * **0.43** renders jj's inline template-error marker in its place
+          — ``<Error: Failed to resolve workspace root: ...>``. Taken
+          literally that is a non-empty "path", and a caller filtering
+          candidates by location would silently drop the workspace
+          entirely. :func:`_clean_workspace_root` normalizes it back to
+          ``""`` so both versions reach the same FR-028 fallback.
+
+        A directory-less workspace is precisely the case sweep exists to
+        collect, so mis-parsing it is not a cosmetic difference: it leaves
+        the registration orphaned in the user's repo forever.
+
+        Returns:
+            :class:`JjWorkspaceListResult`. An entry's ``path`` is ``""``
+            when the workspace's directory is currently missing.
+        """
+        stdout = await self._run_jj_stdout(
+            [
+                "jj",
+                "workspace",
+                "list",
+                "-T",
+                "self.name()" + _TMPL_SEP + 'if(self.root(), self.root(), "")' + ' ++ "\\n"',
+            ],
+            error_msg="jj workspace list failed",
+            command="workspace list",
+        )
+        workspaces: list[JjWorkspaceInfo] = []
+        for line in stdout.splitlines():
+            if not line.strip():
+                continue
+            name, _, path = line.partition(_LOG_SEPARATOR)
+            workspaces.append(JjWorkspaceInfo(name=name, path=_clean_workspace_root(path)))
+        return JjWorkspaceListResult(success=True, workspaces=tuple(workspaces))
+
+    async def workspace_update_stale(self) -> None:
+        """Recover this client's workspace after a stale-working-copy error
+        via ``jj workspace update-stale``.
+
+        A cross-workspace ``squash`` abandons the source workspace's
+        working-copy commit; jj gives it a fresh empty one, which can leave
+        a *different* workspace's on-disk copy stale relative to the repo
+        if an operation was restored underneath it. This is the documented
+        recovery (specs/057-isolated-bead-workspaces/research.md R5).
+
+        Raises:
+            JjError: When the underlying command fails.
+        """
+        await self._run_jj(
+            ["jj", "workspace", "update-stale"],
+            error_msg="jj workspace update-stale failed",
+        )
+        logger.info("jj_workspace_update_stale_completed", cwd=str(self._cwd))
 
     async def git_fetch(self, remote: str = "origin") -> JjFetchResult:
         """Fetch from a git remote via ``jj git fetch``.
@@ -630,6 +733,32 @@ class JjClient:
             conflict=conflict,
         )
 
+    async def snapshot_working_copy(self) -> JjStatusResult:
+        """Force jj to snapshot this client's working copy.
+
+        Exists purely for its side effect, not its return value. jj
+        auto-snapshots only the *current* workspace's working copy on any
+        jj invocation bound to it — a cross-workspace ``squash --from``
+        issued from elsewhere therefore moves whatever was last snapshotted
+        into that workspace's commit, which for a workspace an agent wrote
+        to via plain file I/O (never running a jj command there) is
+        *nothing*. That failure is silent: the squash succeeds and reports
+        an empty delta, indistinguishable from a legitimate no-op.
+
+        This must be called with a :class:`JjClient` bound to the
+        **workspace** path (not the checkout) immediately before a
+        cross-workspace fold-back. See
+        specs/057-isolated-bead-workspaces/research.md R3 — this is the
+        single chokepoint that closes that gap; `foldback.py` must never
+        skip it.
+
+        Returns:
+            :class:`JjStatusResult` — the same shape as :meth:`status`,
+            returned for observability, but callers use this for the
+            snapshot side effect, not the result.
+        """
+        return await self.status()
+
     async def show(self, revision: str = "@") -> JjShowResult:
         """Show full details of a revision.
 
@@ -708,28 +837,50 @@ class JjClient:
         self,
         revision: str = "@",
         into: str | None = None,
+        *,
+        from_: str | None = None,
+        filesets: tuple[str, ...] = (),
     ) -> JjSquashResult:
         """Squash a change into its parent or a specified target.
 
         Args:
             revision: Revision to squash (default: working copy ``@``).
+                Mutually exclusive with *from_* if given explicitly — jj
+                itself rejects ``-r`` combined with ``--from``.
             into: Target revision to squash into. If None, squashes into parent.
+            from_: Source revision for a cross-workspace fold-back
+                (``--from``), e.g. ``"<workspace-name>@"``. The isolation
+                primitive's `foldback.py` uses this to move a workspace's
+                delta into the checkout (research.md R2).
+            filesets: jj fileset arguments bounding what the squash moves
+                (e.g. ``("~.maverick",)`` to exclude orchestrator state,
+                FR-011).
 
         Returns:
             :class:`JjSquashResult`.
+
+        Raises:
+            ValueError: *from_* was given together with an explicit
+                *revision* (jj rejects ``-r`` combined with ``--from``).
         """
+        if from_ is not None and revision != "@":
+            raise ValueError("JjClient.squash(): from_ and revision are mutually exclusive")
+
         cmd: list[str] = ["jj", "squash"]
-        if revision != "@":
+        if from_ is not None:
+            cmd.extend(["--from", from_])
+        elif revision != "@":
             cmd.extend(["-r", revision])
         if into:
             cmd.extend(["--into", into])
+        cmd.extend(filesets)
 
         await self._run_jj(
             cmd,
             error_msg="jj squash failed",
             command="squash",
         )
-        logger.debug("jj_squashed", revision=revision, into=into)
+        logger.debug("jj_squashed", revision=revision, into=into, from_=from_, filesets=filesets)
         return JjSquashResult(success=True)
 
     async def absorb(self) -> JjAbsorbResult:

@@ -425,6 +425,9 @@ async def record_assumption(
     Raises:
         AssumptionLedgerError: On any bd-layer failure.
     """
+    from maverick.workspace import CheckoutPath, assert_checkout
+
+    assert_checkout(client.cwd)
     from maverick.beads.models import (
         BeadCategory,
         BeadDefinition,
@@ -542,7 +545,9 @@ async def record_assumption(
 
         try:
             await defer_bead(
-                created.bd_id, cwd=client.cwd, reason="low-severity assumption — advisory only"
+                created.bd_id,
+                cwd=CheckoutPath(client.cwd),
+                reason="low-severity assumption — advisory only",
             )
         except Exception as exc:  # noqa: BLE001 — defer_bead has no typed error hierarchy
             raise AssumptionLedgerError(
@@ -635,6 +640,9 @@ async def record_standalone_assumption(
     Raises:
         AssumptionLedgerError: On any bd-layer failure.
     """
+    from maverick.workspace import CheckoutPath, assert_checkout
+
+    assert_checkout(client.cwd)
     from maverick.beads.models import BeadCategory, BeadDefinition, BeadType
 
     severity, defaulted_here = coerce_severity(payload.severity)
@@ -707,7 +715,9 @@ async def record_standalone_assumption(
 
         try:
             await defer_bead(
-                created.bd_id, cwd=client.cwd, reason="low-severity assumption — advisory only"
+                created.bd_id,
+                cwd=CheckoutPath(client.cwd),
+                reason="low-severity assumption — advisory only",
             )
         except Exception as exc:  # noqa: BLE001 — defer_bead has no typed error hierarchy
             raise AssumptionLedgerError(
@@ -748,6 +758,9 @@ async def stamp_change_id(
     a commit must not fail because stamping failed (FR-012); per-entry
     failures are reported in the returned :class:`StampResult`.
     """
+    from maverick.workspace import assert_checkout
+
+    assert_checkout(client.cwd)
     stamped: list[str] = []
     failed: dict[str, str] = {}
 
@@ -787,6 +800,9 @@ async def answer(
     Raises:
         AssumptionLedgerError: If *answer_text* is empty, or on bd failure.
     """
+    from maverick.workspace import assert_checkout
+
+    assert_checkout(client.cwd)
     if not answer_text or not answer_text.strip():
         raise AssumptionLedgerError("Answer text must not be empty")
 
@@ -839,6 +855,9 @@ async def waive(
     Raises:
         AssumptionLedgerError: If *reason* is empty, or on bd failure.
     """
+    from maverick.workspace import assert_checkout
+
+    assert_checkout(client.cwd)
     if not reason or not reason.strip():
         raise AssumptionLedgerError("Waive reason must not be empty")
 
@@ -890,6 +909,9 @@ async def bulk_waive(
             is nothing to partially waive in that case. Per-entry failures
             never raise.
     """
+    from maverick.workspace import assert_checkout
+
+    assert_checkout(client.cwd)
     entries = await report_entries(client)
     matches = [
         entry
@@ -1180,6 +1202,9 @@ async def mark_reconciled(
     Returns:
         ``True`` on success, ``False`` on any bd-layer failure.
     """
+    from maverick.workspace import assert_checkout
+
+    assert_checkout(client.cwd)
     try:
         await client.set_state(
             entry_id,
@@ -1216,6 +1241,9 @@ async def mark_needs_interactive_review(
     Returns:
         ``True`` on success, ``False`` on any bd-layer failure.
     """
+    from maverick.workspace import assert_checkout
+
+    assert_checkout(client.cwd)
     try:
         await client.set_state(
             entry_id,
@@ -1262,6 +1290,9 @@ async def create_reconcile_escalation(
     Returns:
         The new bead id, or ``None`` on any failure.
     """
+    from maverick.workspace import assert_checkout
+
+    assert_checkout(client.cwd)
     from maverick.beads.models import (
         BeadCategory,
         BeadDefinition,
