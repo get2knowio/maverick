@@ -10,9 +10,13 @@ Burr's actions are independently-invoked async functions with no shared
 lexical scope spanning a bead's provision -> fold-back -> commit sequence,
 so this module drives the primitive's lower-level lifecycle/foldback calls
 directly (`lifecycle.provision`/`teardown`/`retain`,
-`register_live_workspace`/`unregister_live_workspace`) rather than
+`session.register_unit`/`release_unit`) rather than
 `IsolationSession.lease()`'s `async with`-scoped convenience wrapper, which
-assumes a single Python scope. `session.fold_back()`/`session.undo()` still
+assumes a single Python scope. Registration goes through the *session*
+rather than the free `register_live_workspace`/`unregister_live_workspace`
+pair precisely because there is no `finally` here to guarantee the second
+call ever runs: the session's `__aexit__` is the backstop that cleans up a
+unit whose run halted mid-bead. `session.fold_back()`/`session.undo()` still
 handle the fold-back/undo mechanics themselves — each just needs a
 freshly-reconstructed `IsolationLease` per call (cheap, since it's a plain
 dataclass), rebuilt from the `workspace_path`/`current_bead_id` state slots
@@ -47,16 +51,18 @@ from maverick.workspace import (
     IsolationPolicy,
     IsolationSession,
     UnitOfWork,
-    register_live_workspace,
-    unregister_live_workspace,
 )
 from maverick.workspace import lifecycle as workspace_lifecycle
 from maverick.workspace.cwd_scope import chdir_scope
 
 if TYPE_CHECKING:
     import asyncio
+    from collections.abc import Callable
+    from datetime import datetime
 
     from maverick.events import ProgressEvent
+    from maverick.jj.client import JjClient
+    from maverick.protection import ProtectionPolicy
     from maverick.squadron.fly import FlySquadron
 
 __all__ = [
@@ -129,7 +135,9 @@ def _unit_for(state: State) -> UnitOfWork:
     return UnitOfWork(key=bead_id, label=bead_id)
 
 
-def _reconstruct_lease(state: State, checkout: CheckoutPath, now: Any) -> IsolationLease:
+def _reconstruct_lease(
+    state: State, checkout: CheckoutPath, now: Callable[[], datetime]
+) -> IsolationLease:
     """Rebuild the `IsolationLease` a `fold_back`/`undo_fold_back` call
     needs from state alone — cheap (a plain dataclass), and the only way
     to bridge Burr's per-action calls back to the primitive's lease shape
@@ -165,7 +173,7 @@ async def provision_workspace(
     session: IsolationSession,
     policy: IsolationPolicy,
     checkout: CheckoutPath,
-    jj_client: Any,
+    jj_client: JjClient,
     squadron: FlySquadron,
     events: asyncio.Queue[ProgressEvent | None],
 ) -> tuple[dict[str, Any], State]:
@@ -203,7 +211,11 @@ async def provision_workspace(
         )
         return {"provisioned": False, "error": str(exc)}, state.update(bead_aborted=True)
 
-    register_live_workspace(workspace_path)
+    # Session-scoped, not the free `register_live_workspace`: this action
+    # and `teardown_workspace` are independently-invoked Burr actions with
+    # no `finally` bridging them, so if the run halts in between, the
+    # session's own `__aexit__` is what unregisters and tears this down.
+    session.register_unit(unit, workspace_path)
     await squadron.retarget_protection_for_isolation(workspace_path)
     return {"workspace_path": str(workspace_path)}, state.update(
         workspace_path=str(workspace_path)
@@ -219,9 +231,9 @@ async def fold_back(
     *,
     session: IsolationSession,
     checkout: CheckoutPath,
-    now: Any,
+    now: Callable[[], datetime],
     events: asyncio.Queue[ProgressEvent | None],
-    protection_policy: Any = None,
+    protection_policy: ProtectionPolicy | None = None,
 ) -> tuple[dict[str, Any], State]:
     """Fold the bead's workspace delta into the checkout (contract C4).
 
@@ -314,7 +326,7 @@ async def undo_fold_back(
     *,
     session: IsolationSession,
     checkout: CheckoutPath,
-    now: Any,
+    now: Callable[[], datetime],
     events: asyncio.Queue[ProgressEvent | None],
 ) -> tuple[dict[str, Any], State]:
     """Undo a rejected fold-back after `gate` fails (contract C5).
@@ -446,9 +458,10 @@ async def gate_fix(
 async def teardown_workspace(
     state: State,
     *,
+    session: IsolationSession,
     checkout: CheckoutPath,
     policy: IsolationPolicy,
-    jj_client: Any,
+    jj_client: JjClient,
     squadron: FlySquadron,
 ) -> tuple[dict[str, Any], State]:
     """Tear down (or retain) this bead's workspace — the universal
@@ -476,7 +489,7 @@ async def teardown_workspace(
         return {"skipped": True}, state
 
     workspace_path = Path(state["workspace_path"])
-    unregister_live_workspace(workspace_path)
+    session.release_unit(workspace_path)
     await squadron.retarget_protection_for_isolation(None)
 
     unit = _unit_for(state)

@@ -355,6 +355,7 @@ def build_fly_application(
                 fold_back_protection_policy = None
 
         actions["record_outcome"] = fly_actions.record_outcome.bind(
+            isolation_session=isolation_session,
             isolation_policy=isolation_policy,
             checkout=checkout,
             jj_client=jj_client,
