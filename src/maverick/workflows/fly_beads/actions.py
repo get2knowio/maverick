@@ -1801,6 +1801,7 @@ async def abandon_bead(
 async def record_outcome(
     state: State,
     *,
+    isolation_session: Any = None,
     isolation_policy: Any = None,
     checkout: CheckoutPath | None = None,
     jj_client: Any = None,
@@ -1820,6 +1821,7 @@ async def record_outcome(
         assert checkout is not None, "record_outcome(isolated=True) requires checkout"
         _, state = await teardown_workspace(
             state,
+            session=isolation_session,
             checkout=checkout,
             policy=isolation_policy,
             jj_client=jj_client,

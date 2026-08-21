@@ -132,6 +132,13 @@ class IsolationSession:
         self._run_id = run_id
         self._now = now
         self._home = home
+        #: Workspaces this session registered that have not been released
+        #: yet, keyed by resolved root. `lease()` keeps this empty by
+        #: construction; a consumer driving `provision`/`teardown` across
+        #: separate call sites (Burr actions have no shared lexical scope
+        #: spanning a unit) can leave entries here if the run halts
+        #: mid-unit, and `__aexit__` is where those get cleaned up.
+        self._live_units: dict[Path, UnitOfWork] = {}
 
     async def __aenter__(self) -> IsolationSession:
         """Acquire this checkout's run-scoped exclusivity (contract C1) and
@@ -178,7 +185,68 @@ class IsolationSession:
         return self
 
     async def __aexit__(self, *exc: object) -> None:
-        await journal.release_lock(self._checkout)
+        """Release this checkout's lock, after cleaning up any unit still
+        holding a workspace.
+
+        `lease()` unregisters and tears down in its own `finally`, so it
+        never leaves anything here. A consumer that cannot use it —
+        fly's Burr actions register in `provision_workspace` and release in
+        `teardown_workspace`, two independently-invoked functions with no
+        `finally` bridging them — leaves both the registration and the
+        workspace behind whenever the run halts between the two. This is
+        the one place with a real `finally` spanning the whole run, so the
+        symmetry is restored here rather than left to the next run's sweep
+        (which only happens if there *is* a next isolated run).
+        """
+        try:
+            await self._release_live_units(failed=any(e is not None for e in exc))
+        finally:
+            await journal.release_lock(self._checkout)
+
+    async def _release_live_units(self, *, failed: bool) -> None:
+        """Unregister and tear down (or retain) every still-live unit."""
+        for path, unit in list(self._live_units.items()):
+            self.release_unit(path)
+            try:
+                if failed and self._policy.retain_on_failure:
+                    await lifecycle.retain(checkout=self._checkout, policy=self._policy, unit=unit)
+                else:
+                    await lifecycle.teardown(
+                        checkout=self._checkout,
+                        policy=self._policy,
+                        unit=unit,
+                        jj_client=self._jj_client,
+                    )
+            except Exception as exc:  # noqa: BLE001 — cleanup must not mask the real error
+                logger.warning(
+                    "isolation_session_cleanup_failed",
+                    workflow=self._policy.workflow,
+                    unit_key=unit.key,
+                    workspace_path=str(path),
+                    error=str(exc),
+                )
+
+    def register_unit(self, unit: UnitOfWork, path: Path) -> Path:
+        """Register *path* as live for *unit*, session-scoped.
+
+        Prefer this over the free :func:`register_live_workspace` — it adds
+        the same process-global guard entry, and additionally makes
+        `__aexit__` responsible for the unit if the caller never releases
+        it.
+
+        Returns:
+            The resolved path, for the caller to pass to
+            :meth:`release_unit`.
+        """
+        resolved = register_live_workspace(path)
+        self._live_units[resolved] = unit
+        return resolved
+
+    def release_unit(self, path: Path) -> None:
+        """Undo :meth:`register_unit`. Idempotent."""
+        resolved = path.resolve()
+        unregister_live_workspace(resolved)
+        self._live_units.pop(resolved, None)
 
     @asynccontextmanager
     async def lease(self, unit: UnitOfWork) -> AsyncIterator[IsolationLease]:
@@ -204,7 +272,7 @@ class IsolationSession:
             checkout=self._checkout,
             created_at=self._now(),
         )
-        resolved_workspace_path = register_live_workspace(workspace_path)
+        resolved_workspace_path = self.register_unit(unit, workspace_path)
         failed = False
         try:
             yield lease
@@ -212,7 +280,7 @@ class IsolationSession:
             failed = True
             raise
         finally:
-            unregister_live_workspace(resolved_workspace_path)
+            self.release_unit(resolved_workspace_path)
             if failed and self._policy.retain_on_failure:
                 await lifecycle.retain(checkout=checkout_path, policy=self._policy, unit=unit)
             else:
