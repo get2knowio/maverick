@@ -57,8 +57,12 @@ from maverick.workspace.cwd_scope import chdir_scope
 
 if TYPE_CHECKING:
     import asyncio
+    from collections.abc import Callable
+    from datetime import datetime
 
     from maverick.events import ProgressEvent
+    from maverick.jj.client import JjClient
+    from maverick.protection import ProtectionPolicy
     from maverick.squadron.fly import FlySquadron
 
 __all__ = [
@@ -131,7 +135,9 @@ def _unit_for(state: State) -> UnitOfWork:
     return UnitOfWork(key=bead_id, label=bead_id)
 
 
-def _reconstruct_lease(state: State, checkout: CheckoutPath, now: Any) -> IsolationLease:
+def _reconstruct_lease(
+    state: State, checkout: CheckoutPath, now: Callable[[], datetime]
+) -> IsolationLease:
     """Rebuild the `IsolationLease` a `fold_back`/`undo_fold_back` call
     needs from state alone — cheap (a plain dataclass), and the only way
     to bridge Burr's per-action calls back to the primitive's lease shape
@@ -167,7 +173,7 @@ async def provision_workspace(
     session: IsolationSession,
     policy: IsolationPolicy,
     checkout: CheckoutPath,
-    jj_client: Any,
+    jj_client: JjClient,
     squadron: FlySquadron,
     events: asyncio.Queue[ProgressEvent | None],
 ) -> tuple[dict[str, Any], State]:
@@ -225,9 +231,9 @@ async def fold_back(
     *,
     session: IsolationSession,
     checkout: CheckoutPath,
-    now: Any,
+    now: Callable[[], datetime],
     events: asyncio.Queue[ProgressEvent | None],
-    protection_policy: Any = None,
+    protection_policy: ProtectionPolicy | None = None,
 ) -> tuple[dict[str, Any], State]:
     """Fold the bead's workspace delta into the checkout (contract C4).
 
@@ -320,7 +326,7 @@ async def undo_fold_back(
     *,
     session: IsolationSession,
     checkout: CheckoutPath,
-    now: Any,
+    now: Callable[[], datetime],
     events: asyncio.Queue[ProgressEvent | None],
 ) -> tuple[dict[str, Any], State]:
     """Undo a rejected fold-back after `gate` fails (contract C5).
@@ -455,7 +461,7 @@ async def teardown_workspace(
     session: IsolationSession,
     checkout: CheckoutPath,
     policy: IsolationPolicy,
-    jj_client: Any,
+    jj_client: JjClient,
     squadron: FlySquadron,
 ) -> tuple[dict[str, Any], State]:
     """Tear down (or retain) this bead's workspace — the universal

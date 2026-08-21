@@ -41,8 +41,9 @@ from maverick.workflows.fly_beads._plan_parsing import (
 
 if TYPE_CHECKING:
     from maverick.config import MaverickConfig
+    from maverick.jj.client import JjClient
     from maverick.squadron.fly import FlySquadron
-    from maverick.workspace import CheckoutPath
+    from maverick.workspace import CheckoutPath, IsolationPolicy, IsolationSession
 
 
 __all__ = [
@@ -1801,11 +1802,11 @@ async def abandon_bead(
 async def record_outcome(
     state: State,
     *,
-    isolation_session: Any = None,
-    isolation_policy: Any = None,
+    isolation_session: IsolationSession | None = None,
+    isolation_policy: IsolationPolicy | None = None,
     checkout: CheckoutPath | None = None,
-    jj_client: Any = None,
-    squadron: Any = None,
+    jj_client: JjClient | None = None,
+    squadron: FlySquadron | None = None,
 ) -> tuple[dict[str, Any], State]:
     """Append a per-bead summary and advance counters before the loop cycles.
 
@@ -1818,7 +1819,16 @@ async def record_outcome(
     if state.get("isolated"):
         from maverick.workflows.fly_beads._isolation import teardown_workspace
 
+        # Isolated mode binds all five in `burr_graph.py`; the defaults
+        # exist only so the non-isolated binding can omit them entirely.
+        # Narrowing here is what lets mypy check the call below at all —
+        # this delegation seam is precisely where a wrong binding would
+        # otherwise go unnoticed until runtime.
+        assert isolation_session is not None, "record_outcome(isolated=True) requires session"
+        assert isolation_policy is not None, "record_outcome(isolated=True) requires policy"
         assert checkout is not None, "record_outcome(isolated=True) requires checkout"
+        assert jj_client is not None, "record_outcome(isolated=True) requires jj_client"
+        assert squadron is not None, "record_outcome(isolated=True) requires squadron"
         _, state = await teardown_workspace(
             state,
             session=isolation_session,

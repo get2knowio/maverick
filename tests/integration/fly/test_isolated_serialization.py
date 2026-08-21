@@ -55,6 +55,7 @@ from burr.core import State, action
 
 from maverick.workflows.fly_beads import _isolation as fly_isolation_module
 from maverick.workflows.fly_beads import actions as fly_actions_module
+from maverick.workspace import IsolationSession
 
 if TYPE_CHECKING:
     from maverick.events import ProgressEvent
@@ -98,14 +99,18 @@ _REAL_COMMIT = fly_actions_module.commit
 
 @dataclass
 class LiveWorkspaceTracker:
-    """Instrumented stand-in for the ``register_live_workspace``/
-    ``unregister_live_workspace`` free functions (contract C6's seam).
+    """Instrumented wrapper around ``IsolationSession.register_unit``/
+    ``release_unit`` (contract C6's seam).
 
     Tracks the running set of live workspace roots and asserts — at every
     single registration — that no *different* workspace root is already
     live (the direct proxy for "at most one workspace is live at a time").
     Also records a ``max_concurrent`` high-water mark for a final sanity
     assertion.
+
+    Wraps rather than replaces: the real registration must still happen, or
+    the boundary guard is inert for the run and the session has nothing to
+    clean up at exit.
     """
 
     live: set[Path] = field(default_factory=set)
@@ -245,8 +250,19 @@ async def test_beads_remain_strictly_serial_under_isolated_mode(
     stub_fly_runtime_factory(monkeypatch)
 
     tracker = LiveWorkspaceTracker()
-    monkeypatch.setattr(fly_isolation_module, "register_live_workspace", tracker.register)
-    monkeypatch.setattr(fly_isolation_module, "unregister_live_workspace", tracker.unregister)
+    real_register = IsolationSession.register_unit
+    real_release = IsolationSession.release_unit
+
+    def _tracked_register(self: IsolationSession, unit: object, path: Path) -> Path:
+        tracker.register(path)
+        return real_register(self, unit, path)  # type: ignore[arg-type]
+
+    def _tracked_release(self: IsolationSession, path: Path) -> None:
+        tracker.unregister(path)
+        real_release(self, path)
+
+    monkeypatch.setattr(IsolationSession, "register_unit", _tracked_register)
+    monkeypatch.setattr(IsolationSession, "release_unit", _tracked_release)
 
     event_log: list[tuple[str, str]] = []
     tracking_provision, tracking_fold_back, tracking_commit = _make_tracking_actions(event_log)
