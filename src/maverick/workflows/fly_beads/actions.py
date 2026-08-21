@@ -32,6 +32,12 @@ from maverick.events import (
 )
 from maverick.payloads import dump_supervisor_payload
 from maverick.squadron.tiers import DEFAULT_TIER as _DEFAULT_TIER
+from maverick.workflows.fly_beads._plan_parsing import (
+    ARTIFACT_LEVEL_VERIFICATION,
+    ENVIRONMENT_LEVEL_VERIFICATION,
+    SUPPORTED_VERIFICATION,
+    verification_tool,
+)
 
 if TYPE_CHECKING:
     from maverick.config import MaverickConfig
@@ -480,6 +486,7 @@ async def _run_fix(
 
 @action(
     reads=[
+        "current_bead",
         "current_bead_id",
         "implementer_escalation_level",
         "pending_assumptions",
@@ -543,7 +550,16 @@ async def _gate_impl_isolated(
     validation_commands: dict[str, tuple[str, ...]] | None = None,
 ) -> tuple[dict[str, Any], State]:
     """Isolated mode's single-shot gate check — see ``gate``'s docstring
-    for why retries live in the graph instead of here."""
+    for why retries live in the graph instead of here.
+
+    Also runs the bead's *environment-level* verification commands, which
+    `ac_check` deliberately skipped in the workspace because the toolchain
+    they need isn't there (research.md R6). This is the first point in an
+    isolated bead's pipeline where both the delta and the toolchain exist
+    in the same place. Their failures join `gate_failure_summary`, so they
+    route through the existing `undo_fold_back -> gate_fix -> fold_back`
+    loop and need no graph edges of their own.
+    """
     from maverick.library.actions.validation import run_independent_gate
 
     result = await run_independent_gate(
@@ -551,18 +567,56 @@ async def _gate_impl_isolated(
         cwd=cwd,
         validation_commands=validation_commands,
     )
-    if result.get("passed"):
-        # The checkout's folded-back delta just passed the gate — reset
-        # unverified_in_checkout here (not only in undo_fold_back's
-        # success path), so it doesn't stay stuck True through the rest
-        # of this bead and into the next one on the common happy path
-        # (fold_back -> gate passes first try, no undo round).
-        return {"passed": True}, state.update(
-            gate_passed=True, gate_failure_summary="", unverified_in_checkout=False
+    if not result.get("passed"):
+        summary = result.get("summary") or "gate failed"
+        return {"passed": False}, state.update(gate_passed=False, gate_failure_summary=summary)
+
+    verification_summary = await _run_environment_verification(state, cwd=cwd)
+    if verification_summary:
+        return {"passed": False}, state.update(
+            gate_passed=False, gate_failure_summary=verification_summary
         )
 
-    summary = result.get("summary") or "gate failed"
-    return {"passed": False}, state.update(gate_passed=False, gate_failure_summary=summary)
+    # The checkout's folded-back delta just passed the gate — reset
+    # unverified_in_checkout here (not only in undo_fold_back's
+    # success path), so it doesn't stay stuck True through the rest
+    # of this bead and into the next one on the common happy path
+    # (fold_back -> gate passes first try, no undo round).
+    return {"passed": True}, state.update(
+        gate_passed=True, gate_failure_summary="", unverified_in_checkout=False
+    )
+
+
+async def _run_environment_verification(state: State, *, cwd: str) -> str:
+    """Run this bead's toolchain-dependent verification commands in *cwd*.
+
+    Returns a joined failure summary, or ``""`` when everything passed (or
+    the bead declared no such commands, which is the common case).
+    """
+    from maverick.runners.command import CommandRunner
+    from maverick.workflows.fly_beads.steps import (
+        _parse_verification_commands,
+        _parse_work_unit_sections,
+    )
+
+    bead = state["current_bead"] or {}
+    sections = _parse_work_unit_sections(bead.get("description", ""))
+    verification_text = sections.get("verification", "")
+    if not verification_text:
+        return ""
+
+    runner = CommandRunner(cwd=Path(cwd))
+    reasons: list[str] = []
+    for cmd_str in _parse_verification_commands(verification_text):
+        if verification_tool(cmd_str) not in ENVIRONMENT_LEVEL_VERIFICATION:
+            continue
+        try:
+            result = await runner.run(["sh", "-c", cmd_str])
+            if result.returncode != 0:
+                reasons.append(f"Verification failed: `{cmd_str}`")
+        except Exception as exc:  # noqa: BLE001 — mirrors _ac_check_impl
+            reasons.append(f"Verification error: `{cmd_str}`: {exc}")
+    return "; ".join(reasons)
 
 
 async def _gate_impl(
@@ -669,13 +723,26 @@ async def ac_check(
     workspace, not the checkout (research.md R6) — and any fix round
     stays there too (FR-032). Delegation only, see
     ``_isolation.effective_check_cwd``/``agent_step_scope``.
+
+    R6 places this check in the workspace on the grounds that it "needs no
+    toolchain". That is only true of its `rg`/`grep` commands: `cargo` and
+    `make` shell out to an installed toolchain, and `.venv`/`target` are
+    gitignored, so they never travel into a workspace. Running them there
+    fails for reasons that have nothing to do with the bead's code — which
+    would burn a fix round on an agent trying to repair working code, then
+    abandon it. So under isolation this runs the artifact-level subset
+    only, and `gate` picks the environment-level commands back up in the
+    checkout after fold-back.
     """
     from maverick.workflows.fly_beads._isolation import agent_step_scope, effective_check_cwd
 
     effective_cwd = effective_check_cwd(state, cwd)
+    tools = ARTIFACT_LEVEL_VERIFICATION if state.get("isolated") else SUPPORTED_VERIFICATION
     async with agent_step_scope(state):
         return await _with_protection_drain(
-            await _ac_check_impl(state, squadron=squadron, events=events, cwd=effective_cwd),
+            await _ac_check_impl(
+                state, squadron=squadron, events=events, cwd=effective_cwd, tools=tools
+            ),
             squadron=squadron,
             events=events,
         )
@@ -687,6 +754,7 @@ async def _ac_check_impl(
     squadron: FlySquadron,
     events: asyncio.Queue[ProgressEvent | None],
     cwd: str,
+    tools: tuple[str, ...] = SUPPORTED_VERIFICATION,
 ) -> tuple[dict[str, Any], State]:
     from maverick.runners.command import CommandRunner
     from maverick.workflows.fly_beads.steps import (
@@ -708,8 +776,7 @@ async def _ac_check_impl(
         runner = CommandRunner(cwd=Path(cwd))
         reasons: list[str] = []
         for cmd_str in _parse_verification_commands(verification_text):
-            first_word = cmd_str.split()[0] if cmd_str.split() else ""
-            if first_word not in ("rg", "grep", "cargo", "make"):
+            if verification_tool(cmd_str) not in tools:
                 continue
             try:
                 result = await runner.run(["sh", "-c", cmd_str])

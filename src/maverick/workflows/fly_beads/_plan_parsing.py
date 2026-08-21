@@ -83,6 +83,29 @@ def _parse_file_scope(
     return create, modify, protect
 
 
+#: Verification commands runnable against produced files alone — they read
+#: the working copy and nothing else, so they are *artifact-level* and run
+#: wherever the artifacts are (a bead's isolated workspace, under 057).
+ARTIFACT_LEVEL_VERIFICATION = ("rg", "grep")
+
+#: Verification commands that shell out to an installed toolchain. These are
+#: *environment-level*: `.venv/`, `target/`, `node_modules/` are gitignored,
+#: so they never travel into a `jj workspace add` workspace and these
+#: commands can only run in the checkout (research.md R6).
+ENVIRONMENT_LEVEL_VERIFICATION = ("cargo", "make")
+
+#: Every command form fly knows how to run. Anything else in a bead's
+#: ``## Verification`` section is prose or an unsupported tool, and is
+#: skipped rather than executed.
+SUPPORTED_VERIFICATION = ARTIFACT_LEVEL_VERIFICATION + ENVIRONMENT_LEVEL_VERIFICATION
+
+
+def verification_tool(command: str) -> str:
+    """Return *command*'s leading tool name, or ``""`` for a blank command."""
+    parts = command.split()
+    return parts[0] if parts else ""
+
+
 def _parse_verification_commands(
     verification_text: str,
 ) -> list[str]:

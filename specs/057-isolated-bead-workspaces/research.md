@@ -218,7 +218,8 @@ spec's own criterion — does the check need state absent from committed history
 
 | fly check | Placement | Where it runs | Why |
 | --- | --- | --- | --- |
-| `ac_check` (file scope, diff overlap, grep commands) | artifact-level | workspace | Reads produced files and the working-copy diff. Needs no toolchain. |
+| `ac_check` (file scope, diff overlap, `rg`/`grep` commands) | artifact-level | workspace | Reads produced files and the working-copy diff. Needs no toolchain. |
+| `ac_check`'s `cargo`/`make` commands | environment-level | checkout, after fold-back | Shell out to an installed toolchain. Split out of the workspace-side check after the original revision of this table asserted the whole of `ac_check` was toolchain-free — `.venv`/`target` are gitignored, so running them in a workspace fails for reasons unrelated to the bead's code, burning a fix round and abandoning working work. Run by the isolated `gate`. |
 | `spec_check` | artifact-level | workspace | Same. |
 | `gate` (`format`, `lint`, `test` via `run_independent_gate`) | environment-level | checkout, after fold-back | Needs `.venv`/`uv` and the installed toolchain, which are gitignored and do not travel into a workspace. |
 | `review` (agent) | n/a — agent step | workspace | FR-032: every agent step is isolated. |
