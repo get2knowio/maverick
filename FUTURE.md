@@ -2,7 +2,18 @@
 
 This document supersedes the previous `OPPORTUNITIES.md` files (removed from the repo in favor of this consolidated roadmap).
 
-It reconciles those documents against the current codebase as of 2026-04-19 and folds in additional opportunities that surfaced while reviewing the actor, MCP, workflow, executor, and CLI layers.
+It was first reconciled against the codebase on 2026-04-19 and **re-reconciled on 2026-08-22**, after specs 048-057 shipped.
+
+## What This Document Is (And Is Not)
+
+This is the **opportunity backlog**: a long tail of observations, most of which
+will never be scheduled. It is not the plan of record.
+
+The forward-looking roadmap is
+[docs/specify-prompts-orchestration-roadmap.md](docs/specify-prompts-orchestration-roadmap.md)
+— twelve sequenced spec prompts in three tiers, of which Tier 1 items 1-4
+shipped as specs 054, 055, 056, and 057. Read that first; read this for
+context on why a given idea is or isn't worth reviving.
 
 ## Status Legend
 
@@ -10,61 +21,115 @@ It reconciles those documents against the current codebase as of 2026-04-19 and 
 - **Partial**: groundwork exists, but the design is incomplete.
 - **Implemented**: no longer future work; keep regression coverage.
 - **Reframed**: the original idea still matters, but the architecture changed and the next step should look different now.
+- **Superseded**: the architecture this item was written against no longer
+  exists, and the problem it described does not arise in the current one.
+  Kept for the record, not as work.
+
+## The 2026-08-22 Reconciliation
+
+The April pass reconciled against an architecture that has since been replaced
+twice over. Three substrate changes invalidate whole categories of this
+document:
+
+- **xoscar actors are gone** (Burr migration, tracked to completion in #135).
+  `src/maverick/actors/` no longer exists. Every supervisor, mailbox, and
+  `_end_turn` observation written against it describes code that was deleted.
+- **MCP gateways are gone.** Agents return typed Pydantic payloads through
+  airframe's structured-output support. `src/maverick/tools/` no longer
+  exists, so items about MCP tool-call reliability, routing tool calls
+  through an owning actor, and tool-required prompt wrappers no longer have
+  a subject.
+- **ACP is gone**, and with it `src/maverick/executor/acp.py` and the
+  OpenCode runtime module. **airframe** is the one provider-abstraction layer
+  (`maverick.runtime.agent_factory`), which also largely answers §4.8's call
+  for a named substrate boundary.
+
+A fourth change is narrower but retires an entire section: **the hidden
+workspace model was abandoned** in favour of the single-repo (CWD) model
+(Guardrail 0), and per-unit isolation now runs through the shared primitive
+at `src/maverick/workspace/` (spec 057). `WorkspaceManager` does not exist.
+
+Concretely: of the 94 source paths this document cited in April, **51 no
+longer exist**. Statuses and links below have been corrected; where an item
+was overtaken by a shipped spec, the spec is named.
 
 ## Validated Changes Since The Older Opportunity Notes
 
-- **Runway seed is no longer broken.** The current seed path writes semantic artifacts and is covered by tests in [src/maverick/runway/seed.py](src/maverick/runway/seed.py) and [tests/unit/runway/test_seed.py](tests/unit/runway/test_seed.py).
-- **Provider quota clean-failure handling exists now.** Tier 1 of the quota work is implemented in [src/maverick/exceptions/quota.py](src/maverick/exceptions/quota.py) and used by the top-level supervisors such as [src/maverick/actors/refuel_supervisor.py](src/maverick/actors/refuel_supervisor.py) and [src/maverick/actors/fly_supervisor.py](src/maverick/actors/fly_supervisor.py).
-- **The old "cap review retries" finding is no longer correct for fly-beads.** The fly-beads supervisor explicitly caps review-fix rounds in [src/maverick/workflows/fly_beads/supervisor.py](src/maverick/workflows/fly_beads/supervisor.py), and the library review-fix loop is also bounded by `max_attempts` in [src/maverick/library/actions/review.py](src/maverick/library/actions/review.py).
-- **Workspace planning moved toward hidden workspaces.** The earlier per-epic jj workspace note still has value, but it now has to be understood in the context of the hidden workspace design in [.specify/memory/workspace-isolation-design-brief.md](.specify/memory/workspace-isolation-design-brief.md) and the current manager in [src/maverick/workspace/manager.py](src/maverick/workspace/manager.py).
+*(April observations, re-checked 2026-08-22.)*
+
+- **Runway seed is no longer broken.** Still true. The seed path writes semantic artifacts and is covered by tests in [src/maverick/runway/seed.py](src/maverick/runway/seed.py) and [tests/unit/runway/test_seed.py](tests/unit/runway/test_seed.py).
+- **Provider quota clean-failure handling exists now.** Still true, though relocated: [src/maverick/exceptions/quota.py](src/maverick/exceptions/quota.py) is now consumed by the Burr action layer (`workflows/refuel_maverick/actions.py`), not by the deleted xoscar supervisors the April note named.
+- **The old "cap review retries" finding is no longer correct for fly-beads.** Still true, and now enforced in the graph rather than a supervisor: review-fix rounds are bounded by `MAX_GATE_FIX_ATTEMPTS` and the review-round cap in [src/maverick/workflows/fly_beads/actions.py](src/maverick/workflows/fly_beads/actions.py).
+- **~~Workspace planning moved toward hidden workspaces.~~** **No longer true, and reversed.** Hidden workspaces were tried twice (`jj git clone`, then `jj workspace add`) and abandoned both times — bd's gitignored `embeddeddolt/` cannot travel into a workspace. The contract is now single-repo/CWD (Guardrail 0), with short-lived per-unit isolation via [src/maverick/workspace/](src/maverick/workspace/) for the two consumers that need it (`maverick spec`, `fly --isolated`). See constitution Appendix E.
 
 ## Reconciled Opportunity Index
 
+*Re-reconciled 2026-08-22. "Spec" names the shipped feature that closed an item.*
+
 | Opportunity | Status | Note |
 |---|---|---|
-| Per-epic workspaces | Reframed | Still interesting, but should build on hidden workspaces rather than replace them. |
-| Runway seed agent fix | Implemented | Keep tests; remove from active roadmap. |
-| Conditional verification in land | Active | Still absent. |
-| Variable pipeline by bead type | Partial | Bead categories exist, but fly does not branch pipeline stages by category yet. |
-| Provider-agnostic interactive review | Active | Current review is structured, not conversational. |
-| Assumptions as spec quality signal | Active | Good metric idea; not wired into runway or reporting. |
-| Simplify the briefing room | Active | Multi-agent briefing is still the default shape. |
-| Lean out convention injection | Active | Prompt convention payloads are still heavy. |
-| Observational memory for runway | Active | Consolidation exists, but retrieval is not centered on a single always-in-context summary yet. |
-| Cap review retries to reduce thrashing | Implemented | Keep tuning budgets, but the original gap is largely closed. |
-| Strengthen TDD as primary feedback loop | Active | Process is test-first, but prompts and artifact generation could push harder in that direction. |
-| Consider Agent Teams for review | Active | Still exploratory; current actor model already covers most of the same ground. |
-| Reduce jj installation friction | Active | No true git-only fallback yet. |
-| Supervisor agent for adaptive orchestration | Active | Still missing. |
-| Supervisor-driven resource tuning | Active | Still missing and depends on better telemetry. |
-| Asynchronous human review queue | Partial | Human-review beads and CLI exist; question queue and mid-flight answering do not. |
-| Provider quota detection and automatic failover | Partial | Tier 1 (detection) + Tier 1.5 (detail-phase surfacing + retry short-circuit) + Tier 1.6 (decomposer escalation on any abandon) exist. Tier 2 (wait-and-resume) and Tier 3 (automatic failover) are not yet built — see §6.2. |
-| Step-level evals and prompt testing | Active | Still missing. |
-| Idempotent `maverick init` | Implemented | Re-running on a project with an existing `maverick.yaml` now succeeds, re-runs only the idempotent steps (prereqs, beads, runway), and leaves config untouched. `--force` still regenerates. |
-| Defer bd-state inference to bd itself | Reframed | Investigated 2026-04-28: `bd doctor` doesn't support embedded mode (which is what maverick uses), and other read-only bd commands don't catch half-init either. Filesystem inspection stays as the pragmatic approach — see §4.5 for findings. |
-| Reduce MCP tool-call reliability as a hard dependency | Partial | §4.6.1 (JSON-in-text fallback) implemented for decomposer outline / detail / fix. §4.6.2 (`response_format`) and §4.6.3 (capability docs) still open. See §4.6. |
-| Route tool calls through owning actor | Active | MCP inbox still bypasses the owning actor and talks straight to the supervisor. |
-| Structured telemetry via OpenTelemetry GenAI conventions | Active | No OTel or OpenLLMetry integration yet. |
-| Shared mailbox actor scaffold | Active | New opportunity observed in current code. |
-| Named capability profiles end-to-end | Active | New opportunity observed in current code. |
-| Unified trace and correlation envelope | Active | New opportunity observed in current code. |
-| Canonical artifact rendering and formatting | Active | New opportunity observed in current code. |
-| Reusable supervisor fragments | Active | New opportunity observed in current code. |
-| ACP prompt-cache optimization | Implemented | Phase A observability + Phase B retry-session reuse shipped; Phases C/D/1h-TTL closed after Phase A data showed caching is content-keyed and already at ~99.98% hit on measured workloads. |
-| Consolidate agent `_end_turn` helpers | Active | Five xoscar agents duplicate a ~10-line cancel-after-forward helper. Minor refactor opportunity — extract to mixin or module helper when a sixth agent-with-inbox appears. |
-| Fly checkpoint resume ignores `--max-beads` | Implemented | Reporting fix: `beads_completed` now counts new-this-run, not cumulative. The cap was always enforced; the inflated count made it look ignored. |
-| Review prompts don't emit `prompt_usage` | Implemented | `prompt_session` now logs `prompt_usage` from a `finally` block with an `exit_path` field. The log fires unconditionally across success, timeout, AcpRequestError, and circuit-breaker paths — no prompt return path can bypass it. |
-| Commit provenance for evals | Partial | Layer 1 shipped: curator now appends a `Refs:` trailer naming source bead IDs, with a deterministic safety-net post-processor. Layer 2 (per-attempt runway capture of provider/model/prompt) still active. |
-| Per-project OpenCode agent/skill overrides | Active | Bundled defaults ship with the package via `OPENCODE_CONFIG_DIR`; per-project override layer at `.maverick/opencode/` deferred. See §4.7. |
-| Substrate-swap interface | Active | Substrate concerns concentrated in ~5 modules today, but the seam is incidental rather than intentional. Define a `Substrate` Protocol so OpenCode (or any future runtime) sits behind a named boundary. See §4.8. |
+| Per-epic workspaces | Superseded | §1.1. Hidden workspaces were abandoned; per-unit isolation is spec 057's shared primitive. The per-*epic* question is now a dispatcher concern, not a workspace one. |
+| Per-invocation hermetic workspaces | Superseded | §1.1.1. Written against `WorkspaceManager`, which no longer exists. Spec 057 delivers per-unit isolation under the single-repo model instead. |
+| Conditional verification in land | **Implemented** | §1.2. Spec **052** — assumption frontier gate, `verified` vs `conditionally-verified`, persisted land report. |
+| Variable pipeline by bead type | Partial | §1.3. Bead categories exist; fly still runs one pipeline for every bead. Isolated mode added a *second* shape, but keyed on the flag, not the bead. |
+| Provider-agnostic interactive review | **Implemented** | §1.5. Spec **053** — the packaged `maverick-review` skill over JSON CLI verbs, with bare-terminal `maverick review` retained as fallback. |
+| Assumptions as spec quality signal | **Implemented** | §1.6. Spec **049** — `maverick brief` reports per-spec assumption counts by status and severity. |
+| Asynchronous human review queue | **Implemented** | §1.4. All three April gaps closed: question queue (**049**), mid-flight answer injection (**051** + **052**), notification mechanics (**054**). |
+| Simplify the briefing room | Active | §2.1. Still four briefing personas on the legacy flight-plan path. Note the Spec Kit path calls no briefing agents at all, so this now only affects the fallback. |
+| Lean out convention injection | Active | §2.2. Prompt convention payloads are still heavy. |
+| Observational memory for runway | Active | §3.1. Consolidation exists; retrieval is still not centered on one always-in-context summary. |
+| Cap review retries to reduce thrashing | Implemented | §6.3. Now enforced in the Burr graph rather than a supervisor. |
+| Strengthen TDD as primary feedback loop | Active | §4.1. |
+| Consider Agent Teams for review | Active | §2.6. Still exploratory. |
+| Reduce jj installation friction | Active | §4.2. No git-only fallback; `jj` is now a hard dependency of the isolation primitive as well. |
+| Supervisor agent for adaptive orchestration | Active | §3.2. Reframe against Burr: this would be a policy layer choosing transitions, not a new actor. |
+| Supervisor-driven resource tuning | Active | §3.3. Still depends on telemetry that doesn't exist. |
+| Provider quota detection and automatic failover | Partial | §6.2. Tiers 1/1.5/1.6 exist; Tier 2 (wait-and-resume) and Tier 3 (failover) are not built. Failover is now airframe's natural layer, not maverick's. |
+| Step-level evals and prompt testing | Active | §3.4. See also issues #17/#26/#27, which propose a Phoenix-backed implementation. |
+| Idempotent `maverick init` | Implemented | §4.3. |
+| Defer bd-state inference to bd itself | Reframed | §4.5. Investigated 2026-04-28; `bd doctor` doesn't support embedded mode. Filesystem inspection stays. |
+| Reduce MCP tool-call reliability as a hard dependency | Superseded | §4.6. There is no MCP layer. airframe's structured output is the contract, and it is enforced by the provider rather than hoped for. |
+| Route tool calls through owning actor | Superseded | §2.3. No MCP inbox, no actors. |
+| Structured telemetry via OpenTelemetry GenAI conventions | Active | §3.5. Still nothing; `grep -rn trace_id src/` returns zero. |
+| Shared mailbox actor scaffold | Superseded | §2.4. Actors are gone; the equivalent seam is `Squadron`. |
+| Named capability profiles end-to-end | Active | §2.5. Partly answered by per-complexity tiers (§2.10), but there is still no named profile concept. |
+| Unified trace and correlation envelope | Active | §3.6. See #18. |
+| Canonical artifact rendering and formatting | Active | §3.7. |
+| Reusable supervisor fragments | Superseded | §5.1. The YAML DSL was removed (spec 041) and `library/fragments/` with it. |
+| ACP prompt-cache optimization | Implemented (moot) | §2.7. Shipped, then the ACP executor was deleted. Retained only as a record of the measurement. |
+| Consolidate agent `_end_turn` helpers | Superseded | §2.8. The five xoscar agents it described no longer exist. |
+| Move tool-required framework wrapper to system prompt | Superseded | §2.9. The wrapper was an MCP-era workaround. |
+| Per-bead complexity-based model routing | Partial | §2.10. Tier plumbing is real and wired for fly's implementer/reviewer and refuel's decomposer. The implementer's `escalation_threshold` reading is still unimplemented. |
+| Auto tech-debt beads from approved-with-findings reviews | Active | §2.11. |
+| Free OpenRouter models often skip MCP tool calls | Reframed | §2.12. The MCP framing is gone, but the underlying finding — weak models fail structured output — survived the migration and is exactly issue #166. |
+| Fly checkpoint resume ignores `--max-beads` | Implemented | §1.7. |
+| Review prompts don't emit `prompt_usage` | Implemented (moot) | §3.8. Fixed in the ACP executor, which no longer exists. |
+| Commit provenance for evals | Partial | §3.9. Layer 1 (`Refs:` trailer) shipped; Layer 2 (per-attempt runway capture) still open. |
+| Per-project OpenCode agent/skill overrides | Reframed | §4.7. `runtime/opencode/` is gone — OpenCode is an airframe provider now, so any override layer belongs at that boundary. |
+| Substrate-swap interface | Largely Implemented | §4.8. airframe *is* the named boundary the item asked for. What remains is narrower: maverick-side concerns that still leak around it. |
 
 ## 1. Orchestration And Human Review
 
 ### 1.1 Per-Epic Workspaces On Top Of Hidden Workspaces
 
-**Status:** Reframed
+**Status:** Superseded *(2026-08-22)*
 
-The original proposal assumed jj workspaces directly in the user-facing development flow. The repo has since moved toward hidden workspaces as the primary isolation model. That does not kill the underlying idea. It changes the next step.
+Both architectures this item was written between are gone. The original
+proposal assumed jj workspaces in the user-facing flow; the April reframe
+pushed it onto hidden workspaces. Hidden workspaces were then abandoned —
+twice, once per implementation — because bd's gitignored `embeddeddolt/`
+cannot travel into one. The contract is single-repo/CWD (Guardrail 0).
+
+What replaced it: spec **057**'s shared isolation primitive
+([src/maverick/workspace/](src/maverick/workspace/)), which gives a *unit* of
+work its own short-lived workspace and folds the result back into the
+checkout, without bd or the ledger ever leaving it.
+
+The residue worth keeping is not about workspaces at all. "Beads that escalate
+to human review create a context-management problem when other epics
+continue" is a **scheduling** question, and it now belongs to the concurrent
+dispatcher (roadmap Tier 2, item 9), which is where cross-epic concurrency
+will actually be decided.
 
 What still matters:
 
@@ -72,21 +137,31 @@ What still matters:
 - Correction work still wants the original epic state, not whatever the latest shared workspace happens to contain.
 - Watch mode still wants a cleaner story for concurrent producer and consumer behavior across multiple epics.
 
-What should happen next:
+*April's "what should happen next", now void:*
 
-- Re-scope this as **multiple hidden workspaces or multiple hidden clones per epic**, not as a return to colocated jj workspaces in the user's repo.
-- Keep the user-facing model git-native.
-- Treat per-epic workspace switching as a second-stage extension to the hidden workspace architecture.
+- ~~Re-scope this as **multiple hidden workspaces or multiple hidden clones per epic**~~ — hidden workspaces were abandoned.
+- Keep the user-facing model git-native. **(This one held, and hardened into Guardrail 0.)**
+- ~~Treat per-epic workspace switching as a second-stage extension to the hidden workspace architecture.~~
 
-Relevant code and notes:
+Current references:
 
-- [.specify/memory/workspace-isolation-design-brief.md](.specify/memory/workspace-isolation-design-brief.md)
-- [src/maverick/workspace/manager.py](src/maverick/workspace/manager.py)
-- [src/maverick/actors/fly_supervisor.py](src/maverick/actors/fly_supervisor.py)
+- [.specify/memory/constitution.md](.specify/memory/constitution.md) — Guardrail 0 and Appendix E (the isolation mechanism)
+- [src/maverick/workspace/](src/maverick/workspace/) — the shared primitive
+- `.specify/memory/workspace-isolation-design-brief.md` — the abandoned hidden-workspace design; retained as history, do not build against it
 
 ### 1.1.1 Per-Invocation Hermetic Workspaces
 
-**Status:** Active (Step 2 of the Architecture A migration)
+**Status:** Superseded *(2026-08-22)*
+
+> **Everything below describes a design that was removed.** `WorkspaceManager`
+> does not exist; there is no `~/.maverick/workspaces/<project>/` shared
+> workspace, no find-or-create/finalize lifecycle, and no `maverick workspace`
+> command group. Long-running ops run directly in the user's checkout
+> (Guardrail 0), and spec **057** provides per-unit isolation where it is
+> genuinely needed. The concurrency concerns below are real and unaddressed,
+> but they are now the concurrent dispatcher's problem (roadmap Tier 2,
+> item 9) — a workspace-path change cannot solve them, because there is no
+> shared workspace path left to change. Retained for the reasoning only.
 
 Today the workspace lives at `~/.maverick/workspaces/<project>/` — one per project. Plan and refuel are hermetic (find-or-create → work → push → teardown via `WorkspaceManager.finalize`), but fly still leaves its workspace alive for `land` because fly's commits need curation. The workspace path is shared, which means:
 
@@ -114,7 +189,7 @@ Until then, fly remains the bridged exception. New code should not add per-invoc
 
 Relevant code:
 
-- [src/maverick/workspace/manager.py](src/maverick/workspace/manager.py) — `find_or_create`, `finalize`, `apply_to_user_repo`, `cleanup_user_repo_branch`
+- `src/maverick/workspace/manager.py` — `find_or_create`, `finalize`, `apply_to_user_repo`, `cleanup_user_repo_branch`
 - [src/maverick/cli/commands/flight_plan/generate.py](src/maverick/cli/commands/flight_plan/generate.py) — already hermetic
 - [src/maverick/cli/commands/refuel/_group.py](src/maverick/cli/commands/refuel/_group.py) — already hermetic
 - [src/maverick/cli/commands/fly/_group.py](src/maverick/cli/commands/fly/_group.py) — still leaves workspace for land
@@ -122,9 +197,25 @@ Relevant code:
 
 ### 1.2 Conditional Verification In Land
 
-**Status:** Active
+**Status:** Implemented — spec **052** (conditional landing) *(2026-08-22)*
 
-Land still treats work as either done or not done. There is no first-class notion of "verified conditional on an unresolved assumption" even though the human-review and correction-bead model is pushing in that direction.
+Delivered essentially as described. `maverick land` now evaluates an
+assumption frontier gate before curation and classifies the result
+`verified` (every entry answered, or none at all) or `conditionally-verified`
+(frontier empty but at least one entry waived) — the exact "verified
+conditional on an unresolved assumption" distinction this item asked for.
+
+Any open entry of any severity, or any answered-but-unreconciled entry,
+blocks the command with a per-spec table and a non-zero exit; there is no
+bypass flag. Every evaluation persists a report to
+`.maverick/runs/<run-id>/land-report.{json,md}`, which is the audit trail the
+item wanted in place of a single `needs-human-review` tag.
+
+See [src/maverick/cli/commands/land_gate.py](src/maverick/cli/commands/land_gate.py),
+[src/maverick/assumptions/land_report.py](src/maverick/assumptions/land_report.py),
+and `specs/052-conditional-landing/`.
+
+*Original observation:* Land still treats work as either done or not done. There is no first-class notion of "verified conditional on an unresolved assumption" even though the human-review and correction-bead model is pushing in that direction.
 
 Why it still matters:
 
@@ -136,72 +227,109 @@ Relevant code:
 
 - [src/maverick/cli/commands/land.py](src/maverick/cli/commands/land.py)
 - [src/maverick/workflows/fly_beads/workflow.py](src/maverick/workflows/fly_beads/workflow.py)
-- [src/maverick/workflows/fly_beads/fly_report.py](src/maverick/workflows/fly_beads/fly_report.py)
 
 ### 1.3 Variable Pipelines By Bead Type
 
-**Status:** Partial
+**Status:** Partial *(re-checked 2026-08-22)*
 
-The codebase already has bead categories and labels, but the fly execution path does not use them to vary stage sequencing yet.
+Still accurate. Bead categories and labels exist; the fly graph does not
+branch on them.
 
 What exists:
 
 - Bead category support in [src/maverick/beads/models.py](src/maverick/beads/models.py).
-- Human-review and correction labels in [src/maverick/actors/fly_supervisor.py](src/maverick/actors/fly_supervisor.py) and [src/maverick/cli/commands/review.py](src/maverick/cli/commands/review.py).
+- Assumption / human-review labels applied by [src/maverick/workflows/fly_beads/actions.py](src/maverick/workflows/fly_beads/actions.py) (`record_assumptions`, `create_human_bead`) and consumed by [src/maverick/cli/commands/review/](src/maverick/cli/commands/review/).
 
 What is still missing:
 
 - A dispatcher that says validation beads, correction beads, review beads, and implementation beads should not all run the exact same pipeline.
 
+**Note (2026-08-22):** spec 057 introduced a *second* pipeline shape — isolated
+mode reorders to `implement -> checks -> review -> fold-back -> gate -> commit`
+— which proves the graph can carry more than one sequence. But it branches on
+a CLI flag, not on the bead. The machinery this item wants now exists; the
+signal to drive it is what's missing.
+
 ### 1.4 Asynchronous Human Review Queue
 
-**Status:** Partial
+**Status:** Implemented — specs **049**, **051**, **052**, **054** *(2026-08-22)*
 
-Maverick now has a real human-review path, but not the broader async collaboration loop imagined in the older opportunity notes.
+All three April gaps are closed, each by a different spec:
 
-What exists:
+- **"A question queue for advisory or blocking questions during execution"** →
+  the **assumption ledger** (spec 049). Agents report adopted assumptions in
+  their structured payloads; each becomes a bead under the owning epic with a
+  `discovered-from` edge. Severity drives enforcement: `low` is deferred out
+  of the ready queue, `high` gains a `blocks` edge onto the next spec's epic.
+- **"Mid-flight answer injection back into paused or retried work"** →
+  `maverick reconcile` (spec 051) applies a changed answer retroactively via
+  jj history surgery, and spec 052 wires it into fly at every bead boundary
+  so a running drain loop picks up answers without stopping.
+- **"Notification or polling mechanics beyond review the bead later"** →
+  `maverick notify` (spec 054), a daemonless scheduler with severity-tiered
+  delivery windows, quiet hours, and age escalation.
 
-- Structured human review in [src/maverick/cli/commands/review.py](src/maverick/cli/commands/review.py).
-- Human-review surfacing in [src/maverick/cli/commands/brief.py](src/maverick/cli/commands/brief.py) and [src/maverick/cli/commands/land.py](src/maverick/cli/commands/land.py).
-- Automatic `needs-human-review` tagging in [src/maverick/actors/fly_supervisor.py](src/maverick/actors/fly_supervisor.py) and [src/maverick/workflows/fly_beads/supervisor.py](src/maverick/workflows/fly_beads/supervisor.py).
+The loop the April note called "the broader async collaboration loop" is the
+one thing this project now does that the surveyed field did not: proceed on a
+recorded assumption, then apply the human's answer retroactively.
 
-What is still missing:
-
-- A question queue for advisory or blocking questions during execution.
-- Mid-flight answer injection back into paused or retried work.
-- Notification or polling mechanics beyond "review the bead later."
+See [src/maverick/assumptions/](src/maverick/assumptions/),
+[src/maverick/workflows/reconcile/](src/maverick/workflows/reconcile/), and
+[src/maverick/workflows/fly_beads/mid_flight.py](src/maverick/workflows/fly_beads/mid_flight.py).
 
 ### 1.5 Provider-Agnostic Interactive Review
 
-**Status:** Active
+**Status:** Implemented — spec **053** *(2026-08-22)*
 
-The current review command is interactive in the Click sense, but not interactive in the "open a conversational ACP session with preloaded context" sense.
+Delivered, though not by the route the April note imagined. Rather than
+opening a conversational ACP session, spec 053 split frontend from plumbing:
 
-Why it still matters:
+- Every review-lifecycle verb became headlessly invocable with `--json`
+  (`review --list`, `review <id> --answer/--waive`, `review --spec --waive`),
+  sharing one envelope and error-kind registry.
+- A packaged Claude Code skill, `maverick-review`, installed by `maverick
+  init`, sweeps the open queue one entry at a time via `AskUserQuestion` and
+  applies each decision through those verbs. It never touches jj, git, bd, or
+  files directly.
 
-- Some escalations need richer human-agent iteration than approve, reject, or defer.
-- The structured review command is intentionally narrow and should stay narrow.
-- A separate interactive mode could stay optional without polluting the default fast path.
+This satisfies the item's three "why it still matters" bullets exactly: richer
+iteration lives in the skill, the structured command stayed narrow, and the
+interactive mode is optional — `maverick review` without `--json` is unchanged
+and remains the bare-terminal fallback for humans without Claude Code.
+
+The "provider-agnostic" ambition is only partly met: the skill is Claude
+Code-specific. The *CLI contract* underneath it is provider-agnostic, so a
+second frontend needs no new maverick code.
 
 Relevant code:
 
-- [src/maverick/cli/commands/review.py](src/maverick/cli/commands/review.py)
+- [src/maverick/cli/commands/review/](src/maverick/cli/commands/review/)
+- [src/maverick/skills/review_console/SKILL.md](src/maverick/skills/review_console/SKILL.md)
+- [src/maverick/cli/json_output.py](src/maverick/cli/json_output.py)
 
 ### 1.6 Assumptions As A Spec Quality Signal
 
-**Status:** Active
+**Status:** Implemented — spec **049** *(2026-08-22)*
 
-The core idea still holds: assumption-heavy execution is a signal that the plan or spec left too much open. The codebase now has enough run artifacts, human-review tags, and correction beads to measure this, but the metric is not yet surfaced.
+The metric is surfaced. `maverick brief` reports per-spec assumption counts
+(open / answered / waived, by severity, plus a legacy bucket), and the land
+report (spec 052) carries the same provenance grouped by spec.
 
-Good next step:
-
-- Feed assumption and human-review counts into runway consolidation or a future land summary.
+Both of the April note's "good next step" destinations were used: the land
+summary got it directly, and spec 055 went further by feeding *resolved*
+assumptions into a decision corpus under the runway store, so past human
+answers suggest resolutions for new ones.
 
 Relevant code:
 
-- [src/maverick/actors/fly_supervisor.py](src/maverick/actors/fly_supervisor.py)
-- [src/maverick/cli/commands/review.py](src/maverick/cli/commands/review.py)
-- [src/maverick/library/actions/consolidation.py](src/maverick/library/actions/consolidation.py)
+- [src/maverick/cli/commands/brief.py](src/maverick/cli/commands/brief.py) — `_assumption_counts_dicts`
+- [src/maverick/assumptions/land_report.py](src/maverick/assumptions/land_report.py)
+- [src/maverick/assumptions/suggestions.py](src/maverick/assumptions/suggestions.py)
+
+**What is genuinely still open:** the count is reported but nothing *acts* on
+it. There is no threshold at which a spec is flagged as underspecified, and no
+feedback into the spec chain that would make the next `maverick spec` run ask
+more clarifying questions. That is the residue worth reviving.
 
 ### 1.7 Fly Checkpoint Resume Ignores `--max-beads`
 
@@ -211,9 +339,9 @@ Originally observed during the 2026-04-24 e2e run on `sample-maverick-project`: 
 
 > Resuming from checkpoint 'checkpoint' (saved at 2026-03-19T02:24:14...)
 
-Root cause was a reporting bug, not a loop runaway. The bead loop in [src/maverick/actors/xoscar/fly_supervisor.py](src/maverick/actors/xoscar/fly_supervisor.py) (``_bead_loop``) correctly capped ``processed < max_beads`` for new work in this run. But the terminal-result payload reported ``"beads_completed": len(self._completed_beads)`` — and ``self._completed_beads`` is seeded from ``_inputs.completed_bead_ids`` (loaded from the checkpoint) so the loop's "skip already done" guard works on resume. With a stale checkpoint of 10 prior IDs and 2 new beads processed, the cumulative list was 12, so the report said "12 beads completed" without doing 12 beads of work.
+Root cause was a reporting bug, not a loop runaway. The bead loop in `src/maverick/actors/xoscar/fly_supervisor.py` (``_bead_loop``) correctly capped ``processed < max_beads`` for new work in this run. But the terminal-result payload reported ``"beads_completed": len(self._completed_beads)`` — and ``self._completed_beads`` is seeded from ``_inputs.completed_bead_ids`` (loaded from the checkpoint) so the loop's "skip already done" guard works on resume. With a stale checkpoint of 10 prior IDs and 2 new beads processed, the cumulative list was 12, so the report said "12 beads completed" without doing 12 beads of work.
 
-**Fix shipped:** ``FlySupervisor`` tracks ``self._processed_this_run: int`` separately, set to 0 on construction and incremented inside ``_bead_loop`` alongside the local counter. All three ``_mark_done`` payloads (success, exception, prompt-error) now report ``"beads_completed": self._processed_this_run`` while keeping ``completed_bead_ids`` cumulative (still needed for resume state). Regression test in [tests/unit/actors/xoscar_runtime/test_fly_supervisor.py](tests/unit/actors/xoscar_runtime/test_fly_supervisor.py) (``test_terminal_result_reports_only_this_runs_beads``) seeds 10 prior IDs, triggers the terminal path, and asserts ``beads_completed == 0``.
+**Fix shipped** *(in the pre-Burr `FlySupervisor`; the fix survived the migration into the Burr action layer, the file cited below did not)*: ``FlySupervisor`` tracks ``self._processed_this_run: int`` separately, set to 0 on construction and incremented inside ``_bead_loop`` alongside the local counter. All three ``_mark_done`` payloads (success, exception, prompt-error) now report ``"beads_completed": self._processed_this_run`` while keeping ``completed_bead_ids`` cumulative (still needed for resume state). Regression test in `tests/unit/actors/xoscar_runtime/test_fly_supervisor.py` (``test_terminal_result_reports_only_this_runs_beads``) seeds 10 prior IDs, triggers the terminal path, and asserts ``beads_completed == 0``.
 
 Reflection: the FUTURE.md hypothesis ("the bead-loop counter must reset / re-evaluate the budget") was misdirected — the loop counter was already correct. The user-visible inflated count came from the reporting layer, not from extra agent work. Cost-control intent was always enforced; only the report was lying.
 
@@ -221,15 +349,25 @@ Reflection: the FUTURE.md hypothesis ("the bead-loop counter must reset / re-eva
 
 ### 2.1 Simplify The Briefing Room
 
-**Status:** Active
+**Status:** Active — but the blast radius shrank *(re-checked 2026-08-22)*
 
 The repo still pays for multiple specialist briefing agents before plan generation and refuel. The specialist fan-out pattern is real and useful, but it is also an obvious cost center.
 
 The question is no longer whether the pattern exists. It does. The question is whether the current eight-agent footprint is still the right budget.
 
+**Reconciliation note:** this now only affects the **fallback** path.
+`refuel --speckit` — the default since spec 048 — calls no briefing agents at
+all (`grep -rn "contrarian\|briefing" src/maverick/workflows/refuel_speckit/`
+returns nothing), and makes zero model calls outside opt-in `--enrich`. So the
+cost this item targets is only paid by repositories without Spec Kit
+artifacts. That weakens the urgency and strengthens a different option:
+retiring the briefing room along with the legacy path, rather than optimizing
+it. Note also issue #166 — the contrarian agent fails structured output
+repeatedly on haiku, which is a reason to shrink the footprint on its own.
+
 Relevant code:
 
-- [src/maverick/actors/briefing.py](src/maverick/actors/briefing.py)
+- [src/maverick/agents/briefing/](src/maverick/agents/briefing/)
 - [src/maverick/preflight_briefing/serializer.py](src/maverick/preflight_briefing/serializer.py)
 - [src/maverick/workflows/generate_flight_plan/workflow.py](src/maverick/workflows/generate_flight_plan/workflow.py)
 - [src/maverick/workflows/refuel_maverick/workflow.py](src/maverick/workflows/refuel_maverick/workflow.py)
@@ -247,41 +385,54 @@ The real target is not "fewer rules" in the abstract. It is:
 
 Relevant code:
 
-- [src/maverick/agents/prompts/common.py](src/maverick/agents/prompts/common.py)
+- [src/maverick/agents/system_prompts/](src/maverick/agents/system_prompts/) — one persona file per role
 - [CLAUDE.md](CLAUDE.md)
-- [src/maverick/agents/implementer.py](src/maverick/agents/implementer.py)
+- [src/maverick/agents/coding.py](src/maverick/agents/coding.py)
 
 ### 2.3 Route Agent Tool Calls Through The Owning Actor
 
-**Status:** Active
+**Status:** Superseded *(2026-08-22)*
 
-This remains one of the cleanest architectural follow-ups in the repo.
+Neither side of this item exists. There is no MCP inbox server
+(`src/maverick/tools/` is gone) and no actors (`src/maverick/actors/` is
+gone). The layering problem it described — per-role tool-call policy leaking
+into the ACP client or up into the supervisor — was dissolved rather than
+fixed: agents no longer *call a tool* to return their result. They declare a
+`result_model` and airframe forces the provider to produce it, so the payload
+arrives as a validated Pydantic object on the return path of
+`Agent._execute_via_runtime`.
 
-Current state:
+The boundary the item wanted is now `Agent` (owns HOW: prompt, role, result
+model) versus the Burr action that invoked it (owns WHAT/WHEN). Nothing routes
+around it.
 
-- The MCP inbox server validates tool payloads and then tells the supervisor directly.
-- The owning actor does not observe its own agent's tool calls.
-- Per-role tool-call policy therefore leaks downward into the ACP client or upward into the supervisor.
-
-Why it still matters:
-
-- It would simplify one-shot and per-role policies.
-- It would make tool-call tracing more coherent.
-- It would create a cleaner boundary between ACP or MCP concerns and actor concerns.
-
-Relevant code:
-
-- [src/maverick/tools/agent_inbox/gateway.py](src/maverick/tools/agent_inbox/gateway.py)
-- [src/maverick/actors/decomposer.py](src/maverick/actors/decomposer.py)
-- [src/maverick/actors/briefing.py](src/maverick/actors/briefing.py)
+*Retained because the underlying instinct — the component that owns an agent
+should observe what that agent does — is still a good test to apply to new
+designs.*
 
 ### 2.4 Shared Mailbox Actor Scaffold
 
-**Status:** Active
+**Status:** Superseded — and independently delivered *(2026-08-22)*
 
-This opportunity is new and surfaced directly from the current code.
+The duplication this described was real, and it was removed — not by
+extracting a mailbox scaffold, but by deleting the mailbox model entirely.
+The Burr migration replaced per-workflow actors with two composed layers:
 
-Several mailbox-oriented actors repeat the same mechanics:
+- **`Squadron`** ([src/maverick/squadron/](src/maverick/squadron/)) — the
+  per-run lifecycle container. It builds one runtime per role, opens every
+  agent, and closes them all on exit. This is the "shared scaffold" the item
+  asked for.
+- **`Agent`** ([src/maverick/agents/base.py](src/maverick/agents/base.py)) —
+  owns runtime scope, structured-output validation, session rotation, and cost
+  telemetry, so subclasses add only prompts and domain methods.
+
+Each of the six repeated mechanics below is gone or centralized: lazy executor
+creation and session lookup live in `Agent.open()`/`rotate_session()`; the
+required-tool suffix and inbox read/parse/unlink no longer exist at all, since
+structured output replaced tool-call-as-return; nudge retries are airframe's
+concern.
+
+*Original observation, for the record.* Several mailbox-oriented actors repeated the same mechanics:
 
 - lazy executor creation;
 - session lookup or creation;
@@ -292,44 +443,80 @@ Several mailbox-oriented actors repeat the same mechanics:
 
 The repetition is visible across:
 
-- [src/maverick/workflows/generate_flight_plan/actors/briefing.py](src/maverick/workflows/generate_flight_plan/actors/briefing.py)
-- [src/maverick/workflows/fly_beads/actors/implementer.py](src/maverick/workflows/fly_beads/actors/implementer.py)
-- [src/maverick/workflows/fly_beads/actors/reviewer.py](src/maverick/workflows/fly_beads/actors/reviewer.py)
+- `src/maverick/workflows/generate_flight_plan/actors/briefing.py`
+- `src/maverick/workflows/fly_beads/actors/implementer.py`
+- `src/maverick/workflows/fly_beads/actors/reviewer.py`
 
-Maverick already extracted async loop plumbing for top-level Thespian actors into [src/maverick/actors/_bridge.py](src/maverick/actors/_bridge.py). The mailbox actors want the same treatment.
+Maverick had already extracted async loop plumbing for top-level actors into `src/maverick/actors/_bridge.py`; the mailbox actors wanted the same treatment. All of these files were deleted in the Burr migration.
 
 ### 2.5 Named Capability Profiles End-To-End
 
-**Status:** Active
+**Status:** Active — reframed *(2026-08-22)*
 
-Tool sets are already centralized for many agent classes in [src/maverick/agents/tools.py](src/maverick/agents/tools.py), but runtime overrides still fall back to raw tool lists in several actor and executor paths.
+The original framing (`agents/tools.py`, executor overrides, MCP tool
+additions) is obsolete; none of those exist. But a version of the problem
+survived the migration in a new form.
 
-Why it still matters:
+Capability intent is now split across three places that do not know about each
+other:
 
-- Capability intent is currently split between agent defaults, actor wiring, executor overrides, and MCP tool additions.
-- Stronger named profiles would reduce drift and make routing or policy work easier later.
+- **`agents.<role>`** in `maverick.yaml` — the provider/model binding per role,
+  resolved by [src/maverick/runtime/agent_factory.py](src/maverick/runtime/agent_factory.py).
+- **`actors.<workflow>.<actor>.tiers`** — per-complexity overrides for three
+  actors only (fly's implementer and reviewer, refuel's decomposer), see §2.10.
+- **`Agent` subclass attributes** — `result_model`, `provider_tier`,
+  `persona_name`, declared in Python, not config.
+
+There is still no named profile that says "this is what a *reviewer* is,
+end to end." The drift risk the item named is unchanged; only the surfaces
+moved.
 
 Relevant code:
 
-- [src/maverick/agents/tools.py](src/maverick/agents/tools.py)
-- [src/maverick/executor/config.py](src/maverick/executor/config.py)
-- [src/maverick/actors/decomposer.py](src/maverick/actors/decomposer.py)
+- [src/maverick/runtime/agent_factory.py](src/maverick/runtime/agent_factory.py)
+- [src/maverick/squadron/tiers.py](src/maverick/squadron/tiers.py)
+- [src/maverick/agents/base.py](src/maverick/agents/base.py)
 
 ### 2.6 Consider Agent Teams For Parallel Review
 
-**Status:** Active
+**Status:** Active *(re-checked 2026-08-22)*
 
-This is still worth evaluating, but it is no longer an obvious must-have. Maverick already has a mature actor-mailbox model for reviewer concurrency.
+Still worth evaluating, still not an obvious must-have — but the comparison
+baseline changed. The "mature actor-mailbox model" this weighed against no
+longer exists; concurrency is now expressed as Burr graph structure plus
+`Squadron`-managed agent lifetimes.
 
-That means the right question is narrow:
+The narrow question is unchanged and still the right one:
 
 - would native Agent Teams replace meaningful orchestration code or just rename it?
 
-Until there is a clearer payoff, this should remain exploratory.
+Until there is a clearer payoff, this should remain exploratory. Note that the
+roadmap's concurrent dispatcher (Tier 2, item 9) will answer the adjacent
+question — bounded parallelism across *beads* — using the isolation primitive
+rather than any vendor team abstraction, which is likely to settle this by
+precedent.
 
 ### 2.7 ACP Prompt-Cache Optimization
 
-**Status:** Implemented (Phase A and Phase B shipped 2026-04-24; Phases C / D / 1h-TTL closed as not needed)
+**Status:** Implemented, now moot *(2026-08-22)*
+
+> **The ACP executor was deleted.** `src/maverick/executor/acp.py`,
+> `_connection_pool.py`, and the xoscar actors named throughout this section
+> are all gone; every LLM call now goes through **airframe**, which owns
+> session and cache behaviour. The engineering below shipped and then the
+> subsystem it shipped into was replaced.
+>
+> Kept for one durable finding, which is provider behaviour rather than
+> maverick behaviour and therefore still true: **Anthropic's prompt cache is
+> content-keyed, not session-keyed.** Two different sessions with the same
+> prefix share cache (structuralist and recon each read ~33.9K cached tokens
+> in one refuel). That is why session rotation between beads costs nothing in
+> cache terms — a fact `Agent.rotate_session()` still quietly depends on.
+>
+> The rest — Phase A/B implementation notes, the xoscar-migration bug list —
+> is archaeology.
+
+*Original entry (Phase A and Phase B shipped 2026-04-24; Phases C / D / 1h-TTL closed as not needed):*
 
 Per-turn Anthropic quota burn has been unsustainable. The original hypothesis was that Maverick was getting ~0% cache hits because the Claude Agent SDK disables caching by default when MCP servers are attached (per Anthropic docs). Phase A observability proved that hypothesis **wrong**. Live run against `sample-maverick-project` on 2026-04-24:
 
@@ -375,14 +562,23 @@ The 5-min default is enough for every phase we've measured. Structuralist/recon 
 
 Relevant code:
 
-- [src/maverick/executor/acp.py](src/maverick/executor/acp.py) (`_execute_with_retry`, `_ensure_session`)
-- [src/maverick/executor/_connection_pool.py](src/maverick/executor/_connection_pool.py) (subprocess env construction — site for `ENABLE_PROMPT_CACHING_1H` if ever needed)
+- `src/maverick/executor/acp.py` (`_execute_with_retry`, `_ensure_session`)
+- `src/maverick/executor/_connection_pool.py` (subprocess env construction — site for `ENABLE_PROMPT_CACHING_1H` if ever needed)
 
 ### 2.8 Consolidate Agent `_end_turn` Helpers
 
-**Status:** Active (minor refactor)
+**Status:** Superseded *(2026-08-22)*
 
-Each of the five xoscar agent actors (`briefing`, `decomposer`, `implementer`, `reviewer`, `generator`) has its own ``_end_turn()`` helper that does the same thing: after ``on_tool_call`` forwards a payload to the supervisor, cancel the current ACP turn via ``self._executor.cancel_session(self._session_id)`` with best-effort error handling. The five copies are identical modulo the logger name.
+Resolved by deletion. The five xoscar agent actors this described do not
+exist, and neither does the pattern: agents no longer end a turn by cancelling
+an ACP session after a tool call forwards a payload, because there is no tool
+call on the return path. `Agent._execute_via_runtime` returns the validated
+payload directly.
+
+The item's own deferral condition ("defer until a sixth agent-with-inbox gets
+added") was never met and now never can be.
+
+*Original observation.* Each of the five xoscar agent actors (`briefing`, `decomposer`, `implementer`, `reviewer`, `generator`) has its own ``_end_turn()`` helper that does the same thing: after ``on_tool_call`` forwards a payload to the supervisor, cancel the current ACP turn via ``self._executor.cancel_session(self._session_id)`` with best-effort error handling. The five copies are identical modulo the logger name.
 
 This is a minor code smell rather than a bug — each copy is ~10 lines and they don't drift easily since the regression test in `test_super_init.py` forces the presence of the agent-side cancel pattern. Extraction options:
 
@@ -393,18 +589,33 @@ Either works; the mixin is slightly cleaner since the helper needs `self._sessio
 
 Relevant code:
 
-- [src/maverick/actors/xoscar/briefing.py](src/maverick/actors/xoscar/briefing.py) (`_end_turn`)
-- [src/maverick/actors/xoscar/decomposer.py](src/maverick/actors/xoscar/decomposer.py) (`_end_turn`)
-- [src/maverick/actors/xoscar/implementer.py](src/maverick/actors/xoscar/implementer.py) (`_end_turn`)
-- [src/maverick/actors/xoscar/reviewer.py](src/maverick/actors/xoscar/reviewer.py) (`_end_turn`)
-- [src/maverick/actors/xoscar/generator.py](src/maverick/actors/xoscar/generator.py) (`_end_turn`)
+- `src/maverick/actors/xoscar/briefing.py` (`_end_turn`)
+- `src/maverick/actors/xoscar/decomposer.py` (`_end_turn`)
+- `src/maverick/actors/xoscar/implementer.py` (`_end_turn`)
+- `src/maverick/actors/xoscar/reviewer.py` (`_end_turn`)
+- `src/maverick/actors/xoscar/generator.py` (`_end_turn`)
 
 ### 2.9 Move Tool-Required Framework Wrapper To System Prompt
 
-**Status:** Active (per-turn token-overhead reduction)
+**Status:** Superseded *(2026-08-22)*
 
-Commit `3d1303f` introduced `build_tool_required_prompt()` /
-`build_tool_required_nudge_prompt()` in [src/maverick/actors/xoscar/_agentic.py](src/maverick/actors/xoscar/_agentic.py) to fix
+> The wrapper this proposed to relocate no longer exists.
+> `src/maverick/actors/xoscar/_agentic.py` was deleted with the rest of the
+> actor tree, and the problem it solved — getting a model to reliably call
+> `submit_*` as its return path — was removed at the root: airframe's
+> structured output makes the provider enforce the result schema, so there is
+> no "REQUIRED: submit via tool call" instruction to inject, and therefore no
+> per-turn boilerplate to hoist into a system prompt.
+>
+> **Worth carrying forward:** the *original* bug is a real hazard that outlives
+> this fix. A user-supplied document (a PRD, a spec) can be misread as
+> instructions to the agent. Structured output removed one instance of that
+> confusion; it does not make prompt injection from ingested documents
+> impossible, and any future feature that appends framework instructions after
+> user content should reintroduce explicit content markers.
+
+*Original entry (per-turn token-overhead reduction).* Commit `3d1303f` introduced `build_tool_required_prompt()` /
+`build_tool_required_nudge_prompt()` in `src/maverick/actors/xoscar/_agentic.py` to fix
 a real prompt-injection-style refusal we hit on the earlybird PRD: the
 codebase analyst was treating maverick's appended `## REQUIRED: Submit
 via tool call` instruction as if the user-supplied document was telling
@@ -452,15 +663,49 @@ user-visible failure.
 
 Relevant code:
 
-- [src/maverick/actors/xoscar/_agentic.py](src/maverick/actors/xoscar/_agentic.py) (`build_tool_required_prompt`,
+- `src/maverick/actors/xoscar/_agentic.py` (`build_tool_required_prompt`,
   `build_tool_required_nudge_prompt`)
-- [src/maverick/executor/acp.py](src/maverick/executor/acp.py) (`create_session` — would need a
+- `src/maverick/executor/acp.py` (`create_session` — would need a
   `system_prompt` parameter for option 1)
 - All five actor `_send_*` methods.
 
 ### 2.10 Per-Bead Complexity-Based Model Routing
 
-**Status:** Phases 1, 2, 2b, and 3 implemented
+**Status:** Partial — the routing survived the migration, one reading of it did not *(2026-08-22)*
+
+The feature is real and in use. Complexity classification, the tier config
+block, and per-complexity binding resolution all came through the Burr
+migration; the surfaces moved, so the file references in the phase notes below
+are largely stale (`tools/agent_inbox/*`, `library/actions/decompose.py` as an
+actor path). Current homes:
+
+- [src/maverick/config.py](src/maverick/config.py) — `lookup_tiers_config()`,
+  which degrades a malformed block to `None` with a warning rather than failing
+  startup.
+- [src/maverick/squadron/tiers.py](src/maverick/squadron/tiers.py) —
+  `TIER_ORDER`, the `DEFAULT_TIER` sentinel, `binding_for_complexity()`,
+  `escalation_ladder()`.
+- [src/maverick/runtime/agent_factory.py](src/maverick/runtime/agent_factory.py) —
+  role-to-runtime resolution.
+
+Three tier-aware actors exist: fly's `implementer` and `reviewer`, refuel's
+`decomposer`.
+
+**Two things are worth knowing that the phase notes below do not say:**
+
+1. **Escalation ladders come from the squadron, never hardcoded.** A rung may
+   only name a tier the squadron built a *distinct* binding for, so a squadron
+   with no `tiers:` config yields a one-rung ladder and nothing escalates.
+   Escalating to an identical binding is a retry wearing a costume, and it
+   hides the fact that the binding never varied.
+2. **`escalation_threshold` is still unimplemented on the implementer.** It
+   means different things on different models — "escalation steps" on
+   `DecomposerTiersConfig`, "fix rounds before promoting" on
+   `ImplementerTiersConfig` — which is why `escalation_ladder()` takes an
+   explicit `max_steps` rather than reading it. The implementer reading is not
+   wired up. That is the concrete open work in this item.
+
+*Original phase notes follow; treat their file paths as historical.*
 
 **Background.** Bead workloads vary wildly inside a single epic — "create
 LICENSE file" and "implement complete tax engine" are both single beads
@@ -475,9 +720,9 @@ finally cheap to route by need.
 outline time into one of `trivial | simple | moderate | complex`.
 Schema additions span:
 
-- [src/maverick/tools/agent_inbox/models.py](src/maverick/tools/agent_inbox/models.py)
+- `src/maverick/tools/agent_inbox/models.py`
   (`WorkUnitOutlinePayload.complexity`, `WorkUnitComplexity` Literal)
-- [src/maverick/tools/agent_inbox/schemas.py](src/maverick/tools/agent_inbox/schemas.py)
+- `src/maverick/tools/agent_inbox/schemas.py`
   (`SUBMIT_OUTLINE` JSONSchema enum + classification rubric in the
   property description)
 - [src/maverick/library/actions/decompose.py](src/maverick/library/actions/decompose.py)
@@ -576,11 +821,11 @@ Relevant code:
 
 - [src/maverick/executor/config.py](src/maverick/executor/config.py)
   (StepConfig — the place to add optional `tiers`)
-- [src/maverick/actors/xoscar/messages.py](src/maverick/actors/xoscar/messages.py)
+- `src/maverick/actors/xoscar/messages.py`
   (`ImplementRequest` — needs a `complexity` field)
-- [src/maverick/actors/xoscar/implementer.py](src/maverick/actors/xoscar/implementer.py)
+- `src/maverick/actors/xoscar/implementer.py`
   (`send_implement` / `new_bead` — pick tier, build per-bead config)
-- [src/maverick/actors/xoscar/fly_supervisor.py](src/maverick/actors/xoscar/fly_supervisor.py)
+- `src/maverick/actors/xoscar/fly_supervisor.py`
   (read bead complexity from the work-unit markdown / spec, pass in
   ImplementRequest, drive escalation when fix-loop count exceeds
   threshold)
@@ -602,7 +847,7 @@ global cap is the hard ceiling.
 **As shipped:**
 
 - New :class:`SubprocessQuota`
-  ([src/maverick/tools/agent_inbox/subprocess_quota.py](src/maverick/tools/agent_inbox/subprocess_quota.py)):
+  (`src/maverick/tools/agent_inbox/subprocess_quota.py`):
   pool-scoped acquire/release with LRU eviction of idle leases. The
   slot is held for the lifetime of the executor's subprocess pool, not
   per-prompt. Reentrant (a re-acquire by the same uid bumps activity).
@@ -728,7 +973,13 @@ cluster on a particular dimension, then add the next axis if they do.
 
 ### 2.11 Auto Tech-Debt Beads From Approved-With-Findings Reviews
 
-**Status:** Active
+**Status:** Active *(re-checked 2026-08-22 — still accurate)*
+
+Verified against the current graph: `review` transitions to
+`create_human_bead` only when `needs_human_review` is set, otherwise straight
+to `commit`. Non-blocking findings on an approved review are still recorded to
+runway and dropped. Substitute "the `record_outcome` action" for "the
+supervisor" in the proposal below; everything else stands.
 
 **Background.** Today the fly review loop has a hard binary: a review is
 either `approved` (bead commits, fly moves on) or `not approved` (fix
@@ -825,7 +1076,7 @@ in the default config.
 
 **Relevant code:**
 
-* [src/maverick/actors/xoscar/fly_supervisor.py](src/maverick/actors/xoscar/fly_supervisor.py)
+* `src/maverick/actors/xoscar/fly_supervisor.py`
   (`_review_loop` — natural call site)
 * [src/maverick/library/actions/runway.py](src/maverick/library/actions/runway.py)
   (existing `record_review_findings` — add a sibling)
@@ -833,14 +1084,37 @@ in the default config.
   (existing bead creation — extend with parent + label fields)
 * [src/maverick/config.py](src/maverick/config.py) (new
   `tech_debt_severity_floor` knob)
-* [src/maverick/library/fragments/review-and-fix-with-registry.yaml](src/maverick/library/fragments/review-and-fix-with-registry.yaml)
+* `src/maverick/library/fragments/review-and-fix-with-registry.yaml`
   (precedent for how the legacy review path handles this — worth
   reading before implementing for consistency)
 
 ### 2.12 Free OpenRouter Models Often Skip MCP Tool Calls
 
-**Status:** Active (known limitation, hit during 2026-04-27 Phase 3
-validation)
+**Status:** Reframed — the finding survived, the mechanism didn't *(2026-08-22)*
+
+There is no MCP tool call to skip. But the underlying observation — **weak or
+free-tier models fail to produce a valid structured result, and the failure
+surfaces as an empty or unusable turn** — survived the migration intact. It is
+now expressed as airframe raising
+`error_max_structured_output_retries` after exhausting its internal attempts.
+
+Live evidence post-migration: issue **#166**, where the contrarian briefing
+agent fails structured output on `claude-haiku-4-5` twice in a row on the same
+input, five internal retries each time, while its three sibling personas on the
+identical binding succeed every run.
+
+Both of the item's proposals translate directly and are still unbuilt:
+
+- **Detect at config-load time** — warn when a role or tier is bound to a model
+  known to be unreliable for structured output. The `:free` suffix heuristic
+  generalizes to "model capability is not validated against the payload
+  complexity the role demands."
+- **Auto-fallback on consecutive failures** — escalate a tier rather than
+  failing the unit. The escalation ladder now exists
+  ([src/maverick/squadron/tiers.py](src/maverick/squadron/tiers.py)) but is
+  driven by complexity and fix rounds, not by structured-output failure.
+
+*Original entry (known limitation, hit during 2026-04-27 Phase 3 validation).*
 
 When `qwen3-coder:free` was wired into the moderate implementer tier
 via opencode/OpenRouter, the agent returned empty responses on both
@@ -885,7 +1159,7 @@ tier that powers a mailbox actor. Both reliably call MCP tools.
 
 Relevant code:
 
-- [src/maverick/actors/xoscar/_agentic.py](src/maverick/actors/xoscar/_agentic.py)
+- `src/maverick/actors/xoscar/_agentic.py`
   (`_run_with_self_nudge` — natural place to count consecutive empty
   turns and trigger escalation)
 - [src/maverick/config.py](src/maverick/config.py) (warn on
@@ -928,9 +1202,17 @@ The most important constraint remains the same:
 - the workflow loop should stay authoritative;
 - any supervisor agent should advise or patch policy, not replace routing logic.
 
+**Reconciliation note (2026-08-22):** reframe against Burr. There is no
+supervisor to make adaptive — orchestration is a declared state machine, so
+the natural shape of this item is now a *policy layer that influences
+transitions and bound parameters* (retry budgets, tier selection, timeouts),
+leaving `burr_graph.py`'s topology authoritative. That is a smaller and
+better-defined change than the original "advisor actor alongside a supervisor".
+
 Relevant code:
 
-- [src/maverick/actors/fly_supervisor.py](src/maverick/actors/fly_supervisor.py)
+- [src/maverick/burr/driver.py](src/maverick/burr/driver.py)
+- [src/maverick/workflows/fly_beads/burr_graph.py](src/maverick/workflows/fly_beads/burr_graph.py)
 - [src/maverick/workflows/base.py](src/maverick/workflows/base.py)
 - [src/maverick/session_journal.py](src/maverick/session_journal.py)
 
@@ -950,9 +1232,19 @@ There is still no first-class eval layer, no fixture capture pipeline, and no de
 
 This remains high leverage because it speeds up every other optimization loop.
 
+**Reconciliation note (2026-08-22):** still unbuilt, and the seam improved.
+airframe is a single interception point for every LLM call, and agents already
+declare typed `result_model`s — so a fixture-capture pipeline now has one place
+to hook and a schema to validate replays against, neither of which was true in
+April. Issues **#17** (evaluator protocol), **#26** (OpenInference tracing), and
+**#27** (Phoenix backend) propose a concrete implementation; note that #27's
+design assumes a session-log substrate that should be re-checked before it is
+picked up.
+
 Relevant code:
 
-- [src/maverick/executor/acp.py](src/maverick/executor/acp.py)
+- [src/maverick/runtime/agent_factory.py](src/maverick/runtime/agent_factory.py)
+- [src/maverick/agents/base.py](src/maverick/agents/base.py)
 - [src/maverick/cli/workflow_executor.py](src/maverick/cli/workflow_executor.py)
 - [pyproject.toml](pyproject.toml)
 
@@ -984,9 +1276,13 @@ Pieces already exist:
 
 - workflow identifiers in [src/maverick/events.py](src/maverick/events.py);
 - run metadata in [src/maverick/runway/run_metadata.py](src/maverick/runway/run_metadata.py);
-- sequence and reply edges in [src/maverick/workflows/fly_beads/actors/protocol.py](src/maverick/workflows/fly_beads/actors/protocol.py).
+- per-run directories under `.maverick/runs/<run-id>/` — the land report, protection-blocks artifact, and spec-chain checkpoints all key off the same run id.
 
-What is missing is one causality envelope that ties logs, events, actor messages, and persisted artifacts together end to end.
+What is missing is one causality envelope that ties logs, events, Burr state
+transitions, and persisted artifacts together end to end. Confirmed still
+missing on 2026-08-22: `grep -rn trace_id src/` returns nothing. The `run_id`
+is the closest thing to a correlation key today, and it is threaded by
+convention rather than carried in a typed envelope. See issue **#18**.
 
 ### 3.7 Canonical Artifact Rendering And Formatting
 
@@ -997,7 +1293,13 @@ The codebase has started moving toward canonical renderers, especially around ge
 What exists:
 
 - canonical flight plan markdown in [src/maverick/workflows/generate_flight_plan/markdown.py](src/maverick/workflows/generate_flight_plan/markdown.py);
-- typed MCP intake models in [src/maverick/tools/agent_inbox/models.py](src/maverick/tools/agent_inbox/models.py).
+- typed agent result payloads in [src/maverick/payloads.py](src/maverick/payloads.py);
+- **a worked example of getting this right** (2026-08-22): spec 053's
+  `entry_to_dict` ([src/maverick/assumptions/serialize.py](src/maverick/assumptions/serialize.py))
+  is one row projection shared verbatim by `review --list --json` and the land
+  report, specifically so the two surfaces cannot drift. Spec 056 did the same
+  for `BlockRecord.to_dict()` across its event stream and its artifact. That is
+  the pattern this item is asking to generalize.
 
 What should happen next:
 
@@ -1006,7 +1308,15 @@ What should happen next:
 
 ### 3.8 Review Prompts Don't Emit `acp_executor.prompt_usage`
 
-**Status:** Implemented
+**Status:** Implemented, now moot *(2026-08-22)*
+
+> Fixed in the ACP executor, which no longer exists. Cost/usage telemetry is
+> now airframe's, surfaced through each `Agent`'s cost sink into the squadron.
+> Retained only because the *shape* of the fix is a good habit: the usage log
+> fired from a `finally` with an `exit_path` field, so no return path —
+> success, timeout, error, circuit-breaker — could bypass it.
+
+*Original entry:* **Status:** Implemented
 
 Originally observed during the 2026-04-24 e2e run on `sample-maverick-project`. The fly run closed 12 beads with this log breakdown:
 
@@ -1018,9 +1328,9 @@ Originally observed during the 2026-04-24 e2e run on `sample-maverick-project`. 
 
 Reviews clearly succeeded (12 beads closed) but ``prompt_usage`` never logged for them. Implementer prompts on the same run logged correctly. Hypothesis was that the reviewer's agent-side cancel from ``on_tool_call._end_turn`` was racing the response path, routing prompt() returns through a branch that bypassed the inline log.
 
-**Fix shipped:** rather than chase the specific bypass, made the log structurally unbypassable. ``prompt_session`` in [src/maverick/executor/acp.py](src/maverick/executor/acp.py) now logs ``acp_executor.prompt_usage`` from a ``finally`` block with a new ``exit_path`` field tracked across the prompt's lifetime. Locals ``usage`` and ``exit_path`` are initialized to safe defaults (``None`` / ``"unknown"``) and updated as execution progresses; the finally fires the log regardless of whether the path was success, timeout, ``AcpRequestError``, circuit-breaker abort, or any unexpected exception. ``usage`` is captured *before* the circuit-breaker check so token counts stay visible on aborts.
+**Fix shipped:** rather than chase the specific bypass, made the log structurally unbypassable. ``prompt_session`` in `src/maverick/executor/acp.py` now logs ``acp_executor.prompt_usage`` from a ``finally`` block with a new ``exit_path`` field tracked across the prompt's lifetime. Locals ``usage`` and ``exit_path`` are initialized to safe defaults (``None`` / ``"unknown"``) and updated as execution progresses; the finally fires the log regardless of whether the path was success, timeout, ``AcpRequestError``, circuit-breaker abort, or any unexpected exception. ``usage`` is captured *before* the circuit-breaker check so token counts stay visible on aborts.
 
-**Tests added** in ``TestPromptUsageExitPath`` ([tests/unit/executor/test_acp_executor.py](tests/unit/executor/test_acp_executor.py)) — one per exit path:
+**Tests added** in ``TestPromptUsageExitPath`` (`tests/unit/executor/test_acp_executor.py`) — one per exit path:
 
 - ``success`` → ``usage_reported=True`` with token counts.
 - ``timeout`` → ``usage_reported=False`` (no response captured).
@@ -1037,7 +1347,7 @@ The CuratorAgent system prompt deliberately strips bead IDs and pipeline mechani
 
 **Layer 1 — `Refs:` trailer in landed commits (Implemented):**
 
-CuratorAgent's [SYSTEM_PROMPT](src/maverick/agents/curator.py) now keeps stripping bead IDs from the subject but instructs the model to extract every ``bead(id):`` source prefix and emit a single ``Refs: <id>, <id>`` trailer at the bottom of every rewritten message — squashes plural, snapshots empty.
+CuratorAgent's `SYSTEM_PROMPT` now keeps stripping bead IDs from the subject but instructs the model to extract every ``bead(id):`` source prefix and emit a single ``Refs: <id>, <id>`` trailer at the bottom of every rewritten message — squashes plural, snapshots empty.
 
 Two new helpers in the same module:
 
@@ -1046,7 +1356,7 @@ Two new helpers in the same module:
 
 Caveat documented in the helper: post-processing only knows the describe target's bead IDs, not commits that were *squashed into* the target before the describe. Squash-merge attribution still relies on the LLM following the prompt — the safety net guarantees a trailer exists, the prompt is responsible for cross-commit completeness.
 
-Tests in ``TestExtractBeadIds`` and ``TestEnsureRefsTrailers`` ([tests/unit/agents/test_curator.py](tests/unit/agents/test_curator.py)) cover: single bead, multiple beads in a squash, snapshot (no trailer), pre-existing trailer (preserved), unknown change_id (left alone), multi-paragraph body (blank-line separator preserved), non-describe commands (untouched).
+Tests in ``TestExtractBeadIds`` and ``TestEnsureRefsTrailers`` (`tests/unit/agents/test_curator.py`) cover: single bead, multiple beads in a squash, snapshot (no trailer), pre-existing trailer (preserved), unknown change_id (left alone), multi-paragraph body (blank-line separator preserved), non-describe commands (untouched).
 
 **Layer 2 — Runway as system of record for full provenance (Active):**
 
@@ -1060,7 +1370,7 @@ The trailer is the join key from public git history into runway. Without runway 
 
 **Relevant code:**
 
-- [src/maverick/agents/curator.py](src/maverick/agents/curator.py) (SYSTEM_PROMPT, ``extract_bead_ids``, ``ensure_refs_trailers``)
+- `src/maverick/agents/curator.py` (SYSTEM_PROMPT, ``extract_bead_ids``, ``ensure_refs_trailers``)
 - [src/maverick/cli/commands/land.py](src/maverick/cli/commands/land.py) (calls ``ensure_refs_trailers`` after ``parse_plan``)
 - [src/maverick/workflows/fly_beads/_commit.py](src/maverick/workflows/fly_beads/_commit.py) (existing ``bead({id}): {title}`` source)
 - [src/maverick/runway/](src/maverick/runway/) (Layer 2 — per-attempt ``(provider, model, prompt_hash)`` capture, still pending)
@@ -1263,9 +1573,34 @@ Relevant code:
 
 ### 4.6 Reduce MCP Tool-Call Reliability As A Hard Dependency
 
-**Status:** Active — three sub-items, ordered by ROI.
+**Status:** Superseded — solved at the root *(2026-08-22)*
 
-Maverick's mailbox-actor protocol requires every agentic actor (briefing,
+> This item's premise was that structured output *depends on the model
+> choosing to call a tool*, which is model-dependent and therefore unreliable.
+> That dependency is gone. Agents declare a `result_model` and **airframe
+> forces the provider to return it**, using each provider's native
+> structured-output mechanism rather than a hoped-for MCP tool call. There is
+> no `submit_details` tool, no mailbox file, no nudge retry.
+>
+> The sub-items resolve as follows:
+>
+> - **§4.6.1 JSON-in-text fallback** — implemented for the decomposer before
+>   the migration, then made redundant by it.
+> - **§4.6.2 `response_format: json_schema`** — effectively *delivered*, since
+>   this is precisely what airframe now negotiates per provider. The item was
+>   asking maverick to do what its runtime layer now does for it.
+> - **§4.6.3 Per-tier capability documentation** — the only part still worth
+>   anything, and it belongs to §2.12: models still vary in whether they can
+>   satisfy a complex schema, they just fail differently now
+>   (`error_max_structured_output_retries` instead of a silent empty turn).
+>   Issue **#166** is a live instance.
+>
+> The hit-rate table below is worth keeping as a record of how wide the
+> spread was.
+
+*Original entry — Active, three sub-items, ordered by ROI.*
+
+Maverick's mailbox-actor protocol required every agentic actor (briefing,
 decomposer, implementer, reviewer, generator) to deliver structured
 output via an MCP tool call (``submit_details``, ``submit_review``, etc.).
 Schema-validated payloads from Pydantic are a real win, but tool-call
@@ -1306,7 +1641,7 @@ miss tool calls produce the JSON inline.
 As shipped:
 
 - Module-level helpers in
-  [src/maverick/actors/xoscar/_agentic.py](src/maverick/actors/xoscar/_agentic.py):
+  `src/maverick/actors/xoscar/_agentic.py`:
   ``_extract_json_candidates`` finds fenced code blocks (``\`\`\`json``,
   ``\`\`\``) plus the whole text as a final fallback;
   ``try_parse_tool_payload_from_text`` runs each candidate through
@@ -1323,7 +1658,7 @@ As shipped:
   tools), and for ``submit_outline`` / ``submit_fix`` via
   ``_run_with_self_nudge``'s new parameter.
 - 15 unit tests in
-  [tests/unit/actors/xoscar_runtime/test_json_fallback.py](tests/unit/actors/xoscar_runtime/test_json_fallback.py):
+  `tests/unit/actors/xoscar_runtime/test_json_fallback.py`:
   fenced-block extraction, plain-text extraction, multi-candidate
   ordering, schema mismatches, malformed JSON, non-dict JSON, end-to-
   end parse for ``submit_details`` / ``submit_outline`` /
@@ -1414,7 +1749,28 @@ of the pain.
 
 ### 4.7 Per-Project OpenCode Agent/Skill Overrides
 
-**Status:** Active (deferred — defaults-only path ships first)
+**Status:** Reframed *(2026-08-22)*
+
+> The OpenCode-native simplification described below was not the direction
+> taken. `src/maverick/runtime/opencode/` does not exist; OpenCode is one
+> airframe provider among several (Claude Code, Copilot, OpenRouter, Bedrock,
+> Kimi), selected per role in `maverick.yaml`. Persona prompts live in
+> [src/maverick/agents/system_prompts/](src/maverick/agents/system_prompts/)
+> as markdown that ships with the package — so the *bundled defaults* half of
+> this item happened, just not via `OPENCODE_CONFIG_DIR`.
+>
+> **The follow-on is still open and now provider-neutral:** there is no way for
+> a project to override or extend a persona prompt without editing the
+> installed package. The right shape is a per-project override layer keyed by
+> role, resolved once in `agent_factory`, rather than anything OpenCode-specific.
+>
+> Precedent worth copying: spec 053's `maverick-review` skill is installed into
+> the project at `.claude/skills/` and deliberately **always overwritten**,
+> because it is maverick-owned and versions with the wheel. A user-owned
+> override layer needs the opposite policy, and the distinction should be
+> explicit wherever it lands.
+
+*Original entry (Active, deferred — defaults-only path ships first).*
 
 The OpenCode-native simplification effort moves persona prompts out of
 `src/maverick/agents/*.py` and into markdown agent/skill files loaded
@@ -1466,9 +1822,35 @@ Relevant code (forthcoming):
 
 ### 4.8 Substrate-Swap Interface
 
-**Status:** Active
+**Status:** Largely Implemented — by adopting one, not by defining one *(2026-08-22)*
 
-The OpenCode-substrate migration shipped in
+> This item asked for a deliberate `Substrate` Protocol so that swapping the
+> LLM runtime would be a mechanical refactor. **airframe is that boundary**,
+> and it arrived as a dependency rather than as the `runtime/substrate.py`
+> file proposed below. Every LLM call goes through
+> `runtime_for_agent(role, ...)` → an `airframe.AgentRuntime`; providers
+> (Claude Code, Copilot, OpenCode, OpenRouter, Bedrock, Kimi) are selected per
+> role in `maverick.yaml`, with the binding validated against the adapter
+> before it is returned.
+>
+> Note that the item's own justification was vindicated almost immediately:
+> it argued the seam was worth designing *before* anyone had a concrete reason
+> to switch off OpenCode. The switch happened, and the modules it named
+> (`runtime/opencode/*`, `actors/xoscar/opencode_mixin.py`) were all deleted —
+> which is the good outcome, achieved the other way round.
+>
+> **What genuinely remains** is narrower than the original item and worth
+> stating precisely: capability *variation between providers* still leaks into
+> maverick rather than being normalized by the boundary. Spec 056 is the clean
+> example — context-file protection has to ask
+> `supports_permission_callback()` and silently run without Layer 1 on
+> providers that decline (the OpenCode/OpenRouter family), with a
+> provider-blind snapshot backstop carrying the actual guarantee. That is the
+> right design, but it means "which features does this provider support"
+> is answered ad hoc at each call site instead of by a capability contract.
+> That, plus §2.5's named profiles, is the residue.
+
+*Original entry (Active).* The OpenCode-substrate migration shipped in
 [`7ea1028`](https://github.com/get2knowio/maverick/commit/7ea1028)
 unified every LLM invocation onto a single substrate
 (`agent="maverick.<role>"` resolved against bundled markdown personas
@@ -1579,24 +1961,34 @@ Relevant code (current):
 
 ### 5.1 Reusable Supervisor Fragments
 
-**Status:** Active
+**Status:** Superseded *(2026-08-22)*
 
-This is another new opportunity that became obvious while comparing the supervisor implementations.
+All three supervisors named below were deleted in the Burr migration, and the
+YAML DSL that would have hosted "fragments" was removed outright in spec 041
+(`library/fragments/` no longer exists). Composition is now expressed in
+Python: `@action` functions declaring their `reads`/`writes`, wired by
+`build_*_application()`.
 
-The major supervisors are intentionally different, but they repeat a recognizable set of shapes:
+The four repeated shapes it identified are worth re-reading as a description
+of what the graphs still do — and two of them *have* since been extracted,
+independently:
 
-- specialist fan-out followed by synthesis;
-- typed tool-intake and routing;
-- validation or gate stages with fallback behavior;
-- result aggregation and artifact writing.
+- **specialist fan-out followed by synthesis** — still duplicated between the
+  briefing room and refuel's decomposer pool.
+- **typed tool-intake and routing** — gone; structured output replaced it.
+- **validation or gate stages with fallback behavior** — partially shared via
+  `run_independent_gate` and `library/actions/validation.py`.
+- **result aggregation and artifact writing** — converging: see §3.7's note on
+  `entry_to_dict` and `BlockRecord.to_dict()` as shared projections.
 
-Relevant code:
+The instinct — "extract the two or three orchestration fragments that already
+repeat", not "add another framework" — is still the right instinct, and is
+better served now that the repetition is plain Python rather than YAML.
 
-- [src/maverick/workflows/generate_flight_plan/supervisor.py](src/maverick/workflows/generate_flight_plan/supervisor.py)
-- [src/maverick/actors/refuel_supervisor.py](src/maverick/actors/refuel_supervisor.py)
-- [src/maverick/workflows/fly_beads/supervisor.py](src/maverick/workflows/fly_beads/supervisor.py)
-
-This should stay small and compositional. The opportunity is not "add another framework." It is "extract the two or three orchestration fragments that already repeat."
+*Original entry, for the record.* The major supervisors were intentionally
+different, but repeated a recognizable set of shapes; the relevant files were
+`workflows/generate_flight_plan/supervisor.py`,
+`actors/refuel_supervisor.py`, and `workflows/fly_beads/supervisor.py`.
 
 ## 6. Completed Or Mostly Addressed Items
 
@@ -1610,7 +2002,26 @@ The current seed path is exercised by [tests/unit/runway/test_seed.py](tests/uni
 
 ### 6.2 Provider Quota Detection And Recovery
 
-**Status:** Partial — Tier 1 + Tier 1.5 implemented; Tier 2 + Tier 3 still open.
+**Status:** Partial — Tiers 1 / 1.5 / 1.6 implemented; Tier 2 + Tier 3 still open. *(re-checked 2026-08-22)*
+
+**Reconciliation note.** The detection layer survived the Burr migration —
+[src/maverick/exceptions/quota.py](src/maverick/exceptions/quota.py) is intact
+and `is_quota_error` is still the entry point — but every *consumer* named
+below (`PlanSupervisor`, `RefuelSupervisor`, `_run_detail_fan_out`, the agent
+actors) was replaced by the Burr action layer. Read the tier descriptions for
+behaviour, not for call sites; the quota handling now lives in
+`workflows/refuel_maverick/actions.py`'s escalation helpers.
+
+Two things changed the outlook for the open tiers:
+
+- **Tier 3 (automatic failover) is arguably no longer maverick's job.**
+  airframe owns provider selection, and a failover policy that switches
+  provider mid-run belongs at that boundary rather than in a workflow action.
+- **Tier 2 (wait-and-resume) is unaffected** and remains the more useful half:
+  a quota reset is a schedulable event, and spec 054 introduced the codebase's
+  first real clock seam (`assumptions/schedule/clock.py`) plus a daemonless
+  scheduler pattern that a wait-and-resume implementation could reuse rather
+  than reinvent.
 
 #### Tier 1 — Detection (implemented)
 
@@ -1756,9 +2167,9 @@ re-route." Don't build them in the other order.
 Relevant code:
 
 - [src/maverick/exceptions/quota.py](src/maverick/exceptions/quota.py)
-- [src/maverick/actors/xoscar/plan_supervisor.py](src/maverick/actors/xoscar/plan_supervisor.py)
-- [src/maverick/actors/xoscar/refuel_supervisor.py](src/maverick/actors/xoscar/refuel_supervisor.py)
-- [src/maverick/actors/xoscar/decomposer.py](src/maverick/actors/xoscar/decomposer.py) (and peers)
+- `src/maverick/actors/xoscar/plan_supervisor.py`
+- `src/maverick/actors/xoscar/refuel_supervisor.py`
+- `src/maverick/actors/xoscar/decomposer.py` (and peers)
 
 ### 6.3 Review Retry Caps
 
@@ -1766,8 +2177,8 @@ Relevant code:
 
 The old future item was too broad. The important distinction now is:
 
-- the fly-beads supervisor has a hard review cap in [src/maverick/workflows/fly_beads/supervisor.py](src/maverick/workflows/fly_beads/supervisor.py);
-- the library review-fix loop is bounded by `max_attempts` in [src/maverick/library/actions/review.py](src/maverick/library/actions/review.py).
+- the fly-beads supervisor has a hard review cap in `src/maverick/workflows/fly_beads/supervisor.py`;
+- the library review-fix loop is bounded by `max_attempts` in `src/maverick/library/actions/review.py`.
 
 The remaining work is observability and budget tuning, not adding a cap from scratch.
 
