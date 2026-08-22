@@ -51,17 +51,46 @@ came out of research and are recorded in Clarifications with their reasoning:
 5. **Apply does not run refuel** — keeping them separate preserves
    `refuel --dry-run` as a preview of the bead consequences.
 
-Three items for the planner rather than blockers on the spec:
+## Post-research revisions (2026-08-22)
 
-- **Requirement-to-task coverage** (the mapping FR-013/FR-018/FR-020 depend on)
-  is assumed derivable from the artifacts as they stand. The plan must verify
-  that against real `tasks.md` files in this repository and say what happens
-  where the reference is absent — FR-020 governs, but the plan needs to know
-  how often that case actually arises before choosing how loudly to report it.
-- **The scenario-loss guard (FR-005, SC-008)** is the highest-value requirement
-  here and the one most likely to be weakened under implementation pressure.
-  It should be built and tested before the happy-path merge, not after.
-- **Partial-region rewrite of `tasks.md`** (the assumption that hand edits
-  outside the delta's regions survive) is the riskiest assumption in the
-  document. If it proves impractical, that is a spec-level conversation, not a
-  silent narrowing.
+Two of the spec's assumptions were **measured against this repository's 54
+specs and found false**. Both were flagged above as planner risks; both turned
+out to be spec-level problems, and the spec was revised rather than the
+constraint quietly narrowed during planning.
+
+1. **Requirement-to-task coverage is not derivable.** 184 of 2,878 task lines
+   cite a requirement id — 6.4% — and 24 of 54 feature directories cite none.
+   The original FR-013/FR-018/FR-020 rested on that mapping. They now join at
+   **task identity** instead, which is structural, uniqueness-enforced at parse
+   time, and durably recorded on every bead. FR-007a states explicitly that the
+   tool must never infer the mapping.
+2. **Requirements carry no per-requirement acceptance criteria.** All 247
+   acceptance-scenario blocks sit under user stories; none are inside the
+   requirements section, and the upstream template puts them there by design.
+   The scenario-loss guard became FR-005a, a **content-loss guard** over the
+   requirement block, which is a structure the corpus actually has.
+
+One assumption **survived** and got sharper: requirement-block parsing is
+feasible. All 1,139 requirement lines match one grammar, ids are unique and
+complete. FR-002b now defines a block against five measured corpus realities —
+letter-suffixed ids, `####` grouping inside the section, indent-2 continuation
+lines, indent-2 sub-bullets, and blank lines that do **not** terminate a block.
+SC-010 pins it: parse-then-render must reproduce every existing `spec.md`
+byte-identically.
+
+Remaining planner item, unchanged:
+
+- **Partial-region rewrite** of `spec.md` and `tasks.md` — the assumption that
+  hand edits outside the delta's named regions survive — is now the riskiest
+  thing left in the document. SC-010's round-trip requirement is the mechanism
+  that makes it checkable, and it should be built first.
+
+Two incidental findings recorded here so they are not lost:
+
+- `speckit/detect.py`'s `SUPPORTED_SPECKIT_RANGE` is `>=0.14,<0.17`. Upgrading
+  to Spec Kit 1.0.x needs that widened; it is not purely a config-pin bump.
+- Ingestion stamps bead identity one key at a time and is explicitly
+  non-atomic, so a process death between creating a bead and stamping it leaves
+  a bead with no task id — invisible to withdrawal detection. FR-020 and a new
+  edge case now cover it; the underlying non-atomicity is pre-existing and
+  worth its own fix.
