@@ -195,3 +195,65 @@ async def test_persona_forwarded_in_send() -> None:
             briefing_context=None,
         )
     assert runtime.execute.await_args.kwargs["persona"] == "maverick.completeness-reviewer"
+
+
+class TestCritique:
+    """``ReviewerAgent.critique`` — one-shot standalone-scope review."""
+
+    async def test_prompt_states_scope_and_change(self) -> None:
+        runtime = _make_runtime(_approved_payload())
+        async with _make_agent(runtime) as agent:
+            await agent.critique(
+                scope_summary="working copy vs main — 4 files",
+                change_summary="src/a.py | 3 +++\n@@ -1 +1 @@\n-old\n+new",
+            )
+        prompt = runtime.execute.await_args.args[0]
+        assert "working copy vs main — 4 files" in prompt
+        assert "src/a.py | 3 +++" in prompt
+        assert "+new" in prompt
+
+    async def test_prompt_omits_bead_and_work_unit_framing(self) -> None:
+        runtime = _make_runtime(_approved_payload())
+        async with _make_agent(runtime) as agent:
+            await agent.critique(
+                scope_summary="HEAD~1..HEAD — 1 file",
+                change_summary="src/a.py | 1 +",
+            )
+        prompt = runtime.execute.await_args.args[0].lower()
+        assert "bead" not in prompt
+        assert "work unit" not in prompt
+        assert "work unit specification" not in prompt
+
+    async def test_rotates_session_before_send(self) -> None:
+        runtime = _make_runtime(_approved_payload())
+        manager = MagicMock()
+        manager.attach_mock(runtime.reset, "reset")
+        manager.attach_mock(runtime.execute, "execute")
+        async with _make_agent(runtime) as agent:
+            await agent.critique(scope_summary="scope", change_summary="change")
+        ordering = [name for name, _args, _kwargs in manager.mock_calls]
+        assert ordering.index("reset") < ordering.index("execute")
+
+    async def test_stamps_provenance(self) -> None:
+        runtime = _make_runtime(_payload_with_finding())
+        async with _make_agent(
+            runtime,
+            review_kind="completeness",
+            persona_name="maverick.completeness-reviewer",
+        ) as agent:
+            payload = await agent.critique(
+                scope_summary="scope",
+                change_summary="change",
+            )
+        assert isinstance(payload, SubmitReviewPayload)
+        assert payload.findings[0].reviewer == "completeness"
+
+    async def test_is_stateless_across_calls(self) -> None:
+        runtime = _make_runtime(_approved_payload())
+        async with _make_agent(runtime) as agent:
+            await agent.critique(scope_summary="scope", change_summary="change")
+            await agent.critique(scope_summary="scope", change_summary="change")
+        first_prompt = runtime.execute.await_args_list[0].args[0]
+        second_prompt = runtime.execute.await_args_list[1].args[0]
+        assert second_prompt == first_prompt
+        assert "previous findings were addressed" not in second_prompt

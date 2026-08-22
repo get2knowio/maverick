@@ -20,17 +20,21 @@ Per-complexity provider/model routing is shared across squadrons in
 from __future__ import annotations
 
 from maverick.squadron.base import Squadron
+from maverick.squadron.critique import CritiqueSquadron
 from maverick.squadron.decomposer_pool import DecomposerAgentPool
 from maverick.squadron.fly import FlySquadron
 from maverick.squadron.plan import PlanSquadron
 from maverick.squadron.reconcile import ReconcileSquadron
 from maverick.squadron.refuel import RefuelSquadron
+from maverick.squadron.reviewers import build_reviewer_pair
 
 __all__ = [
+    "CritiqueSquadron",
     "DecomposerAgentPool",
     "FlySquadron",
     "PlanSquadron",
     "ReconcileSquadron",
     "RefuelSquadron",
     "Squadron",
+    "build_reviewer_pair",
 ]

@@ -28,6 +28,7 @@ if TYPE_CHECKING:
 
 REVIEW_PROMPT_TIMEOUT_SECONDS = 600
 AGGREGATE_REVIEW_TIMEOUT_SECONDS = 600
+CRITIQUE_PROMPT_TIMEOUT_SECONDS = 600
 
 ReviewKind = Literal["correctness", "completeness"]
 
@@ -129,6 +130,36 @@ class ReviewerAgent(Agent):
         assert isinstance(payload, SubmitReviewPayload)
         return self._stamp_provenance(payload)
 
+    async def critique(
+        self,
+        *,
+        scope_summary: str,
+        change_summary: str,
+    ) -> SubmitReviewPayload:
+        """Review a standalone scope on demand and return the payload.
+
+        One-shot and stateless: the session is rotated first, so no
+        per-bead review state leaks into the critique and repeated
+        calls never degrade into the "did you address my prior
+        findings?" follow-up that :meth:`review` sends on round two.
+
+        Args:
+            scope_summary: Human-readable description of what was
+                reviewed, restated verbatim in the prompt (e.g.
+                ``"working copy vs main — 4 files"``).
+            change_summary: The assembled change context — diff stat,
+                changed-file list, and a possibly-truncated unified
+                diff.
+
+        Returns:
+            The provenance-stamped :class:`SubmitReviewPayload`.
+        """
+        await self.rotate_session()
+        prompt = self._build_critique_prompt(scope_summary, change_summary)
+        payload = await self._execute_via_runtime(prompt, timeout=CRITIQUE_PROMPT_TIMEOUT_SECONDS)
+        assert isinstance(payload, SubmitReviewPayload)
+        return self._stamp_provenance(payload)
+
     def _stamp_provenance(self, payload: SubmitReviewPayload) -> SubmitReviewPayload:
         """Stamp ``self._review_kind`` onto every finding lacking one."""
         if not payload.findings:
@@ -176,6 +207,22 @@ class ReviewerAgent(Agent):
             "NOT introduce new findings."
         )
 
+    def _build_critique_prompt(self, scope_summary: str, change_summary: str) -> str:
+        return (
+            "Review the standalone change described below. This is an "
+            "on-demand review of a scope the user selected directly — "
+            "there is no planned unit of work and no design document "
+            "to review against, so judge the change on its own merits.\n\n"
+            f"## Scope reviewed\n\n{scope_summary}\n\n"
+            f"## Change\n\n{change_summary}\n\n"
+            "You have read access to the working directory. The diff "
+            "above may be truncated — read the changed files directly "
+            "when you need more context than it shows.\n\n"
+            "Only flag CRITICAL or MAJOR issues. Set approved=true "
+            "with an empty findings array when no critical/major "
+            "issues remain."
+        )
+
     def _build_aggregate_prompt(
         self,
         objective: str,
@@ -202,6 +249,7 @@ class ReviewerAgent(Agent):
 
 __all__ = [
     "AGGREGATE_REVIEW_TIMEOUT_SECONDS",
+    "CRITIQUE_PROMPT_TIMEOUT_SECONDS",
     "REVIEW_PROMPT_TIMEOUT_SECONDS",
     "ReviewKind",
     "ReviewerAgent",
