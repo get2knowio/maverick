@@ -733,6 +733,52 @@ class TestProgressRouting:
         assert "read-only file system" not in result.stdout
         assert "read-only file system" in result.stderr
 
+    def test_degraded_persistence_reaches_the_envelope(
+        self,
+        cli_runner: CliRunner,
+        temp_dir: Path,
+        clean_env: None,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A machine consumer must be able to tell the artifact was not written.
+
+        The human at the terminal gets a warning; without this key the JSON
+        consumer would get a document indistinguishable from a clean run and
+        would go looking for an artifact that does not exist. The key is
+        envelope-only per the schema contract — the on-disk artifact, by
+        definition, persisted.
+        """
+        _setup(temp_dir, monkeypatch)
+        report = _report(lenses=_both_lenses_clean())
+        _stub_diff_scope(monkeypatch, report.scope)
+        _stub_run_critique(monkeypatch, report)
+        monkeypatch.setattr(
+            "maverick.cli.commands.critique.persist_report",
+            lambda report, *, cwd: (_ for _ in ()).throw(OSError("read-only file system")),
+        )
+
+        data = _sole_document(_invoke(cli_runner, "--json"))
+
+        assert data["ok"] is True
+        assert data["result"]["degraded_persistence"] is True
+
+    def test_clean_persistence_omits_the_degraded_key(
+        self,
+        cli_runner: CliRunner,
+        temp_dir: Path,
+        clean_env: None,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Absent rather than ``false`` — the contract omits absent keys."""
+        _setup(temp_dir, monkeypatch)
+        report = _report(lenses=_both_lenses_clean())
+        _stub_diff_scope(monkeypatch, report.scope)
+        _stub_run_critique(monkeypatch, report)
+
+        data = _sole_document(_invoke(cli_runner, "--json"))
+
+        assert "degraded_persistence" not in data["result"]
+
     def test_failure_envelope_stdout_holds_no_diagnostics(
         self,
         cli_runner: CliRunner,

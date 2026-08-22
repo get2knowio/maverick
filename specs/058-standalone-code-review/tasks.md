@@ -172,7 +172,7 @@ wiring rather than a second projection that could drift.
       Reuses `library.actions.curation.extract_bead_ids`; writes no new regex
       (Guardrail 5).
 - [X] T025 [US2] Wire `--epic` through the command and both output modes.
-- [ ] T026 [US2] `tests/integration/critique/test_scope_resolution.py` — a
+- [X] T026 [US2] `tests/integration/critique/test_scope_resolution.py` — a
       real git repository with bead-prefixed commits plus unrelated ones.
 
 ---
@@ -191,7 +191,7 @@ wiring rather than a second projection that could drift.
 
 ## Phase 8: Cross-cutting, hardening, and the discovered defect
 
-- [ ] T030 [P] `tests/integration/critique/test_read_only.py` — the SC-002
+- [X] T030 [P] `tests/integration/critique/test_read_only.py` — the SC-002
       proof: snapshot the jj operation log, the git object count, the full
       bead list, and a content hash of every tracked file; run `critique` on
       all three scopes **and** on every failure path; assert every snapshot

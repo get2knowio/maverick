@@ -209,11 +209,22 @@ async def _run_critique_json(
         except AllLensesFailedError as exc:
             _emit_failure(ErrorKind.INTERNAL, str(exc))
 
+        result = report.to_dict()
+        if report.degraded_persistence:
+            # Injected here rather than emitted from `to_dict()`: the schema
+            # contract puts this key in the envelope only, and an on-disk
+            # artifact that persisted cannot meaningfully carry it. Without
+            # the injection a machine consumer whose artifact write failed
+            # would get a document indistinguishable from a clean run, while
+            # a human at the terminal is warned. Same shape as
+            # `land_status.py`'s `degraded` injection.
+            result["degraded_persistence"] = True
+
         # A `--fail-on` refusal is a *success* envelope with a non-zero exit:
         # the review completed, and its findings are exactly what the caller
         # asked to be told about. Consumers branch on `ok`, never on the exit
         # code alone (contract: cli-critique-json.md).
-        emit_json(JsonEnvelope.success(VERB, report.to_dict()))
+        emit_json(JsonEnvelope.success(VERB, result))
         raise SystemExit(ExitCode.FAILURE if _fail_on_met(report, fail_on) else ExitCode.SUCCESS)
 
 
