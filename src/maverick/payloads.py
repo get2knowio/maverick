@@ -655,6 +655,36 @@ def dump_supervisor_payload(payload: SupervisorInboxPayload) -> dict[str, Any]:
     return payload.model_dump(mode="json", exclude_none=True)
 
 
+def review_payload_approved(payload: Any) -> bool:
+    """Return whether a review payload represents an approval.
+
+    Prefers the explicit ``approved`` field (current
+    :class:`SubmitReviewPayload` schema); falls back to "no findings" for
+    stubs and legacy dicts that don't set it.
+
+    Lives here rather than in either caller because two independent
+    surfaces need the same predicate: ``fly``'s review gate, which ANDs it
+    across both reviewer lenses, and ``maverick critique``, which reports
+    it per lens. See ``specs/058-standalone-code-review/research.md`` R7.
+
+    Args:
+        payload: A ``SubmitReviewPayload``, a stub exposing the same
+            attributes, or a mapping with the same keys.
+
+    Returns:
+        True when the review approved the change.
+    """
+    explicit = getattr(payload, "approved", None)
+    if explicit is None and isinstance(payload, dict):
+        explicit = payload.get("approved")
+    if explicit is not None:
+        return bool(explicit)
+    findings = getattr(payload, "findings", None)
+    if findings is None and isinstance(payload, dict):
+        findings = payload.get("findings", [])
+    return not findings
+
+
 __all__ = [
     "AcceptanceCriterionPayload",
     "ArchitectureDecisionPayload",
@@ -695,4 +725,5 @@ __all__ = [
     "WorkUnitOutlinePayload",
     "dump_supervisor_payload",
     "parse_supervisor_tool_payload",
+    "review_payload_approved",
 ]

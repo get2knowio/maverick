@@ -7,7 +7,6 @@ from typing import Any
 
 from maverick.cli.console import err_console
 from maverick.cli.context import ExitCode
-from maverick.cli.output import format_error
 from maverick.exceptions import AgentError, GitError, MaverickError
 from maverick.logging import get_logger
 
@@ -36,19 +35,18 @@ def cli_error_handler() -> Generator[None, None, None]:
         err_console.print("\n\n[yellow]Interrupted by user.[/]")
         raise SystemExit(ExitCode.INTERRUPTED) from None
     except GitError as e:
-        error_msg = format_error(
-            e.message,
-            details=[f"Operation: {e.operation}"] if e.operation else None,
-        )
-        err_console.print(f"[red]Error:[/red] {error_msg}")
+        # `format_error` supplies its own "Error: " prefix, so the Rich
+        # prefix here is the *only* one — wrapping one in the other printed
+        # "Error: Error: ..." to every user of every command.
+        err_console.print(f"[red]Error:[/red] {e.message}")
+        if e.operation:
+            err_console.print(f"  Operation: {e.operation}")
         raise SystemExit(ExitCode.FAILURE) from e
     except AgentError as e:
-        error_msg = format_error(e.message)
-        err_console.print(f"[red]Error:[/red] {error_msg}")
+        err_console.print(f"[red]Error:[/red] {e.message}")
         raise SystemExit(ExitCode.FAILURE) from e
     except MaverickError as e:
-        error_msg = format_error(e.message)
-        err_console.print(f"[red]Error:[/red] {error_msg}")
+        err_console.print(f"[red]Error:[/red] {e.message}")
         raise SystemExit(ExitCode.FAILURE) from e
     except Exception as e:
         logger.exception("Unexpected error in command")

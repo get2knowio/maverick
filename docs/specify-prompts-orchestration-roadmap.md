@@ -23,12 +23,12 @@ Maverick modules, that is context for the planner, not a design mandate.
 Tier 0  (housekeeping, no spec):  close spec 042 as superseded
 
 Tier 1  (independent — start in any order):
-  1. assumption-batch-scheduler        ← highest value per effort
-  2. learned-assumption-resolution     (best after 1)
-  3. context-file-protection           (small)
-  4. isolated-bead-workspaces          ← unblocks the dispatcher
-  5. standalone-code-review            (small)
-  6. spec-delta-layer
+  1. assumption-batch-scheduler        ✅ spec 054
+  2. learned-assumption-resolution     ✅ spec 055
+  3. context-file-protection           ✅ spec 056
+  4. isolated-bead-workspaces          ✅ spec 057  ← unblocks the dispatcher
+  5. standalone-code-review            ✅ spec 058
+  6. spec-delta-layer                  ← last of Tier 1
 
 Tier 2  (the fleet backbone, in order):
   7. maverick-host-daemon
@@ -226,7 +226,7 @@ mid-bead intermediate state, and the constitution accurately describes the
 system.
 ```
 
-### Prompt 5: `standalone-code-review` (Slice G)
+### Prompt 5: `standalone-code-review` (Slice G) — **delivered as spec 058**
 
 ```
 Add a standalone agentic code-review command that reviews a diff, an epic's
@@ -567,11 +567,11 @@ Not sequenced — each is small, independent, and can slot in anywhere:
 
 | Prompt | Analysis slice | Depends on |
 |---|---|---|
-| 1 batch scheduler | D (1–4) | — |
-| 2 learned resolution | D (5–6) | 1 (soft) |
-| 3 context-file protection | G | — |
-| 4 isolated workspaces | C step 1 / §5.1 | — |
-| 5 standalone review | G | — |
+| 1 batch scheduler ✅ | D (1–4) | — |
+| 2 learned resolution ✅ | D (5–6) | 1 (soft) |
+| 3 context-file protection ✅ | G | — |
+| 4 isolated workspaces ✅ | C step 1 / §5.1 | — |
+| 5 standalone review ✅ | G | — |
 | 6 spec delta layer | G | — |
 | 7 host daemon | A | — |
 | 8 task container | B | 7 |

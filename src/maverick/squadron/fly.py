@@ -25,6 +25,7 @@ from maverick.config import AgentBindingConfig
 from maverick.logging import get_logger
 from maverick.runtime.agent_factory import runtime_for_agent
 from maverick.squadron.base import Squadron
+from maverick.squadron.reviewers import build_reviewer_pair
 from maverick.squadron.tiers import (
     DEFAULT_TIER,
     TIER_ORDER,
@@ -93,38 +94,25 @@ class FlySquadron(Squadron):
         )
 
     def _build_reviewer_pair(self, tier_name: str, step_config: Any, override: Any = None) -> None:
-        suffix = "" if tier_name == DEFAULT_TIER else f".{tier_name}"
-        binding_override = self._binding_for_complexity(tier_name, override)
-        correctness_runtime, _ = runtime_for_agent(
-            "review",
+        """Build + cache this tier's reviewer pair.
+
+        Construction itself lives in
+        :func:`~maverick.squadron.reviewers.build_reviewer_pair` — shared
+        with :class:`~maverick.squadron.critique.CritiqueSquadron`
+        (058 research R1). Tier resolution stays here; only the
+        construction is delegated.
+        """
+        correctness, completeness = build_reviewer_pair(
+            cwd=self._cwd,
             agents_config=self._config.agents,
-            binding_override=binding_override,
-        )
-        completeness_runtime, _ = runtime_for_agent(
-            "review",
-            agents_config=self._config.agents,
-            binding_override=binding_override,
-        )
-        self.correctness_reviewers[tier_name] = ReviewerAgent(
-            runtime=correctness_runtime,
-            cwd=str(self._cwd),
-            cost_sink=self._cost_sink,
             step_config=step_config,
-            review_kind="correctness",
-            persona_name="maverick.correctness-reviewer",
-            tag=f"correctness-reviewer{suffix}",
-            **self._agent_protection_kwargs(),
-        )
-        self.completeness_reviewers[tier_name] = ReviewerAgent(
-            runtime=completeness_runtime,
-            cwd=str(self._cwd),
+            tier_name=tier_name,
+            binding_override=self._binding_for_complexity(tier_name, override),
             cost_sink=self._cost_sink,
-            step_config=step_config,
-            review_kind="completeness",
-            persona_name="maverick.completeness-reviewer",
-            tag=f"completeness-reviewer{suffix}",
-            **self._agent_protection_kwargs(),
+            protection_kwargs=self._agent_protection_kwargs(),
         )
+        self.correctness_reviewers[tier_name] = correctness
+        self.completeness_reviewers[tier_name] = completeness
 
     async def _build_agents(self) -> None:
         # Implementers ----------------------------------------------------

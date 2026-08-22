@@ -25,7 +25,7 @@ Single project: `src/maverick/`, `tests/unit/`, `tests/integration/`.
 
 ## Phase 1: Setup
 
-- [ ] T001 Create `src/maverick/critique/__init__.py` and
+- [X] T001 Create `src/maverick/critique/__init__.py` and
       `tests/unit/critique/__init__.py` package scaffolding (empty public
       surface for now).
 
@@ -35,29 +35,29 @@ Single project: `src/maverick/`, `tests/unit/`, `tests/integration/`.
 
 **These block every user story. Nothing in Phase 3+ starts until Phase 2 is done.**
 
-- [ ] T002 [P] Add `review_payload_approved(payload)` to
+- [X] T002 [P] Add `review_payload_approved(payload)` to
       `src/maverick/payloads.py`, lifted verbatim from
       `workflows/fly_beads/actions.py::_payload_approved` (research R7), and
       update `actions.py` to import it instead of defining it. Tests in
       `tests/unit/test_payloads.py`.
-- [ ] T003 [P] Add `ReviewerAgent.critique(scope_summary, change_summary)` to
+- [X] T003 [P] Add `ReviewerAgent.critique(scope_summary, change_summary)` to
       `src/maverick/agents/reviewer.py` (research R2): rotates the session
       first, sends the scope-oriented prompt, returns the provenance-stamped
       `SubmitReviewPayload`. New `CRITIQUE_PROMPT_TIMEOUT_SECONDS` constant.
       Tests in `tests/unit/agents/test_reviewer_agent.py` — assert the prompt
       names the scope, does **not** mention beads or work units, and that
       `rotate_session` ran before the send.
-- [ ] T004 Extract `src/maverick/squadron/reviewers.py::build_reviewer_pair()`
+- [X] T004 Extract `src/maverick/squadron/reviewers.py::build_reviewer_pair()`
       from `FlySquadron._build_reviewer_pair`
       (`squadron/fly.py:95-127`, research R1) and rewrite `fly.py` to delegate
       to it. Behavior-preserving: the existing `FlySquadron` tests must pass
       unchanged. New tests in `tests/unit/squadron/test_reviewers.py`.
-- [ ] T005 Add `src/maverick/squadron/critique.py::CritiqueSquadron` — one
+- [X] T005 Add `src/maverick/squadron/critique.py::CritiqueSquadron` — one
       reviewer pair via T004, no `CodingAgent`, `workflow="critique"`.
       `_all_agents()` yields both so `close()` tears them down. Tests assert
       it opens with only an `agents.review` binding configured (research R1's
       rejected-alternative rationale).
-- [ ] T006 [P] Implement `src/maverick/critique/models.py` per
+- [X] T006 [P] Implement `src/maverick/critique/models.py` per
       `data-model.md`: `CritiqueScopeKind`, `ScopedCommit`, `ResolvedScope`,
       `LensOutcome`, `CritiqueReport`, the fixed `SEVERITY_ORDER` constant,
       and the finding-ordering function. Tests in
@@ -80,40 +80,40 @@ findings for that file, confirm the repo is byte-identical afterward.
 
 ### Tests for User Story 1
 
-- [ ] T007 [P] [US1] `tests/unit/critique/test_scope.py` — diff-scope
+- [X] T007 [P] [US1] `tests/unit/critique/test_scope.py` — diff-scope
       resolution: changed-file union, `--base` threading, empty-diff →
       `is_empty`, `MAX_EMBEDDED_DIFF_CHARS` truncation sets
       `diff_truncated` and still populates the complete `paths` list
       (research R5).
-- [ ] T008 [P] [US1] `tests/unit/critique/test_runner.py` — both lenses run
+- [X] T008 [P] [US1] `tests/unit/critique/test_runner.py` — both lenses run
       via `asyncio.gather`; findings are the same `ReviewFindingPayload`
       objects the payload carried (SC-003); an empty scope never constructs a
       squadron (SC-004, by patching `runtime_for_agent` to raise).
-- [ ] T009 [P] [US1] `tests/unit/critique/test_render.py` — grouping by file
+- [X] T009 [P] [US1] `tests/unit/critique/test_render.py` — grouping by file
       in path order, severity order within a file, `(unattributed)` bucket
       last, `rich.markup.escape` applied to issue text, and the two distinct
       empty outcomes (FR-016).
 
 ### Implementation for User Story 1
 
-- [ ] T010 [US1] `src/maverick/critique/scope.py::resolve_diff_scope(cwd, base)`
+- [X] T010 [US1] `src/maverick/critique/scope.py::resolve_diff_scope(cwd, base)`
       using `AsyncGitRepository.diff` / `diff_stats` / `get_changed_files`
       (Guardrail 1 — no blocking calls on the async path).
-- [ ] T011 [US1] `src/maverick/critique/runner.py::run_critique(...)` — opens
+- [X] T011 [US1] `src/maverick/critique/runner.py::run_critique(...)` — opens
       `CritiqueSquadron`, `asyncio.gather(..., return_exceptions=True)` over
       both lenses, builds `CritiqueReport` with the fixed ordering. Empty
       scope short-circuits **before** the squadron is constructed.
-- [ ] T012 [US1] `src/maverick/critique/render.py` — the terminal renderer
+- [X] T012 [US1] `src/maverick/critique/render.py` — the terminal renderer
       per `contracts/cli-critique.md`, writing to an injected console so
       `--json` mode can redirect it to `err_console`.
-- [ ] T013 [US1] `src/maverick/cli/commands/critique.py` — the Click command:
+- [X] T013 [US1] `src/maverick/cli/commands/critique.py` — the Click command:
       options per the contract, `cwd = Path.cwd().resolve()`, config from
       `ctx.obj` with `load_config()` fallback, thin dispatch to
       `_run_critique_human`, wrapped in `cli_error_handler()`.
-- [ ] T014 [US1] Register `critique` in `_LAZY_COMMANDS`
+- [X] T014 [US1] Register `critique` in `_LAZY_COMMANDS`
       (`src/maverick/main.py`). Do **not** add it to
       `commands_needing_config` or `commands_needing_git_gh` (research R9).
-- [ ] T015 [US1] `tests/unit/cli/test_critique_command.py` — invoke through
+- [X] T015 [US1] `tests/unit/cli/test_critique_command.py` — invoke through
       the root `cli` group per house convention; cover the default
       invocation, `--base`, conflicting-scope rejection, and exit code 0 with
       findings present.
@@ -128,15 +128,15 @@ findings for that file, confirm the repo is byte-identical afterward.
 exactly the persisted projection, so building persistence first means US4 is
 wiring rather than a second projection that could drift.
 
-- [ ] T016 [P] [US5] `tests/unit/critique/test_report.py` — `to_dict()` key
+- [X] T016 [P] [US5] `tests/unit/critique/test_report.py` — `to_dict()` key
       order and omit-when-absent behavior, `render_markdown` content, and
       that a persistence `OSError` degrades to a warning with the exit code
       untouched (FR-018).
-- [ ] T017 [US5] `src/maverick/critique/report.py` — `to_dict()`,
+- [X] T017 [US5] `src/maverick/critique/report.py` — `to_dict()`,
       `render_markdown()`, and `persist_report(report, cwd)` writing
       `critique-report.{json,md}` via `atomic_write_json`/`atomic_write_text`,
       mirroring `assumptions/land_report.py:280-293`.
-- [ ] T018 [US5] Wire persistence into the command: mint
+- [X] T018 [US5] Wire persistence into the command: mint
       `run_id = uuid.uuid4().hex[:8]`, persist after rendering, warn to
       `err_console` and set `degraded_persistence` on failure.
 
@@ -144,34 +144,34 @@ wiring rather than a second projection that could drift.
 
 ## Phase 5: User Story 4 — `--json` mode (P2)
 
-- [ ] T019 [P] [US4] `tests/unit/cli/commands/test_critique_json.py` — one
+- [X] T019 [P] [US4] `tests/unit/cli/commands/test_critique_json.py` — one
       JSON document on stdout with nothing else on that stream (SC-005), for
       success, empty scope, partial lens failure, and each failure kind in
       research R11.
-- [ ] T020 [US4] `_run_critique_json` in `cli/commands/critique.py`: verb
+- [X] T020 [US4] `_run_critique_json` in `cli/commands/critique.py`: verb
       `critique.run`, `json_error_handler(verb)`, `emit_json` + `SystemExit`
       on every terminal path (never `return`), progress routed to
       `err_console`.
-- [ ] T021 [US4] Failure-kind mapping per research R11 — including the
+- [X] T021 [US4] Failure-kind mapping per research R11 — including the
       `bd-unavailable` precondition translation the shared handler cannot do
       for a `verify_available()` that returns `False` rather than raising.
-- [ ] T022 [US4] `--fail-on` gating: a *success* envelope with a non-zero
+- [X] T022 [US4] `--fail-on` gating: a *success* envelope with a non-zero
       exit (contract `cli-critique-json.md`), so consumers branch on `ok`.
 
 ---
 
 ## Phase 6: User Story 2 — Epic scope (P2)
 
-- [ ] T023 [P] [US2] `tests/unit/critique/test_scope.py` (extended) — epic
+- [X] T023 [P] [US2] `tests/unit/critique/test_scope.py` (extended) — epic
       resolution: `BeadClient.children` intersection with
       `extract_bead_ids` (research R3), per-commit diff concatenation
       (research R4), unknown epic → `NOT_FOUND`, epic with zero commits →
       `is_empty`, and that an *interleaved unrelated commit is excluded* —
       the assertion that makes R4's choice load-bearing.
-- [ ] T024 [US2] `src/maverick/critique/scope.py::resolve_epic_scope(...)`.
+- [X] T024 [US2] `src/maverick/critique/scope.py::resolve_epic_scope(...)`.
       Reuses `library.actions.curation.extract_bead_ids`; writes no new regex
       (Guardrail 5).
-- [ ] T025 [US2] Wire `--epic` through the command and both output modes.
+- [X] T025 [US2] Wire `--epic` through the command and both output modes.
 - [ ] T026 [US2] `tests/integration/critique/test_scope_resolution.py` — a
       real git repository with bead-prefixed commits plus unrelated ones.
 
@@ -179,12 +179,12 @@ wiring rather than a second projection that could drift.
 
 ## Phase 7: User Story 3 — Paths scope (P2)
 
-- [ ] T027 [P] [US3] `tests/unit/critique/test_scope.py` (extended) — path
+- [X] T027 [P] [US3] `tests/unit/critique/test_scope.py` (extended) — path
       validation: nonexistent path → `VALIDATION`, absolute path outside the
       repository → `VALIDATION`, directory expansion, repo-relative
       normalization.
-- [ ] T028 [US3] `src/maverick/critique/scope.py::resolve_paths_scope(...)`.
-- [ ] T029 [US3] Wire positional paths through the command and both output
+- [X] T028 [US3] `src/maverick/critique/scope.py::resolve_paths_scope(...)`.
+- [X] T029 [US3] Wire positional paths through the command and both output
       modes.
 
 ---
@@ -196,14 +196,14 @@ wiring rather than a second projection that could drift.
       bead list, and a content hash of every tracked file; run `critique` on
       all three scopes **and** on every failure path; assert every snapshot
       is byte-identical.
-- [ ] T031 Fix `_safe_diff_stat` (`workflows/fly_beads/actions.py:2097`) to
+- [X] T031 Fix `_safe_diff_stat` (`workflows/fly_beads/actions.py:2097`) to
       use the shared epic resolver instead of `git diff --stat HEAD~1..HEAD`
       (research R8), with a regression test in
       `tests/integration/critique/test_fly_aggregate_diff.py` asserting the
       aggregate review sees all of an epic's commits, not just the last one.
-- [ ] T032 [P] Add the `critique` section to `CLAUDE.md` under "CLI
+- [X] T032 [P] Add the `critique` section to `CLAUDE.md` under "CLI
       Workflows", and the command row to the shared-commands table.
-- [ ] T033 [P] Update `docs/specify-prompts-orchestration-roadmap.md`:
+- [X] T033 [P] Update `docs/specify-prompts-orchestration-roadmap.md`:
       mark Tier 1 item 5 delivered as spec 058.
 - [ ] T034 Run `make format-fix && make ci` and fix everything it surfaces.
 

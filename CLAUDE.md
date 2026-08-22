@@ -509,6 +509,7 @@ Mode is auto-detected from repository shape; `--speckit` forces it.
 | Command                                              | Purpose                              |
 | ---------------------------------------------------- | ------------------------------------ |
 | `maverick fly --epic <id> [--isolated]`               | Implement beads (Burr drain loop)    |
+| `maverick critique [--base\|--epic\|PATH...] [--fail-on] [--json]` | On-demand read-only code review |
 | `maverick land [--eject\|--finalize] [--status] [--json]` | Curate history and merge, or query the frontier |
 | `maverick reconcile [--dry-run] [--json]`            | Reapply changed human answers into jj history |
 | `maverick notify [--dry-run] [--json]`               | Evaluate and deliver due assumption-ledger notifications |
@@ -608,6 +609,57 @@ any are found, runs `ReconcileWorkflow` in-process
 (`workflows/fly_beads/mid_flight.py`) — closing the human-latency gap
 without ever stopping the drain loop. See `### reconcile` below for the
 mid-flight contract and its `reconcile.mid_flight` kill-switch.
+
+### critique (standalone code review)
+
+`maverick critique` (058-standalone-code-review) runs the *same* reviewer
+pair `fly`'s gate uses — correctness + completeness, in parallel — over one
+of three scopes, outside the drain loop: the working copy against a base
+revision (default, `--base` defaulting to `main` exactly as `land` does), an
+epic's accumulated commits (`--epic`), or explicit paths (positional). Naming
+exactly one scope is enforced; there is no precedence rule, because an
+ambiguous invocation means the user believes something about what will be
+reviewed and guessing produces a review of the wrong thing under a
+confident-looking scope line.
+
+**Read-only on every path, including every failure path**: no commit, no bead
+write, no fix loop, no ledger entry, no effect on the land frontier. The only
+writes anywhere are `.maverick/runs/<run-id>/critique-report.{json,md}`, and a
+persistence failure degrades to a warning that never changes the exit code.
+
+**Findings are advice, not failure** — a completed review exits 0 regardless
+of what it found; `--fail-on <severity>` opts into gating. In `--json` mode a
+met `--fail-on` threshold emits a *success* envelope with a non-zero exit, so
+consumers must branch on `ok`, never on the exit code alone.
+
+Reuse is structural, not aspirational (Guardrail: no second review
+implementation). `squadron/reviewers.py::build_reviewer_pair()` is now the one
+construction site for the reviewer pair — `FlySquadron` and the new
+`CritiqueSquadron` both delegate to it. `CritiqueSquadron` exists rather than
+reusing `FlySquadron` because the latter also builds a `CodingAgent` and would
+demand an `agents.implement` binding a review-only repository has no reason to
+configure. `ReviewerAgent` gains one method, `critique()`, alongside `review()`
+and `aggregate()` — same class, same `result_model`, same personas, same
+provenance stamping. Findings stay structured end to end (`ReviewFindingPayload`),
+so the lens that raised each one survives into the artifact and the JSON;
+fly's `_findings_list` string-flattening, which drops that provenance, is
+deliberately not reused. Cross-lens duplicates are kept and attributed — two
+lenses flagging the same line is signal, not noise.
+
+Epic scope attributes commits by the `bead(<id>):` subject prefix via the
+existing `curation.extract_bead_ids` (the `Bead:` trailer has no reader in the
+tree and no log helper exposes a commit body to read it from), and combines
+them by **concatenating each commit's own diff** rather than taking a range
+diff — a range silently pulls in every unrelated commit interleaved between
+the epic's own. That resolver also fixed a live defect: fly's aggregate review
+was feeding the reviewer `git diff --stat HEAD~1..HEAD` — one commit — while
+its prompt claimed to cover every bead in the epic (research R8).
+
+An oversized diff is truncated at an explicit budget, never silently: the
+complete changed-file list always travels, and the reviewer is told to read
+the remainder from the working directory itself. See
+`src/maverick/critique/` (models, scope, runner, render, report) and
+`specs/058-standalone-code-review/` for the full contract.
 
 ### land
 

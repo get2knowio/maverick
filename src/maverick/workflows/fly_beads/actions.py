@@ -30,7 +30,7 @@ from maverick.events import (
     ProgressEvent,
     StepOutput,
 )
-from maverick.payloads import dump_supervisor_payload
+from maverick.payloads import dump_supervisor_payload, review_payload_approved
 from maverick.squadron.tiers import DEFAULT_TIER as _DEFAULT_TIER
 from maverick.workflows.fly_beads._plan_parsing import (
     ARTIFACT_LEVEL_VERIFICATION,
@@ -40,6 +40,8 @@ from maverick.workflows.fly_beads._plan_parsing import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from maverick.config import MaverickConfig
     from maverick.jj.client import JjClient
     from maverick.squadron.fly import FlySquadron
@@ -1090,7 +1092,7 @@ async def _review_impl(
         for p in results:
             pending.extend(_payload_assumptions(p))
 
-        approved = all(_payload_approved(p) for p in results)
+        approved = all(review_payload_approved(p) for p in results)
         if approved:
             return {"approved": True, "rounds": rounds_with_findings}, state.update(
                 approved=True,
@@ -1428,23 +1430,6 @@ async def _review_round_with_escalation(
             )
         )
         return results, level, ""
-
-
-def _payload_approved(payload: Any) -> bool:
-    """A review is approved when ``payload.approved`` is True.
-
-    Prefers the explicit ``approved`` field (current ``SubmitReviewPayload``
-    schema); falls back to "no findings" for stubs that don't set it.
-    """
-    explicit = getattr(payload, "approved", None)
-    if explicit is None and isinstance(payload, dict):
-        explicit = payload.get("approved")
-    if explicit is not None:
-        return bool(explicit)
-    findings = getattr(payload, "findings", None)
-    if findings is None and isinstance(payload, dict):
-        findings = payload.get("findings", [])
-    return not findings
 
 
 def _findings_list(payloads: list[Any] | tuple[Any, ...]) -> list[str]:
@@ -2038,7 +2023,7 @@ async def _aggregate_review_impl(
     title_by_id: dict[str, str] = {e["bead_id"]: e.get("title", "") for e in bead_events}
     bead_list = "\n".join(f"- {bid}: {title_by_id.get(bid, '')}" for bid in completed_ids)
 
-    diff_stat = await _safe_diff_stat(cwd)
+    diff_stat = await _safe_diff_stat(cwd, epic_id=epic_id, bead_ids=completed_ids)
 
     reviewer = squadron.correctness_reviewer_for(DEFAULT_TIER)
     label = "Aggregate review"
@@ -2094,13 +2079,28 @@ async def _aggregate_review_impl(
     )
 
 
-async def _safe_diff_stat(cwd: str) -> str:
-    """Return ``git diff --stat HEAD~1..HEAD`` or empty on any failure."""
-    from maverick.runners.command import CommandRunner
+async def _safe_diff_stat(cwd: str, *, epic_id: str, bead_ids: Sequence[str]) -> str:
+    """Return the diff stat across *every* commit the epic's beads produced.
+
+    This used to run ``git diff --stat HEAD~1..HEAD`` — the single most
+    recent commit — while the aggregate prompt told the reviewer it was
+    looking at "the AGGREGATE changes across all beads in this epic". The
+    action only fires at ``AGGREGATE_REVIEW_THRESHOLD`` (2) completed beads,
+    so the bead list named N beads and the stat covered one commit. See
+    ``specs/058-standalone-code-review/research.md`` R8.
+
+    Resolution reuses the shared epic-scope resolver rather than a second
+    revset: commits are attributed by their ``bead(<id>):`` subject prefix
+    and intersected with *bead_ids*, so an unrelated commit interleaved
+    between the epic's own is excluded.
+
+    Advisory throughout — any failure yields an empty stat rather than
+    sinking a completed run.
+    """
+    from maverick.critique.scope import resolve_epic_scope
 
     try:
-        runner = CommandRunner(cwd=Path(cwd))
-        result = await runner.run(["git", "diff", "--stat", "HEAD~1..HEAD"])
-        return result.stdout if result.returncode == 0 else ""
+        scope = await resolve_epic_scope(cwd=Path(cwd), epic_id=epic_id, bead_ids=list(bead_ids))
     except Exception:  # noqa: BLE001 — advisory; empty diff stat is fine
         return ""
+    return scope.diff_stat

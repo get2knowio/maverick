@@ -16,6 +16,7 @@ import pytest
 
 from maverick.burr import BurrWorkflowDriver
 from maverick.config import MaverickConfig
+from maverick.critique.models import CritiqueScopeKind, ResolvedScope
 from maverick.events import (
     ProgressEvent,
     StepStarted,
@@ -965,12 +966,21 @@ class TestFlyBurrAggregateReview:
         # stub the squadron will return.
         squadron.correctness.aggregate = _fake_aggregate  # type: ignore[attr-defined]
 
-        async def _fake_diff_stat(*_args: Any, **_kw: Any) -> Any:
-            class _R:
-                returncode = 0
-                stdout = " src/foo.py | 12 ++++++++----\n"
+        # The aggregate stat now comes from the shared epic-scope resolver
+        # rather than `git diff --stat HEAD~1..HEAD`, which only ever covered
+        # the single most recent commit while the prompt claimed to cover the
+        # whole epic (specs/058-standalone-code-review/research.md R8).
+        scope_calls: list[dict[str, Any]] = []
 
-            return _R()
+        async def _fake_epic_scope(*, cwd: Any, epic_id: str, bead_ids: Any) -> Any:
+            scope_calls.append({"epic_id": epic_id, "bead_ids": list(bead_ids)})
+            return ResolvedScope(
+                kind=CritiqueScopeKind.EPIC,
+                summary=f"epic {epic_id} (2 commits)",
+                paths=("src/foo.py",),
+                diff_stat=" src/foo.py | 12 ++++++++----\n",
+                epic_id=epic_id,
+            )
 
         queue: asyncio.Queue[ProgressEvent | None] = asyncio.Queue()
         with (
@@ -993,8 +1003,8 @@ class TestFlyBurrAggregateReview:
                 ),
             ),
             patch(
-                "maverick.runners.command.CommandRunner.run",
-                new=_fake_diff_stat,
+                "maverick.critique.scope.resolve_epic_scope",
+                new=_fake_epic_scope,
             ),
         ):
             app = build_fly_application(
@@ -1017,6 +1027,12 @@ class TestFlyBurrAggregateReview:
         assert "b-1" in call["bead_list"]
         assert "b-2" in call["bead_list"]
         assert "src/foo.py" in call["diff_stat"]
+        # R8 regression: the stat is resolved from EVERY completed bead in the
+        # epic, not from the last commit alone. Before the fix the reviewer
+        # was handed a two-bead list and a one-commit diff.
+        assert len(scope_calls) == 1
+        assert scope_calls[0]["epic_id"] == "e-1"
+        assert scope_calls[0]["bead_ids"] == ["b-1", "b-2"]
 
         _, _, state = driver.result
         assert state["aggregate_review_payload"] is not None
