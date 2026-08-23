@@ -19,7 +19,7 @@ path to the document. `<feature>` resolves through the existing
 suffix — so it behaves identically to `maverick refuel`'s NAME argument.
 
 `maverick refuel` is unaffected by this command's existence: it neither applies
-deltas nor changes behavior when they are present (FR-005c). A delta reaches the
+deltas nor changes behavior when they are present (FR-027). A delta reaches the
 beads only via an explicit `delta apply` followed by an ordinary refuel run.
 
 ---

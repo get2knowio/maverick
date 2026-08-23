@@ -142,21 +142,16 @@ Months later, someone asks "why does this requirement say X when the original sp
 
 - **FR-001**: The system MUST define a delta document format that expresses each change as one of exactly four kinds: ADDED, MODIFIED, REMOVED, or RENAMED, each naming the requirement it concerns.
 - **FR-002**: A MODIFIED entry MUST carry the **entire** requirement block in both its before and after form — never a partial excerpt or a line diff. Partial content is the field's known failure mode: what the entry omits is silently dropped from the requirement at apply time, so the delta looks like a small change and lands as a large deletion.
-- **FR-002b**: A requirement block MUST be defined as: the requirement's own line, plus every following continuation line and sub-bullet indented beneath it, up to the next requirement line or the next section heading of any level `##` or `###`. Specifically: a `####` heading inside the requirements section is an in-block **grouping marker and MUST NOT terminate a block**, and a **blank line MUST NOT terminate a block** — both forms occur in this repository's existing specs, and treating either as a terminator silently truncates requirements that are currently correct.
 - **FR-002a**: A RENAMED entry MUST carry the old and new identifiers, and MUST preserve the requirement's existing coverage — its beads are re-pointed, never closed and recreated.
+- **FR-002b**: A requirement block MUST be defined as: the requirement's own line, plus every following continuation line and sub-bullet indented beneath it, up to the next requirement line or the next section heading of any level `##` or `###`. Specifically: a `####` heading inside the requirements section is an in-block **grouping marker and MUST NOT terminate a block**, and a **blank line MUST NOT terminate a block** — both forms occur in this repository's existing specs, and treating either as a terminator silently truncates requirements that are currently correct.
 - **FR-003**: The format MUST be deterministically parseable with zero model calls, and parsing MUST fail loudly on ambiguity rather than guessing.
 - **FR-004**: A pending delta MUST live at `specs/<feature-dir>/deltas/<slug>.md`, and an applied one at `specs/<feature-dir>/deltas/archive/<slug>.md` — a location upstream Spec Kit neither reads nor writes, so a repository without deltas is byte-identical to a vanilla Spec Kit repository.
-- **FR-004b**: A delta document MUST be markdown, carrying its requirement operations as `ADDED` / `MODIFIED` / `REMOVED` / `RENAMED` sections keyed by requirement id, and its task entries under a single `TASKS` section. `MODIFIED` MUST present its before and after blocks as separate labelled subsections rather than as a diff.
 - **FR-004a**: Applying MUST process operations in a fixed order — RENAMED, then REMOVED, then MODIFIED, then ADDED — so that a delta touching the same requirement through more than one operation has one defined outcome rather than an order-of-appearance outcome.
+- **FR-004b**: A delta document MUST be markdown, carrying its requirement operations as `ADDED` / `MODIFIED` / `REMOVED` / `RENAMED` sections keyed by requirement id, and its task entries under a single `TASKS` section. `MODIFIED` MUST present its before and after blocks as separate labelled subsections rather than as a diff.
 - **FR-005**: The system MUST validate a delta against its target spec, rejecting: a MODIFIED or REMOVED entry naming a requirement the spec does not define; an ADDED entry whose identifier the spec already defines; a MODIFIED entry whose before-text does not match the spec's current text; a delta with zero change entries; and a requirement named by two conflicting operations (MODIFIED and REMOVED, say).
-- **FR-005a**: Validation MUST apply a **content-loss guard** to every MODIFIED entry, rejecting when *either*: (a) the after-block drops one or more sub-bullets the before-block carries, or (b) the after-block's normalized length falls below a fixed fraction of the before-block's. This is the guard that separates a delta layer safe to adopt from one that quietly erodes specs — an author working from an older copy loses everything added since, and nothing about the resulting document looks wrong. **Revised from an acceptance-criteria guard after measurement**: requirements in this repository carry no per-requirement acceptance criteria to compare (see Assumptions), so the guard is defined over block content, which does exist.
+- **FR-005a**: Validation MUST apply a **content-loss guard** to every MODIFIED entry, rejecting when *either*: (a) the after-block drops one or more sub-bullets the before-block carries, or (b) the after-block's normalized length falls below a fixed fraction of the before-block's, where normalized length is the whitespace-collapsed character count of the whole block (data-model.md). This is the guard that separates a delta layer safe to adopt from one that quietly erodes specs — an author working from an older copy loses everything added since, and nothing about the resulting document looks wrong. **Revised from an acceptance-criteria guard after measurement**: requirements in this repository carry no per-requirement acceptance criteria to compare (see Assumptions), so the guard is defined over block content, which does exist.
 - **FR-005d**: The shrink fraction MUST be a fixed contract constant, not configurable. A tunable guard is one an author turns down the first time it is inconvenient, which is precisely when it is working.
 - **FR-005e**: A MODIFIED entry MAY carry an explicit intent marker declaring the reduction deliberate, which suppresses the guard **for that entry only**. There MUST be no command-line flag that suppresses it globally, and the marker MUST be recorded in the archive so a reviewer can see which reductions were declared rather than caught.
-
-#### Command surface
-
-- **FR-005b**: The system MUST expose the lifecycle as a `maverick delta` command with `validate`, `apply`, and `list` subcommands, each supporting `--json` through the shared envelope, and `apply` additionally supporting `--dry-run`.
-- **FR-005c**: `maverick refuel` MUST NOT apply deltas, and MUST behave identically whether or not deltas exist. A delta reaches the beads only via an explicit `delta apply` followed by an ordinary refuel run.
 
 #### Applying
 
@@ -173,6 +168,7 @@ Months later, someone asks "why does this requirement say X when the original sp
 #### Impacts on existing work
 
 - **FR-013**: Before rewriting anything, the apply MUST determine, for every **task** the delta withdraws or changes, the state of that task's bead — resolved by the task identity already recorded on the bead at ingestion.
+- **FR-013a**: "Open and unstarted" MUST mean a bead whose status is exactly `open`. Every other status — `in_progress`, `blocked`, `closed`, `deferred`, or any status added later — is an impact. The predicate is deliberately conservative: it decides whether a bead is **closed**, so a wrong reading in one direction merely asks the human to acknowledge something harmless, while a wrong reading in the other destroys work. An unrecognized status MUST be treated as an impact, never as closable.
 - **FR-014**: The apply MUST refuse to complete — reporting every impact and exiting non-zero, having written nothing — when a withdrawn or changed task's bead is in any state other than open-and-unstarted.
 - **FR-015**: `delta apply` MUST accept a repeatable `--ack <task-id>` flag, and MUST refuse until **every** reported impact has been named. A blanket override MUST NOT exist: it would clear impacts the human never read, including any that arose since the last preview.
 - **FR-015a**: Each acknowledgement MUST be recorded in the archive against the specific impact it cleared — the task, its bead, and that bead's state at the time — so the archive answers "what was knowingly overridden", not merely "an override happened".
@@ -195,7 +191,12 @@ Months later, someone asks "why does this requirement say X when the original sp
 #### Compatibility
 
 - **FR-024**: Every existing command MUST behave identically on a repository with no delta documents.
-- **FR-025**: The delta layer MUST NOT change the format of `spec.md` or `tasks.md` as produced by upstream Spec Kit, and MUST NOT require upstream Spec Kit to know the layer exists.
+- **FR-025**: The delta layer MUST NOT require upstream Spec Kit to know it exists — no upstream command, template, or config may need changing for a repository to carry deltas. (The artifact-format guarantee is FR-008; this requirement is about upstream's *ignorance* of the layer, not the artifacts' shape.)
+
+#### Command surface
+
+- **FR-026**: The system MUST expose the lifecycle as a `maverick delta` command with `validate`, `apply`, and `list` subcommands, each supporting `--json` through the shared envelope, and `apply` additionally supporting `--dry-run`.
+- **FR-027**: `maverick refuel` MUST NOT apply deltas, and MUST behave identically whether or not deltas exist. A delta reaches the beads only via an explicit `delta apply` followed by an ordinary refuel run.
 
 ### Key Entities
 

@@ -79,7 +79,7 @@ specs/059-spec-delta-layer/
 │   └── cli-delta-json.md                # JSON verbs
 ├── checklists/
 │   └── requirements.md
-└── tasks.md                             # (next: /speckit-tasks)
+└── tasks.md                             # 48 tasks
 ```
 
 ### Source Code (repository root)
@@ -113,20 +113,27 @@ tests/
 ├── unit/speckit/
 │   ├── test_requirements.py     # block grammar edge cases from research R1
 │   ├── delta/
+│   │   ├── test_models.py
 │   │   ├── test_parser.py
 │   │   ├── test_validate.py     # incl. both sides of the content-loss guard
+│   │   ├── test_validate_stale.py
 │   │   ├── test_apply.py
+│   │   ├── test_apply_idempotent.py
 │   │   ├── test_impacts.py
 │   │   └── test_archive.py
 │   └── test_build_withdrawn.py
 ├── unit/cli/
 │   ├── test_delta_command.py
+│   ├── test_delta_ack.py
 │   └── commands/test_delta_json.py
 └── integration/delta/
-    ├── test_requirement_roundtrip.py    # SC-010, over the LIVE specs/ tree
-    ├── test_apply_atomicity.py          # FR-009
-    ├── test_refusal_writes_nothing.py   # FR-014, FR-016
-    └── test_withdrawal_ingestion.py     # SC-002
+    ├── test_requirement_roundtrip.py       # SC-010, over the LIVE specs/ tree
+    ├── test_apply_atomicity.py             # FR-009
+    ├── test_output_is_ordinary_speckit.py  # SC-007, FR-008, FR-025
+    ├── test_refusal_writes_nothing.py      # FR-014, FR-016
+    ├── test_rename_touches_no_bead.py      # SC-009
+    ├── test_zero_model_calls.py            # SC-003, whole sequence
+    └── test_withdrawal_ingestion.py        # SC-002
 ```
 
 **Structure Decision**: single project. `speckit/delta/` is a package from the
@@ -178,7 +185,7 @@ refuel --speckit  (separate, explicit run)
 
 - No Burr graph, no `@action`, no squadron, **no agent** — there is no model
   call anywhere in the feature.
-- No change to `refuel`'s behavior on a repository without deltas (FR-005c,
+- No change to `refuel`'s behavior on a repository without deltas (FR-027,
   SC-004).
 - No new `ErrorKind`, no change to the shared envelope.
 - No fix for `set_state`'s non-atomicity (R7). The hazard is *reported* via
