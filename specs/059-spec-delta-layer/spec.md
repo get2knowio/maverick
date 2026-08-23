@@ -23,6 +23,16 @@ reader does not re-derive it.
 - Q: Is a changed requirement identifier a REMOVE plus an ADD? → A: No — **RENAMED is a fourth operation**. Modelling a rename as remove-plus-add destroys the requirement's bead lineage: the old requirement's beads close, new ones are created, and the continuity between them is lost even though nothing about the work changed. RENAMED carries `FROM`/`TO` and preserves coverage.
 - Q: Does applying a delta run refuel automatically? → A: No. Apply rewrites the artifacts and records what changed; `refuel --speckit` remains the only thing that writes beads, and it runs as a separate, explicit step. Keeping them separate preserves `refuel --dry-run` as a preview of the bead consequences, and keeps the artifact-mutation step reviewable before any bead is touched.
 
+## Clarifications
+
+### Session 2026-08-23
+
+- Q: Where should a delta document live on disk, and in what format? → A: Markdown, one file per delta — `specs/NNN-name/deltas/<slug>.md` while pending, moved to `specs/NNN-name/deltas/archive/` once applied. OpenSpec-style `ADDED` / `MODIFIED` / `REMOVED` / `RENAMED` headers, with a `## TASKS` section carrying the task entries. Markdown matches the artifacts it sits beside and reviews cleanly in a PR diff; one-file-per-delta makes pending-versus-applied a matter of location alone (FR-023); OpenSpec's vocabulary keeps a conversion path open.
+- Q: How does a developer invoke the delta lifecycle — validate, apply, and archive? → A: A new top-level `maverick delta` command with `validate` / `apply` / `list` subcommands, plus `--dry-run` and `--json`. Apply rewrites the artifacts and archives the delta; `refuel --speckit` picks up the bead consequences on its next run, unchanged. Apply is a refusing, mutating operation and deserves to be explicit rather than riding on a command people run casually — and a separate verb preserves the apply/ingest split that keeps `refuel --dry-run` a true preview of bead consequences.
+- Q: When apply refuses because a task's bead is in flight or closed, how does the human clear that impact and proceed? → A: A repeatable `--ack <task-id>` flag naming each impacted task individually. Apply refuses unless every reported impact is named, so an impact that appeared since the last look cannot be cleared silently — which a single blanket override would do. Each acknowledgement is recorded in the archive against the specific impact it cleared.
+- Q: What exactly should the content-loss guard reject, given requirement blocks here are usually a single line? → A: Reject on **either** a dropped sub-bullet **or** an after-block that falls below a fixed fraction of the before-block's length, with an explicit per-entry opt-out marker for a deliberate simplification. Sub-bullet loss alone would guard only 23 requirements out of 1,139 and leave the single-line majority unprotected; requiring intent for *any* reduction would fire on ordinary tightening edits until authors added the marker reflexively, which is how a guard turns into noise.
+- Q: A delta modifies requirement text but lists no task changes — should apply accept that silently? → A: Yes, quietly: rewrite `spec.md`, touch no bead, exit 0, no warning, and record in the archive that the delta carried no task entries. Measurement makes this the dominant delta shape, and the tool cannot know whether a requirement change implies work (FR-007a forbids guessing) — so a warning here would appear on most deltas and train authors to ignore warnings generally.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Express a requirement change as a structured document (Priority: P1)
@@ -118,7 +128,7 @@ Months later, someone asks "why does this requirement say X when the original sp
 - **Two pending deltas against the same spec**: applying them must be ordered and deterministic. Applying one must re-validate the other against the new state rather than assuming it still applies.
 - **A delta that removes every requirement**: permitted but must be reported prominently — this is spec withdrawal, and the resulting artifact set must still be structurally valid.
 - **MODIFIED entry whose "before" text does not match the spec's current text**: a stale delta. It must fail validation naming the mismatch, not apply against the wrong baseline.
-- **A requirement change with no task consequence**: the overwhelmingly common case, since most tasks cite no requirement at all. The delta rewrites `spec.md` and touches no bead. This must be an ordinary, quiet outcome — not a warning.
+- **A requirement change with no task consequence**: the overwhelmingly common case, since most tasks cite no requirement at all. The delta rewrites `spec.md` and touches no bead. This must be an ordinary, quiet outcome — exit 0, no warning (FR-007b).
 - **A withdrawn task whose bead lost its recorded identity**: possible today, because ingestion writes bead identity one key at a time and a process death between creating a bead and stamping it leaves the bead unstamped. Such a bead is invisible to withdrawal detection; FR-020 requires reporting it rather than closing or ignoring it silently.
 - **Applying a delta to a spec whose `tasks.md` a human has edited by hand since ingestion**: the apply must not clobber the hand edits it does not own; only the regions the delta touches are rewritten.
 - **A delta document that is syntactically valid but semantically empty** (zero change entries): rejected at validation, since applying it can only be a no-op that pollutes the archive.
@@ -135,27 +145,38 @@ Months later, someone asks "why does this requirement say X when the original sp
 - **FR-002b**: A requirement block MUST be defined as: the requirement's own line, plus every following continuation line and sub-bullet indented beneath it, up to the next requirement line or the next section heading of any level `##` or `###`. Specifically: a `####` heading inside the requirements section is an in-block **grouping marker and MUST NOT terminate a block**, and a **blank line MUST NOT terminate a block** — both forms occur in this repository's existing specs, and treating either as a terminator silently truncates requirements that are currently correct.
 - **FR-002a**: A RENAMED entry MUST carry the old and new identifiers, and MUST preserve the requirement's existing coverage — its beads are re-pointed, never closed and recreated.
 - **FR-003**: The format MUST be deterministically parseable with zero model calls, and parsing MUST fail loudly on ambiguity rather than guessing.
-- **FR-004**: Delta documents MUST live inside the feature directory they target, in a location upstream Spec Kit neither reads nor writes, so a repository without deltas is byte-identical to a vanilla Spec Kit repository.
+- **FR-004**: A pending delta MUST live at `specs/<feature-dir>/deltas/<slug>.md`, and an applied one at `specs/<feature-dir>/deltas/archive/<slug>.md` — a location upstream Spec Kit neither reads nor writes, so a repository without deltas is byte-identical to a vanilla Spec Kit repository.
+- **FR-004b**: A delta document MUST be markdown, carrying its requirement operations as `ADDED` / `MODIFIED` / `REMOVED` / `RENAMED` sections keyed by requirement id, and its task entries under a single `TASKS` section. `MODIFIED` MUST present its before and after blocks as separate labelled subsections rather than as a diff.
 - **FR-004a**: Applying MUST process operations in a fixed order — RENAMED, then REMOVED, then MODIFIED, then ADDED — so that a delta touching the same requirement through more than one operation has one defined outcome rather than an order-of-appearance outcome.
 - **FR-005**: The system MUST validate a delta against its target spec, rejecting: a MODIFIED or REMOVED entry naming a requirement the spec does not define; an ADDED entry whose identifier the spec already defines; a MODIFIED entry whose before-text does not match the spec's current text; a delta with zero change entries; and a requirement named by two conflicting operations (MODIFIED and REMOVED, say).
-- **FR-005a**: Validation MUST additionally apply a **content-loss guard** to every MODIFIED entry: reject when the after-block drops sub-bullets the before-block carries, or shrinks past a proportional threshold, unless the delta marks the reduction as intentional. This is the guard that separates a delta layer safe to adopt from one that quietly erodes specs — an author working from an older copy of a requirement loses everything added since, and nothing about the resulting document looks wrong. **Revised from an acceptance-criteria guard after measurement**: requirements in this repository carry no per-requirement acceptance criteria to compare (see Assumptions), so the guard is defined over block content, which does exist.
+- **FR-005a**: Validation MUST apply a **content-loss guard** to every MODIFIED entry, rejecting when *either*: (a) the after-block drops one or more sub-bullets the before-block carries, or (b) the after-block's normalized length falls below a fixed fraction of the before-block's. This is the guard that separates a delta layer safe to adopt from one that quietly erodes specs — an author working from an older copy loses everything added since, and nothing about the resulting document looks wrong. **Revised from an acceptance-criteria guard after measurement**: requirements in this repository carry no per-requirement acceptance criteria to compare (see Assumptions), so the guard is defined over block content, which does exist.
+- **FR-005d**: The shrink fraction MUST be a fixed contract constant, not configurable. A tunable guard is one an author turns down the first time it is inconvenient, which is precisely when it is working.
+- **FR-005e**: A MODIFIED entry MAY carry an explicit intent marker declaring the reduction deliberate, which suppresses the guard **for that entry only**. There MUST be no command-line flag that suppresses it globally, and the marker MUST be recorded in the archive so a reviewer can see which reductions were declared rather than caught.
+
+#### Command surface
+
+- **FR-005b**: The system MUST expose the lifecycle as a `maverick delta` command with `validate`, `apply`, and `list` subcommands, each supporting `--json` through the shared envelope, and `apply` additionally supporting `--dry-run`.
+- **FR-005c**: `maverick refuel` MUST NOT apply deltas, and MUST behave identically whether or not deltas exist. A delta reaches the beads only via an explicit `delta apply` followed by an ordinary refuel run.
 
 #### Applying
 
 - **FR-006**: Applying a delta MUST rewrite the target spec's requirement set to its post-delta state, leaving every requirement the delta does not name byte-identical.
 - **FR-007**: Applying a delta MUST apply the delta's **task entries** to `tasks.md` — added task lines appear, withdrawn task ids are removed — leaving every task line the delta does not name byte-identical.
 - **FR-007a**: The system MUST NOT attempt to derive which tasks a requirement covers. A delta that changes work states its task consequences explicitly; the tool applies what the delta says and never infers a requirement-to-task mapping.
+- **FR-007b**: A delta carrying no task entries MUST apply quietly — rewriting `spec.md`, touching no bead, exiting successfully, and emitting no warning. This is the most common delta shape, and warning on it would appear on the majority of applies and devalue every other warning the command emits. The archive MUST record that no task entries were declared, so the absence is evidence rather than a silence.
 - **FR-008**: The artifacts an apply produces MUST remain ordinary Spec Kit artifacts, parseable by the existing ingestion parsers with no new format and no new parser mode.
 - **FR-009**: Applying MUST be atomic with respect to the artifact set: a failure at any point leaves the pre-apply state, never a partial rewrite.
 - **FR-010**: Applying an already-applied delta MUST be a reported no-op.
 - **FR-011**: Applying MUST NOT write beads. Bead consequences MUST come from a separate, explicit ingestion run.
-- **FR-012**: Applying MUST offer a preview mode that reports every artifact change and every impact with zero writes.
+- **FR-012**: `apply --dry-run` MUST report every artifact change and every impact with zero writes, including the impacts that would cause a refusal.
 
 #### Impacts on existing work
 
 - **FR-013**: Before rewriting anything, the apply MUST determine, for every **task** the delta withdraws or changes, the state of that task's bead — resolved by the task identity already recorded on the bead at ingestion.
 - **FR-014**: The apply MUST refuse to complete — reporting every impact and exiting non-zero, having written nothing — when a withdrawn or changed task's bead is in any state other than open-and-unstarted.
-- **FR-015**: The system MUST provide an explicit acknowledgement path by which a human accepts reported impacts and re-runs the apply, and MUST record the acknowledgement in the archive.
+- **FR-015**: `delta apply` MUST accept a repeatable `--ack <task-id>` flag, and MUST refuse until **every** reported impact has been named. A blanket override MUST NOT exist: it would clear impacts the human never read, including any that arose since the last preview.
+- **FR-015a**: Each acknowledgement MUST be recorded in the archive against the specific impact it cleared — the task, its bead, and that bead's state at the time — so the archive answers "what was knowingly overridden", not merely "an override happened".
+- **FR-015b**: An `--ack` naming a task that is not an impact MUST fail rather than be ignored, since a stale acknowledgement in a script would otherwise silently pre-authorize nothing while appearing to authorize something.
 - **FR-016**: The system MUST NOT close, reopen, or edit any bead that a human or agent has started or completed, on any path.
 
 #### Ingestion of consequences
@@ -169,7 +190,7 @@ Months later, someone asks "why does this requirement say X when the original sp
 
 - **FR-021**: An applied delta MUST be preserved in an archive within the feature directory, recording what changed, when it was applied, and which impacts were acknowledged.
 - **FR-022**: The archive MUST be readable as the spec's history of intentional change without reference to version-control history.
-- **FR-023**: Archived deltas MUST be ordered by application, and a pending delta MUST be distinguishable from an applied one by location alone.
+- **FR-023**: Archived deltas MUST be ordered by application, and a pending delta MUST be distinguishable from an applied one by **location alone** — pending under `deltas/`, applied under `deltas/archive/` (FR-004) — never by a status marker inside the document, which can disagree with reality.
 
 #### Compatibility
 
@@ -196,7 +217,8 @@ Months later, someone asks "why does this requirement say X when the original sp
 - **SC-005**: No bead that a human or agent has started or completed is ever modified by this feature, on any path including every failure path — verifiable by comparing bead states across every apply scenario including the refusal ones.
 - **SC-006**: A reader can reconstruct a spec's complete history of intentional change from its archive alone, without consulting version-control history.
 - **SC-007**: Artifacts produced by an apply parse successfully with the existing ingestion parsers in 100% of cases, with no parser change.
-- **SC-008**: No apply ever reduces a requirement block's content without the author having said so explicitly — verifiable by applying a delta whose MODIFIED after-block drops a sub-bullet the current spec carries, and asserting the apply refuses rather than completes.
+- **SC-008**: No apply ever reduces a requirement block's content without the author having said so explicitly — verifiable on two cases: a MODIFIED after-block that drops a sub-bullet the current spec carries, and one that shrinks past the fraction, both refusing rather than completing, and both landing once the intent marker is present.
+- **SC-008a**: The guard does not fire on ordinary tightening — verifiable by applying a delta whose after-block removes one redundant clause from a multi-line requirement and asserting it completes without an intent marker. A guard that fires on routine edits trains authors to mark everything, which is indistinguishable from having no guard.
 - **SC-009**: A renamed requirement leaves every bead untouched — verifiable by comparing complete bead-state snapshots across a RENAMED apply. A rename changes an identifier in `spec.md`; it has no task consequence unless the delta states one.
 - **SC-010**: The requirement-block parser round-trips every `spec.md` in this repository — parse then re-render reproduces the file byte-identically for all of them. This is the proof that the block definition in FR-002b matches the corpus rather than an idealized version of it.
 

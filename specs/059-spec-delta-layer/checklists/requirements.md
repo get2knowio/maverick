@@ -31,6 +31,19 @@
 
 ## Notes
 
+### Clarify session 2026-08-23
+
+Five questions were put to the human and integrated into `## Clarifications`:
+delta document location and format; the `maverick delta` command surface;
+per-impact `--ack` acknowledgement; the content-loss guard's two-part rule and
+its non-configurable threshold; and quiet acceptance of a delta with no task
+entries. All 16 checklist items still pass after integration; no regressions.
+
+The `## Decisions` section is separate and remains what it says — choices made
+while writing the spec, not answers from this session.
+
+### Pre-clarify decisions
+
 Five decisions were resolved in-spec rather than left as `[NEEDS CLARIFICATION]`
 markers. Two of them the source prompt explicitly asked the spec to settle; three
 came out of research and are recorded in Clarifications with their reasoning:
