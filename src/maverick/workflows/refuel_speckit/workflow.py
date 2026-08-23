@@ -16,7 +16,12 @@ from typing import Any
 
 from maverick.exceptions import WorkflowError
 from maverick.logging import get_logger
-from maverick.speckit.build import IngestionPlan, build_ingestion_plan
+from maverick.speckit.build import (
+    IngestionPlan,
+    WithdrawnTask,
+    build_ingestion_plan,
+    compute_withdrawn_tasks,
+)
 from maverick.speckit.detect import SUPPORTED_SPECKIT_RANGE, check_template_compatibility
 from maverick.speckit.errors import NothingToIngestError, SpeckitError, UnsupportedTemplateError
 from maverick.speckit.models import SpeckitFeature
@@ -26,6 +31,7 @@ from maverick.workflows.refuel_speckit.constants import (
     ADOPT_REMEDIATION,
     CHAIN_EPIC,
     CHECK_TEMPLATE,
+    CLOSE_WITHDRAWN,
     COMMIT_OUTPUT,
     CREATE_BEADS,
     ENRICH,
@@ -179,17 +185,21 @@ class SpeckitRefuelWorkflow(PythonWorkflow):
         from maverick.beads.client import BeadClient
 
         client = BeadClient(cwd=cwd)
-        existing_epic_id, existing_task_map = await self._find_existing_epic(client, feature_name)
+        existing_epic_id, existing_task_map, bead_status = await self._find_existing_epic(
+            client, feature_name
+        )
 
         # ------------------------------------------------------------
         # Step 4: Plan ingestion
         # ------------------------------------------------------------
         await self.emit_step_started(PLAN_INGESTION, display_label="Planning ingestion")
+        withdrawn_tasks = compute_withdrawn_tasks(feature, existing_task_map, bead_status)
         try:
             plan, plan_warnings = build_ingestion_plan(
                 feature,
                 existing_epic_id=existing_epic_id,
                 existing_task_map=existing_task_map,
+                withdrawn=withdrawn_tasks,
             )
         except NothingToIngestError as exc:
             await self.emit_step_failed(PLAN_INGESTION, str(exc))
@@ -200,8 +210,16 @@ class SpeckitRefuelWorkflow(PythonWorkflow):
         await self.emit_output(
             PLAN_INGESTION,
             f"{len(plan.new_tasks)} new, {len(plan.skipped_completed)} completed, "
-            f"{len(plan.skipped_existing)} already ingested",
+            f"{len(plan.skipped_existing)} already ingested, {len(plan.withdrawn)} withdrawn",
         )
+        if plan.withdrawn:
+            verb = "Would close" if dry_run else "Will close"
+            for wtask in plan.withdrawn:
+                note = "" if wtask.closable else f" — NOT closable ({wtask.bead_status})"
+                await self.emit_output(
+                    PLAN_INGESTION,
+                    f"{verb} {wtask.task_id} (bead {wtask.bead_id}){note}",
+                )
         await self.emit_step_completed(
             PLAN_INGESTION,
             output={
@@ -209,10 +227,20 @@ class SpeckitRefuelWorkflow(PythonWorkflow):
                 "skipped_completed": len(plan.skipped_completed),
                 "skipped_existing": len(plan.skipped_existing),
                 "edges": len(plan.edges),
+                "withdrawn": len(plan.withdrawn),
             },
         )
 
         delta_run = existing_epic_id is not None
+
+        # ------------------------------------------------------------
+        # Step 4b: Close withdrawn tasks' beads (059-spec-delta-layer)
+        # ------------------------------------------------------------
+        closed_withdrawn_ids: tuple[str, ...] = ()
+        if not dry_run and plan.withdrawn:
+            closed_withdrawn_ids = await self._close_withdrawn_beads(
+                client, withdrawn=plan.withdrawn, feature_name=feature_name
+            )
 
         # Delta no-op: nothing new to create, but not an error.
         if not plan.new_tasks:
@@ -241,6 +269,7 @@ class SpeckitRefuelWorkflow(PythonWorkflow):
                 dry_run=dry_run,
                 warnings=tuple(warnings),
                 adopted_remediation_bead_ids=adopted_ids,
+                closed_withdrawn_bead_ids=closed_withdrawn_ids,
             )
             return result.to_dict()
 
@@ -406,6 +435,7 @@ class SpeckitRefuelWorkflow(PythonWorkflow):
             enriched=enriched,
             warnings=tuple(warnings),
             adopted_remediation_bead_ids=main_adopted_ids,
+            closed_withdrawn_bead_ids=closed_withdrawn_ids,
         )
         return result.to_dict()
 
@@ -417,52 +447,32 @@ class SpeckitRefuelWorkflow(PythonWorkflow):
         self,
         client: Any,
         feature_name: str,
-    ) -> tuple[str | None, dict[str, str]]:
+    ) -> tuple[str | None, dict[str, str], dict[str, str]]:
         """Find the open epic (if any) whose ``speckit_feature`` state matches.
 
+        Thin wrapper over :mod:`maverick.speckit.bead_lookup` — the shared
+        implementation the delta layer's impact detection also uses
+        (Guardrail 5), so the epic/task-bead join has exactly one
+        implementation.
+
         Returns:
-            ``(epic_id, existing_task_map)`` — both empty/None on a fresh run.
+            ``(epic_id, existing_task_map, bead_status)`` — all empty/None
+            on a fresh run. *bead_status* (``bead_id -> status``) is what
+            lets 059-spec-delta-layer's withdrawal detection
+            (:func:`maverick.speckit.build.compute_withdrawn_tasks`)
+            classify a withdrawn task's bead with no extra ``bd`` query
+            (research R6).
 
         Raises:
             SpeckitError: More than one open epic claims this feature (corrupt state).
         """
-        try:
-            epics = await client.query("type=epic AND status=open")
-        except Exception as exc:
-            logger.debug("speckit_epic_query_failed", error=str(exc))
-            return None, {}
+        from maverick.speckit.bead_lookup import build_task_bead_map, find_epic_id
 
-        matches = []
-        for epic_summary in epics:
-            try:
-                details = await client.show(epic_summary.id)
-            except Exception:
-                continue
-            if details.state.get("speckit_feature") == feature_name:
-                matches.append(details)
-
-        if not matches:
-            return None, {}
-        if len(matches) > 1:
-            ids = ", ".join(d.id for d in matches)
-            raise SpeckitError(f"multiple open epics claim speckit_feature={feature_name}: {ids}")
-
-        epic_details = matches[0]
-        existing_task_map: dict[str, str] = {}
-        try:
-            children = await client.children(epic_details.id)
-        except Exception:
-            children = []
-        for child in children:
-            try:
-                child_details = await client.show(child.id)
-            except Exception:
-                continue
-            task_id = child_details.state.get("speckit_task_id")
-            if task_id:
-                existing_task_map[task_id] = child.id
-
-        return epic_details.id, existing_task_map
+        epic_id = await find_epic_id(client, feature_name)
+        if epic_id is None:
+            return None, {}, {}
+        existing_task_map, _unstamped, bead_status = await build_task_bead_map(client, epic_id)
+        return epic_id, existing_task_map, bead_status
 
     async def _chain_epic(self, client: Any, new_epic_id: str) -> str | None:
         """Chain *new_epic_id* behind the tail of existing open epics.
@@ -600,6 +610,62 @@ class SpeckitRefuelWorkflow(PythonWorkflow):
             )
         await self.emit_step_completed(ADOPT_REMEDIATION, output={"adopted": len(adopted)})
         return tuple(adopted)
+
+    async def _close_withdrawn_beads(
+        self,
+        client: Any,
+        *,
+        withdrawn: tuple[WithdrawnTask, ...],
+        feature_name: str,
+    ) -> tuple[str, ...]:
+        """Close the open, unstarted beads of withdrawn tasks (059-spec-delta-layer).
+
+        Modelled on :meth:`_adopt_remediation_beads`: per-bead isolated
+        (Principle IV — one bead's close failure must not sink the run),
+        with its own ``emit_step_started``/``emit_step_completed``
+        bracketing. Only ``closable`` (open-and-unstarted) beads are
+        closed — an in-flight or already-closed bead should never reach
+        here (``delta apply`` already refused on those, per
+        ``speckit/delta/impacts.py``), but this stays defensive rather
+        than assuming that refusal always ran first.
+
+        Args:
+            client: The bead client to close through.
+            withdrawn: The plan's :class:`~maverick.speckit.build.WithdrawnTask` tuple.
+            feature_name: For the close reason text.
+
+        Returns:
+            The bead ids actually closed.
+        """
+        await self.emit_step_started(CLOSE_WITHDRAWN, display_label="Closing withdrawn tasks")
+        closed: list[str] = []
+        for task in withdrawn:
+            if not task.closable:
+                logger.warning(
+                    "speckit_withdrawn_not_closable",
+                    task_id=task.task_id,
+                    bead_id=task.bead_id,
+                    status=task.bead_status,
+                )
+                continue
+            try:
+                await client.close(
+                    task.bead_id,
+                    reason=f"Withdrawn by a delta applied against {feature_name} ({task.task_id})",
+                )
+                closed.append(task.bead_id)
+            except Exception as exc:  # noqa: BLE001 — one bead's failure must not sink ingestion
+                logger.warning(
+                    "speckit_withdrawn_close_failed",
+                    task_id=task.task_id,
+                    bead_id=task.bead_id,
+                    error=str(exc),
+                )
+
+        if closed:
+            await self.emit_output(CLOSE_WITHDRAWN, f"Closed {len(closed)} withdrawn task bead(s)")
+        await self.emit_step_completed(CLOSE_WITHDRAWN, output={"closed": len(closed)})
+        return tuple(closed)
 
     async def _record_run(
         self, cwd: Path, feature_name: str, epic_id: str, status: str, *, run_id: str
