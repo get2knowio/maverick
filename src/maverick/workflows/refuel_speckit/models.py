@@ -27,6 +27,9 @@ class SpeckitRefuelResult:
         adopted_remediation_bead_ids: Standalone `spec-remediation` beads
             (from a prior `maverick spec` run) adopted under this epic
             (R6 post-ingest adoption step).
+        closed_withdrawn_bead_ids: Beads closed because a delta withdrew
+            their task and they were open and unstarted
+            (059-spec-delta-layer).
     """
 
     feature_name: str
@@ -40,6 +43,7 @@ class SpeckitRefuelResult:
     enriched: bool = False
     warnings: tuple[str, ...] = field(default=())
     adopted_remediation_bead_ids: tuple[str, ...] = field(default=())
+    closed_withdrawn_bead_ids: tuple[str, ...] = field(default=())
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to a plain dictionary for WorkflowResult.final_output."""
@@ -55,6 +59,7 @@ class SpeckitRefuelResult:
             "enriched": self.enriched,
             "warnings": list(self.warnings),
             "adopted_remediation_bead_ids": list(self.adopted_remediation_bead_ids),
+            "closed_withdrawn_bead_ids": list(self.closed_withdrawn_bead_ids),
         }
 
 

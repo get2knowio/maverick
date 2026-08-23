@@ -45,7 +45,8 @@ def make_mock_bead_client(
 
     All async methods used by SpeckitRefuelWorkflow are stubbed:
     ``create_bead``, ``add_dependency``, ``set_state``, ``query``,
-    ``show``, ``children``. ``query`` branches on the filter expression:
+    ``show``, ``children``, ``close`` (059-spec-delta-layer's withdrawn-bead
+    closing step). ``query`` branches on the filter expression:
     a ``type=epic...`` query returns *existing_epics*; a
     ``type=task...`` query (the post-ingest remediation-bead adoption
     scan) returns *remediation_candidates* (defaults to none, so existing
@@ -63,6 +64,7 @@ def make_mock_bead_client(
     client.create_bead = AsyncMock(side_effect=create_bead_side_effect or _default_create_bead)
     client.add_dependency = AsyncMock(return_value=None)
     client.set_state = AsyncMock(return_value=None)
+    client.close = AsyncMock(return_value=None)
 
     async def _query(expr: str) -> list[BeadSummary]:
         if "task" in expr:

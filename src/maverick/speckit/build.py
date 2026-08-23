@@ -28,6 +28,28 @@ _INLINE_CODE_RE = re.compile(r"`([^`]+)`")
 _COMMAND_PREFIXES = ("rg ", "grep ", "cargo ", "make ")
 
 
+class WithdrawnTask(BaseModel):
+    """A previously-ingested task no longer present in the reparsed
+    feature (059-spec-delta-layer: a delta withdrew it).
+
+    Computed at the one point holding both ``existing_task_map`` and the
+    freshly parsed feature (research R6) — ``set(existing_task_map) -
+    {every parsed task_id}`` — needing no extra ``bd`` query beyond what
+    building ``existing_task_map`` already costs.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    task_id: str
+    bead_id: str
+    bead_status: str
+    closable: bool = Field(
+        description="True iff bead_status is open-and-unstarted — the only "
+        "state a later refuel step may close without touching in-flight or "
+        "already-closed work"
+    )
+
+
 class PlannedBead(BaseModel):
     """Intent to create one bead as part of an ingestion run."""
 
@@ -55,6 +77,9 @@ class IngestionPlan(BaseModel):
     skipped_existing: tuple[str, ...] = ()
     edges: tuple[tuple[str, str], ...] = ()
     existing_task_map: dict[str, str] = Field(default_factory=dict)
+    withdrawn: tuple[WithdrawnTask, ...] = Field(
+        default=(), description="Ingested tasks absent from the reparsed feature (059)"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -383,11 +408,49 @@ def _build_epic_planned_bead(feature: SpeckitFeature) -> PlannedBead:
 # ---------------------------------------------------------------------------
 
 
+def compute_withdrawn_tasks(
+    feature: SpeckitFeature,
+    existing_task_map: dict[str, str],
+    bead_status: dict[str, str],
+) -> tuple[WithdrawnTask, ...]:
+    """Previously-ingested tasks absent from the reparsed *feature* (research R6).
+
+    Pure function — the caller (``workflows/refuel_speckit/workflow.py``)
+    already holds both *existing_task_map* and *bead_status* from the
+    same ``bead_lookup.build_task_bead_map`` call that finds the existing
+    epic, so this needs no ``bd`` query of its own.
+
+    Args:
+        feature: The freshly parsed feature.
+        existing_task_map: ``task_id -> bead_id`` for previously ingested tasks.
+        bead_status: ``bead_id -> current bd status``.
+
+    Returns:
+        One :class:`WithdrawnTask` per id in *existing_task_map* no
+        longer present in *feature*'s current task set, ordered by task
+        id for determinism. Empty on a first run (*existing_task_map* is
+        empty) and empty when nothing was withdrawn.
+    """
+    parsed_ids = {task.task_id for phase in feature.phases for task in phase.tasks}
+    withdrawn_ids = sorted(set(existing_task_map) - parsed_ids)
+    result: list[WithdrawnTask] = []
+    for task_id in withdrawn_ids:
+        bead_id = existing_task_map[task_id]
+        status = bead_status.get(bead_id, "")
+        result.append(
+            WithdrawnTask(
+                task_id=task_id, bead_id=bead_id, bead_status=status, closable=status == "open"
+            )
+        )
+    return tuple(result)
+
+
 def build_ingestion_plan(
     feature: SpeckitFeature,
     *,
     existing_epic_id: str | None = None,
     existing_task_map: dict[str, str] | None = None,
+    withdrawn: tuple[WithdrawnTask, ...] = (),
 ) -> tuple[IngestionPlan, tuple[str, ...]]:
     """Build a fully validated :class:`IngestionPlan` from a parsed feature.
 
@@ -401,6 +464,12 @@ def build_ingestion_plan(
             for this feature). ``None`` on a fresh run.
         existing_task_map: ``task_id -> bead_id`` for previously ingested
             tasks (delta runs only).
+        withdrawn: Previously-ingested tasks absent from *feature*
+            (059-spec-delta-layer) — computed by the caller (the only
+            point holding both bd bead status and the parsed feature;
+            this function stays pure and never queries bd itself) and
+            attached to the plan verbatim so ``--dry-run`` previews it
+            for free.
 
     Returns:
         A two-tuple of ``(plan, warnings)``.
@@ -457,6 +526,7 @@ def build_ingestion_plan(
                 skipped_existing=skipped_existing,
                 edges=(),
                 existing_task_map=existing_task_map,
+                withdrawn=withdrawn,
             ),
             tuple(warnings),
         )
@@ -490,6 +560,7 @@ def build_ingestion_plan(
         skipped_existing=skipped_existing,
         edges=resolved_edges,
         existing_task_map=existing_task_map,
+        withdrawn=withdrawn,
     )
     return plan, tuple(warnings)
 
@@ -498,6 +569,8 @@ __all__ = [
     "EPIC_TASK_ID",
     "IngestionPlan",
     "PlannedBead",
+    "WithdrawnTask",
     "build_ingestion_plan",
+    "compute_withdrawn_tasks",
     "derive_dependency_edges",
 ]

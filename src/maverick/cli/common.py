@@ -82,6 +82,18 @@ def resolve_verbosity(ctx: Any) -> int:
 BD_MISSING = "bd-missing"
 BD_NOT_INITIALIZED = "bd-not-initialized"
 
+#: Shared ``bd_ready_reason()`` -> message mapping for the JSON-mode
+#: commands (notify/reconcile/delta) that build their own bd-unavailable
+#: envelope rather than going through :func:`verify_bd_ready`'s
+#: human-facing rendering. One copy so the wording can't drift across
+#: commands (CLAUDE.md Debt Prevention #5 — no duplication).
+BD_REASON_MESSAGES: dict[str, str] = {
+    BD_MISSING: "The bd CLI is required but not found on PATH.",
+    BD_NOT_INITIALIZED: (
+        "this project hasn't been initialized for Maverick yet — run `maverick init`."
+    ),
+}
+
 
 def bd_ready_reason(cwd: Path | None = None) -> str | None:
     """Why ``bd`` isn't usable in *cwd*, or ``None`` when it is.

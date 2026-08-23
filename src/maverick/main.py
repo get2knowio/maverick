@@ -49,6 +49,10 @@ _LAZY_COMMANDS: dict[str, tuple[str, str]] = {
         "maverick.cli.commands.critique:critique",
         "Review a change, an epic, or a set of paths on demand.",
     ),
+    "delta": (
+        "maverick.cli.commands.delta:delta",
+        "Validate and apply structured changes to an already-shipped spec.",
+    ),
     "doctor": (
         "maverick.cli.commands.doctor:doctor",
         "Validate the local environment (providers, git, bd).",

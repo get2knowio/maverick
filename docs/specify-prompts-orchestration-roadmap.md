@@ -28,7 +28,7 @@ Tier 1  (independent — start in any order):
   3. context-file-protection           ✅ spec 056
   4. isolated-bead-workspaces          ✅ spec 057  ← unblocks the dispatcher
   5. standalone-code-review            ✅ spec 058
-  6. spec-delta-layer                  ← last of Tier 1
+  6. spec-delta-layer                  ✅ spec 059  ← Tier 1 complete
 
 Tier 2  (the fleet backbone, in order):
   7. maverick-host-daemon
@@ -255,7 +255,7 @@ Out of scope: automated fixing of findings; CI integration; review of
 revisions not reachable from the current repository.
 ```
 
-### Prompt 6: `spec-delta-layer` (Slice G — OpenSpec-style modification)
+### Prompt 6: `spec-delta-layer` (Slice G — OpenSpec-style modification) — **delivered as spec 059**
 
 ```
 Add a delta layer for modifying existing specs, closing Spec Kit's known

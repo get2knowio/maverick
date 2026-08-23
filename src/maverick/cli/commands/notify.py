@@ -72,7 +72,7 @@ from maverick.assumptions.schedule.state import (
     save_state,
 )
 from maverick.beads.client import BeadClient
-from maverick.cli.common import BD_MISSING, BD_NOT_INITIALIZED, bd_ready_reason, cli_error_handler
+from maverick.cli.common import BD_REASON_MESSAGES, bd_ready_reason, cli_error_handler
 from maverick.cli.console import console, err_console
 from maverick.cli.context import ExitCode, async_command
 from maverick.cli.json_output import ErrorKind, JsonEnvelope, emit_json, json_error_handler
@@ -93,16 +93,6 @@ logger = get_logger(__name__)
 #: (research R10) — distinguishes it from a human waiver in ledger
 #: reporting (FR-015).
 _AUTO_WAIVE_ACTOR: Final = "maverick-scheduler"
-
-#: Machine reason (``maverick.cli.common.bd_ready_reason``) -> the message
-#: the ``bd-unavailable`` envelope/console line carries. Mirrors
-#: ``maverick.cli.commands.reconcile._BD_REASON_MESSAGES``.
-_BD_REASON_MESSAGES = {
-    BD_MISSING: "The bd CLI is required but not found on PATH.",
-    BD_NOT_INITIALIZED: (
-        "this project hasn't been initialized for Maverick yet — run `maverick init`."
-    ),
-}
 
 #: Human-mode label per :class:`DecisionKind` (contract's completion-line example).
 _KIND_HUMAN: dict[DecisionKind, str] = {
@@ -173,7 +163,7 @@ async def _bd_preflight_error(cwd: Path, client: BeadClient) -> str | None:
     """
     reason = bd_ready_reason(cwd)
     if reason is not None:
-        return _BD_REASON_MESSAGES.get(reason, f"bd is not ready ({reason}).")
+        return BD_REASON_MESSAGES.get(reason, f"bd is not ready ({reason}).")
     if not await client.verify_available():
         return "The `bd` CLI is on PATH but is not responding (`bd --version` failed)."
     return None

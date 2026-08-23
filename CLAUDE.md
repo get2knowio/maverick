@@ -519,6 +519,7 @@ Mode is auto-detected from repository shape; `--speckit` forces it.
 | `maverick review --spec <name> --waive <reason> [--json]` | Bulk-waive a spec's open entries |
 | `maverick review --list [--status\|--spec\|--severity]... [--json]` | List ledger entries with full provenance |
 | `maverick runway seed\|consolidate`                  | Manage knowledge store               |
+| `maverick delta validate\|apply\|list [--ack TASK_ID]... [--json]` | Change an already-shipped spec via a structured delta document |
 
 ### spec (headless Spec Kit chain)
 
@@ -569,6 +570,51 @@ re-runs (e.g. after `tasks.md` grows) append only new tasks under the
 existing epic — no duplicate epics. See
 `src/maverick/speckit/` (parsing/detection/plan-building) and
 `src/maverick/workflows/refuel_speckit/` (the workflow).
+
+### delta (spec delta layer, 059-spec-delta-layer)
+
+`maverick delta validate|apply|list` is a deterministic, zero-model-call
+layer for changing an **already-shipped** Spec Kit feature — the
+counterpart to `spec`/`refuel`, which only ever create one. A delta
+document (`specs/<feature>/deltas/<NNN>-<slug>.md`) states requirement
+operations — `ADDED`/`MODIFIED`/`REMOVED`/`RENAMED`, each a `### Before`/
+`### After` pair holding the **complete** verbatim requirement block,
+never a diff or partial excerpt — and, where work changes, a `## TASKS`
+section of `ADDED`/`WITHDRAWN` task lines, stated explicitly by the
+delta's author rather than inferred (requirement→task coverage is 6.4%
+in this corpus and cannot be derived).
+
+`delta validate` parses and reports every problem (stable `code` + line
+number each), including a **content-loss guard** that rejects a dropped
+sub-bullet or an after-block below `SHRINK_FLOOR = 0.6` of the
+before-block's normalized length — suppressed per-entry by a
+`[shrink-intended]` marker, never by a config key or CLI flag. `delta
+apply` rewrites `spec.md`/`tasks.md` in the fixed
+`RENAMED → REMOVED → MODIFIED → ADDED` order (a module constant,
+independent of enum declaration order), computing both files' new
+content **fully in memory** before writing either (no cross-file
+transaction exists here, so this is what atomicity means for it), then
+archives the document to `deltas/archive/` with an appended `## Applied`
+record — location alone is the pending/applied state, never a marker
+inside the file. It **refuses, writing nothing,** when a named task's
+bead is already in flight or closed (`impacts.py`, reusing the same
+epic/task-bead join `refuel`'s delta-run path uses —
+`speckit/bead_lookup.py`); every impact must be acknowledged by a
+repeated `--ack TASK_ID`, with no blanket override. `delta apply` never
+writes a bead itself (FR-011) — withdrawn tasks' beads close on the
+*next* ordinary `refuel --speckit`, via `IngestionPlan.withdrawn`
+(`set(existing_task_map) - {parsed task ids}`, needing no extra `bd`
+query) and a closing step modelled on `_adopt_remediation_beads`. A
+rename is its own operation specifically so it is never modelled as
+remove-plus-add, which would destroy a requirement's bead lineage.
+
+The requirement-block parser (`speckit/requirements.py`) carries its own
+falsification test: `render(parse(text)) == text` byte-for-byte across
+every `specs/*/spec.md` in the repository, run against the **live** tree
+rather than a fixture. See `src/maverick/speckit/requirements.py` (block
+grammar), `src/maverick/speckit/delta/` (models, parser, validate, apply,
+impacts, archive), `src/maverick/cli/commands/delta.py`, and
+`specs/059-spec-delta-layer/` for the full contract.
 
 ### fly
 

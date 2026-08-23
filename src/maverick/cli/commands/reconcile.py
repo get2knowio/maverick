@@ -42,8 +42,7 @@ import click
 from rich.table import Table
 
 from maverick.cli.common import (
-    BD_MISSING,
-    BD_NOT_INITIALIZED,
+    BD_REASON_MESSAGES,
     bd_ready_reason,
     cli_error_handler,
     resolve_verbosity,
@@ -228,16 +227,6 @@ async def _run_dry_run_preview(ctx: click.Context, *, run_id: str, cwd: Path) ->
     _render_dry_run_summary_and_exit(report)
 
 
-#: Machine reason (``maverick.cli.common.bd_ready_reason``) -> the message
-#: the ``bd-unavailable`` envelope carries.
-_BD_REASON_MESSAGES = {
-    BD_MISSING: "The bd CLI is required but not found on PATH.",
-    BD_NOT_INITIALIZED: (
-        "this project hasn't been initialized for Maverick yet — run `maverick init`."
-    ),
-}
-
-
 def _require_bd_ready_json(cwd: Path) -> None:
     """JSON-mode sibling of :func:`maverick.cli.common.verify_bd_ready`.
 
@@ -256,7 +245,7 @@ def _require_bd_ready_json(cwd: Path) -> None:
     reason = bd_ready_reason(cwd)
     if reason is None:
         return
-    raise BeadError(_BD_REASON_MESSAGES.get(reason, f"bd is not ready ({reason})."))
+    raise BeadError(BD_REASON_MESSAGES.get(reason, f"bd is not ready ({reason})."))
 
 
 async def _run_reconcile_json(ctx: click.Context, *, dry_run: bool, cwd: Path) -> None:
