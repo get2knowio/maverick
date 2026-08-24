@@ -48,7 +48,7 @@ dependencies = [
     "rank-bm25>=0.2.2,<1",
     "rich>=13.0,<16",
     "tiktoken>=0.8,<1",
-    "unidiff>=0.7,<1",
+    "unidiff>=0.7,<2",
 ]
 
 [project.urls]
