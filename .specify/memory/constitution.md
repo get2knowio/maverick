@@ -1,6 +1,56 @@
 <!--
 Sync Impact Report
 ==================
+Version change: 3.0.0 to 3.1.0 (MINOR)
+
+Bump rationale: a new principle is added and a new appendix expands guidance. No
+existing principle or guardrail is removed or redefined, so MINOR applies under
+the amendment policy ("new principles or material expansions").
+
+Added sections:
+  - XIV. Pre-Release Distribution Discipline (new principle) -- PyPI receives
+    only final releases; non-final builds flow through a non-PyPI channel and
+    carry a PEP 440 pre-release/dev version; rc wheels are promoted, never
+    rebuilt; TestPyPI is not a routine channel; git sources are temporary.
+  - Appendix G: Pre-Release Testing Channels -- the three escalating channels
+    (git refs / CI-built wheels / private index), the cross-mode `--with`
+    recipe for testing an unreleased library inside a released CLI, version
+    hygiene, and the rollout order.
+
+Modified sections:
+  - Technology Stack: added Distribution and Pre-release channel rows.
+  - Governance / Compliance Review: added the pre-release publish check.
+
+Corrected drift:
+  - Technology Stack: the Workspaces row still read "spec-chain only ...
+    Guardrail 0's one exception", which 3.0.0 superseded. Corrected to the
+    shared isolation primitive and its two consumers.
+
+Templates requiring updates:
+  - .specify/templates/plan-template.md   -- no change needed (Constitution
+    Check is a generic placeholder)
+  - .specify/templates/spec-template.md   -- no change needed
+  - .specify/templates/tasks-template.md  -- no change needed
+
+Propagated:
+  - CLAUDE.md updated in the same change (new "Release & Pre-Release
+    Distribution" section).
+
+Follow-up TODOs:
+  - TODO(publish-workflow): .github/workflows/publish.yml triggers on `v*`
+    excluding `v*dev*`, so a `v0.3.0rc1` tag would publish an rc to PyPI. Tier 2
+    requires rc wheels to land on a GitHub pre-release instead. Out of scope for
+    a constitution amendment (Scope Guard); track as implementation work.
+  - TODO(dynamic-versioning): pyproject.toml carries a static hand-bumped
+    version (0.2.0.dev9). Principle XIV's local-version-identifier rule is
+    satisfied mechanically by hatch-vcs / uv-dynamic-versioning; not adopted
+    here.
+
+Source: Notion, "Pre-Release Testing Without Polluting PyPI: Libraries & CLIs"
+(2026-08-29), via user directive.
+
+--- Previous amendment (3.0.0) -------------------------------------------------
+
 Version change: 2.0.1 to 3.0.0 (MAJOR)
 
 Bump rationale: Guardrail X.0 is redefined. Its stated rule changes from "there
@@ -489,6 +539,46 @@ have been implemented twice). Determinism converts that class of failure into a 
 error you can read. Preferring it does not mean removing judgment: it means spending
 judgment where an artifact cannot answer the question.
 
+### XIV. Pre-Release Distribution Discipline
+
+PyPI receives only final, working releases. Every build that is not a final release MUST
+reach its consumers through a non-PyPI channel, and MUST carry a version that says so.
+
+- **PyPI is a publication surface, not a test channel.** Publishing an experimental or
+  broken build to the public index to get it in front of a consumer is prohibited. The
+  public index is append-only in practice—a bad version is permanent noise.
+- **Pre-release builds MUST carry a PEP 440 pre-release or dev version**
+  (`0.3.0.dev1`, `0.3.0rc1`). Resolvers skip these by default, so even a leaked
+  pre-release never reaches a normal `uv tool install maverick-cli` user.
+- **Dev builds SHOULD carry a local version identifier** (`0.3.0.dev1+g4f2a91c`). PyPI
+  rejects local versions outright, which makes accidental publication of a dev build
+  structurally impossible rather than merely unlikely.
+- **Escalate through the channels in order** (Appendix G): git refs first (zero
+  infrastructure), CI-built pre-release wheels when the actual wheel—entry points,
+  console scripts, package data—must be exercised, and a private index only if the first
+  two prove insufficient. Do NOT stand up index infrastructure before the friction is
+  demonstrated.
+- **A pre-release wheel is promoted, never rebuilt.** The artifact that proves out as an
+  rc is the identical artifact published to PyPI. A rebuild at publish time is a
+  different build and invalidates the testing that preceded it.
+- **TestPyPI is NOT a routine channel.** It is public, shares a namespace, is pruned
+  periodically, and lacks the dependencies real resolution needs. It is legitimate only
+  as a one-off rehearsal of the publish pipeline itself.
+- **Git sources are temporary by contract.** A `[tool.uv.sources]` git entry does not
+  ship in published wheel metadata, so a package released with one silently depends on
+  the older PyPI version. Any git source MUST be swapped back to a version constraint
+  before the depending package is released, and that swap SHOULD be enforced
+  mechanically (a pre-release grep for `git = ` under `[tool.uv.sources]`) rather than
+  by memory.
+
+**Rationale**: Maverick is consumed as an installed CLI (`uv tool install maverick-cli`)
+and its portfolio siblings are consumed as libraries; both need exercising "in the wild"
+before release, and each project develops in its own devcontainer with no shared disk, so
+editable cross-repo installs are not available. Without a deliberate channel, the only
+way to get a build into a consumer is to publish it—which is exactly how a public index
+fills with broken versions. The tiers in Appendix G make the network-reachable
+pre-release artifact available without spending the public namespace on it.
+
 ## Appendix A: Preferred Split Patterns
 
 Use these repository-specific patterns to prevent common "god file" failures:
@@ -527,7 +617,9 @@ These technology choices are non-negotiable constraints for all Maverick develop
 | Secrets | detect-secrets | `maverick.utils.secrets` |
 | Issue tracking | bd (beads) | Epics and task beads |
 | Spec artifacts | Spec Kit | Vendored templates gated to a supported version range |
-| Workspaces | spec-chain only | `maverick.workspace.spec_chain` (Guardrail 0's one exception) |
+| Workspaces | Shared isolation primitive | `maverick.workspace` (`IsolationSession`); consumers: `spec`, `fly --isolated` |
+| Distribution | PyPI (`maverick-cli`) | Final releases only; `uv tool install maverick-cli` |
+| Pre-release channel | Git refs, then CI-built wheels | Appendix G; never PyPI (Principle XIV) |
 
 ## Code Style & Conventions
 
@@ -659,11 +751,15 @@ MUST comply with these principles.
 - Branch naming conventions (Guardrail X.9, Appendix D) MUST be verified before pushing
 - Explicit cwd threading (Guardrail X.7, Appendix E) MUST be verified for all new
   workflow steps
+- **A pre-release build MUST NOT be published to PyPI** (Principle XIV, Appendix G). Any
+  PR that adds or changes a publish path MUST state which channel non-final builds use,
+  and any `[tool.uv.sources]` git entry MUST be removed before the depending package is
+  released
 - **New decomposition capability MUST state which entry path it targets** (Principle XIII,
   Appendix F). Adding a model call to the deterministic path requires explicit
   justification in the PR description.
 
-**Version**: 3.0.0 | **Ratified**: 2025-12-12 | **Last Amended**: 2026-08-20
+**Version**: 3.1.0 | **Ratified**: 2025-12-12 | **Last Amended**: 2026-08-29
 
 ## Appendix B: Canonical Third-Party Libraries
 
@@ -988,3 +1084,122 @@ frontier.
 **Rationale**: Naming a default is what makes the codebase's center of gravity legible to
 contributors. Keeping the fallback first-class is what keeps Maverick usable on
 repositories that have not adopted Spec Kit—which includes most repositories it will meet.
+
+## Appendix G: Pre-Release Testing Channels
+
+Operational form of Principle XIV. Maverick is distributed as a CLI (`maverick-cli` on
+PyPI, installed with `uv tool install`); sibling projects in the `get2knowio` portfolio
+are distributed as libraries. Both consumption modes need a pre-release build tested in a
+real consumer, and every project develops in its own devcontainer with **no shared
+disk**—so local path or editable installs across repositories are not viable. Whatever
+carries the pre-release artifact MUST be network-reachable. All repositories are on
+GitHub and everything uses `uv`.
+
+Inside a package's own repository devcontainer none of this applies: `uv run` already
+exercises the working tree. Everything below is for every *other* container and machine.
+
+### Tier 1—Git refs (the default inner loop)
+
+GitHub itself is the carrier. Zero infrastructure, no index involved.
+
+**As a CLI**—smoke-test a branch with zero footprint (`uvx` builds an ephemeral
+environment; nothing on PATH changes):
+
+```bash
+uvx --from git+https://github.com/get2knowio/maverick@feature-x maverick --help
+```
+
+Or install the branch as the real CLI, so the pre-release is exercised in genuine
+day-to-day use:
+
+```bash
+uv tool install git+https://github.com/get2knowio/maverick@feature-x
+```
+
+Extras use the PEP 508 form (`uv tool install "pkg[extra] @ git+https://…@feature-x"`).
+New commits on the same branch arrive via `uv tool upgrade maverick-cli` (or
+`--reinstall` to force it); `uv tool install maverick-cli --force` resolves from PyPI
+again and restores released state.
+
+**As a library dependency**—in the consumer:
+
+```bash
+uv add git+https://github.com/get2knowio/<lib> --branch feature-x
+```
+
+which writes a `[tool.uv.sources]` git entry. `uv lock` pins the exact commit, so CI and
+other devcontainers resolve identically; `rev = "<sha>"` freezes a specific commit. For a
+throwaway test that touches no files, `uv pip install git+https://…@feature-x` overlays
+the venv directly and the next `uv sync` reverts it.
+
+**Caveats**: this builds from source, exercising the *sdist* path rather than the wheel
+that would actually ship—that is what Tier 2 is for. Private repositories need auth in
+the devcontainer. And `[tool.uv.sources]` is uv-specific and does not ship in published
+wheel metadata—see Principle XIV's temporary-git-source rule, which applies to library
+consumers only (a CLI installed by an end user republishes nothing, so it has no such
+failure mode).
+
+### Tier 2—CI-built wheels (release-candidate realism)
+
+When a change is nearly done, test the *actual wheel*—entry points, console scripts,
+package data, build config—not a source checkout. One CI job on the publishing
+repository runs `uv build` on a pre-release tag (`v0.3.0rc1`) and attaches the wheel to a
+GitHub **pre-release** or uploads it as a workflow artifact. It MUST NOT publish to PyPI.
+
+**As a CLI**:
+
+```bash
+uv tool install https://github.com/get2knowio/maverick/releases/download/v0.3.0rc1/maverick_cli-0.3.0rc1-py3-none-any.whl
+```
+
+**As a library dependency**—the consumer pins the wheel URL under `[tool.uv.sources]`
+with `url = "https://…"`.
+
+Either way it is the same wheel that goes to PyPI if the rc proves out. Promote the
+identical artifact; do not rebuild (Principle XIV).
+
+### Tier 3—Private index (only if Tiers 1–2 chafe)
+
+Adopt this only when URL-pinning becomes tedious or real resolver semantics are wanted—
+`uv tool install <pkg> --prerelease allow` picking the newest rc automatically, with
+`uv tool upgrade` retaining the setting so an rc-tracking install keeps tracking rcs.
+Two options, cheapest first: a static PEP 503 "simple" index on GitHub Pages generated by
+`dumb-pypi` from CI-built wheels (no server to run), or `devpi` in a container (full
+index with PyPI passthrough caching). Consumers scope it with `explicit = true` so only
+designated packages ever resolve from it, which removes any dependency-confusion risk.
+
+**Do NOT build this on day one.** Tiers 1–2 cover both consumption modes with zero
+standing infrastructure.
+
+### Crossing the modes: an unreleased library inside a CLI
+
+`--with` injects extra packages into a tool's isolated environment, so testing a library
+change inside a tool that depends on it requires edits to neither repository:
+
+```bash
+# ephemeral
+uvx --with "<lib> @ git+https://github.com/get2knowio/<lib>@feature-x" maverick brief
+# or persistent
+uv tool install maverick-cli --with "<lib> @ git+https://github.com/get2knowio/<lib>@feature-x"
+```
+
+This is usually the fastest wild-test of a library change: the consumer CLI stays exactly
+as released, and only the library under test is swapped.
+
+### Version hygiene
+
+Dynamic versioning from git tags (`hatch-vcs` or `uv-dynamic-versioning`) stamps every
+commit with a unique `.devN+g<sha>` automatically—no hand-bumping, and no ambiguity about
+which build is installed (`uv tool list`, `uv pip show <pkg>`). Maverick currently carries
+a static hand-bumped dev version in `pyproject.toml`; adopting dynamic versioning is the
+mechanical way to satisfy Principle XIV's local-version-identifier rule.
+
+### Rollout order
+
+1. **Now**: git refs everywhere—`uvx --from git+…` / `uv tool install git+…` for CLIs,
+   `[tool.uv.sources]` git entries for library consumers, `--with "<lib> @ git+…"` for a
+   library inside a released CLI. Zero setup.
+2. **Next release cycle**: add the `uv build` + pre-release-tag CI job to each publishing
+   repository, adopt rc versioning, and add the git-source grep guard to library
+   consumers.
+3. **Later, if needed**: `dumb-pypi` on GitHub Pages, or `devpi`.

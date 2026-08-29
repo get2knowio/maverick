@@ -146,6 +146,9 @@ See `.specify/memory/constitution.md` for the authoritative reference.
 8. **Determinism over inference** — where a structured artifact already carries
    the information, parse it; don't ask a model to re-derive it. Spec Kit
    ingestion is the default path and makes zero model calls.
+9. **PyPI gets releases only** — never publish a build to test it. Pre-release
+   builds carry a PEP 440 `.devN`/`rcN` version and travel by git ref or
+   CI-built wheel. See "Release & Pre-Release Distribution" below.
 
 ## Operating Standard (Ownership & Follow-Through)
 
@@ -1144,6 +1147,64 @@ for the full contract.
 - [GitHub CLI](https://cli.github.com/) (`gh`) for PRs/issues outside the
   PyGithub-covered surface.
 - Optional: [CodeRabbit CLI](https://coderabbit.ai/), [ntfy](https://ntfy.sh).
+
+## Release & Pre-Release Distribution
+
+Maverick ships to PyPI as **`maverick-cli`** (`uv tool install maverick-cli`).
+**PyPI receives only final, working releases** — publishing an experimental
+build to get it in front of a consumer is prohibited (constitution Principle
+XIV). Every project in the portfolio develops in its own devcontainer with no
+shared disk, so cross-repo editable installs are not available; a pre-release
+artifact has to be network-reachable. Three escalating channels, in order —
+full detail in `.specify/memory/constitution.md` Appendix G.
+
+**Tier 1 — git refs (default inner loop).** GitHub is the carrier; zero
+infrastructure:
+
+```bash
+# ephemeral smoke test, nothing on PATH changes
+uvx --from git+https://github.com/get2knowio/maverick@feature-x maverick --help
+# install the branch as the real CLI, to daily-drive it
+uv tool install git+https://github.com/get2knowio/maverick@feature-x
+uv tool upgrade maverick-cli          # pick up new commits on the branch
+uv tool install maverick-cli --force  # back to the released PyPI build
+```
+
+For a library consumer, `uv add git+https://github.com/get2knowio/<lib> --branch
+feature-x` writes a `[tool.uv.sources]` entry and `uv lock` pins the commit.
+Builds from source, so it exercises the sdist path, not the shipped wheel.
+
+**Tier 2 — CI-built wheels (rc realism).** `uv build` on a pre-release tag
+(`v0.3.0rc1`), wheel attached to a GitHub **pre-release** or a workflow
+artifact — never to PyPI. Install it by URL
+(`uv tool install https://github.com/.../maverick_cli-0.3.0rc1-py3-none-any.whl`).
+This exercises the actual wheel: entry points, console scripts, package data.
+If the rc proves out, **promote the identical artifact** — don't rebuild.
+
+**Tier 3 — private index.** Only if URL-pinning chafes: `dumb-pypi` on GitHub
+Pages, or `devpi`. Don't build this preemptively.
+
+**Testing an unreleased library inside a released CLI** — `--with` swaps one
+package into the tool's isolated env, no repo edits:
+
+```bash
+uvx --with "<lib> @ git+https://github.com/get2knowio/<lib>@feature-x" maverick brief
+```
+
+**Rules that bite:**
+
+- Non-final versions are PEP 440 pre-release/dev (`0.3.0.dev1`, `0.3.0rc1`) —
+  resolvers skip them, so a leak never reaches a normal install. A local
+  identifier (`0.3.0.dev1+g4f2a91c`) makes accidental PyPI publication
+  *structurally impossible* — PyPI rejects local versions.
+- `[tool.uv.sources]` git entries do **not** ship in wheel metadata. A package
+  released with one silently depends on the older PyPI version. Swap back to a
+  version constraint before releasing the consumer; grep for `git = ` under
+  `[tool.uv.sources]` pre-release.
+- **TestPyPI is not a dev channel** — public, shared namespace, pruned, missing
+  dependencies. One-off publish-pipeline rehearsal only.
+- Inside this repo's own devcontainer none of the above applies: `uv run`
+  already exercises the working tree.
 
 ## Multi-Repository Development
 
