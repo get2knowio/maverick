@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.classify.outputs.version }}
-      is-final: ${{ steps.classify.outputs.is-final }}
+      channel: ${{ steps.classify.outputs.channel }}
     steps:
       - uses: actions/checkout@v7
 
@@ -61,18 +61,38 @@ jobs:
                   f"({wheels[0].name}); bump pyproject.toml or retag"
               )
 
-          # Only a bare X.Y.Z is a final release. Everything else -- .devN,
-          # aN, bN, rcN, and any post/epoch spelling -- is a pre-release for
-          # our purposes and goes to a GitHub pre-release, never to PyPI.
-          is_final = not (
-              built_version.is_prerelease
-              or built_version.is_devrelease
-              or built_version.is_postrelease
+          # Three destinations, decided here rather than by the trigger.
+          #
+          #   pypi              bare X.Y.Z only -- a final release.
+          #   github-prerelease aN/bN/rcN -- a release candidate someone is
+          #                     meant to install by URL, so it needs a stable
+          #                     asset (Appendix G, Tier 2).
+          #   none              .devN -- built and kept as a workflow artifact,
+          #                     but no public release object. Dev tags are an
+          #                     internal bookmark; cutting a GitHub release for
+          #                     each one is noise, and Appendix G accepts a
+          #                     workflow artifact as Tier 2's other carrier.
+          #
+          # Anything unrecognized falls through to "none", so an unforeseen tag
+          # shape fails closed instead of publishing.
+          #
+          # Note is_prerelease covers dev releases too, so it cannot separate
+          # rc from dev; .pre and .dev are the fields that actually distinguish
+          # them (and 1.0.0rc1.dev1 sets both -- dev wins, no release).
+          if built_version.dev is not None:
+              channel = "none"
+          elif built_version.pre is not None:
+              channel = "github-prerelease"
+          elif not (
+              built_version.is_postrelease
               or built_version.epoch
               or built_version.local
-          )
+          ):
+              channel = "pypi"
+          else:
+              channel = "none"
           print(f"version={built_version}")
-          print(f"is-final={str(is_final).lower()}")
+          print(f"channel={channel}")
           PY
 
       - name: Upload distributions
@@ -85,7 +105,7 @@ jobs:
   publish-pypi:
     name: Publish to PyPI
     needs: build
-    if: needs.build.outputs.is-final == 'true'
+    if: needs.build.outputs.channel == 'pypi'
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
@@ -106,7 +126,7 @@ jobs:
   publish-prerelease:
     name: Attach to GitHub pre-release
     needs: build
-    if: needs.build.outputs.is-final != 'true'
+    if: needs.build.outputs.channel == 'github-prerelease'
     runs-on: ubuntu-latest
     permissions:
       contents: write
