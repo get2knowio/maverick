@@ -37,10 +37,12 @@ Propagated:
     Distribution" section).
 
 Follow-up TODOs:
-  - TODO(publish-workflow): .github/workflows/publish.yml triggers on `v*`
-    excluding `v*dev*`, so a `v0.3.0rc1` tag would publish an rc to PyPI. Tier 2
-    requires rc wheels to land on a GitHub pre-release instead. Out of scope for
-    a constitution amendment (Scope Guard); track as implementation work.
+  - RESOLVED(publish-workflow): .github/workflows/publish.yml triggered on `v*`
+    excluding `v*dev*`, so a `v0.3.0rc1` tag would have published an rc to PyPI.
+    Fixed in the same PR: the workflow now builds every `v*` tag once and routes
+    the artifact by an explicit final-release allowlist (bare X.Y.Z to PyPI,
+    everything else to a GitHub pre-release), and fails the build outright when
+    the tag disagrees with the built version.
   - TODO(dynamic-versioning): pyproject.toml carries a static hand-bumped
     version (0.2.0.dev9). Principle XIV's local-version-identifier rule is
     satisfied mechanically by hatch-vcs / uv-dynamic-versioning; not adopted

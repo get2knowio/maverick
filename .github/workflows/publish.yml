@@ -1,18 +1,25 @@
-name: Publish to PyPI
+name: Publish
 
 on:
   push:
+    # Every v* tag is built here. Where the wheel *goes* is decided by the
+    # classify step below, not by the trigger: constitution Principle XIV
+    # (Appendix G) says PyPI receives only final releases, and glob negation
+    # in a tag filter is the wrong tool for enforcing that — "!v*rc*" style
+    # patterns have to enumerate every PEP 440 pre-release spelling (a, b,
+    # rc, .dev, and their separators) and silently publish anything the list
+    # misses. An explicit allowlist regex fails the safe way instead: an
+    # unrecognized tag shape does not publish.
     tags:
       - "v*"
-      - "!v*dev*"
 
 jobs:
-  publish:
-    name: Build and publish
+  build:
+    name: Build and classify
     runs-on: ubuntu-latest
-    environment: pypi
-    permissions:
-      id-token: write
+    outputs:
+      version: ${{ steps.classify.outputs.version }}
+      is-final: ${{ steps.classify.outputs.is-final }}
     steps:
       - uses: actions/checkout@v7
 
@@ -24,5 +31,113 @@ jobs:
       - name: Build
         run: uv build
 
+      - name: Classify tag and verify it matches the built version
+        id: classify
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          uv run --no-project --quiet --with packaging python - <<'PY' >> "$GITHUB_OUTPUT"
+          import os
+          import sys
+          from pathlib import Path
+
+          from packaging.utils import parse_wheel_filename
+          from packaging.version import Version
+
+          tag_version = Version(os.environ["TAG"].removeprefix("v"))
+
+          wheels = sorted(Path("dist").glob("*.whl"))
+          if len(wheels) != 1:
+              sys.exit(f"expected exactly one wheel in dist/, found {[w.name for w in wheels]}")
+          _, built_version, _, _ = parse_wheel_filename(wheels[0].name)
+
+          # pyproject.toml carries a static hand-bumped version, so a tag can
+          # disagree with the artifact it names. Publishing that mismatch is
+          # how a "v0.3.0rc1" release ends up shipping 0.2.0.dev9. Fail loudly
+          # instead; adopting git-derived versioning removes the failure mode.
+          if built_version != tag_version:
+              sys.exit(
+                  f"tag {tag_version} does not match built version {built_version} "
+                  f"({wheels[0].name}); bump pyproject.toml or retag"
+              )
+
+          # Only a bare X.Y.Z is a final release. Everything else -- .devN,
+          # aN, bN, rcN, and any post/epoch spelling -- is a pre-release for
+          # our purposes and goes to a GitHub pre-release, never to PyPI.
+          is_final = not (
+              built_version.is_prerelease
+              or built_version.is_devrelease
+              or built_version.is_postrelease
+              or built_version.epoch
+              or built_version.local
+          )
+          print(f"version={built_version}")
+          print(f"is-final={str(is_final).lower()}")
+          PY
+
+      - name: Upload distributions
+        uses: actions/upload-artifact@v7
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+
+  publish-pypi:
+    name: Publish to PyPI
+    needs: build
+    if: needs.build.outputs.is-final == 'true'
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v9.0.0
+
+      - name: Download distributions
+        uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist/
+
       - name: Publish to PyPI
         run: uv publish
+
+  publish-prerelease:
+    name: Attach to GitHub pre-release
+    needs: build
+    if: needs.build.outputs.is-final != 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download distributions
+        uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist/
+
+      # Tier 2 of Appendix G: the pre-release wheel needs a network-reachable,
+      # directly installable URL, which a workflow artifact is not (downloading
+      # one requires auth). A GitHub pre-release asset can be handed straight to
+      # `uv tool install <url>`. Marked --prerelease so it never shows as the
+      # repository's latest release.
+      - name: Create or update the GitHub pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" \
+              --prerelease \
+              --title "$TAG" \
+              --notes "Pre-release build \`$VERSION\`. Not published to PyPI (constitution Principle XIV).
+
+          Install the wheel directly:
+
+          \`\`\`bash
+          uv tool install https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/$(basename dist/*.whl)
+          \`\`\`"
+          fi
+          gh release upload "$TAG" dist/* --clobber
